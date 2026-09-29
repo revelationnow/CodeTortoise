@@ -59,3 +59,29 @@ def test_health_ready_on_fixture_and_gates_on_empty_compile_db(fx, tmp_path):
     assert {c.name: c.ok for c in rep.checks}["llm endpoint"] is False  # warning only
     svc.cdb.entries.clear()
     assert run_health(svc).ready is False
+
+
+class FakeClientRunner:
+    def __init__(self, root, alt=()):
+        self.root, self.alt = root, alt
+
+    def run(self, command, *args):
+        assert command == "client"
+        rec = {"Root": self.root}
+        rec.update({f"AltRoots{i}": a for i, a in enumerate(self.alt)})
+        return [rec]
+
+
+def test_health_p4_client_root_compared_canonically(fx, tmp_path):
+    link = tmp_path / "ws-link"
+    link.symlink_to(fx.root)
+    svc = make_services(fx, tmp_path)
+    svc.cfg.workspace.vcs = "p4"
+    svc.cfg.workspace.client = "ws"
+    svc.cfg.workspace.root = link
+    svc.p4 = FakeClientRunner(str(fx.root.resolve()) + "/")
+    assert {c.name: c.ok for c in run_health(svc).checks}["p4 client"] is True
+    svc.p4 = FakeClientRunner("/somewhere/else", alt=[str(link)])
+    assert {c.name: c.ok for c in run_health(svc).checks}["p4 client"] is True
+    svc.p4 = FakeClientRunner("/somewhere/else")
+    assert {c.name: c.ok for c in run_health(svc).checks}["p4 client"] is False

@@ -28,3 +28,28 @@ def test_load_command_strings_and_nearest_entry(tmp_path):
     assert db.nearest_entry(str(tmp_path / "src/a.h")).file == a
     assert db.nearest_entry(str(tmp_path / "src/sub/b.h")).file == str((tmp_path / "src/sub/b.c").resolve())
     assert db.nearest_entry("/elsewhere/z.h") is not None
+
+
+def test_include_dirs_are_canonicalized_through_symlinks(tmp_path):
+    real = tmp_path / "real"
+    (real / "include").mkdir(parents=True)
+    (tmp_path / "link").symlink_to(real)
+    e = CompileEntry(str(real / "a.c"), str(tmp_path / "link"),
+                     ("cc", "-Iinclude", "-isystem", str(tmp_path / "link/include"), "-c", "a.c"))
+    inc = str((real / "include").resolve())
+    assert sanitize_args(e) == [f"-I{inc}", "-isystem", inc]
+
+
+def test_new_header_behind_symlinked_include_dir_parses(tmp_path):
+    from codetortoise.facts.clang_extractor import TuRequest, extract_tu
+    real = tmp_path / "real"
+    (real / "include").mkdir(parents=True)
+    (tmp_path / "link").symlink_to(real)
+    main = real / "a.c"
+    main.write_text('#include "new.h"\nint f(void) { return NEW_VALUE; }\n')
+    e = CompileEntry(str(main.resolve()), str(tmp_path / "link"), ("cc", "-xc", "-Iinclude", "-c", "a.c"))
+    new_h = str((real / "include/new.h").resolve())
+    facts = extract_tu(TuRequest(file=str(main), args=sanitize_args(e), variant="after",
+                                 unsaved={new_h: "#define NEW_VALUE 7\n"}))
+    assert facts.tu.confidence == "precise", facts.tu.diagnostics
+    assert facts.functions[0].returns == ["7"]

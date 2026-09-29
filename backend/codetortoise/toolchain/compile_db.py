@@ -13,7 +13,8 @@ from codetortoise.paths import canon
 _DROP_WITH_VALUE = {"-o", "-MF", "-MT", "-MQ", "-MJ", "--serialize-diagnostics"}
 _DROP = {"-c", "-M", "-MM", "-MD", "-MMD", "-MP", "-MG", "-Werror", "-fcolor-diagnostics",
          "-fdiagnostics-color", "-pipe"}
-# flags whose value is a path that must be made absolute (libclang resolves against process cwd)
+# flags whose value is a path: made absolute (libclang resolves against the process cwd) and canonical
+# (libclang matches unsaved files, e.g. headers added by a CL, by their canonical path)
 _SEP_PATH_FLAGS = {"-I", "-isystem", "-iquote", "-idirafter", "-include", "-imacros", "--sysroot",
                    "-isysroot", "-F"}
 _JOINED_PATH_FLAGS = ("-isystem", "-iquote", "-idirafter", "-I", "-F")
@@ -88,16 +89,16 @@ def sanitize_args(entry: CompileEntry, strip: set[str] = frozenset()) -> list[st
             i += 1
             continue
         if a in _SEP_PATH_FLAGS and i + 1 < len(args):
-            out += [a, _abs(entry.directory, args[i + 1])]
+            out += [a, canon(_abs(entry.directory, args[i + 1]))]
             i += 2
             continue
         i += 1
         if a.startswith("--sysroot="):
-            out.append("--sysroot=" + _abs(entry.directory, a[len("--sysroot="):]))
+            out.append("--sysroot=" + canon(_abs(entry.directory, a[len("--sysroot="):])))
             continue
         for flag in _JOINED_PATH_FLAGS:
             if a.startswith(flag) and len(a) > len(flag):
-                out.append(flag + _abs(entry.directory, a[len(flag):]))
+                out.append(flag + canon(_abs(entry.directory, a[len(flag):])))
                 break
         else:
             out.append(a)

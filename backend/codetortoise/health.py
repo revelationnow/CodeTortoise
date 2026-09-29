@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
+from codetortoise.paths import canon
 from codetortoise.services import Services
 from codetortoise.vcs.p4runner import P4Error
 
@@ -30,8 +31,10 @@ def run_health(svc: Services) -> HealthReport:
     if ws.vcs == "p4" and svc.p4 is not None:
         try:
             recs = svc.p4.run("client", "-o", ws.client or "")
-            root = recs[0].get("Root", "") if recs else ""
-            ok = bool(root) and str(ws.root).rstrip("/") == root.rstrip("/")
+            rec = recs[0] if recs else {}
+            root = rec.get("Root", "")
+            roots = [root] + [v for k, v in sorted(rec.items()) if k.startswith("AltRoots")]
+            ok = any(r and canon(r) == canon(str(ws.root)) for r in roots)
             checks.append(Check(name="p4 client", ok=ok, hard=True,
                                 detail=f"client {ws.client} Root={root}" + ("" if ok else f" (config root {ws.root})")))
         except P4Error as e:
