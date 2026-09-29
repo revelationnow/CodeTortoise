@@ -354,3 +354,31 @@ tests/
   fixtures/cfixture/
 docs/
 ```
+
+## 14. Implementation notes (decided while planning M1)
+
+These refine the sections above; where they differ, this section wins.
+
+- **After-state via libclang unsaved files, not `-ivfsoverlay`.** Changed files' before/after contents are passed as
+  `unsaved_files` to `Index.parse`; libclang resolves `#include`s against them (including headers that do not exist on
+  disk). Same effect as a VFS overlay, no YAML generation.
+- **Operator kinds are always taken from tokens.** The `libclang` 18.1 Python bindings have no `binary_operator`
+  property, so §5.5's token fallback is the primary path.
+- **Access-path display.** Writes through a pointer-valued field are shown with `->` (`s.child->count`); passing a
+  pointer field's pointee to a callee (`consume(s->child)`) is *not* reported as a may-write of the field itself.
+- **Flows include callers.** Each changed function's flow has callees to `flow_depth` *and* callers to `caller_hops`,
+  so reviewers see the upstream path (e.g. `main → logger_write → uart_send → hal_write`).
+- **Public-header boost (§5.6) is approximated in M1** as "has a caller in a different layer".
+- **Contract detector comparisons.** A caller comparing the result with `!=`, `<`, `>`, `<=`, `>=` is treated as covering
+  new return values; only `==`-only comparisons that miss a new value are high severity.
+- **Storage.** Stage outputs (change set, diffmap, selection, layers, facts, impact, storyboard) are JSON blobs in a
+  `blobs(review_id, key, json)` table instead of per-fact tables; findings, comments, sessions, CLs and Swarm posts keep
+  their own tables. A `kv` table caches layer models and holds layer-name overrides.
+- **Finding comments** anchor to `{kind, title}` so they survive re-runs that renumber findings (finding state is
+  carried over the same way).
+- **Swarm** uses API v9 (Swarm 2019.1+).
+- **Tests.** HTTP contract tests use `httpx.MockTransport` (no `respx`). Tests live in `backend/tests/`; the fixture
+  lives in `backend/codetortoise/fixtures/cfixture/` so `codetortoise fixture-demo` works from an installed package.
+  `auth.mode: dev` (any username, no password) exists for the fixture demo and e2e tests only.
+- **Headless mode.** `codetortoise review --config … <CL>…` runs the pipeline and prints findings, for fast iteration on real CLs.
+- **P4 integration test against a live `p4d`** is deferred: `P4Source` is covered with a fake runner in M1.
