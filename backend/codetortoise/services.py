@@ -72,6 +72,11 @@ class Services:
     owner_ticket: str | None = None
     swarm_override: Callable[[], SwarmClient | None] | None = field(default=None, repr=False)
 
+    def remember_stripped(self, flags: list[str]) -> None:
+        """Flags libclang rejected: skipped for all later parses of this workspace (persisted)."""
+        self.toolchain.strip.update(flags)
+        self.store.kv_put(f"strip_flags:{self.cfg.workspace.root}", sorted(self.toolchain.strip))
+
     def swarm(self) -> SwarmClient | None:
         if self.swarm_override is not None:
             return self.swarm_override()
@@ -94,6 +99,7 @@ def build_services(cfg: Config, llm: LlmClient | None = None, source: Source | N
     index = SymbolIndex(data / "symbols.db")
     cdb = CompileDb.load(cfg.workspace.compile_commands) if cfg.workspace.compile_commands.exists() else CompileDb([])
     tc = Toolchain(cfg.toolchain, cdb, data / "toolchain")
+    tc.strip.update(store.kv_get(f"strip_flags:{cfg.workspace.root}") or [])
     llm = llm if llm is not None else make_llm(cfg)
     p4 = None
     if source is None:

@@ -73,6 +73,7 @@ class TuInfo(BaseModel):
     diagnostics: list[str] = Field(default_factory=list)
     confidence: Literal["precise", "degraded", "failed"] = "precise"
     extractor: Literal["clang", "treesitter"] = "clang"
+    stripped_flags: list[str] = Field(default_factory=list)
 
 
 class Facts(BaseModel):

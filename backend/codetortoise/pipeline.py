@@ -129,10 +129,15 @@ def run_review(rid: int, svc: Services) -> None:
         ctx["before"], ctx["after"] = before, after
         store.put_blob(rid, "facts_before", before)
         store.put_blob(rid, "facts_after", after)
+        learned = sorted({f for facts in before + after for f in facts.tu.stripped_flags} - svc.toolchain.strip)
+        note = ""
+        if learned:
+            svc.remember_stripped(learned)
+            note = f"; stripped flags learned for this workspace: {' '.join(learned)}"
         bad = [f.tu.file for f in before + after if f.tu.confidence != "precise"]
         if bad:
-            raise Degraded(f"{len(bad)} TU parse(s) degraded or fell back to tree-sitter")
-        return f"{len(before) + len(after)} TU parse(s)"
+            raise Degraded(f"{len(bad)} TU parse(s) degraded or fell back to tree-sitter{note}")
+        return f"{len(before) + len(after)} TU parse(s){note}"
 
     def impact():
         im = build_impact(ctx["before"], ctx["after"], ctx["dm"], ctx["sel"], svc.index, ctx.get("layers"), cfg.analysis)

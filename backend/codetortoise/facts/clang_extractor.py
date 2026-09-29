@@ -18,7 +18,12 @@ from codetortoise.paths import canon
 K = ci.CursorKind
 _FUNC_KINDS = {K.FUNCTION_DECL, K.CXX_METHOD, K.CONSTRUCTOR, K.DESTRUCTOR, K.FUNCTION_TEMPLATE}
 _SCOPE_KINDS = {K.NAMESPACE, K.CLASS_DECL, K.STRUCT_DECL, K.UNION_DECL, K.CLASS_TEMPLATE}
-_UNKNOWN_ARG = re.compile(r"unknown argument:? '([^']+)'")
+_BAD_FLAG = re.compile(r"(?:unknown argument:?|unsupported option) '([^']+)'")
+# flags kept when a TU cannot be created at all with the full argument list
+_SAFE_WITH_VALUE = {"-I", "-isystem", "-iquote", "-idirafter", "-include", "-imacros", "-D", "-U", "-x",
+                    "--sysroot", "-isysroot", "-resource-dir"}
+_SAFE_PREFIXES = ("-I", "-isystem", "-iquote", "-idirafter", "-D", "-U", "-std=", "-x", "--sysroot=", "-f", "-W",
+                  "-nostdinc", "-include", "-imacros")
 _CMP_OPS = {"==", "!=", "<", ">", "<=", ">="}
 
 
@@ -138,23 +143,72 @@ def _parse(index: ci.Index, req: TuRequest, args: list[str]) -> ci.TranslationUn
     return index.parse(req.file, args=args, unsaved_files=unsaved, options=ci.TranslationUnit.PARSE_INCOMPLETE)
 
 
+def _matches_bad(arg: str, bad: str) -> bool:
+    # "unknown argument: '-mfoo'" names the whole flag; "unsupported option '-mcpu='" names only its key
+    return arg == bad or (bad.endswith("=") and arg.startswith(bad)) or arg.split("=", 1)[0] == bad
+
+
+def safe_subset(args: list[str]) -> list[str]:
+    """Include paths, macros, language/standard and -f/-W flags only; drops target, -Xclang pairs, -m*."""
+    out, i = [], 0
+    while i < len(args):
+        a = args[i]
+        if a == "-Xclang":
+            i += 2
+            continue
+        if a in _SAFE_WITH_VALUE and i + 1 < len(args):
+            out += [a, args[i + 1]]
+            i += 2
+            continue
+        if a.startswith(_SAFE_PREFIXES):
+            out.append(a)
+        i += 1
+    return out
+
+
+def _diag_text(d: ci.Diagnostic) -> str:
+    loc = f"{d.location.file}:{d.location.line}: " if d.location.file else ""
+    return loc + d.spelling
+
+
 def extract_tu(req: TuRequest) -> Facts:
-    """Parse one TU and emit facts for functions defined in the main file or any focus file."""
+    """Parse one TU and emit facts for functions defined in the main file or any focus file.
+
+    Flags libclang reports as unknown/unsupported are stripped and the parse retried; if no TU can be
+    created at all, it is retried once with `safe_subset(args)` and marked degraded.
+    """
     index = ci.Index.create()
     args = list(req.args)
+    stripped: list[str] = []
+    reduced = False
     try:
         tu = _parse(index, req, args)
-        bad = [m.group(1) for d in tu.diagnostics if (m := _UNKNOWN_ARG.search(d.spelling))]
+    except ci.TranslationUnitLoadError:
+        tu = None
+    if tu is not None:
+        bad = [m.group(1) for d in tu.diagnostics if (m := _BAD_FLAG.search(d.spelling))]
         if bad:
-            args = [a for a in args if a not in bad and a.split("=", 1)[0] not in bad]
-            tu = _parse(index, req, args)
-    except ci.TranslationUnitLoadError as e:
-        return Facts(tu=TuInfo(file=_norm(req.file), variant=req.variant, confidence="failed",
-                               diagnostics=[str(e)]))
+            stripped = [a for a in args if any(_matches_bad(a, b) for b in bad)]
+            args = [a for a in args if a not in stripped]
+            try:
+                tu = _parse(index, req, args)
+            except ci.TranslationUnitLoadError:
+                tu = None
+    if tu is None:
+        safe = safe_subset(args)
+        stripped += [a for a in args if a not in safe]
+        reduced = True
+        try:
+            tu = _parse(index, req, safe)
+        except ci.TranslationUnitLoadError as e:
+            return Facts(tu=TuInfo(file=_norm(req.file), variant=req.variant, confidence="failed",
+                                   diagnostics=[str(e)], stripped_flags=stripped))
     errors = [d for d in tu.diagnostics if d.severity >= ci.Diagnostic.Error]
-    info = TuInfo(file=_norm(req.file), variant=req.variant, error_count=len(errors),
-                  diagnostics=[f"{d.location.file}:{d.location.line}: {d.spelling}" for d in errors[:20]],
-                  confidence="precise" if not errors else "degraded")
+    diags = [_diag_text(d) for d in errors[:20]]
+    if reduced:
+        diags.insert(0, "parsed with a reduced flag set (full argument list could not create a TU)")
+    info = TuInfo(file=_norm(req.file), variant=req.variant, error_count=len(errors), diagnostics=diags,
+                  confidence="precise" if not errors and not reduced else "degraded", stripped_flags=stripped)
     focus = {_norm(f) for f in req.focus} | {_norm(req.file)}
     facts = Facts(tu=info)
     seen: set[str] = set()

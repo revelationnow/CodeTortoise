@@ -85,3 +85,19 @@ def test_health_p4_client_root_compared_canonically(fx, tmp_path):
     assert {c.name: c.ok for c in run_health(svc).checks}["p4 client"] is True
     svc.p4 = FakeClientRunner("/somewhere/else")
     assert {c.name: c.ok for c in run_health(svc).checks}["p4 client"] is False
+
+
+def test_stripped_flags_are_learned_for_the_workspace(fx, tmp_path):
+    from codetortoise.toolchain.compile_db import CompileDb, CompileEntry
+    svc = make_services(fx, tmp_path)
+    svc.cdb.entries[:] = [CompileEntry(e.file, e.directory, e.args + ("-mcpu=vendorcore",)) for e in svc.cdb.entries]
+    svc.cdb.__init__(list(svc.cdb.entries))
+    rid = svc.store.create_review("t", "owner", [101])
+    run_review(rid, svc)
+    assert "-mcpu=vendorcore" in svc.toolchain.strip
+    facts_msg = next(s["message"] for s in svc.store.list_stages(rid) if s["name"] == "facts")
+    assert "-mcpu=vendorcore" in facts_msg
+    assert "-mcpu=vendorcore" in run_health(svc).strip_flags
+    again = make_services(fx, tmp_path)  # persisted per workspace
+    assert "-mcpu=vendorcore" in again.toolchain.strip
+    assert isinstance(again.cdb, CompileDb)
