@@ -1,0 +1,43 @@
+[project]
+name = "codetortoise"
+version = "0.1.0"
+description = "Deep, layered code review for C/C++ changelists (Perforce + Swarm side channel)"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "httpx>=0.27",
+    "pydantic>=2.8",
+    "pyyaml>=6.0",
+    "networkx>=3.3",
+    "libclang>=18.1.1",
+    "tree-sitter>=0.25",
+    "tree-sitter-c>=0.24",
+    "tree-sitter-cpp>=0.23",
+]
+
+[project.scripts]
+codetortoise = "codetortoise.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8.3", "ruff>=0.6"]
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["codetortoise"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning:fastapi.testclient", "ignore:Using `httpx`"]
+
+[tool.ruff]
+line-length = 132
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E741", "B008"]

@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+backend/.venv/
+backend/.pytest_cache/
+.ruff_cache/
+# runtime data
+.tortoise/
+# frontend
+frontend/node_modules/
+frontend/test-results/
+frontend/playwright-report/
+# built SPA (produced by `npm run build` in frontend/)
+backend/codetortoise/web/static/
