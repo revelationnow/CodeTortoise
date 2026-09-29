@@ -59,7 +59,7 @@ class LlmClient:
                         raise LlmError(f"LLM HTTP {r.status_code}: {r.text[:300]}")
                     try:
                         return r.json()["choices"][0]["message"]["content"] or ""
-                    except (KeyError, IndexError, ValueError) as e:
+                    except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
                         raise LlmError(f"unexpected LLM response: {r.text[:300]}") from e
                 last = LlmError(f"LLM HTTP {r.status_code}")
             if attempt < self.retries:

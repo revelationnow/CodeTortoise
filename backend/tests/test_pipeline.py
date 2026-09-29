@@ -101,3 +101,17 @@ def test_stripped_flags_are_learned_for_the_workspace(fx, tmp_path):
     again = make_services(fx, tmp_path)  # persisted per workspace
     assert "-mcpu=vendorcore" in again.toolchain.strip
     assert isinstance(again.cdb, CompileDb)
+
+
+def test_malformed_llm_reply_still_stores_storyboard(fx, tmp_path):
+    import httpx
+
+    from codetortoise.llm.client import LlmClient
+    llm = LlmClient("http://llm/v1", "k", "m", sleep=lambda s: None,
+                    transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"choices": None})))
+    svc = make_services(fx, tmp_path, llm=llm)
+    rid = svc.store.create_review("t", "owner", [101])
+    run_review(rid, svc)
+    assert stages(svc, rid)["llm"] == "degraded"
+    sb = svc.store.get_blob(rid, "storyboard")
+    assert sb is not None and sb["risk"] == "high" and "unexpected LLM response" in sb["llm_error"]

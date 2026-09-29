@@ -74,7 +74,7 @@ def test_llm_storyboard_is_grounded():
         return {"summary": "sum", "risk": "medium", "review_order": ["N2", "N1", "NX"], "cites": ["F1"]}
 
     sb = build_storyboard(im, findings, layers, {"N2": "   9 int uart_send(...)"}, fake_llm(respond))
-    assert sb.llm_used and sb.summary == "sum" and sb.risk == "medium"
+    assert sb.llm_used and sb.summary == "sum" and sb.risk == "high"  # LLM said medium; findings say high
     assert sb.review_order == ["N2", "N1"]
     assert findings[0].explanation == "exp" and findings[0].verify_steps == ["check callers"]
     assert [h.text for h in findings[0].hypotheses] == ["flush drops -2"]
@@ -98,3 +98,28 @@ def test_name_layers():
                                             {"level": 2, "name": "Drivers"}]})
     out = name_layers(layers, llm)
     assert [l.name for l in out.layers] == ["L0: HAL API", "L1: hal", "L2: Drivers"]
+
+
+def test_llm_cannot_lower_risk_below_findings():
+    im, findings, layers = model()
+
+    def respond(system, user):
+        if "Explain the risk" in user:
+            return {"explanation": "e"}
+        if "narrative for this architectural layer" in user:
+            return {"narrative": "n", "cites": ["N1"]}
+        return {"summary": "all fine", "risk": "low", "cites": ["F1"]}
+
+    sb = build_storyboard(im, findings, layers, {}, fake_llm(respond))
+    assert sb.llm_used and sb.risk == "high"
+
+
+def test_unexpected_llm_client_exception_keeps_skeleton():
+    im, findings, layers = model()
+
+    class Exploding:
+        def complete_json(self, *a, **k):
+            raise TypeError("boom")
+
+    sb = build_storyboard(im, findings, layers, {}, Exploding())
+    assert not sb.llm_used and "boom" in sb.llm_error and sb.chapters

@@ -192,13 +192,15 @@ def build_storyboard(impact: ImpactModel, findings: list[Finding], layers: Layer
         out = llm.complete_json(SYSTEM, "Summarize the whole change for a reviewer in 3-6 sentences, give an overall "
                                 "risk, and a review_order of node ids.\n\n" + budget(overview, per_call), _SummaryOut)
         sb.summary = out.summary
-        sb.risk = out.risk
+        # the LLM may raise the risk, never lower it below what the findings establish
+        order_ = ["low", "medium", "high"]
+        sb.risk = max(sb.risk, out.risk, key=order_.index)
         order = [n for n in out.review_order if n in impact.nodes]
         sb.review_order = order or sb.review_order
         sb.verified = any(c in known for c in out.cites)
         sb.llm_used = True
-    except LlmError as e:
-        sb.llm_error = str(e)
+    except Exception as e:  # any LLM-side failure leaves the deterministic storyboard intact
+        sb.llm_error = str(e) if isinstance(e, LlmError) else f"{type(e).__name__}: {e}"
     return sb
 
 

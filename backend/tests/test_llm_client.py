@@ -96,3 +96,9 @@ def test_4xx_is_not_retried():
     with pytest.raises(LlmError, match="401"):
         client(handler).chat("s", "u")
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize("body", [{"choices": [{"message": None}]}, {"choices": None}, [1, 2], {"choices": [{}]}])
+def test_malformed_success_bodies_raise_llm_error(body):
+    with pytest.raises(LlmError, match="unexpected LLM response"):
+        client(lambda r: httpx.Response(200, json=body)).chat("s", "u")

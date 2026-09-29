@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from codetortoise.config import Config
 from codetortoise.index.symbols import SymbolIndex
 from codetortoise.layers import LayerModel, infer_layers
-from codetortoise.llm.client import LlmClient, LlmError
+from codetortoise.llm.client import LlmClient
 from codetortoise.llm.storyboard import name_layers
 from codetortoise.store import Store
 from codetortoise.swarm import SwarmClient
@@ -47,7 +47,7 @@ class LayersProvider:
                 if self.llm is not None:
                     try:
                         model = name_layers(model, self.llm)
-                    except LlmError:
+                    except Exception:  # naming is cosmetic; keep the inferred L<n> names
                         pass
                 self.store.kv_put(self._key(), model)
                 self._model = model
