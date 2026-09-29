@@ -115,3 +115,23 @@ def test_malformed_llm_reply_still_stores_storyboard(fx, tmp_path):
     assert stages(svc, rid)["llm"] == "degraded"
     sb = svc.store.get_blob(rid, "storyboard")
     assert sb is not None and sb["risk"] == "high" and "unexpected LLM response" in sb["llm_error"]
+
+
+class WarningSource:
+    def __init__(self, inner):
+        self.inner = inner
+
+    def load(self, cls):
+        cs = self.inner.load(cls)
+        cs.warnings.append("//fixture/x.c: not in client view (not analysed)")
+        return cs
+
+
+def test_ingest_warnings_degrade_but_continue(fx, tmp_path, fx_source):
+    svc = make_services(fx, tmp_path, source=WarningSource(fx_source))
+    rid = svc.store.create_review("t", "owner", [101])
+    run_review(rid, svc)
+    st = stages(svc, rid)
+    assert st["ingest"] == "degraded" and st["impact"] == "ok"
+    assert "not in client view" in svc.store.list_stages(rid)[0]["message"]
+    assert svc.store.get_review(rid)["status"] == "degraded"

@@ -40,6 +40,7 @@ class ChangeSet(BaseModel):
     cls: list[ClMeta]
     files: list[FileChange]
     drift: list[DriftItem] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)  # per-file problems that did not stop ingest
 
 
 def stack(per_cl: list[tuple[ClMeta, list[FileChange]]]) -> list[FileChange]:

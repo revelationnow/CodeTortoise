@@ -77,3 +77,55 @@ def test_runner_refuses_mutating_commands():
 def test_unmarshal_all_decodes_records():
     data = marshal.dumps({b"code": b"stat", b"change": b"12"}) + marshal.dumps({b"code": b"error", b"data": b"no"})
     assert unmarshal_all(data) == [{"code": "stat", "change": "12"}, {"code": "error", "data": "no"}]
+
+
+class Completed:
+    def __init__(self, stdout, returncode=0):
+        self.stdout, self.stderr, self.returncode = stdout, b"", returncode
+
+
+def test_runner_treats_warnings_as_non_fatal(monkeypatch):
+    import subprocess
+    warn = marshal.dumps({b"code": b"error", b"severity": 2, b"data": b"//x/... - file(s) not in client view.\n"})
+    stat = marshal.dumps({b"code": b"stat", b"depotFile": b"//depot/a.c", b"path": b"/ws/a.c"})
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: Completed(warn + stat, returncode=1))
+    assert P4Runner("p4:1666", "ws").run("where", "//depot/a.c", "//x/b.c") == [
+        {"code": "stat", "depotFile": "//depot/a.c", "path": "/ws/a.c"}]
+    fatal = marshal.dumps({b"code": b"error", b"severity": 3, b"data": b"Access denied.\n"})
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: Completed(fatal, returncode=1))
+    with pytest.raises(P4Error, match="Access denied"):
+        P4Runner("p4:1666", "ws").run("describe", "-s", "1")
+
+
+class ViewP4(FakeP4):
+    """where: //depot/other is outside the client view; //depot/a.c has an exclusion line plus a mapping."""
+
+    def run(self, command, *args):
+        if command == "where":
+            self.calls.append((command, *args))
+            return [{"depotFile": "//depot/a.c", "path": "/elsewhere/a.c", "unmap": ""},
+                    {"depotFile": "//depot/a.c", "path": "/ws/a.c"}]
+        return super().run(command, *args)
+
+    def print_text(self, spec):
+        if spec.startswith("//depot/purged.c"):
+            raise P4Error("p4 print //depot/purged.c#3: purged revision")
+        return super().print_text(spec)
+
+
+def test_unmapped_and_unprintable_files_become_warnings_not_failures():
+    p4 = ViewP4(
+        describe={(9, False): {"status": "submitted", "user": "amy", "desc": "x",
+                               "depotFile0": "//depot/a.c", "action0": "edit", "rev0": "5", "type0": "text",
+                               "depotFile1": "//depot/other/b.c", "action1": "edit", "rev1": "2", "type1": "text",
+                               "depotFile2": "//depot/purged.c", "action2": "edit", "rev2": "3", "type2": "text+S"}},
+        files={"//depot/a.c#4": "v4", "//depot/a.c#5": "v5", "//depot/other/b.c#1": "b1", "//depot/other/b.c#2": "b2"},
+        have={"//depot/a.c": "4"})
+    cs = P4Source(p4).load([9])
+    by = {f.depot: f for f in cs.files}
+    assert by["//depot/a.c"].local == "/ws/a.c"  # exclusion (unmap) record ignored
+    assert by["//depot/other/b.c"].local == "" and by["//depot/other/b.c"].after == "b2"
+    assert (by["//depot/purged.c"].before, by["//depot/purged.c"].after) == ("", "")
+    assert any("//depot/other/b.c" in w and "client view" in w for w in cs.warnings)
+    assert any("purged revision" in w for w in cs.warnings)
+    assert [d.depot for d in cs.drift] == []  # unmapped files are not drift

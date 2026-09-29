@@ -84,7 +84,11 @@ def run_review(rid: int, svc: Services) -> None:
         for meta in cs.cls:
             store.upsert_cl(rid, meta)
         store.put_blob(rid, "changeset", cs)
-        return f"{len(cs.files)} file(s), {len(cs.drift)} drift warning(s)"
+        msg = f"{len(cs.files)} file(s), {len(cs.drift)} drift warning(s)"
+        if cs.warnings:
+            more = f" (+{len(cs.warnings) - 5} more)" if len(cs.warnings) > 5 else ""
+            raise Degraded(f"{msg}; {len(cs.warnings)} file warning(s): {'; '.join(cs.warnings[:5])}{more}")
+        return msg
 
     def swarm_read():
         client = svc.swarm()
@@ -165,7 +169,7 @@ def run_review(rid: int, svc: Services) -> None:
 
     def finalize():
         sb = ctx.get("storyboard")
-        if status.get("ingest") != "ok":
+        if status.get("ingest") not in ("ok", "degraded"):
             store.set_review_status(rid, "failed")
         elif all(status.get(s) == "ok" for s in STAGES if s != "finalize"):
             store.set_review_status(rid, "done", sb.risk if sb else None)

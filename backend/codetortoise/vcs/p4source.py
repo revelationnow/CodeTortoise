@@ -39,10 +39,20 @@ class P4Source:
                       description=d.get("desc", "").strip())
         return meta, d, shelved
 
-    def _files(self, cl: int, d: dict, shelved: bool) -> list[FileChange]:
+    def _print(self, spec: str, warnings: list[str]) -> str:
+        try:
+            return self.p4.print_text(spec)
+        except P4Error as e:
+            warnings.append(f"{spec}: content unavailable ({e})")
+            return ""
+
+    def _files(self, cl: int, d: dict, shelved: bool, warnings: list[str]) -> list[FileChange]:
         depots, actions, revs = _indexed(d, "depotFile"), _indexed(d, "action"), _indexed(d, "rev")
         types = _indexed(d, "type")
-        where = {r.get("depotFile"): r.get("path") for r in self.p4.run("where", *depots)} if depots else {}
+        where: dict[str, str] = {}
+        for r in (self.p4.run("where", *depots) if depots else []):
+            if "unmap" not in r and r.get("depotFile") and r.get("path"):  # "-//..." exclusion lines carry unmap
+                where.setdefault(r["depotFile"], r["path"])
         out = []
         for i, depot in enumerate(depots):
             action = actions[i]
@@ -52,10 +62,12 @@ class P4Source:
             before = after = ""
             if not binary:
                 if action not in _NO_BEFORE and base_rev > 0:
-                    before = self.p4.print_text(f"{depot}#{base_rev}")
+                    before = self._print(f"{depot}#{base_rev}", warnings)
                 if action not in _NO_AFTER:
-                    after = self.p4.print_text(f"{depot}@={cl}" if shelved else f"{depot}#{rev}")
+                    after = self._print(f"{depot}@={cl}" if shelved else f"{depot}#{rev}", warnings)
             local = where.get(depot)
+            if not local:
+                warnings.append(f"{depot}: not in client view of the base workspace (shown, not analysed)")
             out.append(FileChange(depot=depot, local=canon(local) if local else "", action=action, before=before,
                                   after=after, base_rev=f"#{base_rev}" if base_rev > 0 else None))
         return out
@@ -63,7 +75,7 @@ class P4Source:
     def _drift(self, files: list[FileChange]) -> list[DriftItem]:
         out = []
         for f in files:
-            if f.base_rev is None:
+            if f.base_rev is None or not f.local:
                 continue
             try:
                 recs = self.p4.run("have", f.depot)
@@ -75,13 +87,13 @@ class P4Source:
         return out
 
     def load(self, cls: list[int]) -> ChangeSet:
-        per_cl, metas = [], []
+        per_cl, metas, warnings = [], [], []
         try:
             for cl in sorted(set(cls)):
                 meta, d, shelved = self._describe(cl)
                 metas.append(meta)
-                per_cl.append((meta, self._files(cl, d, shelved)))
+                per_cl.append((meta, self._files(cl, d, shelved, warnings)))
             files = stack(per_cl)
-            return ChangeSet(cls=metas, files=files, drift=self._drift(files))
+            return ChangeSet(cls=metas, files=files, drift=self._drift(files), warnings=warnings)
         except P4Error as e:
             raise SourceError(str(e)) from e

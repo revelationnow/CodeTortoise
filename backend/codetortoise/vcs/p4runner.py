@@ -51,7 +51,9 @@ class P4Runner:
         except (OSError, subprocess.TimeoutExpired) as e:
             raise P4Error(f"p4 {command}: {e}") from e
         records = unmarshal_all(r.stdout)
-        errors = [d.get("data", "").strip() for d in records if d.get("code") == "error"]
+        # severity >= 3 is a failure; lower severities (e.g. "file(s) not in client view") are warnings
+        errors = [d.get("data", "").strip() for d in records
+                  if d.get("code") == "error" and int(d.get("severity", 3)) >= 3]
         if errors:
             raise P4Error(f"p4 {command}: {'; '.join(errors)}")
         if r.returncode != 0 and not records:
