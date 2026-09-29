@@ -37,3 +37,25 @@ def test_header_fanout_counts_tus_by_layer(analysed):
     fan = {f.header.split("/")[-1]: f for f in im.fanout}
     assert fan["uart.h"].total_tus == 3
     assert fan["uart.h"].by_layer == {"L2: driver": 1, "L3: service": 1, "L4: app": 1}
+
+
+def test_heuristic_fan_in_is_capped(analysed, fx):
+    from codetortoise.config import AnalysisConfig
+    from codetortoise.impact import build_impact
+    from codetortoise.index.symbols import SymbolIndex
+    from codetortoise.tu_select import TuSelection
+
+    a = analysed
+    uart = [p for p in a.sel.selected if p.endswith("driver/uart.c")]
+    only_uart = TuSelection(selected=uart)
+    before = [f for f in a.before if f.tu.file in uart]
+    after = [f for f in a.after if f.tu.file in uart]
+    idx = SymbolIndex(fx.root.parent / "cap.db")
+    idx.build(fx.root)
+    open_im = build_impact(before, after, a.dm, only_uart, idx, a.layers, AnalysisConfig(module_min_files=1))
+    labels = {n.label for n in open_im.nodes.values() if n.confidence == "heuristic"}
+    assert {"logger_write", "logger_flush"} <= labels
+    capped = build_impact(before, after, a.dm, only_uart, idx, a.layers,
+                          AnalysisConfig(module_min_files=1, heuristic_fanin_cap=1))
+    assert "logger_flush" not in {n.label for n in capped.nodes.values()}
+    assert capped.capped == {"uart_send": 2}

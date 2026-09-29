@@ -48,13 +48,13 @@ def select_tus(dm: DiffMap, index: SymbolIndex, cdb: CompileDb, cfg: AnalysisCon
     for h in range(1, cfg.caller_hops + 1):
         nxt: set[str] = set()
         for name in sorted(frontier):
-            for row in index.callers_of(name):
+            for row in index.callers_of(name)[: cfg.heuristic_fanin_cap]:
                 add(row.path, h)
                 if row.caller:
                     nxt.add(row.caller.split("::")[-1])
         frontier = nxt - {c.name for c in dm.functions}
     for member in sorted({m for c in dm.functions for m in c.written_members}):
-        for row in index.member_refs(member):
+        for row in index.member_refs(member)[: cfg.heuristic_fanin_cap]:
             add(row.path, 1)
 
     ranked = sorted(hop, key=lambda p: (hop[p], -refs[p], p))

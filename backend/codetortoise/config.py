@@ -56,6 +56,7 @@ class AnalysisConfig(BaseModel):
     module_min_files: int = 5
     max_layers: int = 8
     workers: int = 4
+    heuristic_fanin_cap: int = 50  # names with more out-of-TU callers/refs than this are not expanded heuristically
     entrypoint_patterns: list[str] = Field(
         default_factory=lambda: ["main", "*_isr", "*_irq_handler", "*Callback", "*_callback"])
 

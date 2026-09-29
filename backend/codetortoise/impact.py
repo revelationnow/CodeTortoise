@@ -71,6 +71,7 @@ class ImpactModel(BaseModel):
     flows: list[Flow] = Field(default_factory=list)
     blast: list[BlastItem] = Field(default_factory=list)
     fanout: list[FanOut] = Field(default_factory=list)
+    capped: dict[str, int] = Field(default_factory=dict)  # name -> heuristic matches skipped (over the cap)
 
     def node_by_key(self, key: str) -> Node | None:
         return next((n for n in self.nodes.values() if n.key == key), None)
@@ -151,6 +152,7 @@ def build_impact(before: list[Facts], after: list[Facts], dm: DiffMap, sel: TuSe
 
     # 3. heuristic edges from the symbol index for code outside the parsed TUs
     parsed = set(sel.selected)
+    capped: dict[str, int] = {}
     by_qual = {}
     for u, f in {**fb, **fa}.items():
         by_qual.setdefault(f.qualname, u)
@@ -159,9 +161,11 @@ def build_impact(before: list[Facts], after: list[Facts], dm: DiffMap, sel: TuSe
         for _hop in range(cfg.caller_hops):
             nxt: dict[str, str] = {}
             for name, target in frontier.items():
-                for row in index.callers_of(name):
-                    if row.path in parsed or not row.caller:
-                        continue
+                rows = [r for r in index.callers_of(name) if r.path not in parsed and r.caller]
+                if len(rows) > cfg.heuristic_fanin_cap:
+                    capped[name] = len(rows)
+                    continue
+                for row in rows:
                     key = by_qual.get(row.caller) or f"ts:{row.path}#{row.caller}"
                     b.node(key, kind="function", label=row.caller, file=row.path, line=row.line,
                            confidence="heuristic")
@@ -170,11 +174,18 @@ def build_impact(before: list[Facts], after: list[Facts], dm: DiffMap, sel: TuSe
             frontier = nxt
         written = {(k[1], b.nodes[k[1]]["label"]) for k, e in b.edges.items()
                    if k[2] == "writes" and k[0] in changed_status}
+        record_files = {f"field:{a.field}": a.record_file for facts in before + after for a in facts.fields}
         for fkey, label in written:
             fname = label.split("::")[-1]
-            for row in index.member_refs(fname):
-                if row.path in parsed or not row.fn:
-                    continue
+            rfile = record_files.get(fkey, "")
+            # a same-named member only counts if its file can see the record's declaration
+            allowed = ({rfile} | index.transitive_includers(rfile)) if rfile else None
+            rows = [r for r in index.member_refs(fname) if r.path not in parsed and r.fn
+                    and (allowed is None or r.path in allowed)]
+            if len(rows) > cfg.heuristic_fanin_cap:
+                capped[label] = len(rows)
+                continue
+            for row in rows:
                 key = by_qual.get(row.fn) or f"ts:{row.path}#{row.fn}"
                 b.node(key, kind="function", label=row.fn, file=row.path, line=row.line, confidence="heuristic")
                 b.edge(key, fkey, "writes" if row.is_write else "reads", "after", "heuristic", row.path, row.line)
@@ -197,6 +208,7 @@ def build_impact(before: list[Facts], after: list[Facts], dm: DiffMap, sel: TuSe
         status = "unchanged" if len(v) == 2 else ("added" if "after" in v else "removed")
         model.edges.append(Edge(id=f"E{i + 1}", src=key_to_id[k[0]], dst=key_to_id[k[1]], kind=k[2],
                                 status=status, confidence=e["confidence"], file=e["file"], line=e["line"]))
+    model.capped = capped
     model.changed = sorted((key_to_id[u] for u in changed_status if u in key_to_id), key=lambda s: int(s[1:]))
 
     _flows(model, cfg)

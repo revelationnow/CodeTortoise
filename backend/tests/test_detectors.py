@@ -39,3 +39,43 @@ def test_custom_detector_list_and_id_assignment(analysed):
 
     out = run_detectors(DetectorContext(analysed.before, analysed.after, analysed.dm, analysed.impact, analysed.cfg), [fake])
     assert [(f.id, f.kind) for f in out] == [("F1", "a"), ("F2", "z")]
+
+
+COLLIDE = {
+    "a.h": "struct A { int count; };\nvoid bump(struct A *a);\n",
+    "user.c": '#include "a.h"\nint peek(struct A *a) { return a->count; }\n',
+    "other.c": "struct B { int count; };\nint unrelated(struct B *b) { return b->count; }\n",
+}
+A_BEFORE = '#include "a.h"\nvoid bump(struct A *a) { (void)a; }\n'
+A_AFTER = '#include "a.h"\nvoid bump(struct A *a) { int *c = &a->count; *c += 1; }\n'
+
+
+def test_heuristic_field_users_restricted_to_record_includers(tmp_path):
+    from codetortoise.config import AnalysisConfig
+    from codetortoise.diffmap import map_changes
+    from codetortoise.facts.clang_extractor import TuRequest, extract_tu
+    from codetortoise.impact import build_impact
+    from codetortoise.index.symbols import SymbolIndex
+    from codetortoise.tu_select import TuSelection
+    from codetortoise.vcs.model import ChangeSet, ClMeta, FileChange
+
+    for name, text in COLLIDE.items():
+        (tmp_path / name).write_text(text)
+    a_c = tmp_path / "a.c"
+    a_c.write_text(A_BEFORE)
+    a = str(a_c.resolve())
+    cs = ChangeSet(cls=[ClMeta(cl=1, status="pending")],
+                   files=[FileChange(depot="//d/a.c", local=a, action="edit", before=A_BEFORE, after=A_AFTER)])
+    dm = map_changes(cs)
+    idx = SymbolIndex(tmp_path / "s.db")
+    idx.build(tmp_path)
+    args = ["-xc", f"-I{tmp_path}"]
+    before = [extract_tu(TuRequest(file=a, args=args, variant="before", unsaved={a: A_BEFORE}))]
+    after = [extract_tu(TuRequest(file=a, args=args, variant="after", unsaved={a: A_AFTER}))]
+    cfg = AnalysisConfig(module_min_files=1)
+    im = build_impact(before, after, dm, TuSelection(selected=[a]), idx, None, cfg)
+    users = {im.nodes[e.src].label for e in im.edges if im.nodes[e.dst].label == "A::count" and e.src != im.changed[0]}
+    assert users == {"peek"}  # other.c's B::count is a different record
+    (f,) = [f for f in run_detectors(DetectorContext(before, after, dm, im, cfg)) if f.kind == "field_mutation"]
+    assert f.severity == "medium"  # only heuristic users; not escalated to high
+    assert "peek" in f.evidence[-1].text and "heuristic" in f.evidence[-1].text

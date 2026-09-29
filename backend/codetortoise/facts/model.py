@@ -48,6 +48,7 @@ class FieldAccess(BaseModel):
     field: str            # FieldDecl USR, or "name:<field>" when heuristic
     field_name: str
     record: str
+    record_file: str = ""  # file declaring the record (restricts heuristic name matches)
     path: str             # display access path, e.g. "u.stats.tx"
     root_kind: Literal["param", "this", "global", "local", "unknown"]
     mode: Literal["read", "write", "may_write"]

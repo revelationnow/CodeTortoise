@@ -27,11 +27,14 @@ def detect_field_mutation(ctx: DetectorContext) -> list[Finding]:
             accesses = wa[key]
             a0 = accesses[0]
             field_node = im.node_by_key(f"field:{a0.field}")
-            others = []
+            others, heuristic = [], []
             if field_node is not None:
-                others = sorted({im.nodes[e.src].label for e in im.edges
-                                 if e.dst == field_node.id and e.src not in changed_ids and e.status != "removed"})
+                users = [e for e in im.edges
+                         if e.dst == field_node.id and e.src not in changed_ids and e.status != "removed"]
+                others = sorted({im.nodes[e.src].label for e in users if e.confidence != "heuristic"})
+                heuristic = sorted({im.nodes[e.src].label for e in users if e.confidence == "heuristic"} - set(others))
             only_may = all(a.mode == "may_write" for a in accesses)
+            # name-matched (heuristic) users alone do not escalate to high
             sev = "low" if only_may else ("high" if others else "medium")
             ev = []
             for a in accesses:
@@ -41,6 +44,9 @@ def detect_field_mutation(ctx: DetectorContext) -> list[Finding]:
             if others:
                 ev.append(Evidence(text=f"{len(others)} other function(s) access this field: {', '.join(others[:10])}",
                                    severity=sev))
+            if heuristic:
+                ev.append(Evidence(text=f"{len(heuristic)} more by name match outside parsed TUs (heuristic): "
+                                        f"{', '.join(heuristic[:10])}", severity="low"))
             label = field_node.label if field_node else a0.field_name
             alias = any(a.via for a in accesses)
             findings.append(Finding(

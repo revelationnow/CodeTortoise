@@ -56,6 +56,9 @@ def detect_contract(ctx: DetectorContext) -> list[Finding]:
                 else:
                     ev.append(Evidence(text=f"{cname} uses the result without comparing it",
                                        file=c.file, line=c.line, severity="low"))
+            if after.name in ctx.impact.capped:
+                ev.append(Evidence(text=f"{ctx.impact.capped[after.name]} caller(s) outside the parsed TUs not examined "
+                                        "(over heuristic_fanin_cap)", severity="low"))
             heur = [e for e in ctx.impact.edges_into(nid, {"call"}) if e.confidence == "heuristic"]
             if heur:
                 ev.append(Evidence(text=f"{len(heur)} more caller(s) outside the parsed TUs (heuristic) not checked",
