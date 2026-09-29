@@ -32,7 +32,7 @@ def test_falls_back_to_treesitter_when_clang_raises(monkeypatch, tmp_path):
         raise RuntimeError("libclang crashed")
 
     monkeypatch.setattr(runner, "extract_tu", boom)
-    (facts,) = runner.run_extraction([TuRequest(file=str(f), args=[], variant="after")], None, workers=1)
+    facts = runner._extract_with_fallback(TuRequest(file=str(f), args=[], variant="after"))
     assert facts.tu.extractor == "treesitter" and facts.tu.confidence == "failed"
     assert [fn.qualname for fn in facts.functions] == ["f"]
     assert [(c.callee, c.confidence) for c in facts.calls] == [("name:g", "heuristic")]
@@ -45,3 +45,25 @@ def test_process_pool_extraction(fx, tmp_path):
     reqs = [TuRequest(file=f, args=tc.args_for(f), variant="before") for f in files]
     out = runner.run_extraction(reqs, None, workers=2)
     assert [len(f.functions) for f in out] == [2, 3]
+
+
+def reqs_for(fx, tmp_path, names):
+    tc = Toolchain(ToolchainConfig(), CompileDb.load(fx.compile_commands), tmp_path)
+    files = [str(fx.root / n) for n in names]
+    return [TuRequest(file=f, args=tc.args_for(f), variant="before") for f in files]
+
+
+def test_worker_crash_is_isolated_to_its_tu(fx, tmp_path):
+    from crashy import crash_on_uart
+    reqs = reqs_for(fx, tmp_path, ["hal/regs.c", "driver/uart.c", "service/logger.c"])
+    out = runner.run_extraction(reqs, None, workers=2, worker=crash_on_uart)
+    assert [f.tu.file.split("/")[-1] for f in out] == ["regs.c", "uart.c", "logger.c"]
+    assert [f.tu.extractor for f in out] == ["clang", "treesitter", "clang"]
+    assert "crashed" in out[1].tu.diagnostics[0]
+    assert {fn.qualname for fn in out[1].functions} == {"uart_init", "uart_send", "uart_errors"}
+
+
+def test_single_tu_extraction_never_runs_in_process(fx, tmp_path):
+    from crashy import crash_on_uart
+    (facts,) = runner.run_extraction(reqs_for(fx, tmp_path, ["driver/uart.c"]), None, workers=1, worker=crash_on_uart)
+    assert facts.tu.extractor == "treesitter"  # and this test process is still alive
