@@ -4,6 +4,7 @@ import { api, type Me } from "./api";
 import Health from "./pages/Health";
 import Login from "./pages/Login";
 import NewReview from "./pages/NewReview";
+import Review from "./pages/Review";
 import Reviews from "./pages/Reviews";
 
 const MeContext = createContext<Me | null>(null);
@@ -43,6 +44,7 @@ export default function App() {
         <Route path="/" element={<Reviews />} />
         <Route path="/new" element={<NewReview />} />
         <Route path="/health" element={<Health />} />
+        <Route path="/r/:id/*" element={<Review />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </MeContext.Provider>
