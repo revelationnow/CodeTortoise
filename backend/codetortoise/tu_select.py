@@ -22,17 +22,19 @@ def select_tus(dm: DiffMap, index: SymbolIndex, cdb: CompileDb, cfg: AnalysisCon
     hop: dict[str, int] = {}
     refs: dict[str, int] = {}
 
-    def add(path: str, h: int) -> None:
-        if path not in tus:
+    def add(path: str, h: int, force: bool = False) -> None:
+        if path not in tus and not force:
             return
         hop[path] = min(hop.get(path, h), h)
         refs[path] = refs.get(path, 0) + 1
 
     sel = TuSelection()
     for f in dm.changed_files:
-        if f in tus:
-            add(f, 0)
-        elif is_header(f):
+        if f in tus or not is_header(f):
+            # changed sources without a compile-DB entry (other variants, new files) still get parsed,
+            # borrowing flags from the nearest entry (Toolchain.args_for)
+            add(f, 0, force=True)
+        else:
             includers = index.transitive_includers(f)
             sel.header_fanout[f] = sum(1 for p in includers if p in tus)
             names = {c.name for c in dm.functions if c.file == f}

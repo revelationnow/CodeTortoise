@@ -61,3 +61,12 @@ def test_symlinked_workspace_root_still_matches_compile_db(fx, tmp_path):
     dm = map_changes(GitFixtureSource(link).load([101]))
     sel = select_tus(dm, idx, CompileDb.load(fx.compile_commands), AnalysisConfig())
     assert names(sel.selected) == ["app/main.c", "driver/uart.c", "service/logger.c"]
+
+
+def test_changed_source_missing_from_compile_db_is_still_selected(fx, fx_source, index):
+    full = CompileDb.load(fx.compile_commands)
+    partial = CompileDb([e for e in full.entries if not e.file.endswith("driver/uart.c")])
+    dm = map_changes(fx_source.load([101]))
+    sel = select_tus(dm, index, partial, AnalysisConfig())
+    assert "driver/uart.c" in names(sel.selected)
+    assert sel.hops[[p for p in sel.selected if p.endswith("driver/uart.c")][0]] == 0
