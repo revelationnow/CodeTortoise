@@ -142,3 +142,19 @@ def test_p4_authenticator_rejects_without_runner(fx, tmp_path):
     svc.cfg.auth.mode = "p4"
     auth = make_authenticator(svc)
     assert auth("bob", "pw") is None
+
+
+def test_owner_login_requests_host_unlocked_ticket_for_swarm(fx, tmp_path):
+    svc = make_services(fx, tmp_path)
+    svc.cfg.auth.mode = "p4"
+    calls = []
+
+    class P4:
+        def login_check(self, user, password, all_hosts=False):
+            calls.append((user, all_hosts))
+            return "TICKET"
+
+    svc.p4 = P4()
+    auth = make_authenticator(svc)
+    assert auth("owner", "pw") == "TICKET" and auth("bob", "pw") == "TICKET"
+    assert calls == [("owner", True), ("bob", False)]

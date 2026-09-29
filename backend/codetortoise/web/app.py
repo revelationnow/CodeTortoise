@@ -309,7 +309,7 @@ def make_authenticator(svc: Services):
         if svc.p4 is None or not user:
             return None
         try:
-            return svc.p4.login_check(user, password)
+            return svc.p4.login_check(user, password, all_hosts=user == svc.cfg.owner)
         except P4Error:
             return None
     return p4_auth

@@ -129,3 +129,19 @@ def test_unmapped_and_unprintable_files_become_warnings_not_failures():
     assert any("//depot/other/b.c" in w and "client view" in w for w in cs.warnings)
     assert any("purged revision" in w for w in cs.warnings)
     assert [d.depot for d in cs.drift] == []  # unmapped files are not drift
+
+
+def test_login_check_can_request_host_unlocked_ticket(monkeypatch):
+    import subprocess
+    seen = []
+
+    def fake_run(cmd, **kw):
+        seen.append(cmd)
+        return Completed(b"0123456789ABCDEF0123456789ABCDEF\n")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    r = P4Runner("p4:1666", "ws")
+    assert r.login_check("anoop", "pw", all_hosts=True) == "0123456789ABCDEF0123456789ABCDEF"
+    assert seen[-1][-3:] == ["login", "-p", "-a"]
+    r.login_check("bob", "pw")
+    assert seen[-1][-2:] == ["login", "-p"]

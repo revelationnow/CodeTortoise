@@ -69,10 +69,15 @@ class P4Runner:
             raise P4Error(f"p4 print {filespec}: {r.stderr.decode(errors='replace').strip()}")
         return r.stdout.decode("utf-8", errors="replace")
 
-    def login_check(self, user: str, password: str) -> str:
-        """Validates credentials. Returns the ticket (printed, not stored in the tickets file)."""
+    def login_check(self, user: str, password: str, all_hosts: bool = False) -> str:
+        """Validates credentials. Returns the ticket (printed, not stored in the tickets file).
+
+        all_hosts=True (`-a`) yields a host-unlocked ticket; needed for the owner, whose ticket is presented
+        to Swarm from a different host than the one it was issued on.
+        """
+        cmd = self._base(user) + ["login", "-p"] + (["-a"] if all_hosts else [])
         try:
-            r = subprocess.run(self._base(user) + ["login", "-p"], input=(password + "\n").encode(),
+            r = subprocess.run(cmd, input=(password + "\n").encode(),
                                capture_output=True, timeout=30)
         except (OSError, subprocess.TimeoutExpired) as e:
             raise P4Error(f"p4 login: {e}") from e
