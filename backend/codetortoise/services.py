@@ -13,7 +13,7 @@ from codetortoise.llm.client import LlmClient
 from codetortoise.llm.storyboard import name_layers
 from codetortoise.store import Store
 from codetortoise.swarm import SwarmClient
-from codetortoise.toolchain.compile_db import CompileDb
+from codetortoise.toolchain.compile_db import CompileDb, include_dirs
 from codetortoise.toolchain.toolchain import Toolchain
 from codetortoise.vcs.gitfixture import GitFixtureSource
 from codetortoise.vcs.p4runner import P4Runner
@@ -71,6 +71,11 @@ class Services:
     p4: P4Runner | None = None
     owner_ticket: str | None = None
     swarm_override: Callable[[], SwarmClient | None] | None = field(default=None, repr=False)
+
+    def build_index(self) -> int:
+        """(Re)build the symbol index, resolving #includes with the compile DB's include dirs."""
+        return self.index.build(self.cfg.workspace.root, workers=self.cfg.analysis.workers,
+                                include_dirs=include_dirs(self.cdb))
 
     def remember_stripped(self, flags: list[str]) -> None:
         """Flags libclang rejected: skipped for all later parses of this workspace (persisted)."""

@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS sym_defs(name TEXT, qualname TEXT, path TEXT, line IN
 CREATE TABLE IF NOT EXISTS sym_calls(caller TEXT, callee TEXT, path TEXT, line INTEGER);
 CREATE TABLE IF NOT EXISTS sym_includes(path TEXT, inc TEXT, base TEXT);
 CREATE TABLE IF NOT EXISTS sym_members(name TEXT, fn TEXT, path TEXT, line INTEGER, is_write INTEGER);
+CREATE TABLE IF NOT EXISTS sym_inc_resolved(path TEXT, target TEXT);
+CREATE INDEX IF NOT EXISTS ix_inc_target ON sym_inc_resolved(target);
 CREATE INDEX IF NOT EXISTS ix_defs_name ON sym_defs(name);
 CREATE INDEX IF NOT EXISTS ix_calls_callee ON sym_calls(callee);
 CREATE INDEX IF NOT EXISTS ix_inc_base ON sym_includes(base);
@@ -76,8 +78,11 @@ class SymbolIndex:
         row = self._db.execute("SELECT value FROM sym_meta WHERE key='generation'").fetchone()
         return int(row[0]) if row else 0
 
-    def build(self, root: Path, workers: int = 0) -> int:
-        """Full rebuild over every C/C++ source under root. Returns number of files indexed."""
+    def build(self, root: Path, workers: int = 0, include_dirs: list[str] | None = None) -> int:
+        """Full rebuild over every C/C++ source under root. Returns number of files indexed.
+
+        `include_dirs` (canonical, from the compile DB) are used to resolve `#include` targets.
+        """
         files = iter_source_files(Path(root))
         if workers and workers > 1:
             with ProcessPoolExecutor(max_workers=workers) as pool:
@@ -86,7 +91,7 @@ class SymbolIndex:
             results = [_parse_file(f) for f in files]
         db = self._db
         with db:
-            for t in ("sym_files", "sym_defs", "sym_calls", "sym_includes", "sym_members"):
+            for t in ("sym_files", "sym_defs", "sym_calls", "sym_includes", "sym_members", "sym_inc_resolved"):
                 db.execute(f"DELETE FROM {t}")
             for path, pf in results:
                 if pf is None:
@@ -100,6 +105,7 @@ class SymbolIndex:
                                [(path, inc, os.path.basename(inc)) for inc in pf.includes])
                 db.executemany("INSERT INTO sym_members VALUES(?,?,?,?,?)",
                                [(m.field, m.fn, path, m.line, int(m.is_write)) for m in pf.members])
+            db.executemany("INSERT INTO sym_inc_resolved VALUES(?,?)", self._resolve_includes(include_dirs))
             db.execute("INSERT OR REPLACE INTO sym_meta VALUES('generation', ?)", (str(self.generation() + 1),))
             db.execute("INSERT OR REPLACE INTO sym_meta VALUES('root', ?)", (str(root),))
         return sum(1 for _, pf in results if pf is not None)
@@ -119,15 +125,32 @@ class SymbolIndex:
         return [MemberRow(r[0], r[1], r[2], bool(r[3])) for r in self._db.execute(
             "SELECT fn, path, line, is_write FROM sym_members WHERE name=?", (field_name,))]
 
-    def includers_of(self, header: str) -> list[str]:
-        header = canon(header)
+    def _resolve_includes(self, include_dirs: list[str] | None) -> list[tuple[str, str]]:
+        """(includer, target) pairs. Order: relative to the includer, then include dirs, then path-suffix match
+        (a unique match when include dirs are known; every candidate when they are not)."""
+        files = set(self.files())
+        by_base: dict[str, list[str]] = {}
+        for f in files:
+            by_base.setdefault(os.path.basename(f), []).append(f)
         out = []
-        for path, inc in self._db.execute(
-                "SELECT path, inc FROM sym_includes WHERE base=?", (os.path.basename(header),)):
+        for path, inc, base in self._db.execute("SELECT path, inc, base FROM sym_includes").fetchall():
+            local = canon(os.path.join(os.path.dirname(path), inc))
+            if local in files:
+                out.append((path, local))
+                continue
+            hit = next((c for d in include_dirs or [] if (c := canon(os.path.join(d, inc))) in files), None)
+            if hit:
+                out.append((path, hit))
+                continue
             inc_n = os.path.normpath(inc)
-            if header == inc_n or header.endswith(os.sep + inc_n):
-                out.append(path)
-        return sorted(set(out))
+            cands = [c for c in by_base.get(base, []) if c.endswith(os.sep + inc_n)]
+            if include_dirs is None or len(cands) == 1:
+                out += [(path, c) for c in cands]
+        return out
+
+    def includers_of(self, header: str) -> list[str]:
+        rows = self._db.execute("SELECT path FROM sym_inc_resolved WHERE target=?", (canon(header),))
+        return sorted({r[0] for r in rows})
 
     def transitive_includers(self, header: str, limit: int = 1_000_000) -> set[str]:
         seen: set[str] = set()
@@ -142,16 +165,7 @@ class SymbolIndex:
 
     def include_edges(self) -> list[tuple[str, str]]:
         """Resolved (includer, included_file) pairs for files present in the index."""
-        by_base: dict[str, list[str]] = {}
-        for f in self.files():
-            by_base.setdefault(os.path.basename(f), []).append(f)
-        out = []
-        for path, inc, base in self._db.execute("SELECT path, inc, base FROM sym_includes"):
-            inc_n = os.path.normpath(inc)
-            for cand in by_base.get(base, []):
-                if cand == inc_n or cand.endswith(os.sep + inc_n):
-                    out.append((path, cand))
-        return out
+        return [(a, b) for a, b in self._db.execute("SELECT path, target FROM sym_inc_resolved")]
 
     def call_edges_by_path(self) -> list[tuple[str, str]]:
         """(caller_path, callee_def_path) for callees with a unique definition."""

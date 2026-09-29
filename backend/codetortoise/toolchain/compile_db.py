@@ -71,6 +71,19 @@ class CompileDb:
         return self.entries[0] if self.entries else None
 
 
+def include_dirs(cdb: CompileDb) -> list[str]:
+    """Union of -I/-isystem/-iquote/-idirafter dirs across all entries, canonical, first-seen order."""
+    seen: dict[str, None] = {}
+    for e in cdb.entries:
+        args = sanitize_args(e)
+        for i, a in enumerate(args):
+            if a in ("-I", "-isystem", "-iquote", "-idirafter") and i + 1 < len(args):
+                seen.setdefault(args[i + 1], None)
+            elif a.startswith("-I") and len(a) > 2:
+                seen.setdefault(a[2:], None)
+    return list(seen)
+
+
 def sanitize_args(entry: CompileEntry, strip: set[str] = frozenset()) -> list[str]:
     """Compiler argv -> libclang args: drop compiler, output/dep flags, the source file; absolutize paths."""
     args = list(entry.args[1:])

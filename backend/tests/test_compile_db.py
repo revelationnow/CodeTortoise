@@ -53,3 +53,10 @@ def test_new_header_behind_symlinked_include_dir_parses(tmp_path):
                                  unsaved={new_h: "#define NEW_VALUE 7\n"}))
     assert facts.tu.confidence == "precise", facts.tu.diagnostics
     assert facts.functions[0].returns == ["7"]
+
+
+def test_include_dirs_union():
+    from codetortoise.toolchain.compile_db import include_dirs
+    db = CompileDb([CompileEntry("/w/a.c", "/w", ("cc", "-Iinc", "-isystem", "/sys", "-c", "a.c")),
+                    CompileEntry("/w/b.c", "/w", ("cc", "-Iinc", "-iquote", "q", "-c", "b.c"))])
+    assert include_dirs(db) == ["/w/inc", "/sys", "/w/q"]

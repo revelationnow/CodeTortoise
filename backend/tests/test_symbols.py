@@ -43,3 +43,19 @@ def test_edges(index, fx):
     assert ("uart.c", "uart.h") in inc and ("uart.h", "regs.h") in inc
     calls = {(a.split("/")[-1], b.split("/")[-1]) for a, b in index.call_edges_by_path()}
     assert ("logger.c", "uart.c") in calls and ("uart.c", "regs.c") in calls
+
+
+def test_includes_resolve_relative_then_include_dirs(tmp_path):
+    files = {"a/config.h": "", "b/config.h": "", "a/x.c": '#include "config.h"\n', "b/y.c": '#include "config.h"\n',
+             "c/z.c": '#include "../a/config.h"\n', "d/w.c": '#include "config.h"\n'}
+    for rel_path, text in files.items():
+        (tmp_path / rel_path).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel_path).write_text(text)
+    root = str(tmp_path.resolve())
+    idx = SymbolIndex(tmp_path / "s.db")
+    idx.build(tmp_path, include_dirs=[f"{root}/b"])
+    def short(ps): return sorted(p.replace(root + "/", "") for p in ps)
+    assert short(idx.includers_of(f"{root}/a/config.h")) == ["a/x.c", "c/z.c"]
+    assert short(idx.includers_of(f"{root}/b/config.h")) == ["b/y.c", "d/w.c"]
+    idx.build(tmp_path)  # no include dirs: an unresolvable ambiguous include matches every candidate
+    assert short(idx.includers_of(f"{root}/a/config.h")) == ["a/x.c", "c/z.c", "d/w.c"]

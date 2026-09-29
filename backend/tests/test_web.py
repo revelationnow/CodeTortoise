@@ -13,7 +13,7 @@ class InlineRunner(JobRunner):
         run_review(rid, self.svc)
 
     def submit_index(self):
-        self.svc.index.build(self.svc.cfg.workspace.root)
+        self.svc.build_index()
 
 
 class FakeSwarm:

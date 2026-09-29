@@ -111,7 +111,7 @@ def run_review(rid: int, svc: Services) -> None:
 
     def tu_select():
         if svc.index.generation() == 0:
-            svc.index.build(cfg.workspace.root, workers=cfg.analysis.workers)
+            svc.build_index()
         sel = select_tus(ctx["dm"], svc.index, svc.cdb, cfg.analysis)
         ctx["sel"] = sel
         store.put_blob(rid, "selection", sel)
@@ -215,7 +215,7 @@ class JobRunner:
                     run_review(arg, self.svc)
                 elif kind == "index":
                     self.index_building = True
-                    self.svc.index.build(self.svc.cfg.workspace.root, workers=self.svc.cfg.analysis.workers)
+                    self.svc.build_index()
             except Exception:
                 log.error("job %s failed: %s", job, traceback.format_exc())
             finally:

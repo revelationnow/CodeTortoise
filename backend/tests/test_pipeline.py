@@ -135,3 +135,19 @@ def test_ingest_warnings_degrade_but_continue(fx, tmp_path, fx_source):
     assert st["ingest"] == "degraded" and st["impact"] == "ok"
     assert "not in client view" in svc.store.list_stages(rid)[0]["message"]
     assert svc.store.get_review(rid)["status"] == "degraded"
+
+
+def test_index_is_built_with_compile_db_include_dirs(fx, tmp_path):
+    svc = make_services(fx, tmp_path)
+    seen = {}
+    real_build = svc.index.build
+
+    def spy(root, workers=0, include_dirs=None):
+        seen["include_dirs"] = include_dirs
+        return real_build(root, workers=workers, include_dirs=include_dirs)
+
+    svc.index.build = spy
+    rid = svc.store.create_review("t", "owner", [101])
+    run_review(rid, svc)
+    root = str(fx.root.resolve())
+    assert seen["include_dirs"] == [f"{root}/include", root]

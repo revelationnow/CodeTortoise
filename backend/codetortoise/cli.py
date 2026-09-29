@@ -35,7 +35,7 @@ def cmd_serve(args) -> int:
 
 def cmd_index(args) -> int:
     svc = _services(args.config)
-    n = svc.index.build(svc.cfg.workspace.root, workers=svc.cfg.analysis.workers)
+    n = svc.build_index()
     print(f"indexed {n} files (generation {svc.index.generation()})")
     return 0
 
