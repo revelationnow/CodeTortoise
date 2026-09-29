@@ -49,3 +49,28 @@ def test_parse_errors_degrade_confidence(tmp_path):
     facts = extract_tu(TuRequest(file=str(f), args=["-xc"], variant="before"))
     assert facts.tu.confidence == "degraded" and facts.tu.error_count == 1
     assert [fn.qualname for fn in facts.functions] == ["ok"]
+
+
+def test_macro_return_codes_are_evaluated(tmp_path):
+    (tmp_path / "err.h").write_text("#define ERR_HDR (-3)\n")
+    src = (tmp_path / "m.c")
+    body = """#include "err.h"
+#define ERR_BUSY (-4)
+int f(int x) {
+  x = x * {k};
+  if (x) return ERR_BUSY;
+  if (x > 3) return ERR_HDR;
+  return 0;
+}
+int g(void) { if (f(1) == ERR_BUSY) return 1; return f(2) != ERR_HDR; }
+"""
+    args = ["-xc", f"-I{tmp_path}"]
+    results = []
+    for k in ("2", "3"):
+        src.write_text(body.replace("{k}", k))
+        facts = extract_tu(TuRequest(file=str(src), args=args, variant="after"))
+        results.append(facts)
+    fa, fb = ({f.qualname: f for f in r.functions} for r in results)
+    assert fa["f"].returns == ["-4", "-3", "0"]
+    assert fb["f"].returns == fa["f"].returns  # unrelated body edit does not change return values
+    assert [c.compared for c in results[0].calls if c.callee_name == "f"] == [["==-4"], ["!=-3"]]

@@ -8,6 +8,7 @@ first, then accesses are recorded.
 """
 from __future__ import annotations
 
+import ctypes
 from dataclasses import dataclass
 
 import clang.cindex as ci
@@ -85,8 +86,45 @@ def _type_kind(c: ci.Cursor) -> T:
     return c.type.get_canonical().kind
 
 
-def operator_of(c: ci.Cursor) -> str:
-    """Operator spelling for BINARY/COMPOUND/UNARY operator cursors (token based; works on any libclang)."""
+_UNARY_KINDS = {1: "post++", 2: "post--", 3: "pre++", 4: "pre--", 5: "pre&", 6: "pre*", 7: "pre+", 8: "pre-",
+                9: "pre~", 10: "pre!"}
+_capi: dict | None = None
+
+
+def _c_api() -> dict:
+    """libclang C entry points missing from the Python bindings (operator kinds, constant evaluation).
+
+    Resolved lazily (after load_libclang) and per process; entries are None on older libclang builds.
+    """
+    global _capi
+    if _capi is not None:
+        return _capi
+    lib = ci.conf.lib
+    api: dict = {}
+
+    def bind(name, argtypes, restype):
+        fn = getattr(lib, name, None)
+        if fn is not None:
+            fn.argtypes, fn.restype = argtypes, restype
+        return fn
+
+    api["bin_kind"] = bind("clang_getCursorBinaryOperatorKind", [ci.Cursor], ctypes.c_int)
+    api["un_kind"] = bind("clang_getCursorUnaryOperatorKind", [ci.Cursor], ctypes.c_int)
+    spell = bind("clang_getBinaryOperatorKindSpelling", [ctypes.c_int], ci._CXString)
+    if spell is not None:
+        spell.errcheck = ci._CXString.from_result
+    api["bin_spell"] = spell
+    api["eval"] = bind("clang_Cursor_Evaluate", [ci.Cursor], ctypes.c_void_p)
+    api["eval_kind"] = bind("clang_EvalResult_getKind", [ctypes.c_void_p], ctypes.c_int)
+    api["eval_unsigned"] = bind("clang_EvalResult_isUnsignedInt", [ctypes.c_void_p], ctypes.c_uint)
+    api["eval_ll"] = bind("clang_EvalResult_getAsLongLong", [ctypes.c_void_p], ctypes.c_longlong)
+    api["eval_ull"] = bind("clang_EvalResult_getAsUnsigned", [ctypes.c_void_p], ctypes.c_ulonglong)
+    api["eval_dispose"] = bind("clang_EvalResult_dispose", [ctypes.c_void_p], None)
+    _capi = api
+    return api
+
+
+def _operator_from_tokens(c: ci.Cursor) -> str:
     kids = list(c.get_children())
     toks = list(c.get_tokens())
     if c.kind in (K.BINARY_OPERATOR, K.COMPOUND_ASSIGNMENT_OPERATOR) and kids:
@@ -102,19 +140,59 @@ def operator_of(c: ci.Cursor) -> str:
     return ""
 
 
+def operator_of(c: ci.Cursor) -> str:
+    """Operator spelling for BINARY/COMPOUND/UNARY operator cursors ("=", "+=", "pre*", "post++", ...).
+
+    Uses libclang's operator-kind API (correct inside macro expansions); falls back to tokens on
+    libclang builds that lack it.
+    """
+    api = _c_api()
+    if c.kind in (K.BINARY_OPERATOR, K.COMPOUND_ASSIGNMENT_OPERATOR) and api["bin_kind"] and api["bin_spell"]:
+        kind = api["bin_kind"](c)
+        if kind > 0:
+            return api["bin_spell"](kind)
+    if c.kind == K.UNARY_OPERATOR and api["un_kind"]:
+        kind = api["un_kind"](c)
+        if kind in _UNARY_KINDS:
+            return _UNARY_KINDS[kind]
+    return _operator_from_tokens(c)
+
+
+def _evaluate_int(c: ci.Cursor) -> str | None:
+    api = _c_api()
+    if not (api["eval"] and api["eval_kind"] and api["eval_ll"] and api["eval_dispose"]):
+        return None
+    res = api["eval"](c)
+    if not res:
+        return None
+    try:
+        if api["eval_kind"](res) != 1:  # CXEval_Int
+            return None
+        if api["eval_unsigned"] and api["eval_ull"] and api["eval_unsigned"](res):
+            return str(api["eval_ull"](res))
+        return str(api["eval_ll"](res))
+    finally:
+        api["eval_dispose"](res)
+
+
+_LITERAL_KINDS = {K.INTEGER_LITERAL, K.CHARACTER_LITERAL, K.CXX_BOOL_LITERAL_EXPR, K.UNARY_OPERATOR,
+                  K.DECL_REF_EXPR, K.PAREN_EXPR, K.CSTYLE_CAST_EXPR}
+
+
 def literal_text(c: ci.Cursor) -> str | None:
-    """Text of a literal-ish expression (int literal, -literal, enum constant, macro-expanded literal)."""
+    """Value of an integer constant expression (literal, -literal, enum constant, macro), else None.
+
+    Values are evaluated by clang, so `ERR_BUSY` from a header and `-4` compare equal and a macro's
+    spelling never leaks into the result.
+    """
     s, _ = _strip(c)
-    if s.kind in (K.INTEGER_LITERAL, K.CHARACTER_LITERAL, K.CXX_BOOL_LITERAL_EXPR, K.CXX_NULL_PTR_LITERAL_EXPR):
-        toks = [t.spelling for t in s.get_tokens()]
-        return "".join(toks) if toks else None
-    if s.kind == K.UNARY_OPERATOR and operator_of(s) in ("pre-", "pre+"):
-        kids = list(s.get_children())
-        inner = literal_text(kids[0]) if kids else None
-        return None if inner is None else operator_of(s)[3:] + inner
-    if s.kind == K.DECL_REF_EXPR and s.referenced is not None and s.referenced.kind == K.ENUM_CONSTANT_DECL:
-        return s.spelling
-    return None
+    if s.kind == K.CXX_NULL_PTR_LITERAL_EXPR:
+        return "nullptr"
+    if s.kind not in _LITERAL_KINDS:
+        return None
+    if s.kind == K.DECL_REF_EXPR and (s.referenced is None or s.referenced.kind != K.ENUM_CONSTANT_DECL):
+        return None
+    return _evaluate_int(s)
 
 
 class FunctionAnalyzer:

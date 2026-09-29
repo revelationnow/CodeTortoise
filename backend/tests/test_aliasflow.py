@@ -89,3 +89,21 @@ def test_reads_are_recorded_with_paths(tmp_path):
     fields, _, _ = writes(tmp_path, "alias.c", ALIAS_C, ["-xc"], "touch")
     reads = {(a.path, a.field_name) for a in fields if a.mode == "read"}
     assert ("s.child", "child") in reads
+
+
+MACRO_C = """#define REG_WRITE(r, v) ((r) = (v))
+#define INC(x) ((x)++)
+#define SET_BIT(r, b) ((r) |= (1u << (b)))
+struct U { int ctrl; int cnt; unsigned flags; };
+void poke(struct U *u) {
+  REG_WRITE(u->ctrl, 5);
+  INC(u->cnt);
+  SET_BIT(u->flags, 3);
+}
+"""
+
+
+def test_writes_spelled_inside_macros(tmp_path):
+    _, _, w = writes(tmp_path, "macro.c", MACRO_C, ["-xc"], "poke")
+    assert {(line, path, mode) for line, path, mode, _, _ in w} == {
+        (6, "u.ctrl", "write"), (7, "u.cnt", "write"), (8, "u.flags", "write")}
