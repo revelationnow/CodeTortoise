@@ -19,21 +19,21 @@ export default function Reviews() {
       {rows.length === 0 ? (
         <p className="muted">No reviews yet.</p>
       ) : (
-        <table className="table">
-          <thead><tr><th>#</th><th>Title</th><th>CLs</th><th>Status</th><th>Risk</th><th>Created</th></tr></thead>
+        <div className="table-wrap"><table className="table">
+          <thead><tr><th className="opt">#</th><th>Title</th><th>CLs</th><th>Status</th><th>Risk</th><th className="opt">Created</th></tr></thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.id}>
-                <td>{r.id}</td>
+                <td className="opt">{r.id}</td>
                 <td><Link to={`/r/${r.id}`}>{r.title}</Link></td>
                 <td className="mono">{r.cls.join(", ")}</td>
                 <td><StatusBadge status={r.status} /></td>
                 <td><RiskBadge risk={r.risk} /></td>
-                <td className="muted">{r.created_at.replace("T", " ").slice(0, 16)} · {r.created_by}</td>
+                <td className="muted opt">{r.created_at.replace("T", " ").slice(0, 16)} · {r.created_by}</td>
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
     </main>
   );

@@ -28,8 +28,9 @@ h1 { font-size: 22px; margin: 0 0 12px; } h2 { font-size: 16px; margin: 0; } h3 
 h4 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 12px 0 4px; }
 .mono { font-family: var(--mono); } .small { font-size: 12px; } .muted { color: var(--muted); }
 .error { color: var(--bad); }
-.topbar { display: flex; align-items: center; gap: 24px; padding: 10px 24px; border-bottom: 1px solid var(--line); background: var(--surface); }
-.topbar nav { display: flex; gap: 16px; align-items: center; margin-left: auto; }
+.topbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 24px; padding: 10px 24px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.topbar nav { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-left: auto; }
+.topbar nav a, .topbar nav button { white-space: nowrap; }
 .brand { font-weight: 700; text-decoration: none; color: var(--ink); letter-spacing: .01em; }
 .page { padding: 24px; max-width: 1200px; margin: 0 auto; }
 .page.narrow { max-width: 480px; } .page.wide { max-width: none; }
@@ -53,8 +54,10 @@ h4 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .stage.ok .dot { background: var(--ok); } .stage.degraded .dot { background: var(--warn); } .stage.failed .dot { background: var(--bad); }
 .stage.running .dot { background: var(--accent); animation: pulse 1s infinite alternate; } .stage.skipped { text-decoration: line-through; }
 @keyframes pulse { from { opacity: .3; } to { opacity: 1; } }
-.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 12px 0 16px; }
-.tabs a { padding: 8px 14px; text-decoration: none; color: var(--muted); border-bottom: 2px solid transparent; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 12px 0 16px; overflow-x: auto;
+  scrollbar-width: none; }
+.tabs a { padding: 8px 14px; text-decoration: none; color: var(--muted); border-bottom: 2px solid transparent;
+  white-space: nowrap; flex: none; }
 .tabs a.on { color: var(--ink); border-color: var(--accent); }
 .cite { font: 11px var(--mono); padding: 0 5px; margin: 0 1px; border-radius: 4px; color: var(--accent); }
 .cites { white-space: nowrap; }
@@ -78,7 +81,7 @@ h4 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .file summary { cursor: pointer; }
 .diff { width: 100%; border-collapse: collapse; font: 12px/1.45 var(--mono); margin-top: 8px; }
 .diff td { padding: 0 6px; white-space: pre-wrap; word-break: break-all; }
-.diff .ln { width: 1%; color: var(--muted); text-align: right; user-select: none; }
+.diff .ln { width: 1%; color: var(--muted); text-align: right; user-select: none; white-space: nowrap; word-break: normal; }
 .diff .add-comment { width: 1%; } .diff .add-comment button { visibility: hidden; font-weight: 700; }
 .diff tr:hover .add-comment button { visibility: visible; }
 .diff tr.add { background: var(--add-bg); } .diff tr.del { background: var(--del-bg); }
@@ -90,4 +93,16 @@ h4 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .comment-head { display: flex; gap: 8px; align-items: baseline; } .comment-body { white-space: pre-wrap; }
 .thread-actions { display: flex; gap: 8px; align-items: flex-start; margin-top: 6px; }
 .composer { display: flex; gap: 8px; align-items: flex-start; margin-top: 6px; flex: 1; } .composer textarea { flex: 1; }
+.table-wrap { overflow-x: auto; }
 @media (max-width: 860px) { .flows-body { grid-template-columns: 1fr; } .page { padding: 16px; } }
+@media (max-width: 600px) {
+  .topbar { padding: 8px 16px; }
+  .topbar nav { margin-left: 0; }
+  .opt { display: none; }
+  .graph { height: 60vh; }
+  .side { max-height: none; }
+  .diff { font-size: 11px; }
+  .diff td { padding: 0 3px; }
+  .review-head h1 { font-size: 19px; }
+  select[multiple] { min-width: 0; width: 100%; }
+}

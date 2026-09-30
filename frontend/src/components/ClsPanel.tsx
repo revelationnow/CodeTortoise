@@ -9,14 +9,14 @@ export default function ClsPanel({ reviewId, cls, onChange }: { reviewId: number
   return (
     <div className="cls">
       {msg && <div className="banner">{msg}</div>}
-      <table className="table">
-        <thead><tr><th>CL</th><th>Status</th><th>Author</th><th>Description</th><th>Swarm</th>{me?.is_owner && <th />}</tr></thead>
+      <div className="table-wrap"><table className="table">
+        <thead><tr><th>CL</th><th className="opt">Status</th><th className="opt">Author</th><th>Description</th><th>Swarm</th>{me?.is_owner && <th />}</tr></thead>
         <tbody>
           {cls.map((c) => (
             <tr key={c.cl}>
               <td className="mono">{c.cl}</td>
-              <td>{c.status}</td>
-              <td>{c.user}</td>
+              <td className="opt">{c.status}</td>
+              <td className="opt">{c.user}</td>
               <td className="small">{c.description}</td>
               <td>{c.swarm ? (
                 <a href={c.swarm.url} target="_blank" rel="noreferrer">#{c.swarm.id} {c.swarm.state_label ?? c.swarm.state}</a>
@@ -43,7 +43,7 @@ export default function ClsPanel({ reviewId, cls, onChange }: { reviewId: number
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
     </div>
   );
 }

@@ -12,7 +12,7 @@ export default function Health() {
   return (
     <main className="page">
       <h1>Health {h.ready ? <span className="badge ok">ready</span> : <span className="badge failed">not ready</span>}</h1>
-      <table className="table">
+      <div className="table-wrap"><table className="table">
         <thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
           {h.checks.map((c) => (
@@ -23,7 +23,7 @@ export default function Health() {
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
       <section className="card">
         <h2>Symbol index</h2>
         <p>Generation {h.index_generation}{h.index_building ? " — rebuilding…" : ""}</p>

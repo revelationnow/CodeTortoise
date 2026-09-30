@@ -41,7 +41,7 @@ export default function BlastRadius({ impact, onCite, layerName }: Props) {
       {[...rings.keys()].sort((a, b) => a - b).map((hop) => (
         <section key={hop} className="card ring">
           <h3>Hop {hop}</h3>
-          <table className="table">
+          <div className="table-wrap"><table className="table">
             <tbody>
               {rings.get(hop)!.map((r) => {
                 const n = impact.nodes[r.id];
@@ -58,13 +58,13 @@ export default function BlastRadius({ impact, onCite, layerName }: Props) {
                 );
               })}
             </tbody>
-          </table>
+          </table></div>
         </section>
       ))}
       {impact.fanout.length > 0 && (
         <section className="card">
           <h3>Header fan-out</h3>
-          <table className="table">
+          <div className="table-wrap"><table className="table">
             <thead><tr><th>Header</th><th>TUs</th><th>By layer</th></tr></thead>
             <tbody>{impact.fanout.map((f) => (
               <tr key={f.header}>
@@ -72,7 +72,7 @@ export default function BlastRadius({ impact, onCite, layerName }: Props) {
                 <td className="small">{Object.entries(f.by_layer).map(([k, v]) => `${k}: ${v}`).join(" · ")}</td>
               </tr>
             ))}</tbody>
-          </table>
+          </table></div>
         </section>
       )}
     </div>
