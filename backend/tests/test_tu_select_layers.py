@@ -70,3 +70,26 @@ def test_changed_source_missing_from_compile_db_is_still_selected(fx, fx_source,
     sel = select_tus(dm, index, partial, AnalysisConfig())
     assert "driver/uart.c" in names(sel.selected)
     assert sel.hops[[p for p in sel.selected if p.endswith("driver/uart.c")][0]] == 0
+
+
+def test_layers_survive_cycles_by_dropping_weak_back_edges(tmp_path):
+    files = {}
+    for i in range(6):
+        files[f"util/u{i}.h"] = f"int u{i}(void);\n"
+        files[f"util/u{i}.c"] = f'#include "u{i}.h"\nint u{i}(void) {{ return {i}; }}\n'
+        files[f"core/c{i}.c"] = f'#include "../util/u{i}.h"\nint c{i}(void) {{ return u{i}(); }}\n'
+        files[f"app/a{i}.c"] = f"int a{i}(void) {{ return c{i}(); }}\n"
+    files["util/u0.c"] += '#include "../core/core_cfg.h"\n'  # one real back-edge: util -> core
+    files["core/core_cfg.h"] = "#define CORE_CFG 1\n"
+    files["core/c1.c"] += "int t(void) { return test_helper(); }\n"  # name-matched call into tests
+    files["tests/t.c"] = "int test_helper(void) { return a0(); }\n"
+    for rel_path, text in files.items():
+        (tmp_path / rel_path).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel_path).write_text(text)
+    idx = SymbolIndex(tmp_path / "s.db")
+    idx.build(tmp_path)
+    lm = infer_layers(idx, str(tmp_path), min_files=1)
+    lv = lm.module_level
+    assert lv["util"] < lv["core"] < lv["app"] <= lv["tests"]
+    assert lm.cycles_broken >= 2
+    assert lm.layer(lv["core"]).name.startswith(f"L{lv['core']}: core")
