@@ -15,7 +15,7 @@ from codetortoise.impact import ImpactModel, build_impact
 from codetortoise.llm.storyboard import build_storyboard
 from codetortoise.services import Services
 from codetortoise.swarm import SwarmError
-from codetortoise.tu_select import select_tus
+from codetortoise.tu_select import TuSelection, field_follow_up, select_tus
 from codetortoise.vcs.model import ChangeSet
 
 log = logging.getLogger(__name__)
@@ -130,14 +130,25 @@ def run_review(rid: int, svc: Services) -> None:
         lib = svc.toolchain.libclang.path if svc.toolchain.libclang and svc.toolchain.libclang.vendor else None
         before = run_extraction(build_requests(ctx["sel"], ctx["cs"], svc.toolchain, "before"), lib, cfg.analysis.workers)
         after = run_extraction(build_requests(ctx["sel"], ctx["cs"], svc.toolchain, "after"), lib, cfg.analysis.workers)
+        note = ""
+        extra = field_follow_up(ctx["dm"], after, svc.index, svc.cdb, ctx["sel"], cfg.analysis)
+        if extra:
+            parsed = {f.tu.file for f in before + after}
+            follow = TuSelection(selected=extra)
+            for variant, out in (("before", before), ("after", after)):
+                reqs = [r for r in build_requests(follow, ctx["cs"], svc.toolchain, variant) if r.file not in parsed]
+                out += run_extraction(reqs, lib, cfg.analysis.workers)
+            ctx["sel"].selected += extra
+            ctx["sel"].hops.update({p: 1 for p in extra})
+            store.put_blob(rid, "selection", ctx["sel"])
+            note = f"; {len(extra)} follow-up TU(s) for fields written by the change"
         ctx["before"], ctx["after"] = before, after
         store.put_blob(rid, "facts_before", before)
         store.put_blob(rid, "facts_after", after)
         learned = sorted({f for facts in before + after for f in facts.tu.stripped_flags} - svc.toolchain.strip)
-        note = ""
         if learned:
             svc.remember_stripped(learned)
-            note = f"; stripped flags learned for this workspace: {' '.join(learned)}"
+            note += f"; stripped flags learned for this workspace: {' '.join(learned)}"
         bad = [f.tu.file for f in before + after if f.tu.confidence != "precise"]
         if bad:
             raise Degraded(f"{len(bad)} TU parse(s) degraded or fell back to tree-sitter{note}")

@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from codetortoise.config import AnalysisConfig
 from codetortoise.cparse import is_header
 from codetortoise.diffmap import DiffMap
+from codetortoise.facts.model import Facts
 from codetortoise.index.symbols import SymbolIndex
 from codetortoise.toolchain.compile_db import CompileDb
 
@@ -62,3 +63,35 @@ def select_tus(dm: DiffMap, index: SymbolIndex, cdb: CompileDb, cfg: AnalysisCon
     sel.hops = {p: hop[p] for p in sel.selected}
     sel.over_budget = max(0, len(ranked) - cfg.tu_budget)
     return sel
+
+
+def field_follow_up(dm: DiffMap, after: list[Facts], index: SymbolIndex, cdb: CompileDb, sel: TuSelection,
+                    cfg: AnalysisConfig) -> list[str]:
+    """Second selection round, after clang facts exist for the changed TUs.
+
+    Tree-sitter only sees `x->f = ...` writes; clang also sees writes through local aliases. For every field a
+    changed function writes (per clang), add not-yet-parsed TUs that reference a same-named member and can see
+    the record's declaration, so its readers get precise facts. Bounded by the remaining TU budget.
+    """
+    ranges: dict[str, list[tuple[int, int]]] = {}
+    for c in dm.functions:
+        if c.after_lines:
+            ranges.setdefault(c.file, []).append(c.after_lines)
+    changed_usrs = {f.usr for facts in after for f in facts.functions
+                    if any(f.start_line <= hi and lo <= f.end_line for lo, hi in ranges.get(f.file, []))}
+    written: dict[str, str] = {}
+    for facts in after:
+        for a in facts.fields:
+            if a.fn in changed_usrs and a.mode != "read" and a.root_kind != "local":
+                written.setdefault(a.field_name, a.record_file)
+    tus, have = set(cdb.files()), set(sel.selected)
+    extra: dict[str, None] = {}
+    for name, rfile in sorted(written.items()):
+        allowed = ({rfile} | index.transitive_includers(rfile)) if rfile else None
+        rows = [r.path for r in index.member_refs(name)
+                if r.path in tus and r.path not in have and (allowed is None or r.path in allowed)]
+        if len(set(rows)) > cfg.heuristic_fanin_cap:
+            continue
+        for p in sorted(set(rows)):
+            extra.setdefault(p, None)
+    return list(extra)[: max(0, cfg.tu_budget - len(sel.selected))]

@@ -151,3 +151,26 @@ def test_index_is_built_with_compile_db_include_dirs(fx, tmp_path):
     run_review(rid, svc)
     root = str(fx.root.resolve())
     assert seen["include_dirs"] == [f"{root}/include", root]
+
+
+def test_facts_stage_parses_field_follow_up_tus(fx, tmp_path, monkeypatch):
+    from codetortoise import pipeline
+    svc = make_services(fx, tmp_path)
+    svc.cfg.analysis.caller_hops = 0  # initial selection: driver/uart.c only
+    logger = str((fx.root / "service/logger.c").resolve())
+    seen = {}
+
+    def fake_follow_up(dm, after, index, cdb, sel, cfg):
+        seen["after_files"] = [f.tu.file.split("/")[-1] for f in after]
+        return [logger]
+
+    monkeypatch.setattr(pipeline, "field_follow_up", fake_follow_up)
+    rid = svc.store.create_review("t", "owner", [101])
+    run_review(rid, svc)
+    assert seen["after_files"] == ["uart.c"]
+    sel = svc.store.get_blob(rid, "selection")
+    assert logger in sel["selected"] and sel["hops"][logger] == 1
+    parsed = {f["tu"]["file"].split("/")[-1] for f in svc.store.get_blob(rid, "facts_before")}
+    assert parsed == {"uart.c", "logger.c"}
+    msg = next(s["message"] for s in svc.store.list_stages(rid) if s["name"] == "facts")
+    assert "1 follow-up TU(s)" in msg

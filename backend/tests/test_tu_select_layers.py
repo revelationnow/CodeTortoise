@@ -93,3 +93,32 @@ def test_layers_survive_cycles_by_dropping_weak_back_edges(tmp_path):
     assert lv["util"] < lv["core"] < lv["app"] <= lv["tests"]
     assert lm.cycles_broken >= 2
     assert lm.layer(lv["core"]).name.startswith(f"L{lv['core']}: core")
+
+
+def test_follow_up_selects_tus_touching_fields_written_through_aliases(tmp_path):
+    import json
+
+    from codetortoise.facts.clang_extractor import TuRequest, extract_tu
+    from codetortoise.tu_select import field_follow_up
+    from codetortoise.vcs.model import ChangeSet, ClMeta, FileChange
+
+    before = '#include "a.h"\nvoid bump(struct A *a) { (void)a; }\n'
+    after = '#include "a.h"\nvoid bump(struct A *a) { int *c = &a->count; *c += 1; }\n'
+    files = {"a.h": "struct A { int count; };\nvoid bump(struct A *a);\n", "a.c": before,
+             "user.c": '#include "a.h"\nint peek(struct A *a) { return a->count; }\n',
+             "other.c": "struct B { int count; };\nint unrelated(struct B *b) { return b->count; }\n"}
+    for name, text in files.items():
+        (tmp_path / name).write_text(text)
+    root = str(tmp_path.resolve())
+    (tmp_path / "cc.json").write_text(json.dumps([
+        {"directory": root, "file": f, "arguments": ["cc", "-xc", "-c", f]} for f in ("a.c", "user.c", "other.c")]))
+    cdb = CompileDb.load(tmp_path / "cc.json")
+    a = f"{root}/a.c"
+    dm = map_changes(ChangeSet(cls=[ClMeta(cl=1, status="pending")], files=[
+        FileChange(depot="//d/a.c", local=a, action="edit", before=before, after=after)]))
+    idx = SymbolIndex(tmp_path / "s.db")
+    idx.build(tmp_path)
+    sel = select_tus(dm, idx, cdb, AnalysisConfig())
+    assert names(sel.selected) == [f"{tmp_path.name}/a.c"]  # tree-sitter cannot see the alias write
+    facts_after = [extract_tu(TuRequest(file=a, args=["-xc", f"-I{root}"], variant="after", unsaved={a: after}))]
+    assert field_follow_up(dm, facts_after, idx, cdb, sel, AnalysisConfig()) == [f"{root}/user.c"]
