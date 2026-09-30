@@ -52,3 +52,19 @@ def test_prepare_loads_bundled_libclang(tmp_path):
     tc = Toolchain(ToolchainConfig(), CompileDb([]), tmp_path)
     tc.prepare()
     assert tc.libclang.version.startswith("clang version") and tc.libclang.vendor is False
+
+
+def test_prelude_skips_compiler_identity_macros(tmp_path, monkeypatch):
+    from codetortoise.toolchain import toolchain as tcmod
+    info = DriverInfo(("/opt/v/include",), (("__GNUC__", "15"), ("__GNUC_MINOR__", "2"), ("__clang_major__", "17"),
+                                            ("__VERSION__", '"15.2"'), ("__STDC_VERSION__", "201710L"),
+                                            ("__GCC_HAVE_DWARF2_CFI_ASM", "1"), ("__ARM_ARCH", "7"),
+                                            ("__VENDOR_CHIP__", "1"), ("__SIZEOF_LONG__", "4")), None)
+    monkeypatch.setattr(tcmod, "query_driver", lambda *a, **k: info)
+    db = CompileDb([CompileEntry("/w/a.c", "/w", ("vcc", "-c", "a.c"))])
+    tc = Toolchain(ToolchainConfig(clang="/opt/v/bin/vcc"), db, tmp_path)
+    tc.prepare()
+    prelude = (tmp_path / "prelude-c.h").read_text()
+    assert "__ARM_ARCH 7" in prelude and "__VENDOR_CHIP__ 1" in prelude and "__SIZEOF_LONG__ 4" in prelude
+    for name in ("__GNUC__", "__GNUC_MINOR__", "__clang_major__", "__VERSION__", "__STDC_VERSION__", "__GCC_HAVE"):
+        assert name not in prelude

@@ -12,6 +12,16 @@ from codetortoise.toolchain.libclang import LibclangInfo, load_libclang
 _CXX_EXTS = {".cc", ".cpp", ".cxx", ".c++", ".hpp", ".hh", ".hxx"}
 
 
+# Macros that describe the *compiler* rather than the target. Importing the driver's values would make
+# libclang impersonate that compiler (e.g. gcc's __GNUC__ makes glibc expect _Float32/_Float64 types).
+_IDENTITY_PREFIXES = ("__GNUC", "__GNUG", "__clang", "__llvm", "__VERSION__", "__STDC", "__GCC_", "__GXX_",
+                      "__apple_build", "__OPTIMIZE", "__NO_INLINE__", "__OBJC", "__cplusplus")
+
+
+def is_identity_macro(name: str) -> bool:
+    return name.startswith(_IDENTITY_PREFIXES)
+
+
 def lang_of(path: str) -> str:
     return "c++" if Path(path).suffix.lower() in _CXX_EXTS else "c"
 
@@ -46,7 +56,7 @@ class Toolchain:
                 continue
             self.driver[lang] = info
             prelude = self.work_dir / f"prelude-{'cxx' if lang == 'c++' else 'c'}.h"
-            prelude.write_text("".join(f"#define {n} {v}\n" for n, v in info.defines))
+            prelude.write_text("".join(f"#define {n} {v}\n" for n, v in info.defines if not is_identity_macro(n)))
             self._preludes[lang] = prelude
 
     def args_for(self, file: str) -> list[str]:
