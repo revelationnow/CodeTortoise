@@ -158,3 +158,23 @@ def test_owner_login_requests_host_unlocked_ticket_for_swarm(fx, tmp_path):
     auth = make_authenticator(svc)
     assert auth("owner", "pw") == "TICKET" and auth("bob", "pw") == "TICKET"
     assert calls == [("owner", True), ("bob", False)]
+
+
+def test_expired_p4_password_is_explained_but_other_failures_stay_generic(fx, tmp_path):
+    from codetortoise.vcs.p4runner import P4Error
+    svc = make_services(fx, tmp_path)
+    svc.cfg.auth.mode = "p4"
+
+    class P4:
+        def login_check(self, user, password, all_hosts=False):
+            if user == "bob":
+                raise P4Error("p4 login failed: Your password has expired, please change your password.")
+            raise P4Error("p4 login failed: User carol doesn't exist.")
+
+    svc.p4 = P4()
+    app = create_app(svc, InlineRunner(svc), make_authenticator(svc))
+    c = TestClient(app)
+    r = c.post("/api/login", json={"user": "bob", "password": "x"})
+    assert r.status_code == 401 and "expired" in r.json()["detail"] and "p4 passwd" in r.json()["detail"]
+    r = c.post("/api/login", json={"user": "carol", "password": "x"})
+    assert r.status_code == 401 and r.json()["detail"] == "invalid credentials"

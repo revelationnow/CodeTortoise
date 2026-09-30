@@ -21,6 +21,10 @@ STATIC = Path(__file__).parent / "static"
 TERMINAL = {"done", "degraded", "failed"}
 
 
+class LoginRejected(Exception):
+    """Raised by an authenticator with a message that is safe to show (never reveals whether a user exists)."""
+
+
 class LoginIn(BaseModel):
     user: str
     password: str = ""
@@ -81,7 +85,10 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
     # ---- auth --------------------------------------------------------------
     @app.post("/api/login")
     def login(body: LoginIn, response: Response):
-        ticket = authenticate(body.user, body.password)
+        try:
+            ticket = authenticate(body.user, body.password)
+        except LoginRejected as e:
+            raise HTTPException(401, str(e)) from e
         if ticket is None:
             raise HTTPException(401, "invalid credentials")
         if body.user == cfg.owner:
@@ -310,6 +317,9 @@ def make_authenticator(svc: Services):
             return None
         try:
             return svc.p4.login_check(user, password, all_hosts=user == svc.cfg.owner)
-        except P4Error:
+        except P4Error as e:
+            if "expired" in str(e).lower():
+                raise LoginRejected("Your Perforce password has expired. Change it with `p4 passwd`, then sign in "
+                                    "again.") from e
             return None
     return p4_auth
