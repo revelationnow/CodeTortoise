@@ -19,7 +19,7 @@ def test_fixture_findings(analysed):
     f5 = findings[4]
     texts = [e.text for e in f5.evidence]
     assert "logger_flush ignores the result" in texts
-    assert "logger_write checks ['!=0'] (covers new values)" in texts
+    assert "logger_write checks !=0 (covers new values)" in texts
     f1 = findings[0]
     assert f1.evidence[0].text == "write `u.errors` via err (precise)"
     assert "uart_errors" in f1.evidence[-1].text
@@ -79,3 +79,24 @@ def test_heuristic_field_users_restricted_to_record_includers(tmp_path):
     (f,) = [f for f in run_detectors(DetectorContext(before, after, dm, im, cfg)) if f.kind == "field_mutation"]
     assert f.severity == "medium"  # only heuristic users; not escalated to high
     assert "peek" in f.evidence[-1].text and "heuristic" in f.evidence[-1].text
+
+
+def test_contract_evidence_uses_constant_names():
+    from codetortoise.config import AnalysisConfig
+    from codetortoise.diffmap import DiffMap
+    from codetortoise.facts.model import CallEdge, Facts, Function, TuInfo
+    from codetortoise.impact import ImpactModel, Node
+
+    def fn(returns, names):
+        return Function(usr="c:@F@f", qualname="f", name="f", signature="int f(void)", return_type="int",
+                        file="/w/a.c", start_line=1, end_line=9, returns=returns, return_names=names)
+
+    call = CallEdge(caller="c:@F@g", callee="c:@F@f", callee_name="f", file="/w/a.c", line=12,
+                    compared=["==-3"], compared_names={"==-3": "ERR_NOTFOUND"})
+    before = [Facts(tu=TuInfo(file="/w/a.c", variant="before"), functions=[fn(["0", "-3"], {"-3": "ERR_NOTFOUND"})])]
+    after = [Facts(tu=TuInfo(file="/w/a.c", variant="after"),
+                   functions=[fn(["0", "-3", "-4"], {"-3": "ERR_NOTFOUND", "-4": "ERR_BUSY"})], calls=[call])]
+    im = ImpactModel(nodes={"N1": Node(id="N1", key="c:@F@f", label="f", status="changed")}, changed=["N1"])
+    (f,) = run_detectors(DetectorContext(before, after, DiffMap(), im, AnalysisConfig()))
+    assert f.title == "f: new return value(s) ERR_BUSY (-4)"
+    assert "checks ERR_NOTFOUND (==-3) which does not handle ERR_BUSY (-4)" in f.evidence[1].text

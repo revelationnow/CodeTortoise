@@ -6,6 +6,14 @@ from codetortoise.detectors.base import DetectorContext, Evidence, Finding, max_
 _RANGE_OPS = ("!=", "<", ">", "<=", ">=")
 
 
+def _val(v: str, names: dict[str, str]) -> str:
+    return f"{names[v]} ({v})" if v in names else v
+
+
+def _cmp(c) -> str:
+    return ", ".join(f"{c.compared_names[x]} ({x})" if x in c.compared_names else x for x in c.compared)
+
+
 def _covered(compared: list[str], new_values: list[str]) -> bool:
     for c in compared:
         if c.startswith(_RANGE_OPS):
@@ -35,9 +43,12 @@ def detect_contract(ctx: DetectorContext) -> list[Finding]:
                 ev.append(Evidence(text=f"{len(names)} caller(s) must be re-checked: {', '.join(names[:10])}",
                                    severity="medium"))
         new_values = [r for r in after.returns if r not in before.returns]
+        names = {**before.return_names, **after.return_names}
+        new_text = ", ".join(_val(v, names) for v in new_values)
         if new_values:
-            titles.append(f"new return value(s) {', '.join(new_values)}")
-            ev.append(Evidence(text=f"returns before: {before.returns or ['(non-literal)']}; after: {after.returns}",
+            titles.append(f"new return value(s) {new_text}")
+            ev.append(Evidence(text=f"returns before: {[_val(v, names) for v in before.returns] or ['(non-literal)']}; "
+                                    f"after: {[_val(v, names) for v in after.returns]}",
                                file=after.file, line=after.start_line, severity="low"))
             for c in after_calls:
                 if c.callee != node.key:
@@ -48,10 +59,10 @@ def detect_contract(ctx: DetectorContext) -> list[Finding]:
                     ev.append(Evidence(text=f"{cname} ignores the result", file=c.file, line=c.line,
                                        severity="medium"))
                 elif c.compared and not _covered(c.compared, new_values):
-                    ev.append(Evidence(text=f"{cname} checks {c.compared} which does not handle {new_values}",
+                    ev.append(Evidence(text=f"{cname} checks {_cmp(c)} which does not handle {new_text}",
                                        file=c.file, line=c.line, severity="high"))
                 elif c.compared:
-                    ev.append(Evidence(text=f"{cname} checks {c.compared} (covers new values)",
+                    ev.append(Evidence(text=f"{cname} checks {_cmp(c)} (covers new values)",
                                        file=c.file, line=c.line, severity="info"))
                 else:
                     ev.append(Evidence(text=f"{cname} uses the result without comparing it",

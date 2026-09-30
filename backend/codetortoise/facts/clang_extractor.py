@@ -9,6 +9,7 @@ import clang.cindex as ci
 from codetortoise.facts.aliasflow import (
     FunctionAnalyzer,
     _strip,
+    constant_name,
     literal_text,
     operator_of,
 )
@@ -69,6 +70,7 @@ def function_fact(c: ci.Cursor) -> Function:
     is_virtual = c.kind == K.CXX_METHOD and c.is_virtual_method()
     usr = c.get_usr()
     returns: list[str] = []
+    names: dict[str, str] = {}
     for r in c.walk_preorder():
         if r.kind == K.RETURN_STMT:
             kids = list(r.get_children())
@@ -76,11 +78,13 @@ def function_fact(c: ci.Cursor) -> Function:
                 lit = literal_text(kids[0])
                 if lit is not None and lit not in returns:
                     returns.append(lit)
+                if lit is not None and lit not in names and (name := constant_name(kids[0])):
+                    names[lit] = name
     return Function(
         usr=usr, qualname=qual, name=c.spelling, signature=sig, return_type=rt, params=params,
         file=_norm(c.location.file.name), start_line=c.extent.start.line, end_line=c.extent.end.line,
         is_virtual=is_virtual, method_key=usr.split("@F@", 1)[-1] if is_virtual else None,
-        is_static=c.storage_class == ci.StorageClass.STATIC, returns=returns)
+        is_static=c.storage_class == ci.StorageClass.STATIC, returns=returns, return_names=names)
 
 
 _WRAP = {K.UNEXPOSED_EXPR, K.PAREN_EXPR}
@@ -115,6 +119,7 @@ def _calls(fn: ci.Cursor, fn_usr: str) -> list[CallEdge]:
             via_member = bool(kids) and _strip(kids[0])[0].kind == K.MEMBER_REF_EXPR
             is_virtual = callee.kind == K.CXX_METHOD and callee.is_virtual_method() and via_member
             compared: list[str] = []
+            compared_names: dict[str, str] = {}
             if parent is not None and parent.kind == K.BINARY_OPERATOR:
                 op = operator_of(parent)
                 if op in _CMP_OPS:
@@ -122,11 +127,13 @@ def _calls(fn: ci.Cursor, fn_usr: str) -> list[CallEdge]:
                         lit = literal_text(other)
                         if lit is not None:
                             compared.append(f"{op}{lit}")
+                            if name := constant_name(other):
+                                compared_names[f"{op}{lit}"] = name
             out.append(CallEdge(
                 caller=fn_usr, callee=callee.get_usr(), callee_name=qualname_of(callee),
                 file=_norm(c.location.file.name) if c.location.file else "", line=c.location.line,
                 kind="virtual" if is_virtual else "direct",
-                result_used=not _result_unused(parent, idx, n), compared=compared))
+                result_used=not _result_unused(parent, idx, n), compared=compared, compared_names=compared_names))
         kids = list(c.get_children())
         for i, ch in enumerate(kids):
             if c.kind in _WRAP:

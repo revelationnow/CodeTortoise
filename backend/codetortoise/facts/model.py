@@ -29,6 +29,7 @@ class Function(BaseModel):
     method_key: str | None = None
     is_static: bool = False
     returns: list[str] = Field(default_factory=list)
+    return_names: dict[str, str] = Field(default_factory=dict)  # value -> macro/enum name, where known
 
 
 class CallEdge(BaseModel):
@@ -40,6 +41,7 @@ class CallEdge(BaseModel):
     kind: Literal["direct", "virtual"] = "direct"
     result_used: bool = True
     compared: list[str] = Field(default_factory=list)  # e.g. ["!=0", "==-1"]
+    compared_names: dict[str, str] = Field(default_factory=dict)  # "==-1" -> "GIT_ERROR"
     confidence: Confidence = "precise"
 
 

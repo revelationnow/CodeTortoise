@@ -74,6 +74,9 @@ int g(void) { if (f(1) == ERR_BUSY) return 1; return f(2) != ERR_HDR; }
     assert fa["f"].returns == ["-4", "-3", "0"]
     assert fb["f"].returns == fa["f"].returns  # unrelated body edit does not change return values
     assert [c.compared for c in results[0].calls if c.callee_name == "f"] == [["==-4"], ["!=-3"]]
+    assert fa["f"].return_names == {"-4": "ERR_BUSY", "-3": "ERR_HDR"}
+    assert [c.compared_names for c in results[0].calls if c.callee_name == "f"] == [
+        {"==-4": "ERR_BUSY"}, {"!=-3": "ERR_HDR"}]
 
 
 def test_unsupported_option_diagnostics_are_stripped(fx):

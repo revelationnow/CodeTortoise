@@ -180,6 +180,23 @@ _LITERAL_KINDS = {K.INTEGER_LITERAL, K.CHARACTER_LITERAL, K.CXX_BOOL_LITERAL_EXP
                   K.DECL_REF_EXPR, K.PAREN_EXPR, K.CSTYLE_CAST_EXPR}
 
 
+def constant_name(c: ci.Cursor) -> str | None:
+    """Macro or enumerator name a constant expression is spelled with at its use site, e.g. "GIT_ENOTFOUND"."""
+    s, _ = _strip(c)
+    if s.kind == K.DECL_REF_EXPR and s.referenced is not None and s.referenced.kind == K.ENUM_CONSTANT_DECL:
+        return s.spelling
+    loc = s.location
+    if loc.file is None:
+        return None
+    # a macro-expanded cursor's raw location points into the #define; tokenize at the expansion site instead
+    tu = s.translation_unit
+    at = ci.SourceLocation.from_position(tu, loc.file, loc.line, loc.column)
+    toks = list(tu.get_tokens(extent=ci.SourceRange.from_locations(at, at)))
+    if toks and toks[0].kind == ci.TokenKind.IDENTIFIER:
+        return toks[0].spelling
+    return None
+
+
 def literal_text(c: ci.Cursor) -> str | None:
     """Value of an integer constant expression (literal, -literal, enum constant, macro), else None.
 
