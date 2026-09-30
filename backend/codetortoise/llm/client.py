@@ -33,17 +33,26 @@ class LlmClient:
         self.model = model
         self.retries = retries
         self._sleep = sleep
-        self._json_mode = True
+        self._format = "json_object"  # -> "json_schema" (e.g. LM Studio) or "none" as servers reject formats
         self._http = httpx.Client(base_url=base_url.rstrip("/"), timeout=timeout, transport=transport,
                                   headers={"Authorization": f"Bearer {api_key}"})
 
-    def chat(self, system: str, user: str) -> str:
+    def _response_format(self, schema: type[BaseModel] | None) -> dict | None:
+        if self._format == "json_object":
+            return {"type": "json_object"}
+        if self._format == "json_schema" and schema is not None:
+            return {"type": "json_schema",
+                    "json_schema": {"name": schema.__name__, "schema": schema.model_json_schema()}}
+        return None
+
+    def chat(self, system: str, user: str, schema: type[BaseModel] | None = None) -> str:
         body = {"model": self.model, "temperature": 0.2,
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
         last: Exception | None = None
         for attempt in range(self.retries + 1):
-            if self._json_mode:
-                body["response_format"] = {"type": "json_object"}
+            rf = self._response_format(schema)
+            if rf is not None:
+                body["response_format"] = rf
             else:
                 body.pop("response_format", None)
             try:
@@ -51,8 +60,10 @@ class LlmClient:
             except httpx.HTTPError as e:
                 last = e
             else:
-                if r.status_code == 400 and self._json_mode and "response_format" in r.text:
-                    self._json_mode = False
+                if r.status_code == 400 and rf is not None and "response_format" in r.text:
+                    # server rejects this structured-output form: prefer json_schema if it asks for it, else plain text
+                    wants_schema = self._format == "json_object" and "json_schema" in r.text
+                    self._format = "json_schema" if wants_schema else "none"
                     continue
                 if r.status_code < 500 and r.status_code != 429:
                     if r.status_code >= 400:
@@ -69,14 +80,14 @@ class LlmClient:
     def complete_json(self, system: str, user: str, schema: type[T]) -> T:
         system = system + "\n\nReply with a single JSON object matching this JSON schema:\n" + \
             json.dumps(schema.model_json_schema())
-        text = self.chat(system, user)
+        text = self.chat(system, user, schema)
         try:
             return schema.model_validate_json(_extract_json(text))
         except ValidationError as e:
             log.debug("LLM JSON invalid, repairing: %s", e)
             repair = (user + "\n\nYour previous reply was:\n" + text[:4000] +
                       f"\n\nIt was invalid: {str(e)[:1000]}\nReply again with valid JSON only.")
-            text = self.chat(system, repair)
+            text = self.chat(system, repair, schema)
             try:
                 return schema.model_validate_json(_extract_json(text))
             except ValidationError as e2:

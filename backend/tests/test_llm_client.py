@@ -102,3 +102,23 @@ def test_4xx_is_not_retried():
 def test_malformed_success_bodies_raise_llm_error(body):
     with pytest.raises(LlmError, match="unexpected LLM response"):
         client(lambda r: httpx.Response(200, json=body)).chat("s", "u")
+
+
+def test_switches_to_json_schema_when_server_requires_it():
+    bodies = []
+
+    def handler(req):
+        body = json.loads(req.content)
+        bodies.append(body)
+        rf = body.get("response_format", {})
+        if rf.get("type") == "json_object":
+            return httpx.Response(400, json={"error": "'response_format.type' must be 'json_schema' or 'text'"})
+        return reply('{"answer": "a", "n": 1}')
+
+    c = client(handler)
+    assert c.complete_json("s", "u", Out).n == 1
+    rf = bodies[-1]["response_format"]
+    assert rf["type"] == "json_schema" and rf["json_schema"]["name"] == "Out"
+    assert rf["json_schema"]["schema"]["required"] == ["answer", "n"]
+    c.complete_json("s", "u", Out)
+    assert len(bodies) == 3  # the mode is remembered: no second rejected request
