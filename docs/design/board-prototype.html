@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Review Board prototype (design reference)</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f6f7fb; --ink: #151a2d; --muted: #6a7089; --line: #e2e5ef; --card: #ffffff;
+    --flow: #6d4aff; --flow-glow: rgba(109, 74, 255, .28);
+    --chg: #ffb020; --chg-deep: #c26a00; --fx: #ff4d6d; --fx-bg: #ffe4ea; --field: #00a6a6; --field-bg: #dcf7f5;
+    --add: #e6f9ee; --add-ink: #1a9a4f; --del: #ffecef; --del-ink: #d63a5a;
+    --warn: #ff4d6d; --warn-bg: #fff0f3; --info: #3b82f6; --info-bg: #eef5ff; --ok: #16a34a; --ok-bg: #ecfbf1;
+    --mono: "JetBrains Mono", ui-monospace, monospace; --sans: Inter, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 14px/1.45 var(--sans); overflow: hidden; }
+  body { display: grid; grid-template-rows: auto auto 1fr; }
+  header { display: flex; align-items: center; gap: 10px; padding: 10px 18px; background: linear-gradient(90deg, #151a2d, #2a2466); color: #fff; flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 700; }
+  .pill { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 99px; letter-spacing: .03em; }
+  .pill.high { background: var(--fx); color: #fff; } .pill.ghost { background: rgba(255,255,255,.14); color: #dfe0ff; }
+  .about-btn { margin-left: auto; border: 0; cursor: pointer; font: 700 12.5px var(--sans); color: #151a2d; padding: 7px 14px; border-radius: 99px;
+               background: linear-gradient(90deg, #ffd36b, #ffab1f); box-shadow: 0 4px 14px rgba(255,176,32,.35); }
+  .about-btn:hover { filter: brightness(1.05); }
+  .flows { display: flex; gap: 8px; padding: 10px 18px; overflow-x: auto; background: #fff; border-bottom: 1px solid var(--line); scrollbar-width: none; }
+  .chip { flex: none; display: flex; align-items: center; gap: 8px; padding: 7px 12px 7px 7px; border-radius: 99px; background: #f1f2f8;
+          border: 1.5px solid transparent; cursor: pointer; font-size: 12.5px; transition: .15s; user-select: none; }
+  .chip:hover { background: #e9e8ff; } .chip.on { background: #efeaff; border-color: var(--flow); box-shadow: 0 0 0 4px var(--flow-glow); }
+  .chip .num { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 11px; background: var(--flow); color: #fff; }
+  .chip .path { font-family: var(--mono); font-size: 11.5px; }
+  .tag { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 6px; text-transform: uppercase; letter-spacing: .04em; }
+  .tag.state { background: var(--field-bg); color: #007a7a; } .tag.contract { background: var(--fx-bg); color: #c81d44; }
+  main { position: relative; display: flex; min-height: 0; }
+  #stage { position: relative; flex: 1; overflow: hidden; touch-action: none; cursor: grab; }
+  #stage.drag { cursor: grabbing; }
+  #world { position: absolute; inset: 0; }
+  body.dragging, body.dragging * { user-select: none !important; -webkit-user-select: none !important; }
+  .resizer { position: absolute; left: -5px; top: 0; bottom: 0; width: 10px; cursor: col-resize; z-index: 6; }
+  .resizer::after { content: ""; position: absolute; left: 4px; top: 50%; width: 2px; height: 36px; margin-top: -18px; border-radius: 2px; background: #c9cde0; }
+  .resizer:hover::after, body.resizing .resizer::after { background: var(--flow); }
+  body.resizing, body.resizing * { cursor: col-resize !important; user-select: none !important; }
+  #panel, #about { position: relative; }
+  .node.moved::after { content: "↔"; position: absolute; left: -10px; bottom: -10px; font-size: 10px; color: var(--muted); }
+  body.nodedrag .node.grab { cursor: ew-resize; box-shadow: 0 0 0 4px rgba(21,26,45,.18); }
+  .flowinfo .step { position: relative; }
+  .flowinfo .step.open { outline: 2px solid #151a2d; outline-offset: 1px; }
+  .flowinfo .step .sgo { display: inline-block; margin-left: 5px; width: 16px; height: 16px; border-radius: 50%; background: #151a2d; color: #fff;
+                         font: 700 9px/16px var(--sans); text-align: center; vertical-align: 1px; cursor: pointer; }
+  .flowinfo.graph { display: block; }
+  svg#bandsvg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .bandfill { fill: rgba(109,74,255,.04); } .bandfill.alt { fill: rgba(255,255,255,0); }
+  .bandline { fill: none; stroke: #dde1ee; stroke-width: 1; }
+  .blabel { position: absolute; right: 12px; text-align: right; font-size: 10px; font-weight: 700; letter-spacing: .12em; color: #9aa0b8; text-transform: uppercase;
+            transform-origin: 0 0; pointer-events: none; white-space: nowrap; }
+  .flowbar { background: #fff; border-bottom: 1px solid var(--line); }
+  .flowbar .flows { border-bottom: 0; }
+  .flowinfo { display: grid; grid-template-columns: auto 1fr auto; gap: 10px 16px; align-items: start; padding: 2px 18px 12px; font-size: 13px; }
+  .flowinfo .fnum { width: 28px; height: 28px; border-radius: 9px; display: grid; place-items: center; font-weight: 800; background: var(--flow); color: #fff; }
+  .flowinfo .what { line-height: 1.5; } .flowinfo .what b { font-family: var(--mono); font-size: 12px; font-weight: 600; }
+  .flowinfo .steps { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 6px; font: 11.5px var(--mono); }
+  .flowinfo .step { padding: 2px 7px; border-radius: 6px; background: #f1f2f8; cursor: pointer; }
+  .flowinfo .step.chg { background: #ffe7b3; color: #7a4300; font-weight: 700; } .flowinfo .step.fx { background: var(--fx-bg); color: #b0163e; font-weight: 700; }
+  .flowinfo .step.field { background: var(--field-bg); color: #006b6b; font-style: italic; }
+  .flowinfo .arrow { color: #b3b8cc; }
+  .flowinfo .side { min-width: 220px; max-width: 340px; border-left: 3px solid var(--fx); background: var(--warn-bg); border-radius: 0 10px 10px 0; padding: 6px 10px; font-size: 12px; }
+  .flowinfo .side .k { font: 800 9.5px var(--sans); letter-spacing: .1em; text-transform: uppercase; color: #b0163e; display: block; margin-bottom: 2px; }
+  .flowinfo .side .chk { margin-top: 6px; color: #3d4260; } .flowinfo .side .chk::before { content: "Check · "; font-weight: 700; }
+  .flowinfo .less { color: var(--flow); cursor: pointer; font-weight: 600; font-size: 12px; margin-left: 6px; }
+  .card > .hd { cursor: move; touch-action: none; } .card > .hd button { cursor: pointer; }
+  .card.dragged { box-shadow: 0 22px 60px rgba(21,26,45,.3); }
+  svg#edges { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+  .edge { fill: none; stroke: #c7cbdb; stroke-width: 1.6; transition: stroke .2s, opacity .2s; }
+  .edge.flow { stroke: var(--flow); stroke-width: 3.2; filter: drop-shadow(0 0 5px var(--flow-glow)); }
+  .edge.data { stroke-dasharray: 6 5; stroke: var(--field); } .edge.fx { stroke: var(--fx); stroke-width: 2.6; stroke-dasharray: 6 5; }
+  .edge.dim { opacity: .25; }
+  .node { position: absolute; transform-origin: center; padding: 7px 12px; border-radius: 12px; background: #fff; border: 1.5px solid #d4d8e6;
+          font: 500 12.5px var(--mono); color: #4a5068; white-space: nowrap; box-shadow: 0 2px 6px rgba(21,26,45,.06); cursor: pointer;
+          transition: opacity .2s, box-shadow .2s, border-color .2s; user-select: none; }
+  .node:hover { box-shadow: 0 6px 18px rgba(21,26,45,.16); border-color: #9aa3c4; }
+  .node.chg { background: linear-gradient(135deg, #ffd36b, #ffab1f); border: 2.5px solid var(--chg-deep); color: #2b1a00; font-weight: 700;
+              padding: 9px 14px 8px; border-radius: 14px; animation: pulse 2.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,176,32,.55), 0 6px 16px rgba(194,106,0,.28); }
+                     50% { box-shadow: 0 0 0 10px rgba(255,176,32,0), 0 6px 16px rgba(194,106,0,.28); } }
+  .node.chg .kind { display: block; font: 800 9px/1 var(--sans); letter-spacing: .12em; text-transform: uppercase; color: #7a4300; margin-bottom: 4px; }
+  .node.chg .stat { display: inline-flex; gap: 4px; margin-left: 8px; vertical-align: 1px; }
+  .node.chg .stat b { font: 700 10px var(--mono); padding: 1px 5px; border-radius: 5px; background: #fff; }
+  .node.chg .stat .p { color: var(--add-ink); } .node.chg .stat .m { color: var(--del-ink); }
+  .node .warn-dot { position: absolute; right: -7px; top: -7px; width: 16px; height: 16px; border-radius: 50%; background: var(--warn); color: #fff;
+                    font: 800 10px/16px var(--sans); text-align: center; box-shadow: 0 2px 6px rgba(255,77,109,.45); }
+  .node.field { border-radius: 4px 14px 14px 4px; background: var(--field-bg); border-color: var(--field); font-style: italic; color: #005f5f; }
+  .node.onflow { border-color: var(--flow); box-shadow: 0 0 0 4px var(--flow-glow); color: var(--ink); }
+  .node.chg.onflow { box-shadow: 0 0 0 4px var(--flow-glow), 0 6px 16px rgba(194,106,0,.28); }
+  .node.dim { opacity: .28; }
+  .node.sel { outline: 3px solid #151a2d; outline-offset: 3px; }
+  .node .fxbadge { position: absolute; left: 50%; top: calc(100% + 8px); transform: translateX(-50%); background: var(--fx); color: #fff;
+                   font: 600 10.5px/1.3 var(--sans); padding: 4px 8px; border-radius: 8px; white-space: nowrap; box-shadow: 0 4px 12px rgba(255,77,109,.35); }
+  .node .fxbadge::before { content: ""; position: absolute; top: -5px; left: 50%; margin-left: -5px; border: 5px solid transparent; border-top: 0; border-bottom-color: var(--fx); }
+  /* cards */
+  .card { position: absolute; width: 460px; background: var(--card); border-radius: 16px; box-shadow: 0 18px 48px rgba(21,26,45,.22);
+          border: 1px solid var(--line); overflow: hidden; z-index: 50; cursor: default; transition: width .2s, box-shadow .2s; }
+  .card.ctx .hd { background: linear-gradient(90deg, #eef1ff, #fff); }
+  .hd { display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: linear-gradient(90deg, #fff1cc, #fff); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .hd b { font-family: var(--mono); font-size: 13px; } .hd .file { color: var(--muted); font: 11px var(--mono); }
+  .hd .sp { flex: 1; }
+  .badge { font: 700 9.5px var(--sans); letter-spacing: .08em; text-transform: uppercase; padding: 2px 7px; border-radius: 6px; }
+  .badge.ctx { background: #e7ebff; color: #3b4bd8; } .badge.chg { background: #ffe7b3; color: #7a4300; }
+  .ibtn { border: 0; background: #f1f2f8; height: 28px; min-width: 28px; padding: 0 10px; border-radius: 8px; cursor: pointer; font: 600 12px var(--sans); color: var(--ink); }
+  .ibtn:hover { background: #e5e3ff; }
+  .seg { display: inline-flex; background: #f1f2f8; border-radius: 9px; padding: 2px; } .seg .ibtn { background: transparent; }
+  .seg .ibtn.on { background: #fff; color: var(--flow); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  .effects { padding: 8px 12px; background: #fff8fa; border-bottom: 1px solid var(--line); font-size: 12px; }
+  .effects div { margin: 3px 0; } .effects .ico { color: var(--fx); font-weight: 700; margin-right: 4px; }
+  .fetched { padding: 5px 12px; font: 11px var(--mono); color: var(--muted); background: #fafbfe; border-bottom: 1px solid var(--line); }
+  .fetched b { color: #3b4bd8; font-weight: 600; }
+  .card.min { width: auto !important; border-radius: 99px; box-shadow: 0 6px 16px rgba(21,26,45,.18); cursor: pointer; }
+  .card.min > :not(.hd) { display: none; } .card.min .hd { border: 0; padding: 5px 6px 5px 12px; }
+  .card.min .hd .file, .card.min .hd .badge, .card.min .hd .expand { display: none; }
+  .card.min .hd .x, .card.min .hd .sp { display: none; } .card.min .hd .restore { display: inline-block; height: 22px; min-width: 22px; padding: 0 6px; }
+  .card.min .hd { flex-wrap: nowrap; gap: 6px; background: #fff; }
+  .card.min:not(.ctx) .hd { background: linear-gradient(90deg, #ffd36b, #ffab1f); }
+  .hd .restore { display: none; }
+  /* code */
+  .code { font: 12px/1.65 var(--mono); overflow: auto; }
+  .card .code { max-height: 300px; }
+  .ln { display: grid; grid-template-columns: 40px 18px 1fr; cursor: pointer; min-width: max-content; }
+  .ln:hover { background: #f5f3ff; }
+  .no { color: #a3a8bf; text-align: right; padding-right: 6px; user-select: none; }
+  .sg { color: #a3a8bf; text-align: center; user-select: none; }
+  .a { background: var(--add); } .a .sg { color: var(--add-ink); font-weight: 700; }
+  .d { background: var(--del); } .d .sg { color: var(--del-ink); font-weight: 700; }
+  .ln.hot { background: #fff4f6; } .ln.hot .no { color: var(--warn); font-weight: 700; }
+  .src { white-space: pre; padding-right: 12px; }
+  .plus { visibility: hidden; margin-left: 6px; color: var(--flow); font: 700 11px var(--sans); }
+  .ln:hover .plus, .sbs-row:hover .plus { visibility: visible; }
+  .kw { color: #d6336c; font-weight: 600; } .ty { color: #6d4aff; } .num { color: #e8590c; } .str { color: #2b8a3e; }
+  .cm { color: #8a90a8; font-style: italic; } .fn { color: #1c7ed6; } .mc { color: #0b7285; font-weight: 600; } .pp { color: #ae3ec9; }
+  .ann { margin: 2px 12px 6px 58px; padding: 6px 10px 6px 12px; border-radius: 10px; font: 12px/1.4 var(--sans); border-left: 4px solid; white-space: normal; }
+  .ann.warn { background: var(--warn-bg); border-color: var(--warn); color: #8a1230; }
+  .ann.info { background: var(--info-bg); border-color: var(--info); color: #1d4ea0; }
+  .ann.ok { background: var(--ok-bg); border-color: var(--ok); color: #13692f; }
+  .ann .k { font-weight: 800; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; margin-right: 6px; }
+  .thread { margin: 4px 12px 8px 58px; padding: 8px 10px; border-radius: 12px; background: #f5f3ff; border: 1px solid #e0d9ff; font: 12.5px var(--sans); white-space: normal; }
+  .thread .who { font-weight: 700; } .thread .when { color: var(--muted); font-size: 11px; margin-left: 6px; }
+  .thread textarea { width: 100%; margin-top: 6px; border: 1px solid #d4ccff; border-radius: 10px; padding: 6px 8px; font: 12.5px var(--sans); resize: none; }
+  .thread .row { display: flex; gap: 6px; justify-content: flex-end; margin-top: 6px; }
+  .btn { border: 0; border-radius: 9px; padding: 6px 12px; font: 600 12px var(--sans); cursor: pointer; }
+  .btn.pri { background: var(--flow); color: #fff; } .btn.sec { background: #eceef6; color: var(--ink); }
+  .gap-row { background: #f1f2f8; color: var(--muted); font: 11px var(--sans); padding: 3px 12px; text-align: center; }
+  .sbs-row { display: grid; grid-template-columns: 40px minmax(0, 1fr) 40px minmax(0, 1fr); cursor: pointer; }
+  .sbs-row .src { white-space: pre-wrap; word-break: break-word; }
+  .sbs-row > .src { border-right: 1px solid var(--line); }
+  .sbs-row .l.d { background: var(--del); } .sbs-row .r.a { background: var(--add); }
+  .sbs-row .l.d.no { color: var(--del-ink); font-weight: 700; } .sbs-row .r.a.no { color: var(--add-ink); font-weight: 700; }
+  .sbs-row .empty { background: repeating-linear-gradient(135deg, #fafbfd, #fafbfd 6px, #f1f2f8 6px, #f1f2f8 12px); }
+  /* full-file panel */
+  #panel { display: none; flex-direction: column; background: #fff; border-left: 1px solid var(--line); box-shadow: -12px 0 32px rgba(21,26,45,.08); z-index: 60; min-width: 0; }
+  #panel.open { display: flex; width: min(58vw, 980px); }
+  #panel .code { flex: 1; }
+  /* about drawer */
+  #about { display: none; flex-direction: column; width: 420px; flex: none; background: #fff; border-left: 1px solid var(--line); z-index: 55; min-height: 0; }
+  #about.open { display: flex; }
+  #about.open { width: var(--about-w, 360px); }
+  #panel.open { width: var(--panel-w, min(58vw, 980px)); }
+  main.with-about #panel.open { width: var(--panel-w, min(calc(60vw - var(--about-w, 360px)), 820px)); }
+  #about .top { position: relative; } #about .close { position: absolute; right: 12px; top: 12px; background: rgba(255,255,255,.16); color: #fff; }
+  .tree .file.on { background: #efeaff; box-shadow: inset 3px 0 0 var(--flow); }
+  #about .top { padding: 18px 20px 14px; background: linear-gradient(135deg, #151a2d, #2a2466); color: #fff; }
+  #about .top h2 { margin: 6px 0 4px; font-size: 18px; } #about .top p { margin: 0; color: #c9caff; font-size: 13px; }
+  #about .body { overflow: auto; padding: 16px 20px 24px; }
+  #about h3 { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 18px 0 8px; }
+  .intent { font-size: 14px; line-height: 1.55; }
+  .why li { margin: 4px 0; } .why .sev { font: 800 9.5px var(--sans); padding: 1px 6px; border-radius: 5px; margin-right: 6px; }
+  .sev.high { background: var(--fx); color: #fff; } .sev.medium { background: #ffcf66; color: #5a3a00; }
+  .cl { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; }
+  .cl .n { font: 700 12px var(--mono); color: var(--flow); } .cl .desc { margin-top: 2px; } .cl .m { color: var(--muted); font-size: 12px; }
+  .tree { font: 13px var(--mono); border: 1px solid var(--line); border-radius: 12px; padding: 6px 0; }
+  .tree .dir, .tree .file { display: flex; align-items: center; gap: 8px; padding: 5px 12px; cursor: pointer; }
+  .tree .dir:hover, .tree .file:hover { background: #f5f3ff; }
+  .tree .dir { font-weight: 700; color: #3b4bd8; } .tree .caret { width: 12px; color: var(--muted); }
+  .tree .act { font: 700 9.5px var(--sans); text-transform: uppercase; padding: 1px 6px; border-radius: 5px; background: #fff1cc; color: #7a4300; }
+  .tree .cnt { margin-left: auto; font-size: 11px; } .tree .cnt .p { color: var(--add-ink); } .tree .cnt .m { color: var(--del-ink); margin-left: 4px; }
+  .tree .clb { font: 600 10px var(--sans); color: var(--flow); background: #efeaff; padding: 1px 6px; border-radius: 5px; }
+  .hint { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); background: rgba(21,26,45,.86); color: #fff; font-size: 12px;
+          padding: 7px 14px; border-radius: 99px; z-index: 90; pointer-events: none; transition: opacity .4s; }
+  .legend { position: absolute; left: 12px; top: 56px; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; font-size: 11px;
+            z-index: 40; box-shadow: 0 6px 18px rgba(21,26,45,.08); }
+  .legend span { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin: 0 4px 0 8px; vertical-align: -1px; }
+  @media (max-width: 1100px) { #panel.open { position: fixed; inset: 0; width: auto; border-left: 0; z-index: 70; }
+                               #about.open { position: fixed; inset: 0; width: auto; border-left: 0; z-index: 65; } }
+  @media (max-width: 760px) { .flowinfo { grid-template-columns: auto 1fr; } .flowinfo .side { grid-column: 1 / -1; max-width: none; } }
+  @media (max-width: 640px) {
+    .card:not(.min) { position: fixed; left: 8px !important; right: 8px; width: auto; top: auto !important; bottom: 8px; max-height: 72vh; }
+    .card .code { max-height: 36vh; }
+    .legend { display: none; }
+    .chip .path { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hint { bottom: auto; top: 128px; }
+    .about-btn { margin-left: 0; }
+  }
+
+  .node .go { position: absolute; right: -11px; bottom: -11px; width: 22px; height: 22px; border-radius: 50%; border: 0; cursor: pointer;
+              background: #151a2d; color: #fff; font: 700 11px/22px var(--sans); box-shadow: 0 2px 6px rgba(0,0,0,.28); padding: 0; opacity: .0; transition: opacity .15s; }
+  .node:hover .go, .node.chg .go, .node.has-card .go { opacity: 1; }
+  .node.has-card { outline: 2px solid rgba(21,26,45,.55); outline-offset: 3px; }
+  .node.front { outline: 3px solid #151a2d; }
+  svg#edges .tether { stroke: #151a2d; stroke-width: 1.4; stroke-dasharray: 3 4; fill: none; opacity: .45; }
+  svg#edges .tether.front { opacity: .9; stroke-width: 2; }
+  .card { transform-origin: 0 0; }
+  .card.front { box-shadow: 0 22px 60px rgba(21,26,45,.32), 0 0 0 2px #151a2d; }
+  .toolbar { position: absolute; left: 12px; top: 12px; display: flex; gap: 8px; align-items: center; z-index: 45; flex-wrap: wrap; max-width: calc(100% - 24px); }
+  .toolbar .seg { background: #fff; box-shadow: 0 4px 14px rgba(21,26,45,.1); }
+  .toolbar .lbl { font: 700 10px var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 0 4px 0 8px; }
+  .toolbar .closeall { background: #fff; box-shadow: 0 4px 14px rgba(21,26,45,.1); }
+  /* multi-file viewer */
+  #panel .top { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); background: #fafbfe; }
+  #panel .top b { font-size: 13px; } #panel .files { flex: 1; overflow: auto; }
+  .fsec { border-bottom: 1px solid var(--line); }
+  .fsec > .hd { position: sticky; top: 0; z-index: 2; cursor: pointer; }
+  .fsec .chev { width: 18px; color: var(--muted); font-weight: 700; }
+  .fsec.collapsed .code { display: none; }
+  .fsec .cnt { font: 11px var(--mono); } .fsec .cnt .p { color: var(--add-ink); } .fsec .cnt .m { color: var(--del-ink); margin-left: 4px; }
+  .fsec.flash > .hd { animation: flash 1s; } @keyframes flash { 0% { background: #d9d0ff; } 100% { } }
+  .fsec .code { max-height: none; }
+  .ln.focus { box-shadow: inset 4px 0 0 var(--flow); }
+</style>
+</head>
+<body>
+<header>
+  <h1>uart overflow + flags field</h1>
+  <span class="pill high">HIGH RISK</span><span class="pill ghost">CL 101 · CL 102</span><span class="pill ghost">3 flows · 6 findings</span>
+  <button class="about-btn" id="aboutBtn">✦ What's this change?</button>
+</header>
+<div class="flowbar"><div class="flows" id="flows"></div><div class="flowinfo" id="flowinfo"></div></div>
+<main>
+  <div id="stage"><div id="world"><svg id="bandsvg"></svg><svg id="edges"></svg></div>
+    <div class="toolbar"><span class="seg" id="mode"><button class="ibtn on" data-m="flows">Flows</button><button class="ibtn" data-m="graph">Whole graph</button></span>
+      <button class="ibtn closeall" id="resetLayout" style="display:none">Reset layout</button><span class="lbl">Lens</span><span class="seg" id="lens"><button class="ibtn" data-m="0">Off</button><button class="ibtn on" data-m="2">2×</button><button class="ibtn" data-m="4">4×</button></span>
+      <button class="ibtn closeall" id="closeAll" style="display:none">Close all cards</button></div>
+    <div class="legend"><span style="background:linear-gradient(135deg,#ffd36b,#ffab1f)"></span>changed<span style="background:var(--flow)"></span>selected flow<span style="background:var(--field)"></span>field<span style="background:var(--fx)"></span>side effect</div>
+  </div>
+  <aside id="panel"></aside>
+  <aside id="about"></aside>
+</main>
+<div class="hint" id="hint">Drag in any direction · tap a function for its card · drag a card by its header · ⤢ opens the full file</div>
+<script>
+const FILES = {"driver/uart.c": {"before": "#include \"driver/uart.h\"\n\nint uart_init(struct Uart *u, struct Regs *regs, int baud)\n{\n    u->regs = regs;\n    u->baud = baud;\n    u->errors = 0;\n    return hal_write(regs, REG_CTRL, baud);\n}\n\nint uart_send(struct Uart *u, const char *buf, int len)\n{\n    int i;\n    for (i = 0; i < len; i++)\n        hal_write(u->regs, REG_STATUS, buf[i]);\n    return 0;\n}\n\nint uart_errors(const struct Uart *u)\n{\n    return u->errors;\n}\n", "after": "#include \"driver/uart.h\"\n\nint uart_init(struct Uart *u, struct Regs *regs, int baud)\n{\n    u->regs = regs;\n    u->baud = baud;\n    u->errors = 0;\n    return hal_write(regs, REG_CTRL, baud);\n}\n\nint uart_send(struct Uart *u, const char *buf, int len)\n{\n    int i;\n    struct Stats *st = &u->stats;\n    int *err = &u->errors;\n    if (len > 64) {\n        *err += 1;\n        return -2;\n    }\n    for (i = 0; i < len; i++) {\n        hal_write(u->regs, REG_STATUS, buf[i]);\n        st->tx++;\n    }\n    return 0;\n}\n\nint uart_errors(const struct Uart *u)\n{\n    return u->errors;\n}\n", "action": "edit", "cls": [101], "rev": "#3", "depot": "//fixture/driver/uart.c"}, "driver/uart.h": {"before": "#ifndef DRIVER_UART_H\n#define DRIVER_UART_H\n\n#include \"hal/regs.h\"\n\nstruct Stats {\n    int tx;\n    int rx;\n};\n\nstruct Uart {\n    struct Regs *regs;\n    int baud;\n    int errors;\n    struct Stats stats;\n};\n\nint uart_init(struct Uart *u, struct Regs *regs, int baud);\nint uart_send(struct Uart *u, const char *buf, int len);\nint uart_errors(const struct Uart *u);\n\n#endif\n", "after": "#ifndef DRIVER_UART_H\n#define DRIVER_UART_H\n\n#include \"hal/regs.h\"\n\nstruct Stats {\n    int tx;\n    int rx;\n};\n\nstruct Uart {\n    struct Regs *regs;\n    int flags;\n    int baud;\n    int errors;\n    struct Stats stats;\n};\n\nint uart_init(struct Uart *u, struct Regs *regs, int baud);\nint uart_send(struct Uart *u, const char *buf, int len);\nint uart_errors(const struct Uart *u);\n\n#endif\n", "action": "edit", "cls": [102], "rev": "#2", "depot": "//fixture/driver/uart.h"}, "hal/regs.c": {"before": "#include \"hal/regs.h\"\n\nint hal_read(struct Regs *r, int reg)\n{\n    if (reg == REG_CTRL)\n        return r->ctrl;\n    return r->status;\n}\n\nint hal_write(struct Regs *r, int reg, int value)\n{\n    if (reg == REG_CTRL)\n        r->ctrl = value;\n    else\n        r->status = value;\n    return 0;\n}\n", "after": "#include \"hal/regs.h\"\n\nint hal_read(struct Regs *r, int reg)\n{\n    if (reg == REG_CTRL)\n        return r->ctrl;\n    return r->status;\n}\n\nint hal_write(struct Regs *r, unsigned reg, int value)\n{\n    if (reg == REG_CTRL)\n        r->ctrl = value;\n    else\n        r->status = value;\n    return 0;\n}\n", "action": "edit", "cls": [102], "rev": "#2", "depot": "//fixture/hal/regs.c"}, "include/hal/regs.h": {"before": "#ifndef HAL_REGS_H\n#define HAL_REGS_H\n\n#define REG_CTRL 0\n#define REG_STATUS 1\n\nstruct Regs {\n    int ctrl;\n    int status;\n};\n\nint hal_read(struct Regs *r, int reg);\nint hal_write(struct Regs *r, int reg, int value);\n\n#endif\n", "after": "#ifndef HAL_REGS_H\n#define HAL_REGS_H\n\n#define REG_CTRL 0\n#define REG_STATUS 1\n\nstruct Regs {\n    int ctrl;\n    int status;\n};\n\nint hal_read(struct Regs *r, int reg);\nint hal_write(struct Regs *r, unsigned reg, int value);\n\n#endif\n", "action": "edit", "cls": [102], "rev": "#2", "depot": "//fixture/include/hal/regs.h"}, "service/logger.c": {"before": "#include \"service/logger.h\"\n\nint logger_init(struct Logger *lg, struct Uart *u)\n{\n    lg->uart = u;\n    lg->dropped = 0;\n    return 0;\n}\n\nint logger_write(struct Logger *lg, const char *msg, int len)\n{\n    if (uart_send(lg->uart, msg, len) != 0) {\n        lg->dropped++;\n        return -1;\n    }\n    return 0;\n}\n\nvoid logger_flush(struct Logger *lg)\n{\n    uart_send(lg->uart, \"\\n\", 1);\n}\n", "after": "#include \"service/logger.h\"\n\nint logger_init(struct Logger *lg, struct Uart *u)\n{\n    lg->uart = u;\n    lg->dropped = 0;\n    return 0;\n}\n\nint logger_write(struct Logger *lg, const char *msg, int len)\n{\n    if (uart_send(lg->uart, msg, len) != 0) {\n        lg->dropped++;\n        return -1;\n    }\n    return 0;\n}\n\nvoid logger_flush(struct Logger *lg)\n{\n    uart_send(lg->uart, \"\\n\", 1);\n}\n", "action": null, "cls": [], "rev": "#1", "depot": "//fixture/service/logger.c"}, "app/main.c": {"before": "#include \"service/logger.h\"\n\nstatic struct Regs g_regs;\nstatic struct Uart g_uart;\nstatic struct Logger g_log;\n\nint main(void)\n{\n    uart_init(&g_uart, &g_regs, 115200);\n    logger_init(&g_log, &g_uart);\n    logger_write(&g_log, \"hello\", 5);\n    logger_flush(&g_log);\n    return uart_errors(&g_uart);\n}\n", "after": "#include \"service/logger.h\"\n\nstatic struct Regs g_regs;\nstatic struct Uart g_uart;\nstatic struct Logger g_log;\n\nint main(void)\n{\n    uart_init(&g_uart, &g_regs, 115200);\n    logger_init(&g_log, &g_uart);\n    logger_write(&g_log, \"hello\", 5);\n    logger_flush(&g_log);\n    return uart_errors(&g_uart);\n}\n", "action": null, "cls": [], "rev": "#1", "depot": "//fixture/app/main.c"}, "app/cli.c": {"before": "#include \"service/logger.h\"\n\nint cli_run(struct Logger *lg, struct Uart *u)\n{\n    return logger_init(lg, u);\n}\n", "after": "#include \"service/logger.h\"\n\nint cli_run(struct Logger *lg, struct Uart *u)\n{\n    return logger_init(lg, u);\n}\n", "action": null, "cls": [], "rev": "#1", "depot": "//fixture/app/cli.c"}, "app/diag.c": {"before": "#include \"driver/uart.h\"\n\nint diag_dump(struct Uart *u, struct Regs *r)\n{\n    int st = hal_read(r, REG_STATUS);\n    return st + uart_errors(u);\n}\n", "after": "#include \"driver/uart.h\"\n\nint diag_dump(struct Uart *u, struct Regs *r)\n{\n    int st = hal_read(r, REG_STATUS);\n    return st + uart_errors(u);\n}\n", "action": null, "cls": [], "rev": "#1", "depot": "//fixture/app/diag.c"}};
+const LAYERS = ["app", "service", "driver", "hal"];
+const N = {
+  main: { x: 700, l: 0, label: "main" }, cli_run: { x: 150, l: 0, label: "cli_run" }, diag_dump: { x: 1300, l: 0, label: "diag_dump" },
+  uart_errors: { x: 1050, l: 0, label: "uart_errors", fx: "reads Uart::errors — now bumped on overflow" },
+  logger_write: { x: 560, l: 1, label: "logger_write" },
+  logger_flush: { x: 850, l: 1, label: "logger_flush", fx: "ignores new return −2" },
+  logger_init: { x: 290, l: 1, label: "logger_init" },
+  uart_send: { x: 690, l: 2, label: "uart_send", chg: { kind: "modified", add: 9, del: 1 } },
+  uart_init: { x: 380, l: 2, label: "uart_init" },
+  f_errors: { x: 990, l: 2, label: "Uart::errors", field: true }, f_tx: { x: 1190, l: 2, label: "Stats::tx", field: true },
+  hal_write: { x: 520, l: 3, label: "hal_write", chg: { kind: "signature", add: 1, del: 1 } }, hal_read: { x: 880, l: 3, label: "hal_read" },
+};
+const E = [["main","logger_write"],["main","logger_flush"],["main","uart_init"],["main","uart_errors"],["cli_run","logger_init"],
+  ["diag_dump","uart_errors"],["logger_write","uart_send"],["logger_flush","uart_send"],["uart_init","hal_write"],["uart_send","hal_write"],
+  ["uart_send","f_errors","data"],["uart_send","f_tx","data"],["f_errors","uart_errors","fx"],["diag_dump","hal_read"]];
+const FLOWS = [
+  { path: ["main","logger_write","uart_send","f_errors","uart_errors"], text: "main → logger_write → uart_send ⟶ Uart::errors ⟶ uart_errors", tag: "state",
+    what: "At start-up <b>main</b> logs through <b>logger_write</b>, which hands the message to <b>uart_send</b>. With CL 101, a write longer than 64 bytes is now rejected and counted: <b>uart_send</b> bumps <b>Uart::errors</b> through the local pointer <b>err</b>. <b>uart_errors</b> — main's exit code and diag_dump's total — now includes those overflows.",
+    lands: "uart_errors (app)", effect: "Meaning of the error counter changes: it now mixes transmit errors with rejected oversized writes.",
+    check: "callers of uart_errors that treat any non-zero value as a hardware fault" },
+  { path: ["main","logger_flush","uart_send"], text: "main → logger_flush → uart_send ⟶ −2 ignored", tag: "contract", fxAt: "logger_flush",
+    what: "<b>main</b> flushes the logger on exit; <b>logger_flush</b> writes a newline via <b>uart_send</b> and ignores the result. CL 101 gives <b>uart_send</b> a new return value, <b>−2</b> (oversized write).",
+    lands: "logger_flush (service)", effect: "A rejected write is silently dropped; nothing is counted in Logger::dropped, unlike logger_write.",
+    check: "whether logger_flush can ever send more than 64 bytes, and whether it should mirror logger_write's handling" },
+  { path: ["main","uart_init","hal_write"], text: "main → uart_init → hal_write(unsigned reg)", tag: "contract",
+    what: "<b>main</b> initialises the UART; <b>uart_init</b> programs the control register through <b>hal_write</b>, whose <b>reg</b> parameter became <b>unsigned</b> in CL 102.",
+    lands: "uart_init (driver)", effect: "Callers pass int register constants; safe for REG_CTRL/REG_STATUS, but a negative or computed register index would now wrap.",
+    check: "any caller computing a register index arithmetically before calling hal_write" },
+];
+/* what each function has to do with the change: code range (new-file lines) + line annotations */
+const FUNCS = {
+  uart_send: { path: "driver/uart.c", range: [11, 25],
+    effects: ["writes <b>Uart::errors</b> via alias <code>err</code> — read by uart_errors (app)", "new return value <b>−2</b> — logger_flush ignores it"],
+    ann: [[17, "warn", "State", "writes Uart::errors through alias <code>err</code> — uart_errors (app) and diag_dump read it"],
+          [18, "warn", "Contract", "new return value −2 — logger_flush drops it, logger_write handles it"],
+          [22, "info", "State", "Stats::tx now incremented per byte"]] },
+  hal_write: { path: "hal/regs.c", range: [10, 17], effects: ["signature <b>int reg → unsigned reg</b> — 2 callers must be re-checked"],
+    ann: [[10, "warn", "Contract", "parameter <code>reg</code> is now unsigned — callers pass int constants (uart_init, uart_send)"]] },
+  logger_flush: { path: "service/logger.c", range: [19, 22], touches: "calls <b>uart_send</b> (Δ)",
+    ann: [[21, "warn", "Contract", "result of uart_send is ignored — it can now return −2 when len &gt; 64, so dropped output goes unnoticed"]] },
+  logger_write: { path: "service/logger.c", range: [10, 17], touches: "calls <b>uart_send</b> (Δ)",
+    ann: [[12, "ok", "Handled", "checks <code>!= 0</code> — the new −2 is treated as a failure and counted in <code>dropped</code>"]] },
+  uart_errors: { path: "driver/uart.c", range: [27, 30], touches: "reads <b>Uart::errors</b>, which uart_send (Δ) now writes",
+    ann: [[29, "warn", "State", "value now also counts overflows from uart_send (line 17) — meaning of the counter changed"]] },
+  main: { path: "app/main.c", range: [7, 14], touches: "entry point of all three flows",
+    ann: [[9, "info", "Flow 3", "uart_init → hal_write(unsigned reg)"], [11, "info", "Flow 1", "logger_write → uart_send → Uart::errors"],
+          [12, "warn", "Flow 2", "logger_flush drops uart_send's new −2"], [13, "info", "Flow 1", "returns uart_errors — exit code now includes overflows"]] },
+  uart_init: { path: "driver/uart.c", range: [3, 9], touches: "calls <b>hal_write</b> (Δ signature)",
+    ann: [[8, "info", "Contract", "passes <code>REG_CTRL</code> (int) to the now-unsigned <code>reg</code> — fine for this constant"]] },
+  diag_dump: { path: "app/diag.c", range: [3, 7], touches: "calls <b>uart_errors</b>, whose value changed meaning",
+    ann: [[6, "warn", "State", "diagnostic total now includes overflow counts"]] },
+  logger_init: { path: "service/logger.c", range: [3, 8], touches: "no direct interaction with the change", ann: [] },
+  cli_run: { path: "app/cli.c", range: [3, 6], touches: "no direct interaction with the change", ann: [] },
+  hal_read: { path: "hal/regs.c", range: [3, 8], touches: "reads the same registers as hal_write (Δ)", ann: [] },
+  f_errors: { path: "driver/uart.h", range: [11, 17], touches: "field written by uart_send (Δ)",
+    ann: [[15, "warn", "State", "new writer: uart_send via alias (overflow path) · readers: uart_errors, diag_dump"]] },
+  f_tx: { path: "driver/uart.h", range: [6, 9], touches: "field written by uart_send (Δ)", ann: [[7, "info", "State", "new writer: uart_send, once per byte sent"]] },
+};
+const THREADS = { "driver/uart.c:18": [["bob", "2 min ago", "Should logger_flush handle -2? It just drops it."]] };
+const ABOUT = {
+  intent: "Makes the UART driver fail fast on oversized writes: <b>uart_send</b> now rejects buffers longer than 64 bytes with <b>−2</b>, "
+        + "counts those rejections in <code>Uart::errors</code>, and tracks bytes sent in <code>Stats::tx</code>. CL 102 prepares the HAL for "
+        + "wider register numbers (<code>hal_write</code> takes <code>unsigned reg</code>) and adds a <code>flags</code> field to <code>struct Uart</code>.",
+  why: [["high", "uart_send now writes Uart::errors through a local alias — read by uart_errors and diag_dump"],
+        ["high", "struct Uart layout changed — 3 TUs across 3 layers include driver/uart.h"],
+        ["medium", "logger_flush ignores uart_send's new −2"], ["medium", "hal_write signature changed — 2 callers"]],
+  cls: [[101, "anoop", "uart: count tx stats and report overflow"], [102, "anoop", "uart: add flags field; hal_write takes unsigned reg"]],
+};
+
+
+/* ============================ state ============================
+   cards:   id -> { collapsed: bool }          one card per node; only ✕ / Close all removes it
+   z:       ids in stacking order (last = front)
+   viewer:  { files: [path...] (newest first), collapsed: Set, mode, snapshot }  snapshot = card collapse state before the viewer opened
+   view:    { panX, panY, lens }
+   ================================================================ */
+const state = { cards: new Map(), z: [], viewer: { files: [], collapsed: new Set(), mode: null, snapshot: null },
+                view: { panX: 0, panY: 0, lens: 2 }, flow: 0, about: false, mode: "flows", moved: {} };
+const HOME_X = Object.fromEntries(Object.entries(N).map(([id, n]) => [id, n.x]));   // original layout, for "Reset layout"
+const BAND = 210;                                   // world height of a layer band
+const stage = document.getElementById("stage"), world = document.getElementById("world"), svg = document.getElementById("edges");
+const panel = document.getElementById("panel");
+const els = {}, cardEls = new Map();
+const bandsvg = document.getElementById("bandsvg");
+const blabels = LAYERS.map((name, i) => { const b = document.createElement("div"); b.className = "blabel"; b.textContent = `L${3 - i} · ${name}`; world.appendChild(b); return b; });
+const wy = (id) => N[id].l * BAND + BAND / 2;
+
+for (const [id, n] of Object.entries(N)) {
+  const d = document.createElement("div");
+  d.className = "node" + (n.chg ? " chg" : "") + (n.field ? " field" : "");
+  d.innerHTML = n.chg ? `<span class="kind">Δ ${n.chg.kind}</span>${n.label}<span class="stat"><b class="p">+${n.chg.add}</b><b class="m">−${n.chg.del}</b></span>` : n.label;
+  const warns = (FUNCS[id]?.ann || []).filter((a) => a[1] === "warn").length;
+  if (!n.chg && warns) d.insertAdjacentHTML("beforeend", `<span class="warn-dot">${warns}</span>`);
+  if (FUNCS[id]) d.insertAdjacentHTML("beforeend", `<button class="go" title="Open full file">⤢</button>`);
+  if (n.fx) d.insertAdjacentHTML("beforeend", `<div class="fxbadge" style="display:none">⚠ ${n.fx}</div>`);
+  d.dataset.id = id; world.appendChild(d); els[id] = d;
+}
+
+/* ---------- code rendering (unchanged helpers) ---------- */
+function esc(s) { return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function hl(src) {
+  const re = /(\/\*.*?\*\/|\/\/.*$)|("(?:[^"\\]|\\.)*")|(^\s*#\s*\w+)|\b(int|unsigned|char|const|struct|return|if|else|for|while|void|static)\b|\b([A-Z_][A-Z0-9_]{2,})\b|\b(\d+)\b|\b([a-z_][a-z0-9_]*)(?=\()/g;
+  let out = "", last = 0, m;
+  while ((m = re.exec(src))) { out += esc(src.slice(last, m.index)); const t = m[0];
+    const cls = m[1] ? "cm" : m[2] ? "str" : m[3] ? "pp" : m[4] ? (/^(int|unsigned|char|void)$/.test(t) ? "ty" : "kw") : m[5] ? "mc" : m[6] ? "num" : "fn";
+    out += `<span class="${cls}">${esc(t)}</span>`; last = m.index + t.length; }
+  return out + esc(src.slice(last));
+}
+function lineDiff(a, b) {
+  const A = a.replace(/\n$/, "").split("\n"), B = b.replace(/\n$/, "").split("\n");
+  const L = Array.from({ length: A.length + 1 }, () => new Int32Array(B.length + 1));
+  for (let i = A.length - 1; i >= 0; i--) for (let j = B.length - 1; j >= 0; j--) L[i][j] = A[i] === B[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  const out = []; let i = 0, j = 0;
+  while (i < A.length || j < B.length) {
+    if (i < A.length && j < B.length && A[i] === B[j]) { out.push({ t: "=", o: i + 1, n: j + 1, text: A[i] }); i++; j++; }
+    else if (j < B.length && (i >= A.length || L[i][j + 1] >= L[i + 1][j])) { out.push({ t: "+", n: j + 1, text: B[j] }); j++; }
+    else { out.push({ t: "-", o: i + 1, text: A[i] }); i++; }
+  }
+  return out;
+}
+const annsFor = (path) => Object.values(FUNCS).filter((f) => f.path === path).flatMap((f) => f.ann);
+function annEl([, sev, k, text]) { const a = document.createElement("div"); a.className = "ann " + sev;
+  a.innerHTML = `<span class="k">${sev === "warn" ? "⚠ " : sev === "ok" ? "✓ " : "ⓘ "}${k}</span>${text}`; return a; }
+function threadEl(key, items) {
+  const t = document.createElement("div"); t.className = "thread";
+  t.innerHTML = items.map(([w, when, txt]) => `<div><span class="who">${w}</span><span class="when">${when}</span><div>${esc(txt)}</div></div>`).join("")
+    + `<textarea rows="2" placeholder="${items.length ? "Reply…" : "Comment on this line…"}"></textarea><div class="row"><button class="btn sec">Cancel</button><button class="btn pri">${items.length ? "Reply" : "Comment"}</button></div>`;
+  t.onclick = (e) => e.stopPropagation();
+  t.querySelector(".btn.sec").onclick = () => { if (!(THREADS[key] || []).length) t.remove(); else t.querySelector("textarea").value = ""; };
+  t.querySelector(".btn.pri").onclick = () => { const v = t.querySelector("textarea").value.trim(); if (!v) return;
+    (THREADS[key] = THREADS[key] || []).push(["anoop", "just now", v]);
+    const m = document.createElement("div"); m.innerHTML = `<span class="who">anoop</span><span class="when">just now</span><div>${esc(v)}</div>`;
+    t.insertBefore(m, t.querySelector("textarea")); t.querySelector("textarea").value = ""; };
+  return t;
+}
+function afterAnns(el) { let nx = el.nextSibling; while (nx && nx.classList && nx.classList.contains("ann")) nx = nx.nextSibling; return nx; }
+function openThreadAt(row, container, key) { const nx = afterAnns(row);
+  if (nx && nx.classList && nx.classList.contains("thread")) { nx.querySelector("textarea").focus(); return; }
+  const t = threadEl(key, THREADS[key] || []); container.insertBefore(t, nx); t.querySelector("textarea").focus(); }
+function lineRow(path, r, container, anns) {
+  const row = document.createElement("div"); const hot = anns.some((a) => a[0] === r.n && a[1] === "warn");
+  row.className = "ln" + (r.t === "+" ? " a" : r.t === "-" ? " d" : "") + (hot && r.t === "=" ? " hot" : ""); if (r.n) row.dataset.n = r.n;
+  row.innerHTML = `<span class="no">${r.n ?? r.o}</span><span class="sg">${r.t === "=" ? "" : r.t}</span><span class="src">${hl(r.text)}<span class="plus">＋ comment</span></span>`;
+  container.appendChild(row);
+  if (r.n) for (const a of anns.filter((a) => a[0] === r.n)) container.appendChild(annEl(a));
+  const key = `${path}:${r.n ?? "o" + r.o}`; if (THREADS[key]) container.appendChild(threadEl(key, THREADS[key]));
+  row.onclick = () => openThreadAt(row, container, key);
+}
+function sbsRows(path, diff, container, anns) {
+  const pairs = []; let k = 0;
+  while (k < diff.length) { if (diff[k].t === "=") { pairs.push([diff[k], diff[k]]); k++; continue; }
+    const dels = [], adds = []; while (k < diff.length && diff[k].t === "-") dels.push(diff[k++]); while (k < diff.length && diff[k].t === "+") adds.push(diff[k++]);
+    for (let q = 0; q < Math.max(dels.length, adds.length); q++) pairs.push([dels[q], adds[q]]); }
+  for (const [l, r] of pairs) {
+    const row = document.createElement("div"); row.className = "sbs-row"; if (r) row.dataset.n = r.n;
+    const side = (x, cls, no) => x ? `<span class="no ${cls}">${no}</span><span class="src ${cls}">${hl(x.text)}</span>` : `<span class="no empty"></span><span class="src empty"></span>`;
+    row.innerHTML = side(l, l && l.t === "-" ? "l d" : "l", l && l.o) + side(r, r && r.t === "+" ? "r a" : "r", r && r.n);
+    row.lastElementChild.insertAdjacentHTML("beforeend", `<span class="plus">＋ comment</span>`); container.appendChild(row);
+    if (r) for (const a of anns.filter((a) => a[0] === r.n)) container.appendChild(annEl(a));
+    const key = `${path}:${r ? r.n : "o" + l.o}`; if (THREADS[key]) container.appendChild(threadEl(key, THREADS[key]));
+    row.onclick = () => openThreadAt(row, container, key);
+  }
+}
+function counts(f) { const d = lineDiff(f.before, f.after); return [d.filter((r) => r.t === "+").length, d.filter((r) => r.t === "-").length]; }
+
+/* ============================ cards ============================ */
+function buildCard(id) {
+  const f = FUNCS[id], file = FILES[f.path], chg = !!N[id].chg;
+  const c = document.createElement("div"); c.className = "card" + (chg ? "" : " ctx"); c.dataset.id = id;
+  c.innerHTML = `<div class="hd"><b>${N[id].label}</b><span class="file">${f.path}</span>
+      <span class="badge ${chg ? "chg" : "ctx"}">${chg ? "Δ changed" : N[id].field ? "field" : "context"}</span><span class="sp"></span>
+      <button class="ibtn restore" title="Expand card">⤢</button><button class="ibtn expand" title="Open full file">⤢ Full file</button><button class="ibtn x" title="Close">✕</button></div>
+    ${chg ? `<div class="effects">${f.effects.map((e) => `<div><span class="ico">⚠</span>${e}</div>`).join("")}</div>`
+          : `<div class="fetched">⤓ fetched on demand · <b>p4 print ${file.depot}${file.rev}</b> · ${f.touches}</div>`}
+    <div class="code"></div>`;
+  c.querySelector(".x").onclick = (e) => { e.stopPropagation(); dispatch({ t: "card.close", id }); };
+  c.querySelector(".expand").onclick = (e) => { e.stopPropagation(); dispatch({ t: "viewer.open", path: f.path, line: f.range[0] }); };
+  c.querySelector(".restore").onclick = (e) => { e.stopPropagation(); dispatch({ t: "card.expand", id }); };
+  c.addEventListener("pointerdown", (e) => { e.stopPropagation(); dispatch({ t: "card.front", id }); });
+  const hd = c.querySelector(".hd");
+  hd.addEventListener("pointerdown", (e) => {
+    if (e.target.closest("button") || state.cards.get(id)?.collapsed || window.innerWidth <= 640) return;
+    const start = { x: e.clientX, y: e.clientY, left: parseFloat(c.style.left), top: parseFloat(c.style.top) }; let moved = false;
+    hd.setPointerCapture(e.pointerId);
+    const move = (ev) => { const dx = ev.clientX - start.x, dy = ev.clientY - start.y; if (!moved && Math.hypot(dx, dy) < 4) return; moved = true;
+      c.classList.add("dragged"); dispatch({ t: "card.move", id, left: start.left + dx, top: start.top + dy }); };
+    const up = () => { hd.removeEventListener("pointermove", move); hd.removeEventListener("pointerup", up); c.classList.remove("dragged"); };
+    hd.addEventListener("pointermove", move); hd.addEventListener("pointerup", up);
+  });
+  hd.addEventListener("dblclick", (e) => { if (!e.target.closest("button")) dispatch({ t: "card.unpin", id }); });
+  c.addEventListener("click", () => { if (state.cards.get(id)?.collapsed) dispatch({ t: "card.expand", id }); });
+  const code = c.querySelector(".code"), [lo, hi] = f.range;
+  const rows = chg ? lineDiff(file.before, file.after).filter((r) => (r.n ?? 0) >= lo && (r.n ?? 0) <= hi || (r.t === "-" && r.o >= lo - 1 && r.o <= hi))
+                   : file.after.replace(/\n$/, "").split("\n").map((text, i) => ({ t: "=", n: i + 1, o: i + 1, text })).filter((r) => r.n >= lo && r.n <= hi);
+  for (const r of rows) lineRow(f.path, r, code, f.ann);
+  return c;
+}
+
+/* ============================ viewer ============================ */
+function buildViewer() {
+  const v = state.viewer;
+  if (!v.files.length) { panel.classList.remove("open"); panel.innerHTML = ""; return; }
+  const mode = v.mode;
+  panel.innerHTML = `<div class="top"><b>Files</b><span class="file" style="color:var(--muted);font-size:12px">${v.files.length} open</span><span class="sp" style="flex:1"></span>
+      <span class="seg"><button class="ibtn ${mode === "unified" ? "on" : ""}" data-m="unified">Stacked</button><button class="ibtn ${mode === "split" ? "on" : ""}" data-m="split">Side by side</button></span>
+      <button class="ibtn" id="vExpand">Expand all</button><button class="ibtn" id="vCollapse">Collapse all</button><button class="ibtn" id="vClose">Close all</button></div><div class="files"></div>`;
+  panel.querySelectorAll(".seg .ibtn").forEach((b) => b.onclick = () => dispatch({ t: "viewer.mode", mode: b.dataset.m }));
+  panel.querySelector("#vCollapse").onclick = () => dispatch({ t: "viewer.collapseAll" });
+  panel.querySelector("#vExpand").onclick = () => dispatch({ t: "viewer.expandAll" });
+  panel.querySelector("#vClose").onclick = () => dispatch({ t: "viewer.closeAll" });
+  const box = panel.querySelector(".files");
+  for (const path of v.files) {
+    const f = FILES[path], changed = f.before !== f.after, [a, m] = counts(f), anns = annsFor(path);
+    const sec = document.createElement("section"); sec.className = "fsec" + (v.collapsed.has(path) ? " collapsed" : ""); sec.dataset.path = path;
+    sec.innerHTML = `<div class="hd"><span class="chev">${v.collapsed.has(path) ? "▸" : "▾"}</span><b>${path}</b>
+        <span class="file">${changed ? "CL " + f.cls.join(", ") : "unchanged · p4 print " + f.depot + f.rev}</span>${changed ? `<span class="cnt"><span class="p">+${a}</span><span class="m">−${m}</span></span>` : ""}
+        <span class="sp"></span><button class="ibtn x" title="Close file">✕</button></div><div class="code"></div>`;
+    sec.querySelector(".hd").onclick = () => dispatch({ t: "viewer.toggle", path });
+    sec.querySelector(".x").onclick = (e) => { e.stopPropagation(); dispatch({ t: "viewer.close", path }); };
+    const code = sec.querySelector(".code"), diff = lineDiff(f.before, f.after);
+    if (changed && mode === "split") sbsRows(path, diff, code, anns); else for (const r of diff) lineRow(path, r, code, anns);
+    box.appendChild(sec);
+  }
+  panel.prepend(addResizer(panel, "--panel-w", 360, 0.75));
+  panel.classList.add("open");
+}
+function revealInViewer(path, line) {
+  const sec = panel.querySelector(`.fsec[data-path="${CSS.escape(path)}"]`); if (!sec) return;
+  sec.classList.remove("flash"); void sec.offsetWidth; sec.classList.add("flash");
+  const target = (line && sec.querySelector(`[data-n="${line}"]`)) || sec.querySelector(".a, .d, .r.a, .l.d, .ann.warn") || sec;
+  panel.querySelectorAll(".ln.focus").forEach((e) => e.classList.remove("focus")); if (target.classList.contains("ln")) target.classList.add("focus");
+  const box = panel.querySelector(".files"); box.scrollTop = target.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 60;
+}
+
+/* ============================ reducer ============================ */
+function dispatch(a) {
+  const s = state, v = s.viewer;
+  switch (a.t) {
+    case "card.open":                                    // node click: open, or bring an open card to the front (never toggles closed)
+      if (!s.cards.has(a.id)) { s.cards.set(a.id, { collapsed: v.files.length > 0 }); cardEls.set(a.id, buildCard(a.id)); stage.appendChild(cardEls.get(a.id)); }
+      else if (s.cards.get(a.id).collapsed) s.cards.get(a.id).collapsed = false;
+      s.z = s.z.filter((x) => x !== a.id).concat(a.id); break;
+    case "card.front": s.z = s.z.filter((x) => x !== a.id).concat(a.id); break;
+    case "card.expand": s.cards.get(a.id).collapsed = false; s.z = s.z.filter((x) => x !== a.id).concat(a.id); break;
+    case "card.close": s.cards.delete(a.id); s.z = s.z.filter((x) => x !== a.id); cardEls.get(a.id)?.remove(); cardEls.delete(a.id); break;
+    case "card.closeAll": for (const id of [...s.cards.keys()]) dispatch({ t: "card.close", id }); return;
+    case "viewer.open":
+      if (!v.files.length) { v.snapshot = new Map([...s.cards].map(([id, c]) => [id, c.collapsed])); for (const c of s.cards.values()) c.collapsed = true;
+                             v.mode = v.mode || (window.innerWidth > 1100 ? "split" : "unified"); }
+      v.files = [a.path, ...v.files.filter((p) => p !== a.path)]; v.collapsed.delete(a.path);
+      buildViewer(); render(); requestAnimationFrame(() => { render(); revealInViewer(a.path, a.line); }); hideHint(); return;
+    case "viewer.toggle": v.collapsed.has(a.path) ? v.collapsed.delete(a.path) : v.collapsed.add(a.path); buildViewer(); return;
+    case "viewer.collapseAll": v.files.forEach((p) => v.collapsed.add(p)); buildViewer(); return;
+    case "viewer.expandAll": v.collapsed.clear(); buildViewer(); return;
+    case "card.move": { const c = s.cards.get(a.id), p = project(N[a.id].x, wy(a.id)); c.offset = { x: a.left - p.x, y: a.top - p.y }; break; }
+    case "card.unpin": delete s.cards.get(a.id).offset; break;
+    case "about.toggle": s.about = a.open ?? !s.about; renderAbout(); break;
+    case "viewer.mode": v.mode = a.mode; buildViewer(); return;
+    case "viewer.close": v.files = v.files.filter((p) => p !== a.path); v.collapsed.delete(a.path); if (v.files.length) { buildViewer(); return; } // fallthrough when last
+    case "viewer.closeAll":
+      v.files = []; v.collapsed.clear();
+      if (v.snapshot) { for (const [id, collapsed] of v.snapshot) if (s.cards.has(id)) s.cards.get(id).collapsed = collapsed; v.snapshot = null; }
+      buildViewer(); requestAnimationFrame(render); break;
+    case "flow": s.flow = a.i; s.mode = "flows"; syncMode(); renderFlows(); renderFlowInfo(); centreOn(FLOWS[a.i].path); return;
+    case "mode": s.mode = a.m; syncMode(); renderFlows(); renderFlowInfo(); if (a.m === "graph") centreOn(Object.keys(N)); else centreOn(FLOWS[s.flow].path); return;
+    case "node.move": s.moved[a.id] = a.x; N[a.id].x = a.x; break;
+    case "layout.reset": for (const id of Object.keys(s.moved)) N[id].x = HOME_X[id]; s.moved = {}; break;
+    case "lens": s.view.lens = a.m; document.querySelectorAll("#lens .ibtn").forEach((b) => b.classList.toggle("on", +b.dataset.m === a.m)); break;
+  }
+  hideHint(); render(); renderFlowInfo();
+}
+
+function unprojectX(screenX) {          // screen x -> world x (bisection; the horizontal mapping is monotonic)
+  let lo = -20000, hi = 20000;
+  for (let i = 0; i < 60; i++) { const mid = (lo + hi) / 2; if (project(mid, 0).x < screenX) lo = mid; else hi = mid; }
+  return (lo + hi) / 2;
+}
+/* ============================ 2D fisheye ============================
+   Sarkar–Brown graphical fisheye applied independently on x and y:
+   f(d) = (m+1)d / (md+1) for normalised distance d in [0,1] from the focus (viewport centre).
+   Everything on the board — bands, nodes, edges, cards — goes through the same mapping. */
+// Horizontal lens. The middle FLAT fraction of the half-width is undistorted (1:1). Beyond it, each side folds in
+// the content on *that* side (so neither side is favoured), with a Sarkar–Brown curve whose slope starts at 1 —
+// no visible kink where the flat zone ends. Lens strength sets how much extra context is folded into the rims.
+const PAD = 140, FLAT = 0.55, FOLD = { 2: 1.8, 4: 3.4 };
+function sideExtent(focusX, dir) {       // world distance from the focus to the farthest node on one side (+ padding)
+  let far = 0; for (const n of Object.values(N)) { const d = (n.x - focusX) * dir; if (d > far) far = d; } return far + PAD;
+}
+function fishAxis(w, c, half, m, focusX) {   // world offset from focus -> [screen x, local scale 0..1]
+  if (!m) return [c + w, 1];
+  const F = FLAT * half, R = half - F, a = Math.abs(w), dir = Math.sign(w) || 1;
+  if (a <= F) return [c + w, 1];
+  const Rw = Math.max(sideExtent(focusX, dir) - F, R * FOLD[m]);    // world span folded into the remaining screen span R
+  const k = Rw / R - 1, t = Math.min((a - F) / Rw, 1);                 // k: Sarkar–Brown distortion giving slope 1 at t=0
+  const g = k > 0 ? ((k + 1) * t) / (k * t + 1) : t;
+  return [c + dir * (F + R * g), Math.max(0.34, 1 / Math.pow(k * t + 1, 2))];
+}
+// Horizontal: Sarkar–Brown fisheye. Vertical: none in the middle (layers stay parallel and keep their size when
+// panning up/down); towards the left/right rims y is pulled towards the centre line, so layers converge without meeting.
+function vSqueeze(nd, m) {                    // nd: 0 at the horizontal focus, 1 at the rim
+  const mid = FLAT, vmin = m >= 4 ? 0.55 : 0.7;          // layers stay parallel across the whole flat zone
+  if (nd <= mid) return 1;
+  const t = Math.min(1, (nd - mid) / (1 - mid)), e = t * t * (3 - 2 * t);
+  return 1 - (1 - vmin) * e;
+}
+function project(wx, wyy) {
+  const W = stage.clientWidth, H = stage.clientHeight, m = state.view.lens;
+  const [sx, kx] = fishAxis(wx + state.view.panX - W / 2, W / 2, W / 2, m, W / 2 - state.view.panX);
+  const v = m ? vSqueeze(Math.min(1, Math.abs(sx - W / 2) / (W / 2)), m) : 1;
+  const sy = H / 2 + (wyy + state.view.panY - H / 2) * v;
+  return { x: sx, y: sy, v, s: m ? Math.max(0.36, Math.min(1, kx) * (0.45 + 0.55 * v)) : 1 };
+}
+function bandY(screenX, worldY) {             // screen y of a world y at a given screen x (for drawing the curved bands)
+  const W = stage.clientWidth, H = stage.clientHeight, m = state.view.lens;
+  const v = m ? vSqueeze(Math.min(1, Math.abs(screenX - W / 2) / (W / 2)), m) : 1;
+  return H / 2 + (worldY + state.view.panY - H / 2) * v;
+}
+let lastW = 0, lastH = 0;
+function render() {
+  const W = stage.clientWidth, H = stage.clientHeight;
+  // the visible canvas changed (file viewer / change panel opened or closed): keep the same world point in the middle
+  if (lastW && (W !== lastW || H !== lastH)) { state.view.panX += (W - lastW) / 2; state.view.panY += (H - lastH) / 2; }
+  lastW = W; lastH = H;
+  let bandsHtml = ""; const xs = []; for (let x = 0; x <= W + 16; x += 16) xs.push(Math.min(x, W));
+  const line = (wyv, dir) => (dir > 0 ? xs : [...xs].reverse()).map((x, i) => `${i ? "L" : "M"}${x} ${bandY(x, wyv).toFixed(1)}`).join(" ");
+  for (let i = 0; i < LAYERS.length; i++) {
+    const top = line(i * BAND, 1), bot = line((i + 1) * BAND, -1).replace(/^M/, "L");
+    bandsHtml += `<path class="bandfill${i % 2 ? " alt" : ""}" d="${top} ${bot} Z"/><path class="bandline" d="${line(i * BAND, 1)}"/>`;
+    const ly = bandY(12, i * BAND) + 6; blabels[i].style.top = ly + "px"; blabels[i].style.transform = `scale(${Math.max(.7, bandY(12, 1) - bandY(12, 0))})`;
+  }
+  bandsvg.innerHTML = bandsHtml + `<path class="bandline" d="${line(LAYERS.length * BAND, 1)}"/>`;
+  const pos = {};
+  for (const [id, n] of Object.entries(N)) { const p = project(n.x, wy(id)); pos[id] = p;
+    const e = els[id]; e.style.left = p.x + "px"; e.style.top = p.y + "px"; e.style.transform = `translate(-50%, -50%) scale(${p.s})`; e.style.zIndex = Math.round(p.s * 20); }
+  // edges
+  const graph = state.mode === "graph", f = FLOWS[state.flow];
+  const onPath = new Set(graph ? [] : f.path), pairs = new Set(graph ? [] : f.path.slice(1).map((b, i) => f.path[i] + ">" + b));
+  let edges = "";
+  for (const [a, b, kind] of E) { const p1 = pos[a], p2 = pos[b], my = (p1.y + p2.y) / 2, inFlow = pairs.has(a + ">" + b);
+    edges += `<path class="edge${kind ? " " + kind : ""}${inFlow ? " flow" : ""}${!inFlow && !kind && !graph ? " dim" : ""}" d="M${p1.x} ${p1.y} C ${p1.x} ${my}, ${p2.x} ${my}, ${p2.x} ${p2.y}"/>`; }
+  // nodes: flow + card state
+  const front = state.z[state.z.length - 1];
+  for (const [id, e] of Object.entries(els)) {
+    e.classList.toggle("onflow", onPath.has(id)); e.classList.toggle("dim", !graph && !onPath.has(id) && !N[id].chg && !state.cards.has(id));
+    e.classList.toggle("moved", state.moved[id] !== undefined);
+    e.classList.toggle("has-card", state.cards.has(id)); e.classList.toggle("front", id === front);
+    const badge = e.querySelector(".fxbadge");
+    if (badge) badge.style.display = graph || (onPath.has(id) && (f.path[f.path.length - 1] === id || f.fxAt === id)) ? "" : "none";
+  }
+  document.getElementById("resetLayout").style.display = Object.keys(state.moved).length ? "" : "none";
+  // cards: placed next to their node in screen space, then scaled by the lens at that spot
+  const narrow = window.innerWidth <= 640, placed = [];
+  const hit = (r) => placed.some((q) => r.x < q.x + q.w && q.x < r.x + r.w && r.y < q.y + q.h && q.y < r.y + r.h);
+  for (const id of state.z) {
+    const c = cardEls.get(id), st = state.cards.get(id); if (!c) continue;
+    c.classList.toggle("min", st.collapsed); c.classList.toggle("front", id === front); c.style.zIndex = 50 + state.z.indexOf(id);
+    if (narrow && !st.collapsed) { c.style.transform = ""; continue; }
+    const p = pos[id], k = st.collapsed ? 1 : Math.max(0.55, p.s), cw = c.offsetWidth * k, ch = Math.min(c.offsetHeight * k, H - 16);
+    const clampX = (x) => Math.max(8, Math.min(x, W - cw - 8)), clampY = (y) => Math.max(8, Math.min(y, H - ch - 8));
+    let r;
+    if (st.collapsed) r = { x: clampX(p.x - cw / 2), y: clampY(p.y + 24 * p.s), w: cw, h: ch };
+    else if (st.offset) r = { x: p.x + st.offset.x, y: p.y + st.offset.y, w: cw, h: ch };    // user-placed: follows its node
+    else { const cands = [[p.x + 50 * p.s, p.y - 40], [p.x - 50 * p.s - cw, p.y - 40], [p.x + 50 * p.s, p.y - ch + 40], [p.x - 50 * p.s - cw, p.y - ch + 40],
+                          [W - cw - 8, 8], [8, 8], [W - cw - 8, H - ch - 8], [8, H - ch - 8]].map(([x, y]) => ({ x: clampX(x), y: clampY(y), w: cw, h: ch }));
+      const overlap = (t) => placed.reduce((s, q) => s + Math.max(0, Math.min(t.x + t.w, q.x + q.w) - Math.max(t.x, q.x)) * Math.max(0, Math.min(t.y + t.h, q.y + q.h) - Math.max(t.y, q.y)), 0);
+      r = cands.find((t) => !hit(t)) || cands.reduce((b, t) => (overlap(t) < overlap(b) ? t : b)); }
+    placed.push(r);
+    c.style.left = r.x + "px"; c.style.top = r.y + "px"; c.style.transform = `scale(${k})`;
+    const tx = r.x + (r.x > p.x ? 0 : cw), ty = Math.max(r.y + 14, Math.min(p.y, r.y + ch - 14));      // tether: node -> nearest card edge
+    edges += `<path class="tether${id === front ? " front" : ""}" d="M${p.x} ${p.y} L ${tx} ${ty}"/>`;
+  }
+  svg.innerHTML = edges;
+  document.getElementById("closeAll").style.display = state.cards.size >= 2 ? "" : "none";
+}
+function syncMode() { document.querySelectorAll("#mode .ibtn").forEach((b) => b.classList.toggle("on", b.dataset.m === state.mode)); }
+function renderFlows() {
+  const box = document.getElementById("flows"); box.innerHTML = "";
+  FLOWS.forEach((f, i) => { const c = document.createElement("div"); c.className = "chip" + (i === state.flow && state.mode === "flows" ? " on" : "");
+    c.innerHTML = `<span class="num">${i + 1}</span><span class="path">${f.text}</span><span class="tag ${f.tag}">${f.tag}</span>`;
+    c.onclick = () => dispatch({ t: "flow", i }); box.appendChild(c); });
+}
+function renderFlowInfo() {
+  const box = document.getElementById("flowinfo");
+  if (state.mode === "graph") {
+    const chg = Object.values(N).filter((n) => n.chg).length, fx = Object.values(N).filter((n) => n.fx).length;
+    box.className = "flowinfo graph";
+    box.innerHTML = `<div class="what"><b>Whole graph</b> — ${Object.keys(N).length} functions and fields across ${LAYERS.length} layers; ${chg} changed, ${fx} where side effects land.
+      Drag a function sideways to rearrange its layer; your layout is kept for this review. Pick a flow above to trace one path.</div>`;
+    return;
+  }
+  const f = FLOWS[state.flow];
+  box.className = "flowinfo";
+  const steps = f.path.map((id) => { const n = N[id], cls = n.chg ? "chg" : n.field ? "field" : (id === f.fxAt || id === f.path.at(-1)) ? "fx" : "";
+    return `<span class="step ${cls}${state.cards.has(id) && !state.cards.get(id).collapsed ? " open" : ""}" data-id="${id}" title="Show / hide the code">${n.label}${FUNCS[id] ? `<span class="sgo" title="Open in full view">⤢</span>` : ""}</span>`; }).join(`<span class="arrow">→</span>`);
+  const layers = new Set(f.path.map((id) => N[id].l)).size;
+  box.innerHTML = `<div class="fnum">${state.flow + 1}</div>
+    <div><div class="what">${f.what}</div><div class="steps">${steps}<span class="arrow" style="margin-left:6px">· ${f.path.length} steps · ${layers} layers</span></div></div>
+    <div class="side"><span class="k">⚠ Side effect lands on ${f.lands}</span>${f.effect}<div class="chk">${f.check}</div></div>`;
+  box.querySelectorAll(".step").forEach((el) => el.onclick = (e) => {
+    const id = el.dataset.id; if (!FUNCS[id]) return;
+    if (e.target.closest(".sgo")) { dispatch({ t: "viewer.open", path: FUNCS[id].path, line: FUNCS[id].range[0] }); return; }
+    const c = state.cards.get(id);
+    dispatch(c && !c.collapsed ? { t: "card.close", id } : { t: "card.open", id });        // toggle from the summary bar
+  });
+}
+function centreOn(path) {
+  const xs = path.map((id) => N[id].x), ys = path.map(wy), W = stage.clientWidth, H = stage.clientHeight;
+  const tx = W / 2 - (Math.min(...xs) + Math.max(...xs)) / 2, ty = H / 2 - (Math.min(...ys) + Math.max(...ys)) / 2;
+  const sx = state.view.panX, sy = state.view.panY, t0 = performance.now();
+  (function step(t) { const k = Math.min(1, (t - t0) / 380), e = 1 - Math.pow(1 - k, 3);
+    state.view.panX = sx + (tx - sx) * e; state.view.panY = sy + (ty - sy) * e; render(); if (k < 1) requestAnimationFrame(step); })(t0);
+}
+
+/* ---------- "What's this change?" side panel (pushes the board; stays open while files are opened) ---------- */
+function renderAbout() {
+  const about = document.getElementById("about");
+  document.querySelector("main").classList.toggle("with-about", state.about);
+  if (!state.about) { about.classList.remove("open"); about.innerHTML = ""; requestAnimationFrame(render); return; }
+  const changed = Object.entries(FILES).filter(([, f]) => f.action);
+  const tree = {}; for (const [p] of changed) { const parts = p.split("/"), file = parts.pop(), dir = parts.join("/") || "."; (tree[dir] = tree[dir] || []).push([p, file]); }
+  about.innerHTML = `<div class="top"><button class="ibtn close" title="Close">✕</button><span class="pill high">HIGH RISK</span><h2>What this change is trying to do</h2><p>CL 101 · CL 102 · ${changed.length} files · summarised from the CL descriptions, the diff and the analysis</p></div>
+    <div class="body"><h3>Files in this change</h3><div class="tree">${Object.entries(tree).sort().map(([dir, fs]) => `
+        <div class="dir" data-dir="${dir}"><span class="caret">▾</span>📁 ${dir}/</div>
+        <div class="kids" data-kids="${dir}">${fs.map(([p, file]) => { const [a, m] = counts(FILES[p]);
+          return `<div class="file${state.viewer.files.includes(p) ? " on" : ""}" data-path="${p}" style="padding-left:34px">📄 ${file}<span class="act">${FILES[p].action}</span><span class="clb">CL ${FILES[p].cls.join(", ")}</span><span class="cnt"><span class="p">+${a}</span><span class="m">−${m}</span></span></div>`; }).join("")}</div>`).join("")}
+      </div>
+      <h3>Intent</h3><div class="intent">${ABOUT.intent}</div>
+      <h3>Why it's high risk</h3><ul class="why">${ABOUT.why.map(([s, t]) => `<li><span class="sev ${s}">${s.toUpperCase()}</span>${t}</li>`).join("")}</ul>
+      <h3>Changelists</h3>${ABOUT.cls.map(([n, u, d]) => `<div class="cl"><span class="n">CL ${n}</span> <span class="m">· ${u} · ${changed.filter(([, f]) => f.cls.includes(n)).length} files</span><div class="desc">${d}</div></div>`).join("")}
+    </div>`;
+  about.querySelector(".close").onclick = () => dispatch({ t: "about.toggle", open: false });
+  about.querySelectorAll(".dir").forEach((d) => d.onclick = () => { const k = about.querySelector(`[data-kids="${d.dataset.dir}"]`);
+    const hide = k.style.display !== "none"; k.style.display = hide ? "none" : ""; d.querySelector(".caret").textContent = hide ? "▸" : "▾"; });
+  about.querySelectorAll(".file").forEach((f) => f.onclick = () => { dispatch({ t: "viewer.open", path: f.dataset.path });
+    about.querySelectorAll(".file").forEach((x) => x.classList.toggle("on", state.viewer.files.includes(x.dataset.path))); });
+  about.prepend(addResizer(about, "--about-w", 280, 0.6));
+  about.classList.add("open"); requestAnimationFrame(render);
+}
+document.getElementById("aboutBtn").onclick = () => dispatch({ t: "about.toggle" });
+/* ---------- input ---------- */
+function hideHint() { document.getElementById("hint").style.opacity = 0; }
+let down = null;
+stage.addEventListener("pointerdown", (e) => {
+  const n = e.target.closest(".node"), onGo = e.target.closest(".go");
+  down = { x: e.clientX, y: e.clientY, px: state.view.panX, py: state.view.panY, dragging: false, id: e.pointerId,
+           node: n && !onGo ? n.dataset.id : null };
+  if (!e.target.closest(".card")) e.preventDefault();                        // no text selection starting on the board
+});
+stage.addEventListener("pointermove", (e) => {
+  if (!down) return;
+  if (!down.dragging && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) {
+    down.dragging = true; stage.setPointerCapture(down.id); document.body.classList.add("dragging"); window.getSelection()?.removeAllRanges();
+    if (down.node) { document.body.classList.add("nodedrag"); els[down.node].classList.add("grab"); } else stage.classList.add("drag");
+    hideHint();
+  }
+  if (!down.dragging) return;
+  if (down.node) {                                                            // move the function sideways within its layer
+    const r = stage.getBoundingClientRect();
+    dispatch({ t: "node.move", id: down.node, x: Math.round(unprojectX(e.clientX - r.left)) });
+  } else { state.view.panX = down.px + (e.clientX - down.x); state.view.panY = down.py + (e.clientY - down.y); render(); }
+});
+stage.addEventListener("pointerup", (e) => {
+  if (down && !down.dragging) {
+    const go = e.target.closest(".go"), n = e.target.closest(".node");
+    if (go && n) dispatch({ t: "viewer.open", path: FUNCS[n.dataset.id].path, line: FUNCS[n.dataset.id].range[0] });
+    else if (n && FUNCS[n.dataset.id]) dispatch({ t: "card.open", id: n.dataset.id });
+  }
+  if (down?.node) els[down.node].classList.remove("grab");
+  down = null; stage.classList.remove("drag"); document.body.classList.remove("dragging", "nodedrag");
+});
+stage.addEventListener("wheel", (e) => { state.view.panX -= e.deltaX + (e.shiftKey ? e.deltaY : 0); if (!e.shiftKey) state.view.panY -= e.deltaY; render(); e.preventDefault(); }, { passive: false });
+document.querySelectorAll("#lens .ibtn").forEach((b) => b.onclick = () => dispatch({ t: "lens", m: +b.dataset.m }));
+document.getElementById("closeAll").onclick = () => dispatch({ t: "card.closeAll" });
+document.querySelectorAll("#mode .ibtn").forEach((b) => b.onclick = () => dispatch({ t: "mode", m: b.dataset.m }));
+document.getElementById("resetLayout").onclick = () => dispatch({ t: "layout.reset" });
+
+/* ---------- resizable side panels (drag the left edge) ---------- */
+function addResizer(el, cssVar, min, maxFrac) {
+  const h = document.createElement("div"); h.className = "resizer"; h.title = "Drag to resize";
+  h.addEventListener("pointerdown", (e) => {
+    e.preventDefault(); h.setPointerCapture(e.pointerId); document.body.classList.add("resizing");
+    const startX = e.clientX, startW = el.getBoundingClientRect().width;
+    const move = (ev) => { const w = Math.max(min, Math.min(window.innerWidth * maxFrac, startW + (startX - ev.clientX)));
+      document.documentElement.style.setProperty(cssVar, w + "px"); render(); };
+    const up = () => { h.removeEventListener("pointermove", move); h.removeEventListener("pointerup", up); document.body.classList.remove("resizing"); };
+    h.addEventListener("pointermove", move); h.addEventListener("pointerup", up);
+  });
+  return h;
+}
+window.addEventListener("resize", render);
+renderFlows(); renderFlowInfo();
+state.view.panX = stage.clientWidth / 2 - N.uart_send.x; state.view.panY = stage.clientHeight / 2 - (LAYERS.length * BAND) / 2;
+render();
+if (window.innerWidth > 640) dispatch({ t: "card.open", id: "uart_send" });
+setTimeout(hideHint, 7000);
+</script>
+</body>
+</html>
