@@ -171,7 +171,7 @@ BoardEdge  { src, dst, kind: call|virtual|writes|reads, status, confidence }
 Flow       { id, path: [nodeId], tag: state|contract, lands: nodeId, fx_at: nodeId|null, severity,
              findings: [id], text (path label), what (html-safe plain text with node labels), effect, check,
              what_source: template|llm }
-Impact     { node, path, line, side: new|old, severity: warn|info|ok, channel: contract|state|signature|layout,
+Impact     { node, path, line, side: new|old, severity: warn|info|ok, channel: contract|state|signature,
              title, text, finding: id|null }
 Board      { nodes, edges, flows, impacts, layers: [{level, name}], about: {intent, why: [{severity, text, finding}],
              cls: [{cl, user, description, files}], tree: [{dir, files: [{path, action, cls, add, del}]}]} }
