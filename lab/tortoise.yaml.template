@@ -1,0 +1,21 @@
+# copy to $LAB/tortoise.yaml and replace $LAB with the absolute lab path
+owner: YOUR_P4_USER
+server: {host: 127.0.0.1, port: 8766, public_url: "http://127.0.0.1:8766", data_dir: $LAB/data}
+workspace:
+  vcs: p4
+  p4port: 127.0.0.1:1666
+  client: lab-ws
+  root: $LAB/ws
+  compile_commands: $LAB/build/compile_commands.json
+  p4_bin: $LAB/bin/p4
+toolchain:
+  clang: /usr/bin/gcc        # stands in for a vendor driver
+swarm: {url: "http://localhost:8081"}
+llm:                          # LM Studio (json_schema structured output is used automatically)
+  base_url: http://localhost:54321/v1
+  model: qwen/qwen3.5-9b
+  api_key_env: TORTOISE_LLM_KEY
+  max_context_tokens: 12000
+  timeout_s: 600
+auth: {mode: p4}
+analysis: {workers: 16}
