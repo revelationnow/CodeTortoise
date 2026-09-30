@@ -101,6 +101,13 @@ def sanitize_args(entry: CompileEntry, strip: set[str] = frozenset()) -> list[st
         if not a.startswith("-") and canon(_abs(entry.directory, a)) == src:
             i += 1
             continue
+        if a in ("-include", "-imacros") and i + 1 < len(args):
+            # gcc looks in the working directory first, then the #include "..." chain: only pin it when it exists here
+            val = args[i + 1]
+            cand = _abs(entry.directory, val)
+            out += [a, canon(cand) if os.path.isabs(val) or os.path.exists(cand) else val]
+            i += 2
+            continue
         if a in _SEP_PATH_FLAGS and i + 1 < len(args):
             out += [a, canon(_abs(entry.directory, args[i + 1]))]
             i += 2

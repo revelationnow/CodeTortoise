@@ -60,3 +60,14 @@ def test_include_dirs_union():
     db = CompileDb([CompileEntry("/w/a.c", "/w", ("cc", "-Iinc", "-isystem", "/sys", "-c", "a.c")),
                     CompileEntry("/w/b.c", "/w", ("cc", "-Iinc", "-iquote", "q", "-c", "b.c"))])
     assert include_dirs(db) == ["/w/inc", "/sys", "/w/q"]
+
+
+def test_forced_include_resolves_like_gcc(tmp_path):
+    (tmp_path / "build/gen").mkdir(parents=True)
+    (tmp_path / "build/local.h").write_text("")
+    e = CompileEntry(str(tmp_path / "a.c"), str(tmp_path / "build"),
+                     ("cc", "-Igen", "-include", "suite.h", "-include", "local.h", "-imacros", "cfg.h", "-c", "../a.c"))
+    build = str((tmp_path / "build").resolve())
+    # found in the working directory -> absolute; otherwise left for the -I search chain
+    assert sanitize_args(e) == [f"-I{build}/gen", "-include", "suite.h", "-include", f"{build}/local.h",
+                                "-imacros", "cfg.h"]
