@@ -1,9 +1,12 @@
 """Repo-wide tree-sitter symbol index stored in SQLite (heuristic, name-based)."""
 from __future__ import annotations
 
+import multiprocessing as mp
 import os
 import sqlite3
+from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -73,22 +76,24 @@ class SymbolIndex:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self._db.executescript(_SCHEMA)
+        self.skipped: list[str] = []  # files whose parse crashed in the last build
 
     def generation(self) -> int:
         row = self._db.execute("SELECT value FROM sym_meta WHERE key='generation'").fetchone()
         return int(row[0]) if row else 0
 
-    def build(self, root: Path, workers: int = 0, include_dirs: list[str] | None = None) -> int:
+    def build(self, root: Path, workers: int = 0, include_dirs: list[str] | None = None,
+              parser: Callable[[str], tuple[str, ParsedFile | None]] = _parse_file) -> int:
         """Full rebuild over every C/C++ source under root. Returns number of files indexed.
 
         `include_dirs` (canonical, from the compile DB) are used to resolve `#include` targets.
         """
         files = iter_source_files(Path(root))
         if workers and workers > 1:
-            with ProcessPoolExecutor(max_workers=workers) as pool:
-                results = list(pool.map(_parse_file, files, chunksize=64))
+            results = self._parse_isolated(files, workers, parser)
         else:
-            results = [_parse_file(f) for f in files]
+            results = [parser(f) for f in files]
+            self.skipped = []
         db = self._db
         with db:
             for t in ("sym_files", "sym_defs", "sym_calls", "sym_includes", "sym_members", "sym_inc_resolved"):
@@ -109,6 +114,28 @@ class SymbolIndex:
             db.execute("INSERT OR REPLACE INTO sym_meta VALUES('generation', ?)", (str(self.generation() + 1),))
             db.execute("INSERT OR REPLACE INTO sym_meta VALUES('root', ?)", (str(root),))
         return sum(1 for _, pf in results if pf is not None)
+
+    def _parse_isolated(self, files: list[str], workers: int, parser) -> list[tuple[str, ParsedFile | None]]:
+        """Parse in a process pool; a native crash on one file skips only that file (recorded in `skipped`)."""
+        done: dict[str, ParsedFile | None] = {}
+        ctx = mp.get_context("forkserver" if "forkserver" in mp.get_all_start_methods() else "spawn")
+        try:
+            with ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as pool:
+                for path, pf in pool.map(parser, files, chunksize=64):
+                    done[path] = pf
+        except BrokenProcessPool:
+            pass
+        self.skipped = []
+        for f in files:
+            if f in done:
+                continue
+            try:
+                with ProcessPoolExecutor(max_workers=1, mp_context=ctx) as pool:
+                    done[f] = pool.submit(parser, f).result()[1]
+            except BrokenProcessPool:
+                self.skipped.append(f)
+                done[f] = None
+        return [(f, done[f]) for f in files]
 
     def files(self) -> list[str]:
         return [r[0] for r in self._db.execute("SELECT path FROM sym_files ORDER BY path")]

@@ -59,3 +59,14 @@ def test_includes_resolve_relative_then_include_dirs(tmp_path):
     assert short(idx.includers_of(f"{root}/b/config.h")) == ["b/y.c", "d/w.c"]
     idx.build(tmp_path)  # no include dirs: an unresolvable ambiguous include matches every candidate
     assert short(idx.includers_of(f"{root}/a/config.h")) == ["a/x.c", "c/z.c", "d/w.c"]
+
+
+def test_native_parser_crash_skips_only_that_file(tmp_path):
+    from crashy import parse_crash_on_boom
+    (tmp_path / "a.c").write_text("int a(void) { return b(); }\n")
+    (tmp_path / "boom.c").write_text("int boom(void) { return 0; }\n")
+    (tmp_path / "c.c").write_text("int c(void) { return a(); }\n")
+    idx = SymbolIndex(tmp_path / "s.db")
+    assert idx.build(tmp_path, workers=2, parser=parse_crash_on_boom) == 2
+    assert [p.split("/")[-1] for p in idx.files()] == ["a.c", "c.c"]
+    assert [p.split("/")[-1] for p in idx.skipped] == ["boom.c"]

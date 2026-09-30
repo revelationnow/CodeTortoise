@@ -55,3 +55,18 @@ def test_non_ascii_and_replacement_chars_keep_line_numbers():
     text = "/* d\u00e9j\u00e0 vu \ufffd\ufffd */\nint f(void) { return 0; }\n"
     (f,) = parse_source("x.c", text).functions
     assert (f.qualname, f.start_line) == ("f", 2)
+
+
+def test_large_files_parse_without_crashing(tmp_path):
+    # tree-sitter 0.26.0 corrupts node positions and segfaults on files of a few thousand lines;
+    # run in a subprocess so a native crash fails this test instead of killing the whole run.
+    import subprocess
+    import sys
+    src = "".join(f"int f{i}(int a, int b)\n{{\n\tint x = a + b;\n\tif (x > {i})\n\t\treturn x;\n\treturn -1;\n}}\n\n"
+                  for i in range(400))
+    (tmp_path / "big.c").write_text(src)
+    code = ("import sys; from codetortoise.cparse import parse_source; p = sys.argv[1]; "
+            "fs = parse_source(p, open(p).read()).functions; print(len(fs), fs[-1].start_line, fs[-1].end_line)")
+    r = subprocess.run([sys.executable, "-c", code, str(tmp_path / "big.c")], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr[-500:]
+    assert r.stdout.split() == ["400", "3193", "3199"]
