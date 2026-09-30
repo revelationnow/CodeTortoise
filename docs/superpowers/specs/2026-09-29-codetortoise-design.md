@@ -382,3 +382,28 @@ These refine the sections above; where they differ, this section wins.
   `auth.mode: dev` (any username, no password) exists for the fixture demo and e2e tests only.
 - **Headless mode.** `codetortoise review --config … <CL>…` runs the pipeline and prints findings, for fast iteration on real CLs.
 - **P4 integration test against a live `p4d`** is deferred: `P4Source` is covered with a fake runner in M1.
+
+## 15. Changes from the libgit2 lab validation (2026-09-30)
+
+Validated on libgit2 (1,190 files, 726 TUs, gcc-built) under a real Helix Core + Swarm setup; see `lab/README.md`.
+
+- **Layers (§5.8 replaced):** SCC condensation collapses real codebases (libgit2's module graph is one big cycle) into
+  2–3 layers. Module edges are now weighted by file-level references; the weaker direction of each 2-cycle and then the
+  weakest edge of each remaining cycle are dropped before levelling. Layers are named after their largest modules.
+  Cached layer models are keyed by an algorithm version.
+- **TU selection gains a follow-up round (§5.3):** after the first clang pass, TUs that reference fields the change
+  writes (seen by clang, including through aliases) and that can see the record's header are parsed too.
+- **Driver query (§5.4):** compiler-identity macros (`__GNUC__*`, `__clang*`, `__STDC*`, `__GCC_*`, …) are never imported
+  into the prelude; importing them made libclang impersonate the driver and broke system headers. Relative
+  `-include`/`-imacros` resolve like gcc (working directory first, then the include chain).
+- **Field mutations (§5.7):** pointers initialised from allocation calls (`*alloc`, `*strdup`, C++ `new`) are local
+  objects; functions new in the change get one `info` summary of the fields they write instead of per-field findings;
+  "through a local alias" is claimed only when an alias variable is involved.
+- **Contract evidence** shows macro/enumerator names next to evaluated values, e.g. `GIT_EOL_LF (2)`.
+- **LLM (§5.9):** when `response_format: json_object` is rejected the client uses per-call `json_schema` (LM Studio),
+  falling back to plain text only if that is rejected too.
+- **Call-flow view (§7):** hides test code by default, limits depth from the changed roots (default 2) and collapses
+  fan-in/fan-out beyond 6 per node into "+N more" nodes.
+- **Dependencies:** `tree-sitter` is pinned `<0.26` (0.26.0 corrupts node positions and segfaults on large files); a
+  native parser crash skips only that file during indexing.
+- **Auth:** an expired P4 password is reported as such (run `p4 passwd`); other login failures stay generic.
