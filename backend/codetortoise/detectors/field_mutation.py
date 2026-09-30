@@ -23,6 +23,15 @@ def detect_field_mutation(ctx: DetectorContext) -> list[Finding]:
     for nid in im.changed:
         node = im.nodes[nid]
         wb, wa = _writes(ctx.before, node.key), _writes(ctx.after, node.key)
+        if node.status == "added":
+            # everything a new function writes is "new"; one informational summary instead of per-field alarms
+            if wa:
+                ev = [Evidence(text=f"writes {a[0].record}::{a[0].field_name} as `{a[0].path}`", file=a[0].file,
+                               line=a[0].line) for a in wa.values()]
+                findings.append(Finding(kind="field_mutation", severity="info",
+                                        title=f"new function {node.label} writes {len(wa)} field(s)", nodes=[nid],
+                                        evidence=ev, summary=f"{node.label} is new; fields it modifies are listed."))
+            continue
         for key in sorted(set(wa) - set(wb)):
             accesses = wa[key]
             a0 = accesses[0]
@@ -48,7 +57,7 @@ def detect_field_mutation(ctx: DetectorContext) -> list[Finding]:
                 ev.append(Evidence(text=f"{len(heuristic)} more by name match outside parsed TUs (heuristic): "
                                         f"{', '.join(heuristic[:10])}", severity="low"))
             label = field_node.label if field_node else a0.field_name
-            alias = any(a.via for a in accesses)
+            alias = any(not v.startswith("call:") for a in accesses for v in a.via)
             findings.append(Finding(
                 kind="field_mutation", severity=max_severity(ev),
                 title=f"{node.label} now writes {label}" + (" through a local alias" if alias else ""),

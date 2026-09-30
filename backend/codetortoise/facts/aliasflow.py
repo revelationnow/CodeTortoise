@@ -9,6 +9,7 @@ first, then accesses are recorded.
 from __future__ import annotations
 
 import ctypes
+import fnmatch
 from dataclasses import dataclass
 
 import clang.cindex as ci
@@ -28,6 +29,8 @@ _ARRAY = {T.CONSTANTARRAY, T.INCOMPLETEARRAY, T.VARIABLEARRAY, T.DEPENDENTSIZEDA
 _MEMFUNCS = {"memcpy", "memset", "memmove", "strcpy", "strncpy", "strcat", "strncat", "bzero"}
 DEREF = ("*", "*", "")
 ELEM = ("[]", "[]", "")
+# calls returning a freshly allocated object: writes through the result are to a local object, not shared state
+ALLOC_PATTERNS = ("*alloc", "*strdup", "*strndup")
 _FUNC_KINDS = {K.FUNCTION_DECL, K.CXX_METHOD, K.CONSTRUCTOR, K.DESTRUCTOR, K.FUNCTION_TEMPLATE}
 
 
@@ -213,6 +216,14 @@ def literal_text(c: ci.Cursor) -> str | None:
     return _evaluate_int(s)
 
 
+def _is_allocation(c: ci.Cursor) -> bool:
+    s, _ = _strip(c)
+    if s.kind == K.CXX_NEW_EXPR:
+        return True
+    return (s.kind == K.CALL_EXPR and s.referenced is not None
+            and any(fnmatch.fnmatchcase(s.referenced.spelling, p) for p in ALLOC_PATTERNS))
+
+
 class FunctionAnalyzer:
     def __init__(self, fn: ci.Cursor, fn_usr: str):
         self.fn = fn
@@ -222,6 +233,7 @@ class FunctionAnalyzer:
             self.params[p.get_usr()] = (i, p)
         self.alias: dict[str, set[AP]] = {}
         self.field_files: dict[str, str] = {}  # FieldDecl USR -> canonical file declaring it
+        self.fresh: set[str] = set()  # local pointers holding freshly allocated objects
 
     def _field_file(self, f: ci.Cursor) -> str:
         usr = f.get_usr()
@@ -302,6 +314,8 @@ class FunctionAnalyzer:
             usr = ref.get_usr()
             if usr in self.alias:
                 out = {a.mark(via=ref.spelling) for a in self.alias[usr]}
+            elif usr in self.fresh:
+                out = {AP("local", ref.spelling)}
             else:
                 root = self._var_root(ref)
                 if root is not None and root.root_kind in ("param", "global"):
@@ -347,6 +361,9 @@ class FunctionAnalyzer:
                 if target_var is None:
                     continue
                 if self._var_root(target_var).root_kind == "global":
+                    continue
+                if _is_allocation(init) and target_var.type.get_canonical().kind in _PTR:
+                    self.fresh.add(target_var.get_usr())
                     continue
                 aps = self._alias_targets(target_var, init)
                 if not aps:

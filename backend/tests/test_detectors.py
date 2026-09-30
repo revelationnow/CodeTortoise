@@ -100,3 +100,35 @@ def test_contract_evidence_uses_constant_names():
     (f,) = run_detectors(DetectorContext(before, after, DiffMap(), im, AnalysisConfig()))
     assert f.title == "f: new return value(s) ERR_BUSY (-4)"
     assert "checks ERR_NOTFOUND (==-3) which does not handle ERR_BUSY (-4)" in f.evidence[1].text
+
+
+def _mutation_ctx(status, via):
+    from codetortoise.config import AnalysisConfig
+    from codetortoise.diffmap import DiffMap
+    from codetortoise.facts.model import Facts, FieldAccess, Function, TuInfo
+    from codetortoise.impact import Edge, ImpactModel, Node
+
+    fn = Function(usr="c:@F@f", qualname="f", name="f", signature="int f(void)", return_type="int", file="/w/a.c",
+                  start_line=1, end_line=9)
+    acc = FieldAccess(fn="c:@F@f", field="c:@S@B@FI@ptr", field_name="ptr", record="B", path="out.ptr",
+                      root_kind="param", mode="write", via=via, file="/w/a.c", line=3)
+    before = [Facts(tu=TuInfo(file="/w/a.c", variant="before"), functions=[] if status == "added" else [fn])]
+    after = [Facts(tu=TuInfo(file="/w/a.c", variant="after"), functions=[fn], fields=[acc])]
+    im = ImpactModel(nodes={"N1": Node(id="N1", key="c:@F@f", label="f", status=status),
+                            "N2": Node(id="N2", key="field:c:@S@B@FI@ptr", kind="field", label="B::ptr"),
+                            "N3": Node(id="N3", key="c:@F@other", label="other")},
+                     edges=[Edge(id="E1", src="N3", dst="N2", kind="reads")], changed=["N1"])
+    return DetectorContext(before, after, DiffMap(), im, AnalysisConfig())
+
+
+def test_new_function_writes_fold_into_one_info_finding():
+    (f,) = run_detectors(_mutation_ctx("added", []))
+    assert (f.kind, f.severity, f.title) == ("field_mutation", "info", "new function f writes 1 field(s)")
+    assert "B::ptr" in f.evidence[0].text
+
+
+def test_alias_claim_requires_an_alias_variable():
+    (f,) = run_detectors(_mutation_ctx("changed", ["call:memcpy"]))
+    assert f.title == "f now writes B::ptr" and f.severity == "high"
+    (g,) = run_detectors(_mutation_ctx("changed", ["tmp"]))
+    assert g.title == "f now writes B::ptr through a local alias"

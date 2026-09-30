@@ -107,3 +107,24 @@ def test_writes_spelled_inside_macros(tmp_path):
     _, _, w = writes(tmp_path, "macro.c", MACRO_C, ["-xc"], "poke")
     assert {(line, path, mode) for line, path, mode, _, _ in w} == {
         (6, "u.ctrl", "write"), (7, "u.cnt", "write"), (8, "u.flags", "write")}
+
+
+FRESH_C = """struct E { int n; char sig[4]; };
+void *git__malloc(unsigned long);
+void *memcpy(void *d, const void *s, unsigned long n);
+struct E *lookup(void);
+void mk(void) {
+  struct E *e = git__malloc(sizeof(*e));
+  e->n = 1;
+  memcpy(e->sig, "ab", 2);
+  struct E *g = lookup();
+  g->n = 2;
+}
+"""
+
+
+def test_writes_to_freshly_allocated_objects_are_local(tmp_path):
+    fields, _, w = writes(tmp_path, "fresh.c", FRESH_C, ["-xc"], "mk")
+    roots = {(a.line, a.path, a.root_kind) for a in fields if a.mode != "read"}
+    assert (7, "e.n", "local") in roots and (8, "e.sig[]", "local") in roots
+    assert (10, "?.n", "unknown") in roots  # object from a getter may be shared
