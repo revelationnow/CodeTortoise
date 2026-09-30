@@ -12,3 +12,6 @@ frontend/test-results/
 frontend/playwright-report/
 # built SPA (produced by `npm run build` in frontend/)
 backend/codetortoise/web/static/
+
+# superpowers workflow scratch (brainstorm mockups, execution ledgers)
+.superpowers/
