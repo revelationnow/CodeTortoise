@@ -16,6 +16,7 @@ const STYLE: cytoscape.StylesheetJson = [
   { selector: "node.layer", style: { label: "data(label)", "text-valign": "top", "text-halign": "center", "font-size": 10,
     color: "#6b665b", "background-opacity": 0.35, "background-color": "#f4f2ee", "border-style": "dashed", "border-color": "#c9c4b8" } },
   { selector: "node.root", style: { "border-width": 3 } },
+  { selector: "node.more", style: { "background-color": "#f4f2ee", "border-style": "dashed", color: "#6b665b", "font-style": "italic" } },
   { selector: "node.heuristic", style: { "border-style": "dotted" } },
   { selector: "node.st-changed", style: { "background-color": "#f6d98a", "border-color": "#a07a10" } },
   { selector: "node.st-added", style: { "background-color": "#b9e3b9", "border-color": "#2f7d32" } },
@@ -46,6 +47,9 @@ export default function CallFlows({ reviewId, impact, findings, comments, onComm
   const [roots, setRoots] = useState<string[]>(impact.changed);
   const [mode, setMode] = useState<GraphMode>("diff");
   const [showData, setShowData] = useState(true);
+  const [hideTests, setHideTests] = useState(true);
+  const [maxCallers, setMaxCallers] = useState(6);
+  const [depth, setDepth] = useState(2);
   const [selected, setSelected] = useState<string | null>(focus);
   const box = useRef<HTMLDivElement>(null);
   const cy = useRef<Core | null>(null);
@@ -56,7 +60,7 @@ export default function CallFlows({ reviewId, impact, findings, comments, onComm
   }, [focus, impact.changed]);
 
   const elements = useMemo(() => {
-    const els = flowElements(impact, roots, mode, showData);
+    const els = flowElements(impact, roots, mode, showData, { hideTests, maxCallers, maxCallees: maxCallers, depth });
     const layers = new Set<number>();
     for (const el of els) {
       const layer = el.data.layer as number | undefined;
@@ -67,14 +71,14 @@ export default function CallFlows({ reviewId, impact, findings, comments, onComm
     }
     const parents = [...layers].map((l) => ({ data: { id: `layer-${l}`, label: layerName(l) }, classes: "layer" }));
     return [...parents, ...els];
-  }, [impact, roots, mode, showData, layerName]);
+  }, [impact, roots, mode, showData, hideTests, maxCallers, depth, layerName]);
 
   useEffect(() => {
     if (!box.current) return;
     const inst = cytoscape({ container: box.current, elements, style: STYLE, wheelSensitivity: 0.3 });
     inst.layout({ name: "elk", elk: { algorithm: "layered", "elk.direction": "RIGHT",
       "elk.hierarchyHandling": "INCLUDE_CHILDREN", "elk.layered.spacing.nodeNodeBetweenLayers": 40 } } as cytoscape.LayoutOptions).run();
-    inst.on("tap", "node", (e) => { if (!e.target.hasClass("layer")) setSelected(e.target.id()); });
+    inst.on("tap", "node", (e) => { if (!e.target.hasClass("layer") && !e.target.hasClass("more")) setSelected(e.target.id()); });
     cy.current = inst;
     return () => inst.destroy();
   }, [elements]);
@@ -104,6 +108,17 @@ export default function CallFlows({ reviewId, impact, findings, comments, onComm
           ))}
         </div>
         <label><input type="checkbox" checked={showData} onChange={(e) => setShowData(e.target.checked)} /> field writes/reads</label>
+        <label><input type="checkbox" checked={hideTests} onChange={(e) => setHideTests(e.target.checked)} /> hide test code</label>
+        <label>depth{" "}
+          <select value={depth} onChange={(e) => setDepth(Number(e.target.value))}>
+            {[1, 2, 3, 4].map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </label>
+        <label>fan-in/out per node{" "}
+          <select value={maxCallers} onChange={(e) => setMaxCallers(Number(e.target.value))}>
+            {[3, 6, 12, 25, 1000].map((n) => <option key={n} value={n}>{n === 1000 ? "all" : n}</option>)}
+          </select>
+        </label>
         <span className="legend small muted">solid = call (clang) · dotted = heuristic/may · dashed = field data · ⊣ virtual</span>
       </div>
       <div className="flows-body">
