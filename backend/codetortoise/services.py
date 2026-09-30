@@ -6,6 +6,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from codetortoise import layers as layers_mod
 from codetortoise.config import Config
 from codetortoise.index.symbols import SymbolIndex
 from codetortoise.layers import LayerModel, infer_layers
@@ -30,7 +31,7 @@ class LayersProvider:
         self._model: LayerModel | None = None
 
     def _key(self) -> str:
-        return f"layers:{self.cfg.workspace.root}:{self.index.generation()}"
+        return f"layers:v{layers_mod.ALGORITHM_VERSION}:{self.cfg.workspace.root}:{self.index.generation()}"
 
     def get(self) -> LayerModel | None:
         with self._lock:

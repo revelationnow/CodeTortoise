@@ -10,6 +10,9 @@ from pydantic import BaseModel, Field
 from codetortoise.index.symbols import SymbolIndex
 from codetortoise.paths import canon
 
+# bump when inference changes so cached layer models (keyed by index generation) are recomputed
+ALGORITHM_VERSION = 2
+
 
 class Layer(BaseModel):
     level: int

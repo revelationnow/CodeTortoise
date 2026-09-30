@@ -174,3 +174,16 @@ def test_facts_stage_parses_field_follow_up_tus(fx, tmp_path, monkeypatch):
     assert parsed == {"uart.c", "logger.c"}
     msg = next(s["message"] for s in svc.store.list_stages(rid) if s["name"] == "facts")
     assert "1 follow-up TU(s)" in msg
+
+
+def test_layer_cache_is_invalidated_by_algorithm_version(fx, tmp_path, monkeypatch):
+    from codetortoise import layers as layers_mod
+    from codetortoise.layers import LayerModel
+    svc = make_services(fx, tmp_path)
+    svc.build_index()
+    first = svc.layers.get()
+    stale = LayerModel(root=first.root, generation=first.generation, layers=[], module_level={"x": 0})
+    svc.store.kv_put(svc.layers._key(), stale)
+    monkeypatch.setattr(layers_mod, "ALGORITHM_VERSION", layers_mod.ALGORITHM_VERSION + 1)
+    fresh = make_services(fx, tmp_path)
+    assert fresh.layers.get().module_level != {"x": 0}
