@@ -1,10 +1,13 @@
 """Storyboard: deterministic skeleton + optional grounded LLM narrative."""
 from __future__ import annotations
 
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from codetortoise.board import Board, Flow
 from codetortoise.detectors.base import SEVERITY_RANK, Finding, Hypothesis
 from codetortoise.impact import ImpactModel
 from codetortoise.layers import LayerModel
@@ -59,6 +62,11 @@ class _SummaryOut(BaseModel):
     summary: str
     risk: Literal["low", "medium", "high"]
     review_order: list[str] = Field(default_factory=list)
+    cites: list[str] = Field(default_factory=list)
+
+
+class _FlowOut(BaseModel):
+    what: str
     cites: list[str] = Field(default_factory=list)
 
 
@@ -155,38 +163,72 @@ def _finding_text(f: Finding) -> str:
     return f"{f.id} [{f.severity}] {f.kind}: {f.title}\n{f.summary}\nnodes: {f.nodes}\nevidence:\n{ev}"
 
 
+def _flow_prompt(fl: Flow, impact: ImpactModel, findings: list[Finding], snippets: dict[str, str], per_call: int) -> str:
+    steps = " → ".join(f"{n} {impact.nodes[n].label}" for n in fl.path if n in impact.nodes)
+    parts = [f"FLOW {fl.id} ({fl.tag}): {steps}\nlands on: {fl.lands}\ndraft: {fl.what}\neffect: {fl.effect}\n"
+             f"check: {fl.check}",
+             "FINDINGS:\n" + "\n\n".join(_finding_text(f) for f in findings if f.id in fl.findings),
+             "GRAPH FACTS:\n" + _facts_for_nodes(impact, [n for n in fl.path if n in impact.nodes])]
+    parts += [f"CODE {n}:\n{snippets[n]}" for n in fl.path if n in snippets]
+    return ("Describe this call flow for a reviewer in 2-3 sentences: how the entry reaches the change and what the "
+            "change does to the function where the effect lands. Cite the node and finding ids you rely on.\n\n" +
+            budget(parts, per_call))
+
+
 def build_storyboard(impact: ImpactModel, findings: list[Finding], layers: LayerModel | None,
-                     snippets: dict[str, str], llm: LlmClient | None, max_tokens: int = 64000) -> Storyboard:
+                     snippets: dict[str, str], llm: LlmClient | None, max_tokens: int = 64000, *,
+                     board: Board | None = None, concurrency: int = 1, max_flow_narratives: int = 6) -> Storyboard:
+    """Skeleton storyboard, then (with an LLM) finding explanations, chapter and flow narratives on a thread pool.
+
+    Results are applied in a fixed order, so the output depends only on the replies; the summary call runs last.
+    Any LLM-side failure keeps the deterministic text for everything not yet applied."""
     sb = skeleton(impact, findings, layers)
     if llm is None:
         return sb
     known = set(impact.nodes) | {f.id for f in findings}
     per_call = max(2000, max_tokens // 2)
-    try:
-        for f in findings:
-            nodes = [n for n in f.nodes if n in impact.nodes]
-            neighbours = sorted({e.src for e in impact.edges if e.dst in nodes} |
-                                {e.dst for e in impact.edges if e.src in nodes})
-            parts = ["FINDING:\n" + _finding_text(f), "GRAPH FACTS:\n" + _facts_for_nodes(impact, nodes + neighbours)]
-            parts += [f"CODE {n}:\n{snippets[n]}" for n in nodes + neighbours if n in snippets]
-            out = llm.complete_json(SYSTEM, "Explain the risk of this finding, list concrete verification steps, "
-                                    "and propose additional side-effect hypotheses (each citing ids).\n\n" +
-                                    budget(parts, per_call), _ExplainOut)
+    jobs: list[tuple[str, type[BaseModel], Callable]] = []
+
+    for f in findings:
+        nodes = [n for n in f.nodes if n in impact.nodes]
+        neighbours = sorted({e.src for e in impact.edges if e.dst in nodes} |
+                            {e.dst for e in impact.edges if e.src in nodes})
+        parts = ["FINDING:\n" + _finding_text(f), "GRAPH FACTS:\n" + _facts_for_nodes(impact, nodes + neighbours)]
+        parts += [f"CODE {n}:\n{snippets[n]}" for n in nodes + neighbours if n in snippets]
+
+        def explain(out: _ExplainOut, f=f):
             f.explanation = out.explanation
             f.verify_steps = out.verify_steps
             f.hypotheses = [Hypothesis(text=h.text, cites=h.cites) for h in ground(out.hypotheses, known)]
-        for ch in sb.chapters:
-            parts = [f"LAYER: {ch.name}",
-                     "CHANGED NODES AND EDGES:\n" + _facts_for_nodes(impact, ch.nodes),
-                     "FINDINGS:\n" + "\n\n".join(_finding_text(f) for f in findings if f.id in ch.findings)]
-            parts += [f"CODE {n}:\n{snippets[n]}" for n in ch.nodes if n in snippets]
-            out = llm.complete_json(SYSTEM, "Write the narrative for this architectural layer: what changed, why it "
-                                    "matters, and effects on layers above/below (cross_layer_effects).\n\n" +
-                                    budget(parts, per_call), _ChapterOut)
+        jobs.append(("Explain the risk of this finding, list concrete verification steps, and propose additional "
+                     "side-effect hypotheses (each citing ids).\n\n" + budget(parts, per_call), _ExplainOut, explain))
+
+    for ch in sb.chapters:
+        parts = [f"LAYER: {ch.name}",
+                 "CHANGED NODES AND EDGES:\n" + _facts_for_nodes(impact, ch.nodes),
+                 "FINDINGS:\n" + "\n\n".join(_finding_text(f) for f in findings if f.id in ch.findings)]
+        parts += [f"CODE {n}:\n{snippets[n]}" for n in ch.nodes if n in snippets]
+
+        def narrate(out: _ChapterOut, ch=ch):
             ch.narrative = out.narrative
             ch.cites = [c for c in out.cites if c in known]
             ch.verified = bool(ch.cites)
             ch.cross_layer_effects = ground(out.cross_layer_effects, known)
+        jobs.append(("Write the narrative for this architectural layer: what changed, why it matters, and effects on "
+                     "layers above/below (cross_layer_effects).\n\n" + budget(parts, per_call), _ChapterOut, narrate))
+
+    for fl in (board.flows[:max_flow_narratives] if board else []):
+        def describe(out: _FlowOut, fl=fl):
+            # grounded: keep the LLM text only if it cites a node on this flow or one of its findings
+            if out.what.strip() and set(out.cites) & (set(fl.path) | set(fl.findings)):
+                fl.what, fl.what_source = out.what.strip(), "llm"
+        jobs.append((_flow_prompt(fl, impact, findings, snippets, per_call), _FlowOut, describe))
+
+    pool = ThreadPoolExecutor(max(1, concurrency), thread_name_prefix="tortoise-llm")
+    futures = [pool.submit(llm.complete_json, SYSTEM, prompt, schema) for prompt, schema, _ in jobs]
+    try:
+        for fut, (_, _, apply) in zip(futures, jobs, strict=True):
+            apply(fut.result())
         overview = [f"CHAPTER {c.name}: {c.narrative} (cites {c.cites})" for c in sb.chapters]
         overview += [_finding_text(f) for f in findings[:30]]
         out = llm.complete_json(SYSTEM, "Summarize the whole change for a reviewer in 3-6 sentences, give an overall "
@@ -199,8 +241,12 @@ def build_storyboard(impact: ImpactModel, findings: list[Finding], layers: Layer
         sb.review_order = order or sb.review_order
         sb.verified = any(c in known for c in out.cites)
         sb.llm_used = True
+        if board is not None and out.summary.strip():
+            board.about.intent, board.about.intent_source = out.summary.strip(), "llm"
     except Exception as e:  # any LLM-side failure leaves the deterministic storyboard intact
         sb.llm_error = str(e) if isinstance(e, LlmError) else f"{type(e).__name__}: {e}"
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
     return sb
 
 

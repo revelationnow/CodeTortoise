@@ -63,7 +63,7 @@ def test_owner_creates_review_others_view_and_comment(env):
     assert r.status_code == 200 and r.json()["title"] == "CLs 101, 102"
     rid = r.json()["id"]
     detail = bob.get(f"/api/reviews/{rid}").json()
-    assert detail["review"]["status"] == "degraded" and len(detail["stages"]) == 10
+    assert detail["review"]["status"] == "degraded" and len(detail["stages"]) == 11
     assert bob.get(f"/api/reviews/{rid}/storyboard").json()["storyboard"]["risk"] == "high"
     assert len(bob.get(f"/api/reviews/{rid}/impact").json()["nodes"]) > 5
     assert len(bob.get(f"/api/reviews/{rid}/findings").json()) == 6

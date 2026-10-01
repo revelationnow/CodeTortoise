@@ -2,7 +2,9 @@ from helpers import make_services
 
 from codetortoise.health import run_health
 from codetortoise.pipeline import run_review
+from codetortoise.vcs.gitfixture import GitFixtureSource
 from codetortoise.vcs.model import ChangeSet, ClMeta, FileChange
+from codetortoise.vcs.p4runner import P4Error
 
 
 def stages(svc, rid):
@@ -14,7 +16,7 @@ def test_full_review_without_llm_or_swarm(fx, tmp_path):
     rid = svc.store.create_review("t", "owner", [101, 102])
     run_review(rid, svc)
     assert stages(svc, rid) == {"ingest": "ok", "swarm_read": "degraded", "diffmap": "ok", "tu_select": "ok",
-                                "layers": "ok", "facts": "ok", "impact": "ok", "detectors": "ok",
+                                "layers": "ok", "facts": "ok", "impact": "ok", "detectors": "ok", "board": "ok",
                                 "llm": "degraded", "finalize": "ok"}
     review = svc.store.get_review(rid)
     assert review["status"] == "degraded" and review["risk"] == "high"
@@ -23,6 +25,10 @@ def test_full_review_without_llm_or_swarm(fx, tmp_path):
     assert [c["name"] for c in sb["chapters"]][:3] == ["L0: cpp, include/hal", "L1: hal", "L2: driver"]
     assert [c["cl"] for c in svc.store.list_cls(rid)] == [101, 102]
     assert svc.store.list_cls(rid)[0]["description"].startswith("uart:")
+    board = svc.store.get_blob(rid, "board")
+    assert [f["tag"] for f in board["flows"]] == ["state", "contract", "contract"]
+    assert all(n["path"].startswith("//fixture/") for n in board["nodes"] if n["kind"] == "function")
+    assert board["about"]["intent_source"] == "template"
 
 
 def test_ingest_failure_skips_dependent_stages(fx, tmp_path):
@@ -50,6 +56,7 @@ def test_change_without_c_code_completes(fx, tmp_path):
     assert st["impact"] == "ok" and st["detectors"] == "ok"
     assert svc.store.list_findings(rid) == []
     assert svc.store.get_blob(rid, "storyboard")["risk"] == "low"
+    assert st["board"] == "ok" and svc.store.get_blob(rid, "board")["flows"] == []
 
 
 def test_health_ready_on_fixture_and_gates_on_empty_compile_db(fx, tmp_path):
@@ -187,3 +194,50 @@ def test_layer_cache_is_invalidated_by_algorithm_version(fx, tmp_path, monkeypat
     monkeypatch.setattr(layers_mod, "ALGORITHM_VERSION", layers_mod.ALGORITHM_VERSION + 1)
     fresh = make_services(fx, tmp_path)
     assert fresh.layers.get().module_level != {"x": 0}
+
+
+class NoWhere(GitFixtureSource):
+    def depots_for(self, locals_):
+        raise P4Error("p4 where: connect failed")
+
+
+def test_board_without_depot_paths_for_context_nodes_is_degraded(fx, tmp_path):
+    svc = make_services(fx, tmp_path, source=NoWhere(fx.root))
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    st = {s["name"]: s for s in svc.store.list_stages(rid)}
+    assert st["board"]["status"] == "degraded" and "connect failed" in st["board"]["message"]
+    board = svc.store.get_blob(rid, "board")
+    paths = {n["label"]: n["path"] for n in board["nodes"]}
+    assert paths["uart_send"] == "//fixture/driver/uart.c" and paths["main"] is None
+    assert len(board["flows"]) == 3
+
+
+def test_depot_resolver_asks_the_source_only_about_workspace_files():
+    from codetortoise.pipeline import depot_resolver
+    asked = []
+
+    class Src:
+        def depots_for(self, locals_):
+            asked.append(list(locals_))
+            return {p: "//d" + p[3:] for p in locals_}
+    cs = ChangeSet(cls=[ClMeta(cl=1, status="pending")],
+                   files=[FileChange(depot="//d/a.c", local="/ws/a.c", action="edit", before="", after="")])
+    notes: list[str] = []
+    resolve = depot_resolver(Src(), cs, "/ws", notes)
+    got = resolve(["/ws/a.c", "/ws/b/c.h", "/usr/include/stdio.h", "/wsx/d.c"])
+    assert got == {"/ws/a.c": "//d/a.c", "/ws/b/c.h": "//d/b/c.h"}
+    assert asked == [["/ws/b/c.h"]] and notes == []
+
+
+def test_depot_resolver_failure_keeps_changed_files_and_notes_why():
+    from codetortoise.pipeline import depot_resolver
+
+    class Src:
+        def depots_for(self, locals_):
+            raise P4Error("p4 where: connect failed")
+    cs = ChangeSet(cls=[ClMeta(cl=1, status="pending")],
+                   files=[FileChange(depot="//d/a.c", local="/ws/a.c", action="edit", before="", after="")])
+    notes: list[str] = []
+    assert depot_resolver(Src(), cs, "/ws", notes)(["/ws/a.c", "/ws/b.c"]) == {"/ws/a.c": "//d/a.c"}
+    assert notes == ["depot paths unavailable for context nodes: P4Error: p4 where: connect failed"]

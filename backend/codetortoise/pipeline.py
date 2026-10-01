@@ -7,12 +7,14 @@ import threading
 import traceback
 from pathlib import Path
 
+from codetortoise.board import BoardContext, build_board
 from codetortoise.detectors.base import DetectorContext, run_detectors
 from codetortoise.diffmap import map_changes
 from codetortoise.facts.model import Facts
 from codetortoise.facts.runner import build_requests, run_extraction
 from codetortoise.impact import ImpactModel, build_impact
 from codetortoise.llm.storyboard import build_storyboard
+from codetortoise.paths import canon
 from codetortoise.services import Services
 from codetortoise.swarm import SwarmError
 from codetortoise.tu_select import TuSelection, field_follow_up, select_tus
@@ -20,9 +22,11 @@ from codetortoise.vcs.model import ChangeSet
 
 log = logging.getLogger(__name__)
 
-STAGES = ["ingest", "swarm_read", "diffmap", "tu_select", "layers", "facts", "impact", "detectors", "llm", "finalize"]
+STAGES = ["ingest", "swarm_read", "diffmap", "tu_select", "layers", "facts", "impact", "detectors", "board", "llm",
+          "finalize"]
 DEPS = {"swarm_read": ["ingest"], "diffmap": ["ingest"], "tu_select": ["diffmap"], "facts": ["tu_select"],
-        "impact": ["facts", "tu_select", "diffmap"], "detectors": ["impact"], "llm": ["detectors"]}
+        "impact": ["facts", "tu_select", "diffmap"], "detectors": ["impact"], "board": ["impact", "detectors"],
+        "llm": ["detectors"]}
 
 
 class Degraded(Exception):
@@ -50,6 +54,24 @@ def collect_snippets(impact: ImpactModel, cs: ChangeSet, after: list[Facts], lim
             text = p.read_text(errors="replace") if p.exists() else ""
         out[nid] = _snippet(text, n.line, ends.get(n.key, n.line + 40))
     return out
+
+
+def depot_resolver(source, cs: ChangeSet, root: str, notes: list[str]):
+    """Board depot-path lookup: changed files from the change set, other workspace files from the source in one
+    call. Paths outside the workspace (system headers, toolchain) are never sent; a failed lookup is noted and
+    leaves those nodes without a depot path (no context code on demand for them)."""
+    prefix = canon(str(root)).rstrip("/") + "/"
+
+    def resolve(locals_: list[str]) -> dict[str, str]:
+        known = {f.local: f.depot for f in cs.files}
+        rest = sorted({p for p in locals_ if p not in known and p.startswith(prefix)})
+        if rest:
+            try:
+                known.update(source.depots_for(rest))
+            except Exception as e:  # board still useful without depot paths for context nodes
+                notes.append(f"depot paths unavailable for context nodes: {type(e).__name__}: {e}")
+        return {p: known[p] for p in locals_ if p in known}
+    return resolve
 
 
 def run_review(rid: int, svc: Services) -> None:
@@ -166,12 +188,28 @@ def run_review(rid: int, svc: Services) -> None:
         store.put_findings(rid, findings)
         return f"{len(findings)} finding(s)"
 
+    def board():
+        notes: list[str] = []
+        resolve = depot_resolver(svc.source, ctx["cs"], cfg.workspace.root, notes)
+        b = build_board(BoardContext(ctx["cs"], ctx["dm"], ctx["before"], ctx["after"], ctx["impact"], ctx["findings"],
+                                     ctx.get("layers"), cfg.analysis, resolve))
+        ctx["board"] = b
+        store.put_blob(rid, "board", b)
+        if notes:
+            raise Degraded("; ".join(notes))
+        return f"{len(b.nodes)} node(s), {len(b.flows)} flow(s), {len(b.impacts)} annotation(s)"
+
     def llm():
         findings = store.list_findings(rid)
         snippets = collect_snippets(ctx["impact"], ctx["cs"], ctx["after"])
-        sb = build_storyboard(ctx["impact"], findings, ctx.get("layers"), snippets, svc.llm, cfg.llm.max_context_tokens)
+        b = ctx.get("board")
+        sb = build_storyboard(ctx["impact"], findings, ctx.get("layers"), snippets, svc.llm, cfg.llm.max_context_tokens,
+                              board=b, concurrency=cfg.llm.concurrency,
+                              max_flow_narratives=cfg.llm.max_flow_narratives)
         store.put_findings(rid, findings)
         store.put_blob(rid, "storyboard", sb)
+        if b is not None:
+            store.put_blob(rid, "board", b)
         ctx["storyboard"] = sb
         if svc.llm is None:
             raise Degraded("no LLM configured; deterministic storyboard only")
@@ -189,7 +227,7 @@ def run_review(rid: int, svc: Services) -> None:
 
     for name, fn in [("ingest", ingest), ("swarm_read", swarm_read), ("diffmap", diffmap), ("tu_select", tu_select),
                      ("layers", layers), ("facts", facts), ("impact", impact), ("detectors", detectors),
-                     ("llm", llm), ("finalize", finalize)]:
+                     ("board", board), ("llm", llm), ("finalize", finalize)]:
         stage(name, fn)
 
 

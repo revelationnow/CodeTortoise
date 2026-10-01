@@ -123,3 +123,63 @@ def test_unexpected_llm_client_exception_keeps_skeleton():
 
     sb = build_storyboard(im, findings, layers, {}, Exploding())
     assert not sb.llm_used and "boom" in sb.llm_error and sb.chapters
+
+
+def _board(flows=2):
+    from codetortoise.board import About, Board, Flow
+    fl = [Flow(id=f"FL{i + 1}", path=["N3", "N2"], tag="contract", lands="N3", fx_at="N3", severity="medium",
+               findings=["F1"], text="logger_flush → uart_send ⟶ -2 ignored", what="template what", effect="e",
+               check="c") for i in range(flows)]
+    return Board(flows=fl, about=About(intent="template intent"))
+
+
+def _respond(flow_reply):
+    def respond(system, user):
+        if "Explain the risk" in user:
+            return {"explanation": "e"}
+        if "narrative for this architectural layer" in user:
+            return {"narrative": "n", "cites": ["N1"]}
+        if "Describe this call flow" in user:
+            return flow_reply(user)
+        return {"summary": "the change adds tx stats", "risk": "medium", "cites": ["F1"]}
+    return respond
+
+
+def test_llm_writes_grounded_flow_narratives_and_the_change_intent():
+    im, findings, layers = model()
+    board = _board(3)
+    replies = iter([{"what": "flush drops -2", "cites": ["N3", "F1"]},
+                    {"what": "uncited guess", "cites": ["N99"]},
+                    {"what": "not asked for", "cites": ["N3"]}])
+    sb = build_storyboard(im, findings, layers, {}, fake_llm(_respond(lambda u: next(replies))),
+                          board=board, max_flow_narratives=2)
+    assert sb.llm_used
+    assert [(f.what, f.what_source) for f in board.flows] == [
+        ("flush drops -2", "llm"), ("template what", "template"), ("template what", "template")]
+    assert board.about.intent == "the change adds tx stats" and board.about.intent_source == "llm"
+
+
+def test_llm_calls_run_concurrently():
+    import threading
+    im, findings, layers = model()
+    board = _board(2)
+    gate = threading.Barrier(4, timeout=5)   # 2 findings + 2 flows must be in flight together
+
+    def respond(system, user):
+        if "Explain the risk" in user or "Describe this call flow" in user:
+            gate.wait()
+        return _respond(lambda u: {"what": "w", "cites": ["N3"]})(system, user)
+
+    sb = build_storyboard(im, findings, layers, {}, fake_llm(respond), board=board, concurrency=4)
+    assert sb.llm_used, sb.llm_error
+    assert [f.what_source for f in board.flows] == ["llm", "llm"]
+
+
+def test_llm_failure_keeps_template_flow_text():
+    im, findings, layers = model()
+    board = _board(1)
+    llm = LlmClient("http://llm/v1", "k", "m", transport=httpx.MockTransport(lambda r: httpx.Response(500)),
+                    sleep=lambda s: None)
+    sb = build_storyboard(im, findings, layers, {}, llm, board=board, concurrency=4)
+    assert not sb.llm_used and sb.llm_error
+    assert board.flows[0].what == "template what" and board.about.intent_source == "template"
