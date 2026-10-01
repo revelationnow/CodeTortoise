@@ -50,6 +50,9 @@ export interface Comment {
 export interface HealthCheck { name: string; ok: boolean; hard: boolean; detail: string }
 export interface Health { checks: HealthCheck[]; ready: boolean; index_generation: number; libclang: string | null; strip_flags: string[]; index_building: boolean }
 
+export type { Board, SourceText } from "./board/types";
+import type { Board, SourceText } from "./board/types";
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
@@ -81,6 +84,9 @@ export const api = {
   rerun: (id: number) => call("POST", `/api/reviews/${id}/rerun`),
   storyboard: (id: number) => call<StoryboardResponse>("GET", `/api/reviews/${id}/storyboard`),
   impact: (id: number) => call<Impact | null>("GET", `/api/reviews/${id}/impact`),
+  board: (id: number) => call<Board>("GET", `/api/reviews/${id}/board`),
+  source: (id: number, path: string, side: "before" | "after" = "after") =>
+    call<SourceText>("GET", `/api/reviews/${id}/source?${new URLSearchParams({ path, side })}`),
   findings: (id: number) => call<Finding[]>("GET", `/api/reviews/${id}/findings`),
   setFindingState: (id: number, fid: string, state: Finding["state"]) =>
     call("PATCH", `/api/reviews/${id}/findings/${fid}`, { state }),

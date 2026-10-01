@@ -13,11 +13,14 @@ interface Props {
   anchor: Record<string, unknown>;
   onChange: () => void;
   compact?: boolean;
+  /** Which root comments belong here (default: same kind and anchor fields). */
+  match?: (c: Comment) => boolean;
+  autoFocus?: boolean;
 }
 
 /** All threads for one anchor plus a composer. */
-export default function Comments({ reviewId, comments, kind, anchor, onChange, compact }: Props) {
-  const roots = comments.filter((c) => c.parent_id === null && anchorMatches(c, kind, anchor));
+export default function Comments({ reviewId, comments, kind, anchor, onChange, compact, match, autoFocus }: Props) {
+  const roots = comments.filter((c) => c.parent_id === null && (match ? match(c) : anchorMatches(c, kind, anchor)));
   const [open, setOpen] = useState(!compact || roots.length > 0);
   if (!open)
     return <button className="link small" onClick={() => setOpen(true)}>+ comment</button>;
@@ -27,7 +30,7 @@ export default function Comments({ reviewId, comments, kind, anchor, onChange, c
         <Thread key={root.id} root={root} replies={comments.filter((c) => c.parent_id === root.id)}
                 reviewId={reviewId} onChange={onChange} />
       ))}
-      <Composer onSubmit={(body) => api.addComment(reviewId, body, kind, anchor).then(onChange)}
+      <Composer onSubmit={(body) => api.addComment(reviewId, body, kind, anchor).then(onChange)} autoFocus={autoFocus}
                 placeholder={roots.length ? "Start another thread…" : "Leave a comment…"} />
     </div>
   );
@@ -78,7 +81,8 @@ function CommentView({ c, onChange }: { c: Comment; onChange: () => void }) {
   );
 }
 
-function Composer({ onSubmit, placeholder, small }: { onSubmit: (body: string) => Promise<unknown>; placeholder: string; small?: boolean }) {
+function Composer({ onSubmit, placeholder, small, autoFocus }:
+  { onSubmit: (body: string) => Promise<unknown>; placeholder: string; small?: boolean; autoFocus?: boolean }) {
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   return (
@@ -88,7 +92,8 @@ function Composer({ onSubmit, placeholder, small }: { onSubmit: (body: string) =
       setBusy(true);
       onSubmit(body.trim()).then(() => setBody("")).finally(() => setBusy(false));
     }}>
-      <textarea rows={small ? 1 : 2} value={body} placeholder={placeholder} onChange={(e) => setBody(e.target.value)} />
+      <textarea rows={small ? 1 : 2} value={body} placeholder={placeholder} autoFocus={autoFocus}
+                onChange={(e) => setBody(e.target.value)} />
       <button disabled={busy || !body.trim()}>{small ? "Reply" : "Comment"}</button>
     </form>
   );

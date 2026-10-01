@@ -1,7 +1,8 @@
 import { Fragment, useState } from "react";
 import type { Comment } from "../api";
+import { lineAnchor, onLine } from "../lib/anchors";
 import { diffRows } from "../lib/diffRows";
-import Comments, { anchorMatches } from "./Comments";
+import Comments from "./Comments";
 
 interface Props {
   reviewId: number;
@@ -24,9 +25,10 @@ export default function DiffView({ reviewId, depot, cl, before, after, comments,
           if (r.kind === "gap") return <tr key={i} className="gap"><td colSpan={4}>⋯ {r.text}</td></tr>;
           const side = r.newNo !== null ? "new" : "old";
           const line = r.newNo ?? r.oldNo;
-          const anchor = { depot, cl, side, line };
+          const anchor = lineAnchor(depot, side, line!, cl);
           const key = `${side}:${line}`;
-          const has = comments.some((c) => c.parent_id === null && anchorMatches(c, "line", anchor));
+          const match = (c: Comment) => onLine(c, depot, side, line!, cl);
+          const has = comments.some((c) => c.parent_id === null && match(c));
           return (
             <Fragment key={i}>
               <tr className={r.kind}>
@@ -37,7 +39,7 @@ export default function DiffView({ reviewId, depot, cl, before, after, comments,
               </tr>
               {(has || openAt === key) && (
                 <tr className="comment-row"><td colSpan={3} /><td>
-                  <Comments reviewId={reviewId} comments={comments} kind="line" anchor={anchor} onChange={onComments} />
+                  <Comments reviewId={reviewId} comments={comments} kind="line" anchor={anchor} match={match} onChange={onComments} />
                 </td></tr>
               )}
             </Fragment>
