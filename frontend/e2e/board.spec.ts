@@ -64,7 +64,7 @@ test("flows, cards, comments, viewer, change panel and layout", async ({ page })
   await page.locator(".bd-viewer").getByRole("button", { name: "Close all" }).click();
 });
 
-test("whole graph: drag a node within its layer, reset; dragging never selects text", async ({ page }) => {
+test("whole graph: drag a node anywhere in the layers layout, reset; dragging never selects text", async ({ page }) => {
   await startReview(page);
   await page.getByRole("button", { name: "Close uart_send" }).click();   // the card opened on arrival
   await page.getByRole("button", { name: "Whole graph" }).click();
@@ -78,7 +78,7 @@ test("whole graph: drag a node within its layer, reset; dragging never selects t
   await page.mouse.up();
   const b = (await node.boundingBox())!;
   expect(b.x).toBeGreaterThan(a.x + 60);
-  expect(Math.abs(b.y - a.y)).toBeLessThan(4);                       // stays in its layer
+  expect(b.y - a.y).toBeGreaterThan(20);                             // free to leave its band
   await expect(node).toHaveClass(/\bmoved\b/);
   await page.getByRole("button", { name: "Reset layout" }).click();
   await expect(node).not.toHaveClass(/\bmoved\b/);
@@ -129,4 +129,29 @@ test("review, layer and function comments from M1 show on the board", async ({ p
   await panel.getByPlaceholder("Start another thread…").first().fill("agreed");
   await panel.getByRole("button", { name: "Comment" }).first().click();
   await expect(panel.getByText("agreed")).toBeVisible();
+});
+
+test("call-depth layout and free 2-D node moves", async ({ page }) => {
+  await startReview(page);
+  await page.getByRole("button", { name: "Close uart_send" }).click();
+  await page.getByRole("button", { name: "Whole graph" }).click();
+  await page.getByRole("button", { name: "Call depth" }).click();
+  await expect(page.locator(".bd-blabel", { hasText: "depth 0 · entry" })).toBeVisible();
+  const node = page.locator(".bd-node", { hasText: /^main/ });
+  await page.waitForTimeout(500);                                   // centring animation
+  const a = (await node.boundingBox())!;
+  await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(a.x + a.width / 2 + 120, a.y + a.height / 2 + 150, { steps: 10 });
+  await page.mouse.up();
+  const b = (await node.boundingBox())!;
+  expect(b.x - a.x).toBeGreaterThan(60);
+  expect(b.y - a.y).toBeGreaterThan(80);                             // left its row
+  await expect(node).toHaveClass(/\bmoved\b/);
+  await page.getByRole("button", { name: "Layers" }).click();       // moves are kept per layout
+  await expect(node).not.toHaveClass(/\bmoved\b/);
+  await page.getByRole("button", { name: "Call depth" }).click();
+  await expect(node).toHaveClass(/\bmoved\b/);
+  await page.getByRole("button", { name: "Reset layout" }).click();
+  await expect(node).not.toHaveClass(/\bmoved\b/);
 });

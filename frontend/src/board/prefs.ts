@@ -18,6 +18,7 @@ export function save(key: string, value: unknown): void {
 
 export const keys = {
   moved: (reviewId: number) => `ct.board.${reviewId}.moved`,
+  layout: (reviewId: number) => `ct.board.${reviewId}.layout`,
   viewerW: "ct.panel.viewerW",
   aboutW: "ct.panel.aboutW",
   lens: "ct.lens",
@@ -30,10 +31,30 @@ export function loadLens(): 0 | 2 | 4 {
   return v === 0 || v === 2 || v === 4 ? v : 2;
 }
 
-export function loadMoved(reviewId: number): Record<string, number> {
-  const v = load<unknown>(keys.moved(reviewId), {});
-  if (!v || typeof v !== "object" || Array.isArray(v)) return {};
-  return Object.values(v).every((x) => typeof x === "number" && Number.isFinite(x)) ? (v as Record<string, number>) : {};
+export function loadLayout(reviewId: number): "layers" | "depth" | null {
+  const v = load<unknown>(keys.layout(reviewId), null);
+  return v === "layers" || v === "depth" ? v : null;
+}
+
+type Moved = Record<string, { x: number; y?: number }>;
+const finite = (x: unknown) => typeof x === "number" && Number.isFinite(x);
+const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+
+/** 2-D moves per layout; also reads the first board's x-only `{id: x}` shape (those were layer-band moves). */
+export function loadMovedAll(reviewId: number): { layers: Moved; depth: Moved } {
+  const empty = { layers: {}, depth: {} };
+  const v = load<unknown>(keys.moved(reviewId), empty);
+  if (!isObj(v)) return empty;
+  if (Object.values(v).every(finite))
+    return { layers: Object.fromEntries(Object.entries(v).map(([id, x]) => [id, { x: x as number }])), depth: {} };
+  const one = (m: unknown): Moved | null => {
+    if (m === undefined) return {};
+    if (!isObj(m)) return null;
+    const ok = Object.values(m).every((p) => isObj(p) && finite(p.x) && (p.y === undefined || finite(p.y)));
+    return ok ? (m as Moved) : null;
+  };
+  const layers = one(v.layers), depth = one(v.depth);
+  return layers && depth ? { layers, depth } : empty;
 }
 
 export function loadWidth(key: string, fallback: number): number {

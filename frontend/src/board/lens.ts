@@ -14,6 +14,7 @@ export interface Lens {
   project(wx: number, wy: number): Projected;
   bandY(screenX: number, worldY: number): number;
   unprojectX(screenX: number): number;
+  unprojectY(screenX: number, screenY: number): number;
 }
 
 /** Vertical squeeze factor at normalised horizontal distance nd (0 at the focus, 1 at the rim). */
@@ -58,5 +59,8 @@ export function makeLens(view: View, vp: Viewport, worldXs: number[]): Lens {
     }
     return (lo + hi) / 2;
   }
-  return { project, bandY, unprojectX };
+  function unprojectY(screenX: number, screenY: number): number {   // inverse of the vertical squeeze at that x
+    return (screenY - H / 2) / squeeze(screenX) + H / 2 - view.panY;
+  }
+  return { project, bandY, unprojectX, unprojectY };
 }

@@ -70,3 +70,15 @@ describe("lens", () => {
     expect(lens.unprojectX(1910)).toBeCloseTo(1900, 0);
   });
 });
+
+describe("unprojectY", () => {
+  it("inverts the vertical mapping at any screen x, lens on or off", () => {
+    for (const m of [0, 2, 4] as const) {
+      const lens = makeLens({ panX: 300, panY: -40, lens: m }, vp, xs);
+      for (const [wx, wy] of [[0, 100], [1500, 700], [-1800, -50], [600, 400]]) {
+        const p = lens.project(wx, wy);
+        expect(lens.unprojectY(p.x, p.y)).toBeCloseTo(wy, 3);
+      }
+    }
+  });
+});

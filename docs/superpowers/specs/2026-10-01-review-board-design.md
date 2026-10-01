@@ -300,3 +300,20 @@ submission order; the first failure stops applying (earlier results stay) and sk
 - Every board class is `bd-` prefixed or nested under `.bd`: M1's global `.graph`/`.side`/`.card` rules otherwise leak in.
 - The board keeps its light palette in dark mode. On phones the flow summary collapses to its steps (a `Details`
   toggle shows the text and the landing box) and the header hides the CL/count pills, so the canvas keeps its space.
+
+## 9. Call-depth layout and free node moves (2026-10-01)
+
+- **Layout switch** `Layers | Call depth` in the canvas toolbar, remembered per review (`ct.board.<id>.layout`). With no
+  saved choice the board opens in Call depth when the layers say little: one layer, or one layer holding ≥ 70% of the
+  nodes.
+- **Call depth** (computed in the browser from the board's edges): row = distance from the entry points (functions with
+  no caller on the board) along call edges; nodes reachable only through cycles start from the changed functions; a
+  field sits one row below its deepest writer (reader if nothing writes it). Rows are `BAND` apart and labelled
+  `depth 0 · entry`, `depth N`; within a row, barycentre sweeps order the nodes and labels are packed by estimated width
+  (40 px gaps, at least 220 apart).
+- **Moves are 2-D in both layouts** (`lens.unprojectY` inverts the vertical squeeze at the node's screen x; the grab point
+  stays under the pointer). In Layers a node may leave its band; the band does not change. Moves are kept per layout
+  (`ct.board.<id>.moved = {layers, depth}`; the earlier x-only shape loads as Layers moves); `Reset layout` resets the
+  current layout only.
+- `GET /board` re-validates the stored blob through the `Board` model, so boards stored by an older version get the
+  current defaults instead of breaking the page.

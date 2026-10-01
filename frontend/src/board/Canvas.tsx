@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { BAND, type Lens, type Projected, type Viewport } from "./lens";
-import { flowSets } from "./layout";
+import { type Band, flowSets } from "./layout";
 import type { Action, BoardState } from "./reducer";
 import type { Board } from "./types";
 
@@ -9,7 +9,7 @@ interface Props {
   lens: Lens;
   pos: Map<string, Projected>;
   vp: Viewport;
-  rows: Map<number, number>;
+  bands: Band[];
   state: BoardState;
   dispatch: (a: Action) => void;
   panBy: (dx: number, dy: number) => void;
@@ -20,9 +20,10 @@ interface Props {
 const KIND = { modified: "Δ modified", added: "Δ added", removed: "Δ removed", signature: "Δ signature" } as const;
 
 /** Layer bands, edges and nodes, all drawn through the lens; pans on drag, moves a node sideways when dragged by it. */
-export default function Canvas({ board, lens, pos, vp, rows, state, dispatch, panBy, onOpenFile, onInteract }: Props) {
+export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, panBy, onOpenFile, onInteract }: Props) {
   const root = useRef<HTMLDivElement>(null);
-  const down = useRef<{ x: number; y: number; px: number; py: number; id: number; node: string | null; go: boolean; dragging: boolean } | null>(null);
+  const down = useRef<{ x: number; y: number; px: number; py: number; id: number; node: string | null; go: boolean;
+                        dragging: boolean; ox: number; oy: number } | null>(null);
   const [grab, setGrab] = useState<string | null>(null);   // node being dragged
   const [panning, setPanning] = useState(false);
   const { W } = vp;
@@ -53,15 +54,15 @@ export default function Canvas({ board, lens, pos, vp, rows, state, dispatch, pa
   for (let x = 0; x <= W + 16; x += 16) xs.push(Math.min(x, W));
   const line = (wy: number, rev = false) => (rev ? [...xs].reverse() : xs)
     .map((x, i) => `${i ? "L" : "M"}${x} ${lens.bandY(x, wy).toFixed(1)}`).join(" ");
-  const levels = [...rows.entries()].sort((a, b) => a[1] - b[1]);
-  const names = new Map(board.layers.map((l) => [l.level, l.name]));
 
   return (
     <div ref={root} className={`bd-canvas${panning ? " drag" : ""}`}
       onPointerDown={(e) => {
-        const t = e.target as HTMLElement, n = t.closest<HTMLElement>(".bd-node");
+        const t = e.target as HTMLElement, n = t.closest<HTMLElement>(".bd-node"), r = root.current!.getBoundingClientRect();
+        const at = n?.dataset.id ? pos.get(n.dataset.id) : undefined;     // keep the grab point under the pointer
         down.current = { x: e.clientX, y: e.clientY, px: state.view.panX, py: state.view.panY, id: e.pointerId,
-                         node: n?.dataset.id ?? null, go: !!t.closest(".bd-go"), dragging: false };
+                         node: n?.dataset.id ?? null, go: !!t.closest(".bd-go"), dragging: false,
+                         ox: at ? at.x - (e.clientX - r.left) : 0, oy: at ? at.y - (e.clientY - r.top) : 0 };
         e.preventDefault();                                  // no text selection starting on the board
       }}
       onPointerMove={(e) => {
@@ -77,8 +78,8 @@ export default function Canvas({ board, lens, pos, vp, rows, state, dispatch, pa
           onInteract();
         }
         if (d.node) {
-          const r = root.current!.getBoundingClientRect();
-          dispatch({ t: "node.move", id: d.node, x: Math.round(lens.unprojectX(e.clientX - r.left)) });
+          const r = root.current!.getBoundingClientRect(), sx = e.clientX - r.left + d.ox, sy = e.clientY - r.top + d.oy;
+          dispatch({ t: "node.move", id: d.node, x: Math.round(lens.unprojectX(sx)), y: Math.round(lens.unprojectY(sx, sy)) });
         } else dispatch({ t: "pan", panX: d.px + (e.clientX - d.x), panY: d.py + (e.clientY - d.y) });
       }}
       onPointerUp={() => {
@@ -100,18 +101,18 @@ export default function Canvas({ board, lens, pos, vp, rows, state, dispatch, pa
         setPanning(false);
       }}>
       <svg className="bd-bands">
-        {levels.map(([lv, i]) => (
-          <g key={lv}>
+        {bands.map(({ key, row: i }) => (
+          <g key={key}>
             <path className={`fill${i % 2 ? " alt" : ""}`} d={`${line(i * BAND)} ${line((i + 1) * BAND, true).replace(/^M/, "L")} Z`} />
             <path className="rule" d={line(i * BAND)} />
           </g>
         ))}
-        <path className="rule" d={line(levels.length * BAND)} />
+        <path className="rule" d={line(bands.length * BAND)} />
       </svg>
-      {levels.map(([lv, i]) => {
+      {bands.map(({ key, row: i, label }) => {
         const y = lens.bandY(12, i * BAND) + 6, k = Math.max(0.7, (lens.bandY(12, 1) - lens.bandY(12, 0)));
-        return <div key={lv} className="bd-blabel" style={{ top: y, transform: `scale(${k})` }}>
-          {lv >= 0 ? `L${lv} · ${names.get(lv) ?? ""}` : "other"}
+        return <div key={key} className="bd-blabel" style={{ top: y, transform: `scale(${k})` }}>
+          {label}
         </div>;
       })}
       <svg className="bd-edges">
@@ -131,7 +132,7 @@ export default function Canvas({ board, lens, pos, vp, rows, state, dispatch, pa
         if (!p) return null;
         const card = state.cards[n.id], on = onPath.has(n.id);
         const cls = ["bd-node", n.change ? "chg" : "", n.kind === "field" ? "field" : "", on ? "onflow" : "",
-          !graph && !on && !n.change && !card ? "dim" : "", state.moved[n.id] !== undefined ? "moved" : "",
+          !graph && !on && !n.change && !card ? "dim" : "", state.moved[state.layout][n.id] !== undefined ? "moved" : "",
           card ? "has-card" : "", n.id === front ? "front" : "", grab === n.id ? "grab" : ""].filter(Boolean).join(" ");
         const fx = badge.get(n.id);
         return (

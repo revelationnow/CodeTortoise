@@ -6,9 +6,9 @@ import Canvas from "./Canvas";
 import ChangePanel from "./ChangePanel";
 import FileViewer from "./FileViewer";
 import FlowBar from "./FlowBar";
-import { centrePan, layerRows, worldNodes } from "./layout";
+import { bandsFor, centrePan, preferDepth, worldNodes } from "./layout";
 import { makeLens, type Viewport } from "./lens";
-import { keys, loadLens, loadMoved, loadWidth, save } from "./prefs";
+import { keys, loadLayout, loadLens, loadMovedAll, loadWidth, save } from "./prefs";
 import { type Action, initialState, reduce } from "./reducer";
 import type { Board as BoardModel } from "./types";
 import { useSources } from "./useSources";
@@ -31,7 +31,7 @@ const wideScreen = () => window.innerWidth > 1100;
 /** The review board (spec §2–§4): flow bar, lensed canvas with cards, file viewer and change panel. */
 export default function Board({ reviewId, board, files, comments, onComments, risk, focus, head }: Props) {
   const [state, dispatch] = useReducer(reduce, undefined, () => {
-    const s = initialState(loadLens(), loadMoved(reviewId));
+    const s = initialState(loadLens(), loadMovedAll(reviewId), loadLayout(reviewId) ?? (preferDepth(board) ? "depth" : "layers"));
     return board.flows.length ? s : { ...s, mode: "graph" as const };
   });
   const stateRef = useRef(state);
@@ -49,8 +49,8 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
   useEffect(() => { const t = window.setTimeout(() => setHint(false), 7000); return () => window.clearTimeout(t); }, []);
   const interact = useCallback(() => setHint(false), []);
 
-  const rows = useMemo(() => layerRows(board), [board]);
-  const world = useMemo(() => worldNodes(board, state.moved), [board, state.moved]);
+  const bands = useMemo(() => bandsFor(board, state.layout), [board, state.layout]);
+  const world = useMemo(() => worldNodes(board, state.layout, state.moved[state.layout]), [board, state.layout, state.moved]);
   const lens = useMemo(() => makeLens(state.view, vp, [...world.values()].map((n) => n.x)), [state.view, vp, world]);
   const pos = useMemo(() => new Map([...world.values()].map((n) => [n.id, lens.project(n.x, n.y)])), [world, lens]);
 
@@ -117,6 +117,17 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
     panTo([focus]);
   }, [focus, vp.W, nodes, act, panTo]);
   const selectFlow = useCallback((i: number) => { act({ t: "flow", i }); panTo(board.flows[i].path); }, [act, panTo, board]);
+  const setLayout = (layout: "layers" | "depth") => {
+    if (layout === state.layout) return;
+    save(keys.layout(reviewId), layout);
+    act({ t: "layout", layout });
+  };
+  const relaid = useRef(state.layout);                // re-centre once the other layout's positions exist
+  useEffect(() => {
+    if (relaid.current === state.layout) return;
+    relaid.current = state.layout;
+    panTo(state.mode === "graph" ? board.nodes.map((n) => n.id) : board.flows[state.flow]?.path ?? []);
+  }, [state.layout, state.mode, state.flow, board, panTo]);
   const setMode = (mode: "flows" | "graph") => {
     act({ t: "mode", mode });
     panTo(mode === "graph" ? board.nodes.map((n) => n.id) : board.flows[state.flow]?.path ?? []);
@@ -137,7 +148,7 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
       <div className={`bd-main${state.about ? " with-about" : ""}`}>
         <div className="bd-stage" ref={stage}>
           {vp.W > 0 && <>
-            <Canvas board={board} lens={lens} pos={pos} vp={vp} rows={rows} state={state} dispatch={act}
+            <Canvas board={board} lens={lens} pos={pos} vp={vp} bands={bands} state={state} dispatch={act}
                     panBy={panBy} onOpenFile={openFile} onInteract={interact} />
             <CardLayer reviewId={reviewId} board={board} pos={pos} vp={vp} state={state} dispatch={act} sources={sources}
                        comments={comments} onComments={onComments} onOpenFile={openFile} narrow={narrow} />
@@ -149,7 +160,12 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
                         onClick={() => setMode("flows")}>Flows</button>
                 <button className={`bd-ibtn${state.mode === "graph" ? " on" : ""}`} onClick={() => setMode("graph")}>Whole graph</button>
               </span>
-              {Object.keys(state.moved).length > 0 && <button className="bd-ibtn float" onClick={() => act({ t: "layout.reset" })}>Reset layout</button>}
+              <span className="bd-seg">
+                <button className={`bd-ibtn${state.layout === "layers" ? " on" : ""}`} onClick={() => setLayout("layers")}>Layers</button>
+                <button className={`bd-ibtn${state.layout === "depth" ? " on" : ""}`} onClick={() => setLayout("depth")}>Call depth</button>
+              </span>
+              {Object.keys(state.moved[state.layout]).length > 0 &&
+                <button className="bd-ibtn float" onClick={() => act({ t: "layout.reset" })}>Reset layout</button>}
               <span className="lbl">Lens</span>
               <span className="bd-seg">
                 {([0, 2, 4] as const).map((m) => (

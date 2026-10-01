@@ -101,11 +101,15 @@ describe("board", () => {
     expect([s.mode, s.flow]).toEqual(["flows", 2]);
   });
 
-  it("node moves are remembered until reset", () => {
-    let s: BoardState = run({ t: "node.move", id: "N1", x: 120 }, { t: "node.move", id: "N2", x: -40 });
-    expect(s.moved).toEqual({ N1: 120, N2: -40 });
+  it("node moves are 2-D, kept per layout and reset per layout", () => {
+    let s: BoardState = run({ t: "node.move", id: "N1", x: 120, y: 40 }, { t: "layout", layout: "depth" },
+                            { t: "node.move", id: "N1", x: -5, y: 300 });
+    expect(s.layout).toBe("depth");
+    expect(s.moved).toEqual({ layers: { N1: { x: 120, y: 40 } }, depth: { N1: { x: -5, y: 300 } } });
     s = reduce(s, { t: "layout.reset" });
-    expect(s.moved).toEqual({});
+    expect(s.moved).toEqual({ layers: { N1: { x: 120, y: 40 } }, depth: {} });
+    s = reduce(s, { t: "layout", layout: "layers" });
+    expect(s.moved.layers).toEqual({ N1: { x: 120, y: 40 } });
   });
 
   it("lens, pan and the change panel", () => {

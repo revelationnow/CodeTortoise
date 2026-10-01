@@ -36,7 +36,7 @@ export default function FlowBar({ board, state, layerOf, onFlow, onStep, onStepO
             <b>Whole graph</b> — {board.nodes.length} functions and fields across {board.layers.length} layers;{" "}
             {board.nodes.filter((n) => n.change).length} changed, {new Set(board.flows.map((f) => f.lands)).size} where side effects land.
             {board.hidden_nodes > 0 && <> +{board.hidden_nodes} more functions not shown.</>}
-            {" "}Drag a function sideways to rearrange its layer; your layout is kept for this review.
+            {" "}Drag a function anywhere to rearrange the graph; your layout is kept for this review.
             {board.flows.length > 0 ? " Pick a flow above to trace one path." : " No flows: the analysis found no side effect to trace."}
           </div>
         </div>

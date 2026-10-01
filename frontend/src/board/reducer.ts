@@ -1,4 +1,5 @@
 /** Board state machine (spec §3.7, §4.3). Pure: every interaction is one transition. */
+import type { LayoutKind, Moved } from "./layout";
 import type { LensStrength, View } from "./lens";
 
 export interface CardState { collapsed: boolean; offset?: { x: number; y: number } }
@@ -18,7 +19,8 @@ export interface BoardState {
   mode: "flows" | "graph";
   flow: number;
   about: boolean;
-  moved: Record<string, number>;            // node id -> world x chosen by this viewer
+  layout: LayoutKind;                       // bands by layer, or rows by call depth
+  moved: Record<LayoutKind, Moved>;         // per layout: node id -> world position chosen by this viewer
 }
 
 export type Action =
@@ -40,15 +42,17 @@ export type Action =
   | { t: "flow"; i: number }
   | { t: "mode"; mode: "flows" | "graph" }
   | { t: "lens"; lens: LensStrength }
-  | { t: "node.move"; id: string; x: number }
+  | { t: "node.move"; id: string; x: number; y: number }
+  | { t: "layout"; layout: LayoutKind }
   | { t: "layout.reset" }
   | { t: "about.toggle"; open?: boolean }
   | { t: "pan"; panX: number; panY: number };
 
-export function initialState(lens: LensStrength = 2, moved: Record<string, number> = {}): BoardState {
+export function initialState(lens: LensStrength = 2, moved: Record<LayoutKind, Moved> = { layers: {}, depth: {} },
+                             layout: LayoutKind = "layers"): BoardState {
   return {
     cards: {}, z: [], viewer: { files: [], collapsed: [], mode: null, snapshot: null, reveal: null },
-    view: { panX: 0, panY: 0, lens }, mode: "flows", flow: 0, about: false, moved,
+    view: { panX: 0, panY: 0, lens }, mode: "flows", flow: 0, about: false, layout, moved,
   };
 }
 
@@ -131,9 +135,11 @@ export function reduce(s: BoardState, a: Action): BoardState {
     case "lens":
       return { ...s, view: { ...s.view, lens: a.lens } };
     case "node.move":
-      return { ...s, moved: { ...s.moved, [a.id]: a.x } };
+      return { ...s, moved: { ...s.moved, [s.layout]: { ...s.moved[s.layout], [a.id]: { x: a.x, y: a.y } } } };
     case "layout.reset":
-      return { ...s, moved: {} };
+      return { ...s, moved: { ...s.moved, [s.layout]: {} } };
+    case "layout":
+      return { ...s, layout: a.layout };
     case "about.toggle":
       return { ...s, about: a.open ?? !s.about };
     case "pan":
