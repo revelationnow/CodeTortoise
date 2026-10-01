@@ -1,11 +1,17 @@
 """Perforce Source: shelved (pending) and submitted CLs, read-only against the base workspace."""
 from __future__ import annotations
 
+import re
+
 from codetortoise.paths import canon
 from codetortoise.vcs.model import ChangeSet, ClMeta, DriftItem, FileChange, SourceFile, stack
 from codetortoise.vcs.p4runner import P4Error, P4Runner
 from codetortoise.vcs.source import MAX_SOURCE_BYTES, SourceBinary, SourceError, SourceNotAllowed, SourceTooLarge
 
+# one depot file: "//" + segments without wildcards (`...`, `*`, `%%n`), revision specifiers (`#`, `@`) or control
+# characters; Perforce's own escapes (%40 %23 %25 %2A) are allowed
+_SEG = r"(?:[^/*@#%\x00-\x1f.]|\.(?!\.)|%(?:40|23|25|2[aA]))+"
+_ONE_DEPOT_FILE = re.compile(rf"//{_SEG}(?:/{_SEG})+")
 _NO_BEFORE = {"add", "branch", "move/add", "import"}
 _NO_AFTER = {"delete", "move/delete", "purge", "archive"}
 
@@ -96,23 +102,33 @@ class P4Source:
         return {p: out[p] for p in locals_ if p in out}
 
     def read(self, depot: str) -> SourceFile:
-        """Unchanged file at the base workspace's have revision; refuses anything outside the client view."""
+        """Unchanged file at the base workspace's have revision; refuses anything outside the client view.
+
+        `depot` comes from a URL, so it must name exactly one file: no wildcards (`...`, `*`, `%%n`), no revision or
+        label specifiers (`#`, `@`), no control characters. Only Perforce's own escapes (%40 %23 %25 %2A) may appear."""
+        if not _ONE_DEPOT_FILE.fullmatch(depot):
+            raise SourceNotAllowed(f"{depot!r}: not a single depot file path")
         try:
-            recs = self.p4.run("fstat", "-T", "depotFile,clientFile,haveRev,headType", depot)
+            recs = self.p4.run("fstat", "-Ol", "-T", "depotFile,clientFile,haveRev,headType,fileSize", depot)
         except P4Error as e:
             raise SourceNotAllowed(f"{depot}: {e}") from e
-        rec = recs[0] if recs else {}
-        if not rec.get("clientFile") or not rec.get("haveRev"):
+        if len(recs) != 1:
+            raise SourceNotAllowed(f"{depot}: not exactly one file in the base workspace")
+        rec = recs[0]
+        if not rec.get("depotFile") or not rec.get("clientFile") or not rec.get("haveRev"):
             raise SourceNotAllowed(f"{depot}: not synced in the base workspace")
         if any(t in rec.get("headType", "") for t in ("binary", "apple", "resource")):
             raise SourceBinary(f"{depot}: binary file")
+        size = str(rec.get("fileSize", ""))
+        if size.isdigit() and int(size) > MAX_SOURCE_BYTES:          # refuse before printing anything
+            raise SourceTooLarge(f"{depot}: {size} bytes")
         try:
-            text = self.p4.print_text(f"{depot}#{rec['haveRev']}")
+            text = self.p4.print_text(f"{rec['depotFile']}#{rec['haveRev']}")
         except P4Error as e:
             raise SourceNotAllowed(f"{depot}: {e}") from e
         if len(text.encode("utf-8", errors="replace")) > MAX_SOURCE_BYTES:
             raise SourceTooLarge(f"{depot}: too large")
-        return SourceFile(depot=depot, local=canon(rec["clientFile"]), rev=f"#{rec['haveRev']}", text=text)
+        return SourceFile(depot=rec["depotFile"], local=canon(rec["clientFile"]), rev=f"#{rec['haveRev']}", text=text)
 
     def load(self, cls: list[int]) -> ChangeSet:
         per_cl, metas, warnings = [], [], []

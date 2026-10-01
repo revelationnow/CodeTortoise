@@ -187,3 +187,48 @@ def test_depots_for_maps_local_paths_in_one_where_call():
         "/ws/a.c": "//depot/a.c", "/ws/b/c.h": "//depot/b/c.h"}
     assert len(p4.calls) == 1
     assert P4Source(p4).depots_for([]) == {}
+
+
+@pytest.mark.parametrize("path", ["//depot/...", "//depot/*.c", "//d*/a.c", "//depot/a.c#1", "//depot/a.c@5", "//depot/%%1.c",
+                                  "depot/a.c", "/ws/a.c", "//depot/a.c\n"])
+def test_read_refuses_wildcards_and_revision_specifiers(path):
+    from codetortoise.vcs.source import SourceNotAllowed
+
+    class Everything(FakeP4):
+        def run(self, command, *args):
+            self.calls.append((command, *args))
+            return [{"depotFile": f"//depot/f{i}.c", "clientFile": f"/ws/f{i}.c", "haveRev": "1", "headType": "text"}
+                    for i in range(3)]
+
+        def print_text(self, spec):
+            raise AssertionError(f"printed {spec}")
+    p4 = Everything(describe={}, files={})
+    with pytest.raises(SourceNotAllowed):
+        P4Source(p4).read(path)
+
+
+def test_read_prints_the_one_matched_file_and_checks_size_first():
+    from codetortoise.vcs.source import SourceNotAllowed, SourceTooLarge
+
+    class Fstat(FakeP4):
+        def __init__(self, recs):
+            super().__init__(describe={}, files={"//depot/a.c#3": "x\n"})
+            self.recs = recs
+
+        def run(self, command, *args):
+            self.calls.append((command, *args))
+            return self.recs
+
+        def print_text(self, spec):
+            self.calls.append(("print", spec))
+            return super().print_text(spec)
+    one = {"depotFile": "//depot/a.c", "clientFile": "/ws/a.c", "haveRev": "3", "headType": "text", "fileSize": "2"}
+    p4 = Fstat([one])
+    assert P4Source(p4).read("//depot/a.c").text == "x\n"
+    assert ("print", "//depot/a.c#3") in p4.calls
+    with pytest.raises(SourceNotAllowed):
+        P4Source(Fstat([one, dict(one, depotFile="//depot/b.c")])).read("//depot/a.c")
+    big = Fstat([dict(one, fileSize=str(3 * 1024 * 1024))])
+    with pytest.raises(SourceTooLarge):
+        P4Source(big).read("//depot/a.c")
+    assert not any(c[0] == "print" for c in big.calls)
