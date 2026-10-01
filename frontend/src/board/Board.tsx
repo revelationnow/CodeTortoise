@@ -109,8 +109,10 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
     const n = nodes.get(id);
     if (n?.path) act({ t: "viewer.open", path: n.path, line: n.range?.[0] ?? null, wide: wideScreen() });
   }, [nodes, act]);
+  const focused = useRef<string | null>(null);       // a cited node is opened once per citation, not on every resize
   useEffect(() => {
-    if (!focus || !vp.W || !nodes.get(focus)?.path) return;
+    if (!focus || focus === focused.current || !vp.W || !nodes.get(focus)?.path) return;
+    focused.current = focus;
     act({ t: "card.open", id: focus });
     panTo([focus]);
   }, [focus, vp.W, nodes, act, panTo]);

@@ -93,3 +93,19 @@ test("whole graph: drag a node within its layer, reset; dragging never selects t
   await page.mouse.up();
   expect(await page.evaluate(() => window.getSelection()?.toString() ?? "")).toBe("");
 });
+
+test("a cited node opens once; closing it sticks when the canvas resizes", async ({ page }) => {
+  await startReview(page);
+  const rid = page.url().match(/\/r\/(\d+)/)![1];
+  const board = await (await page.request.get(`/api/reviews/${rid}/board`)).json();
+  const target = board.nodes.find((n: { label: string }) => n.label === "uart_errors");
+  await page.goto(`/r/${rid}?node=${target.id}`);
+  const card = page.locator(".bd-card", { hasText: "uart_errors" });
+  await expect(card).toBeVisible();
+  await page.getByRole("button", { name: "Close uart_errors" }).click();
+  await expect(card).toHaveCount(0);
+  await page.getByRole("button", { name: "✦ What's this change?" }).click();      // narrows the canvas
+  await expect(page.locator(".bd-about")).toBeVisible();
+  await page.waitForTimeout(400);
+  await expect(card).toHaveCount(0);
+});
