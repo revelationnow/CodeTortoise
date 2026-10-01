@@ -24,7 +24,7 @@ test("flows, cards, comments, viewer, change panel and layout", async ({ page })
   await step.click();
   await card.locator(".bd-ln", { hasText: "uart_send(lg->uart" }).click();
   await card.getByPlaceholder("Leave a comment…").fill("flush drops -2 silently");
-  await card.getByRole("button", { name: "Comment" }).click();
+  await card.getByRole("button", { name: "Comment", exact: true }).click();
   await expect(card.getByText("flush drops -2 silently")).toBeVisible();
 
   // ⤢ on a node opens its file in the viewer, at the function; cards collapse to pills
@@ -108,4 +108,25 @@ test("a cited node opens once; closing it sticks when the canvas resizes", async
   await expect(page.locator(".bd-about")).toBeVisible();
   await page.waitForTimeout(400);
   await expect(card).toHaveCount(0);
+});
+
+test("review, layer and function comments from M1 show on the board", async ({ page }) => {
+  await startReview(page);
+  const rid = page.url().match(/\/r\/(\d+)/)![1];
+  const board = await (await page.request.get(`/api/reviews/${rid}/board`)).json();
+  const send = board.nodes.find((n: { label: string }) => n.label === "uart_send");
+  const post = (body: string, anchor_kind: string, anchor: object) =>
+    page.request.post(`/api/reviews/${rid}/comments`, { data: { body, anchor_kind, anchor } });
+  await post("overall: please split the CLs", "review", {});
+  await post("driver layer looks risky", "chapter", { level: send.layer });
+  await post("why -2 and not -EINVAL?", "function", { key: send.key });
+  await page.reload();
+  await expect(page.locator(".bd-card", { hasText: "uart_send" }).getByText("why -2 and not -EINVAL?")).toBeVisible();
+  await page.getByRole("button", { name: "✦ What's this change?" }).click();
+  const panel = page.locator(".bd-about");
+  await expect(panel.getByText("overall: please split the CLs")).toBeVisible();
+  await expect(panel.getByText("driver layer looks risky")).toBeVisible();
+  await panel.getByPlaceholder("Start another thread…").first().fill("agreed");
+  await panel.getByRole("button", { name: "Comment" }).first().click();
+  await expect(panel.getByText("agreed")).toBeVisible();
 });

@@ -173,7 +173,7 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
                       onWidthDone={(w) => save(keys.viewerW, w)} />
         )}
         {state.about && (
-          <ChangePanel about={board.about} risk={risk} openFiles={state.viewer.files} dispatch={act} wide={wideScreen()}
+          <ChangePanel reviewId={reviewId} comments={comments} onComments={onComments} layers={board.layers} about={board.about} risk={risk} openFiles={state.viewer.files} dispatch={act} wide={wideScreen()}
                        width={aboutW} onWidth={setAboutW} onWidthDone={(w) => save(keys.aboutW, w)} />
         )}
       </div>

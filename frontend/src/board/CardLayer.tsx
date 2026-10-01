@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Comment } from "../api";
+import Comments from "../components/Comments";
 import CodeView from "./CodeView";
 import { lineDiff, plainLines, sliceRange } from "./codeRows";
 import { placeCards } from "./layout";
@@ -157,6 +158,9 @@ function CardBody({ node, reviewId, board, sources, comments, onComments }: Body
       ) : (
         <div className="bd-note">Fetching {node.path}…</div>
       )}
+      <div className="bd-fn-comments" onPointerDown={(e) => e.stopPropagation()}>
+        <Comments reviewId={reviewId} comments={comments} kind="function" anchor={{ key: node.key }} onChange={onComments} compact />
+      </div>
     </>
   );
 }

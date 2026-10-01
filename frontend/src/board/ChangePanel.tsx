@@ -1,9 +1,15 @@
 import { useState } from "react";
+import type { Comment } from "../api";
+import Comments from "../components/Comments";
 import type { Action } from "./reducer";
 import Resizer from "./Resizer";
 import type { About } from "./types";
 
 interface Props {
+  reviewId: number;
+  comments: Comment[];
+  onComments: () => void;
+  layers: { level: number; name: string }[];
   about: About;
   risk: string | null;
   openFiles: string[];
@@ -15,7 +21,8 @@ interface Props {
 }
 
 /** "What's this change?" (spec §3.6): files tree first, then intent, why it's risky, changelists. Pushes the board. */
-export default function ChangePanel({ about, risk, openFiles, dispatch, wide, width, onWidth, onWidthDone }: Props) {
+export default function ChangePanel({ reviewId, comments, onComments, layers, about, risk, openFiles, dispatch, wide, width, onWidth,
+  onWidthDone }: Props) {
   const [shut, setShut] = useState<Set<string>>(new Set());
   const nFiles = about.tree.reduce((n, d) => n + d.files.length, 0);
   return (
@@ -53,6 +60,15 @@ export default function ChangePanel({ about, risk, openFiles, dispatch, wide, wi
           <h3>Why it's {risk ?? "flagged"} risk</h3>
           <ul className="why">{about.why.map((w) => <li key={w.finding}><span className={`sev ${w.severity}`}>{w.severity.toUpperCase()}</span>{w.text}</li>)}</ul>
         </>}
+        <h3>Discussion</h3>
+        <Comments reviewId={reviewId} comments={comments} kind="review" anchor={{}} onChange={onComments} />
+        {[...new Set(comments.filter((c) => c.anchor_kind === "chapter" && c.parent_id === null).map((c) => c.anchor.level as number | null))]
+          .map((level) => (
+            <div key={String(level)} className="bd-layer-thread">
+              <div className="m">Layer {layers.find((l) => l.level === level)?.name ?? (level === null ? "unlayered" : `L${level}`)}</div>
+              <Comments reviewId={reviewId} comments={comments} kind="chapter" anchor={{ level }} onChange={onComments} compact />
+            </div>
+          ))}
         <h3>Changelists</h3>
         {about.cls.map((c) => (
           <div key={c.cl} className="cl"><span className="n">CL {c.cl}</span> <span className="m">· {c.user} · {c.files} files</span>
