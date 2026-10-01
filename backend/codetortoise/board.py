@@ -28,7 +28,14 @@ Channel = Literal["contract", "signature", "state"]
 Sev = Literal["warn", "info", "ok"]
 _RANGE_OPS = ("!=", "<", ">", "<=", ">=")
 X_SPACING = 220.0
-_TEST_PATH = re.compile(r"(^|/)(tests?|testing|fuzzers?)/")
+_TEST_DIR = re.compile(r"(^|/)(tests?|testing|unittests?|fuzzers?|fuzz)/")
+_TEST_FILE = re.compile(r"(^|/)(test_[^/]*|[^/]*_(test|tests|unittest)\.[a-z+]+)$")
+
+
+def is_test_path(rel: str) -> bool:
+    """Test code by its workspace-relative path: a tests/test/testing/unittest(s)/fuzz(ers) directory, or a
+    test_*.c / *_test.cc / *_unittest.cpp style file name."""
+    return bool(_TEST_DIR.search(rel) or _TEST_FILE.search(rel))
 
 
 class NodeChange(BaseModel):
@@ -149,6 +156,7 @@ class BoardContext:
     layers: LayerModel | None
     cfg: AnalysisConfig
     depots_for: Callable[[list[str]], dict[str, str]]   # canonical local paths -> depot paths (called once)
+    root: str = ""                   # canonical workspace root; test code is recognised by paths relative to it
 
 
 # ------------------------------------------------------------------ helpers
@@ -203,9 +211,12 @@ class _Ctx:
                 self.finding_by[(f.kind, n)].append(f.id)
 
     def is_test(self, nid: str) -> bool:
-        """Test code (tests/, test/, testing/, fuzzers/) is never a flow entry nor shown as blast radius."""
+        """Test code is never a flow entry or landing, and is not shown as blast radius."""
         node = self.im.nodes[nid]
-        return nid not in self.changed and bool(node.file and _TEST_PATH.search(node.file))
+        if nid in self.changed or not node.file:
+            return False
+        root = self.c.root.rstrip("/") + "/"
+        return is_test_path(node.file[len(root):] if self.c.root and node.file.startswith(root) else node.file)
 
     def label(self, nid: str) -> str:
         return self.im.nodes[nid].label
@@ -370,7 +381,7 @@ def build_flows(x: _Ctx, impacts: list[Impact]) -> list[Flow]:
             warn[i.node] += 1
     by_key: dict[tuple[str, str, str], Impact] = {}   # one flow per (change, landing, state|contract)
     for imp in impacts:
-        if imp.landing and imp.cause and imp.node not in x.changed:
+        if imp.landing and imp.cause and imp.node not in x.changed and not x.is_test(imp.node):
             by_key.setdefault((imp.cause, imp.node, "state" if imp.channel == "state" else "contract"), imp)
     flows: list[Flow] = []
     for (cause, land, _), imp in by_key.items():

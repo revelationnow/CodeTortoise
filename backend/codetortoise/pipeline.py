@@ -192,7 +192,7 @@ def run_review(rid: int, svc: Services) -> None:
         notes: list[str] = []
         resolve = depot_resolver(svc.source, ctx["cs"], cfg.workspace.root, notes)
         b = build_board(BoardContext(ctx["cs"], ctx["dm"], ctx["before"], ctx["after"], ctx["impact"], ctx["findings"],
-                                     ctx.get("layers"), cfg.analysis, resolve))
+                                     ctx.get("layers"), cfg.analysis, resolve, root=canon(str(cfg.workspace.root))))
         ctx["board"] = b
         store.put_blob(rid, "board", b)
         if notes:

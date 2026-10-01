@@ -135,44 +135,45 @@ def _fn(usr, name, file, start, end, returns=("0",), lines=None):
                     start_line=start, end_line=end, returns=list(returns), return_lines=lines or {})
 
 
-def _acc(fn, mode, file, line):
-    return FieldAccess(fn=fn, field="c:@S@R@FI@v", field_name="v", record="R", record_file="/w/r.h", decl_line=3,
+def _acc(fn, mode, file, line, w="/w"):
+    return FieldAccess(fn=fn, field="c:@S@R@FI@v", field_name="v", record="R", record_file=f"{w}/r.h", decl_line=3,
                        path="r->v", root_kind="param", mode=mode, via=["p"] if fn == "c:@F@set" else [], file=file, line=line)
 
 
-def _synthetic(callers=("test_set",)):
+def _synthetic(callers=("test_set",), test_ignores=False, w="/w"):
     """set() newly writes R::v through alias p and can now return -1; peek() reads and bumps R::v on one line and
-    ignores set()'s result; set's only other caller is a test."""
-    set_b = _fn("c:@F@set", "set", "/w/a.c", 1, 9)
-    set_a = _fn("c:@F@set", "set", "/w/a.c", 1, 9, ("0", "-1"), {"-1": 6})
-    peek = _fn("c:@F@peek", "peek", "/w/b.c", 20, 24)
-    fns = {"test_set": _fn("c:@F@test_set", "test_set", "/w/tests/t.c", 1, 4),
-           "api": _fn("c:@F@api", "api", "/w/api.c", 1, 4)}
-    calls = [CallEdge(caller=f"c:@F@{c}", callee="c:@F@set", callee_name="set", file=fns[c].file, line=2) for c in callers]
-    calls.append(CallEdge(caller="c:@F@peek", callee="c:@F@set", callee_name="set", file="/w/b.c", line=22,
+    ignores set()'s result; set's only other caller is a test. `w` is the workspace root."""
+    set_b = _fn("c:@F@set", "set", f"{w}/a.c", 1, 9)
+    set_a = _fn("c:@F@set", "set", f"{w}/a.c", 1, 9, ("0", "-1"), {"-1": 6})
+    peek = _fn("c:@F@peek", "peek", f"{w}/b.c", 20, 24)
+    fns = {"test_set": _fn("c:@F@test_set", "test_set", f"{w}/tests/t.c", 1, 4),
+           "api": _fn("c:@F@api", "api", f"{w}/api.c", 1, 4)}
+    calls = [CallEdge(caller=f"c:@F@{c}", callee="c:@F@set", callee_name="set", file=fns[c].file, line=2,
+                      result_used=not (test_ignores and c == "test_set")) for c in callers]
+    calls.append(CallEdge(caller="c:@F@peek", callee="c:@F@set", callee_name="set", file=f"{w}/b.c", line=22,
                           result_used=False))
-    after = [Facts(tu=TuInfo(file="/w/a.c", variant="after"), functions=[set_a, peek, *(fns[c] for c in callers)],
-                   calls=calls, fields=[_acc("c:@F@set", "write", "/w/a.c", 5), _acc("c:@F@peek", "read", "/w/b.c", 21),
-                                        _acc("c:@F@peek", "write", "/w/b.c", 21)])]
-    before = [Facts(tu=TuInfo(file="/w/a.c", variant="before"), functions=[set_b, peek])]
-    nodes = {"N1": Node(id="N1", key="c:@F@set", label="set", file="/w/a.c", line=1, status="changed", layer=1),
+    after = [Facts(tu=TuInfo(file=f"{w}/a.c", variant="after"), functions=[set_a, peek, *(fns[c] for c in callers)],
+                   calls=calls, fields=[_acc("c:@F@set", "write", f"{w}/a.c", 5, w), _acc("c:@F@peek", "read", f"{w}/b.c", 21, w),
+                                        _acc("c:@F@peek", "write", f"{w}/b.c", 21, w)])]
+    before = [Facts(tu=TuInfo(file=f"{w}/a.c", variant="before"), functions=[set_b, peek])]
+    nodes = {"N1": Node(id="N1", key="c:@F@set", label="set", file=f"{w}/a.c", line=1, status="changed", layer=1),
              "N2": Node(id="N2", key="field:c:@S@R@FI@v", kind="field", label="R::v", layer=1),
-             "N3": Node(id="N3", key="c:@F@peek", label="peek", file="/w/b.c", line=20, layer=1),
-             "N4": Node(id="N4", key="c:@F@test_set", label="test_set", file="/w/tests/t.c", line=1, layer=2),
-             "N5": Node(id="N5", key="c:@F@api", label="api", file="/w/api.c", line=1, layer=2)}
+             "N3": Node(id="N3", key="c:@F@peek", label="peek", file=f"{w}/b.c", line=20, layer=1),
+             "N4": Node(id="N4", key="c:@F@test_set", label="test_set", file=f"{w}/tests/t.c", line=1, layer=2),
+             "N5": Node(id="N5", key="c:@F@api", label="api", file=f"{w}/api.c", line=1, layer=2)}
     edges = [Edge(id="E1", src="N1", dst="N2", kind="writes"), Edge(id="E2", src="N3", dst="N2", kind="reads"),
              Edge(id="E3", src="N3", dst="N1", kind="call")]
     edges += [Edge(id=f"E{4 + i}", src={"test_set": "N4", "api": "N5"}[c], dst="N1", kind="call") for i, c in enumerate(callers)]
     im = ImpactModel(nodes=nodes, edges=edges, changed=["N1"],
                      blast=[BlastItem(node="N4", hop=1, score=1.0, via="call", path=["N1", "N4"])])
     cs = ChangeSet(cls=[ClMeta(cl=1, status="pending")],
-                   files=[FileChange(depot="//d/lib/src/a.c", local="/w/a.c", action="edit", before="x\n", after="y\n")])
+                   files=[FileChange(depot="//d/lib/src/a.c", local=f"{w}/a.c", action="edit", before="x\n", after="y\n")])
     asked = []
 
     def depots_for(locals_):
         asked.append(list(locals_))
-        return {p: "//d/lib" + p[2:] for p in locals_}
-    ctx = BoardContext(cs, DiffMap(), before, after, im, [], None, AnalysisConfig(), depots_for)
+        return {p: "//d/lib" + p[len(w):] for p in locals_}
+    ctx = BoardContext(cs, DiffMap(), before, after, im, [], None, AnalysisConfig(), depots_for, root=w)
     return ctx, asked
 
 
@@ -208,3 +209,26 @@ def test_depot_paths_are_resolved_once_for_what_the_board_shows():
     assert set(asked[0]) <= {"/w/a.c", "/w/b.c", "/w/r.h"}
     assert {n.label: n.path for n in b.nodes}["peek"] == "//d/lib/b.c"
     assert {(i.path, i.line) for i in b.impacts} >= {("//d/lib/b.c", 21), ("//d/lib/r.h", 3), ("//d/lib/a.c", 6)}
+
+
+def test_test_callers_are_never_landings():
+    b = build_board(_synthetic(test_ignores=True)[0])
+    assert all("N4" not in f.path for f in b.flows)
+    assert [f.tag for f in b.flows].count("contract") == 1          # peek only
+
+
+def test_test_code_is_recognised_relative_to_the_workspace():
+    b = build_board(_synthetic(callers=("test_set", "api"), w="/srv/test/ws")[0])
+    labels = {n.id: n.label for n in b.nodes}
+    (state,) = [f for f in b.flows if f.tag == "state"]
+    assert [labels[n] for n in state.path] == ["api", "set", "R::v", "peek"]
+    assert "test_set" not in labels.values()
+
+
+@pytest.mark.parametrize("rel,test", [("tests/a.c", True), ("src/test/a.c", True), ("unittests/x.cc", True),
+                                      ("fuzz/f.c", True), ("src/test_uart.c", True), ("src/uart_test.cc", True),
+                                      ("src/uart_unittest.cpp", True), ("src/uart.c", False), ("src/attest.c", False),
+                                      ("src/contest/x.c", False), ("src/testing_utils.h", False)])
+def test_test_path_patterns(rel, test):
+    from codetortoise.board import is_test_path
+    assert is_test_path(rel) is test
