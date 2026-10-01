@@ -32,6 +32,19 @@ $CT serve  --config $LAB/tortoise.yaml
 | 28 | `git_repository_head_detached()` resets `configmap_cache` through `intptr_t *cache = repo->configmap_cache` | **high field mutation** with readers `git_repository__configmap_lookup*` (precise via follow-up TU) |
 | 29 (stacked on 28) | new `git_repository::head_detached_cache` written through `int *detached` | **high header fan-out** (273 TUs, 6 layers) + **medium field mutation** |
 
+## Review board check
+
+After `$CT review … 30` and `$CT review … 28 29`, the `board` stage is `ok` and the board (`GET /api/reviews/<id>/board`,
+or the review page in a browser) shows:
+
+| Review | Flows | Annotations |
+|---|---|---|
+| 30 | 1 contract flow: `check_safecrlf → output_eol ⟶ -1 unhandled` | crlf.c:133 new return value `-1` (on `output_eol`); crlf.c:166 and :186 warn (`checks GIT_EOL_LF (==2)` / `GIT_EOL_CRLF (==1)` — does not handle -1); crlf.c:265 ok (`!=1` covers -1) |
+| 28+29 | 2 state flows: `git_repository_head_detached → git_repository::configmap_cache → git_repository__configmap_lookup` and `… → git_repository__configmap_lookup_cache_clear` | repository.c:3058 and :3071 (writes through aliases `cache`, `detached`); config_cache.c:114, :128, :139 warn (reads and writes `configmap_cache`); repository.h:172 warn (new writer, readers); repository.h:165 info (`head_detached_cache`: no readers in the parsed code) |
+
+No test function appears as a flow entry or as a board node; every function node has a depot path, so its code opens on
+demand (`p4 print` at the workspace's have revision).
+
 ## Results at the time of writing
 
 - Index: 1,190 files in 4.3 s. Headless review without LLM: 3–20 s (CL 20, 22 changed functions, 223 TU parses: ~20 s).
