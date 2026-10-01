@@ -36,6 +36,13 @@ class DriftItem(BaseModel):
     actual: str
 
 
+class SourceFile(BaseModel):
+    depot: str
+    local: str
+    rev: str       # p4: "#<have rev>"; git fixture: "workspace"
+    text: str
+
+
 class ChangeSet(BaseModel):
     cls: list[ClMeta]
     files: list[FileChange]

@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 from codetortoise.paths import canon
-from codetortoise.vcs.model import ChangeSet, ClMeta, DriftItem, FileChange, stack
+from codetortoise.vcs.model import ChangeSet, ClMeta, DriftItem, FileChange, SourceFile, stack
 from codetortoise.vcs.p4runner import P4Error, P4Runner
-from codetortoise.vcs.source import SourceError
+from codetortoise.vcs.source import MAX_SOURCE_BYTES, SourceBinary, SourceError, SourceNotAllowed, SourceTooLarge
 
 _NO_BEFORE = {"add", "branch", "move/add", "import"}
 _NO_AFTER = {"delete", "move/delete", "purge", "archive"}
@@ -85,6 +85,34 @@ class P4Source:
             if actual != f.base_rev:
                 out.append(DriftItem(depot=f.depot, local=f.local, expected=f.base_rev, actual=actual))
         return out
+
+    def depots_for(self, locals_: list[str]) -> dict[str, str]:
+        if not locals_:
+            return {}
+        out = {}
+        for r in self.p4.run("where", *locals_):
+            if "unmap" not in r and r.get("path") and r.get("depotFile"):
+                out.setdefault(canon(r["path"]), r["depotFile"])
+        return {p: out[p] for p in locals_ if p in out}
+
+    def read(self, depot: str) -> SourceFile:
+        """Unchanged file at the base workspace's have revision; refuses anything outside the client view."""
+        try:
+            recs = self.p4.run("fstat", "-T", "depotFile,clientFile,haveRev,headType", depot)
+        except P4Error as e:
+            raise SourceNotAllowed(f"{depot}: {e}") from e
+        rec = recs[0] if recs else {}
+        if not rec.get("clientFile") or not rec.get("haveRev"):
+            raise SourceNotAllowed(f"{depot}: not synced in the base workspace")
+        if any(t in rec.get("headType", "") for t in ("binary", "apple", "resource")):
+            raise SourceBinary(f"{depot}: binary file")
+        try:
+            text = self.p4.print_text(f"{depot}#{rec['haveRev']}")
+        except P4Error as e:
+            raise SourceNotAllowed(f"{depot}: {e}") from e
+        if len(text.encode("utf-8", errors="replace")) > MAX_SOURCE_BYTES:
+            raise SourceTooLarge(f"{depot}: too large")
+        return SourceFile(depot=depot, local=canon(rec["clientFile"]), rev=f"#{rec['haveRev']}", text=text)
 
     def load(self, cls: list[int]) -> ChangeSet:
         per_cl, metas, warnings = [], [], []

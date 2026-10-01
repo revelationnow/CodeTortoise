@@ -145,3 +145,45 @@ def test_login_check_can_request_host_unlocked_ticket(monkeypatch):
     assert seen[-1][-3:] == ["login", "-p", "-a"]
     r.login_check("bob", "pw")
     assert seen[-1][-2:] == ["login", "-p"]
+
+
+class FstatP4(FakeP4):
+    def __init__(self, fstat, files):
+        super().__init__(describe={}, files=files)
+        self.fstat = fstat
+
+    def run(self, command, *args):
+        if command == "fstat":
+            rec = self.fstat.get(args[-1])
+            return [rec] if rec else []
+        return super().run(command, *args)
+
+
+def test_read_unchanged_file_at_have_revision():
+    from codetortoise.vcs.source import SourceBinary, SourceNotAllowed
+    p4 = FstatP4({"//depot/a.c": {"depotFile": "//depot/a.c", "clientFile": "/ws/a.c", "haveRev": "7", "headType": "text"},
+                  "//depot/img.bin": {"depotFile": "//depot/img.bin", "clientFile": "/ws/img.bin", "haveRev": "1",
+                                      "headType": "binary"},
+                  "//depot/unsynced.c": {"depotFile": "//depot/unsynced.c", "clientFile": "/ws/unsynced.c", "headType": "text"}},
+                 files={"//depot/a.c#7": "int a;\n"})
+    src = P4Source(p4).read("//depot/a.c")
+    assert (src.depot, src.local, src.rev, src.text) == ("//depot/a.c", "/ws/a.c", "#7", "int a;\n")
+    with pytest.raises(SourceBinary):
+        P4Source(p4).read("//depot/img.bin")
+    with pytest.raises(SourceNotAllowed):
+        P4Source(p4).read("//depot/unsynced.c")      # not synced in the base workspace
+    with pytest.raises(SourceNotAllowed):
+        P4Source(p4).read("//other/x.c")             # not in the client view
+
+
+def test_depots_for_maps_local_paths_in_one_where_call():
+    class WhereP4(FakeP4):
+        def run(self, command, *args):
+            self.calls.append((command, *args))
+            assert command == "where"
+            return [{"depotFile": "//depot" + a[len("/ws"):], "path": a} for a in args if a.startswith("/ws/")]
+    p4 = WhereP4(describe={}, files={})
+    assert P4Source(p4).depots_for(["/ws/a.c", "/ws/b/c.h", "/elsewhere/x.c"]) == {
+        "/ws/a.c": "//depot/a.c", "/ws/b/c.h": "//depot/b/c.h"}
+    assert len(p4.calls) == 1
+    assert P4Source(p4).depots_for([]) == {}

@@ -9,8 +9,10 @@ import subprocess
 from pathlib import Path
 
 from codetortoise.paths import canon
-from codetortoise.vcs.model import ChangeSet, ClMeta, DriftItem, FileChange, stack
-from codetortoise.vcs.source import SourceError
+from codetortoise.vcs.model import ChangeSet, ClMeta, DriftItem, FileChange, SourceFile, stack
+from codetortoise.vcs.source import MAX_SOURCE_BYTES, SourceBinary, SourceError, SourceNotAllowed, SourceTooLarge
+
+DEPOT_PREFIX = "//fixture/"
 
 _ACTIONS = {"A": "add", "M": "edit", "D": "delete"}
 
@@ -50,13 +52,31 @@ class GitFixtureSource:
                 status, _, path = line.partition("\t")
                 action = _ACTIONS.get(status[:1], "edit")
                 files.append(FileChange(
-                    depot=f"//fixture/{path}", local=canon(str(self.repo / path)), action=action,
+                    depot=f"{DEPOT_PREFIX}{path}", local=canon(str(self.repo / path)), action=action,
                     before="" if action == "add" else self._show(f"{sha}^", path),
                     after="" if action == "delete" else self._show(sha, path),
                     base_rev=f"{sha}^"))
             per_cl.append((meta, files))
         files = stack(per_cl)
         return ChangeSet(cls=metas, files=files, drift=self._drift(files))
+
+    def depots_for(self, locals_: list[str]) -> dict[str, str]:
+        root = canon(str(self.repo))
+        return {p: DEPOT_PREFIX + p[len(root) + 1:] for p in locals_ if p.startswith(root + "/")}
+
+    def read(self, depot: str) -> SourceFile:
+        if not depot.startswith(DEPOT_PREFIX):
+            raise SourceNotAllowed(f"{depot}: not in this workspace")
+        root = canon(str(self.repo))
+        local = canon(str(self.repo / depot[len(DEPOT_PREFIX):]))
+        if not local.startswith(root + "/") or not Path(local).is_file():
+            raise SourceNotAllowed(f"{depot}: not in this workspace")
+        data = Path(local).read_bytes()
+        if len(data) > MAX_SOURCE_BYTES:
+            raise SourceTooLarge(f"{depot}: {len(data)} bytes")
+        if b"\0" in data:
+            raise SourceBinary(f"{depot}: binary file")
+        return SourceFile(depot=depot, local=local, rev="workspace", text=data.decode("utf-8", errors="replace"))
 
     def _drift(self, files: list[FileChange]) -> list[DriftItem]:
         out = []

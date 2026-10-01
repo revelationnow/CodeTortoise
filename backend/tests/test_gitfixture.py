@@ -31,3 +31,28 @@ def test_drift_when_workspace_differs(tmp_path, fx):
     (ws / "driver/uart.c").write_text("/* locally modified */\n")
     cs = GitFixtureSource(ws).load([101])
     assert [d.depot for d in cs.drift] == ["//fixture/driver/uart.c"]
+
+
+def test_read_workspace_file_and_refuse_escapes(fx, tmp_path):
+    from codetortoise.vcs.source import SourceBinary, SourceNotAllowed, SourceTooLarge
+    src = GitFixtureSource(fx.root)
+    f = src.read("//fixture/service/logger.c")
+    assert f.text.startswith('#include "service/logger.h"') and f.rev == "workspace"
+    assert f.local == str((fx.root / "service/logger.c").resolve())
+    for bad in ("//fixture/../../etc/passwd", "//elsewhere/x.c", "//fixture/does/not/exist.c"):
+        with pytest.raises(SourceNotAllowed):
+            src.read(bad)
+    ws = tmp_path / "ws"
+    shutil.copytree(fx.root, ws, symlinks=True)
+    (ws / "blob.bin").write_bytes(b"\x00\x01binary")
+    (ws / "big.c").write_text("x" * (2 * 1024 * 1024 + 1))
+    with pytest.raises(SourceBinary):
+        GitFixtureSource(ws).read("//fixture/blob.bin")
+    with pytest.raises(SourceTooLarge):
+        GitFixtureSource(ws).read("//fixture/big.c")
+
+
+def test_depots_for_workspace_paths(fx):
+    root = str(fx.root.resolve())
+    assert GitFixtureSource(fx.root).depots_for([f"{root}/driver/uart.c", "/elsewhere/x.c"]) == {
+        f"{root}/driver/uart.c": "//fixture/driver/uart.c"}
