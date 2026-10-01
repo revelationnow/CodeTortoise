@@ -254,3 +254,49 @@ fixed order so output is deterministic given the same responses. Summary call ru
   function; stack two files, collapse/expand all; comment on a line in a card; resize the change panel; drag a node in
   Whole graph and reset; no text selected after dragging across a card.
 - **Lab:** `lab/README.md` gains a check of the board blob for planted CLs 28+29 and 30 (expected flows/impacts listed).
+
+## 8. Decisions from validation (fixture + libgit2 lab)
+
+The implementation plan was built and run end to end before it was written down (uart fixture, then the libgit2 lab's
+planted CLs 30 and 28+29). These decisions refine §3–§7; where they differ, this section wins.
+
+**Model**
+- Change counts are `{kind, add, rem}` (`del` is a Python keyword); `AboutFile` likewise.
+- `Impact` gains `cause` (the changed node it comes from) and `landing` (a flow may land here: an ignoring or
+  mishandling caller, a field reader, a signature caller).
+- Depot paths are resolved once per board, only for the files of shown nodes and annotations, through
+  `BoardContext.depots_for(locals) -> {local: depot}`. The pipeline never sends paths outside the workspace root
+  (system headers made `p4 where` fail the whole batch in the lab); a failed lookup degrades the `board` stage and leaves
+  context nodes without a depot path; changed files always keep theirs.
+
+**State annotations (§5.3)**
+- One annotation per (function, line): a line that reads and writes the field says "reads and writes `R::f`".
+- Only readers are landings; pure co-writers are annotated but get no flow.
+- Field declaration text: "new writer: `g` · readers: a, b · other writers: c"; with no readers or writers it is `info`.
+
+**Flows (§5.5)**
+- De-duplicate by (changed, landing, `state`|`contract`): one function can be both a contract and a state landing.
+- Test code (`tests/`, `test/`, `testing/`, `fuzzers/` in the path) is never walked as a caller, never an entry, never
+  a blast node on the board. A state flow's walk to an entry never passes through its own landing.
+- Among equally short entry paths, prefer callers with fewer warnings (the fixture's state flow goes through
+  `logger_write`, not `logger_flush`, which is the contract landing).
+- When the entry is the node itself, the text starts with it: "`g` now writes …" / "`h` (layer) calls `g` and …".
+
+**Change panel**: the tree strips everything above the deepest directory the changed files share, so a one-directory
+change shows that directory (not ".").
+
+**`/source`**: changed files return `rev` = the base revision for `before` and `changed` for `after`.
+
+**LLM (§5.6)**: one thread pool runs finding explanations, chapter narratives and flow narratives; results apply in
+submission order; the first failure stops applying (earlier results stay) and skips the summary. The summary also sets
+`about.intent` (`intent_source: llm`).
+
+**Frontend**
+- Reducer state uses plain records/arrays (not Map/Set). Extra actions: `card.toggle` (step chips), `card.move` carries
+  the offset from the node, `viewer.open` carries `wide` (first-open mode), and `viewer.reveal {path, line, seq}` drives
+  scroll-and-flash. Backend x is always set, so there is no frontend barycentre fallback.
+- Extra modules: `codeRows.ts` (pure line/annotation/thread placement, unit-tested), `useSources.ts` (session cache for
+  `/source`), `Resizer.tsx`, `lib/anchors.ts` (line anchors, M1 shape still matched).
+- Every board class is `bd-` prefixed or nested under `.bd`: M1's global `.graph`/`.side`/`.card` rules otherwise leak in.
+- The board keeps its light palette in dark mode. On phones the flow summary collapses to its steps (a `Details`
+  toggle shows the text and the landing box) and the header hides the CL/count pills, so the canvas keeps its space.
