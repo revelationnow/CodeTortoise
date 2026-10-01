@@ -71,6 +71,7 @@ def function_fact(c: ci.Cursor) -> Function:
     usr = c.get_usr()
     returns: list[str] = []
     names: dict[str, str] = {}
+    lines: dict[str, int] = {}
     for r in c.walk_preorder():
         if r.kind == K.RETURN_STMT:
             kids = list(r.get_children())
@@ -78,13 +79,14 @@ def function_fact(c: ci.Cursor) -> Function:
                 lit = literal_text(kids[0])
                 if lit is not None and lit not in returns:
                     returns.append(lit)
+                    lines[lit] = r.location.line
                 if lit is not None and lit not in names and (name := constant_name(kids[0])):
                     names[lit] = name
     return Function(
         usr=usr, qualname=qual, name=c.spelling, signature=sig, return_type=rt, params=params,
         file=_norm(c.location.file.name), start_line=c.extent.start.line, end_line=c.extent.end.line,
         is_virtual=is_virtual, method_key=usr.split("@F@", 1)[-1] if is_virtual else None,
-        is_static=c.storage_class == ci.StorageClass.STATIC, returns=returns, return_names=names)
+        is_static=c.storage_class == ci.StorageClass.STATIC, returns=returns, return_names=names, return_lines=lines)
 
 
 _WRAP = {K.UNEXPOSED_EXPR, K.PAREN_EXPR}

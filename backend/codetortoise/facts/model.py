@@ -30,6 +30,7 @@ class Function(BaseModel):
     is_static: bool = False
     returns: list[str] = Field(default_factory=list)
     return_names: dict[str, str] = Field(default_factory=dict)  # value -> macro/enum name, where known
+    return_lines: dict[str, int] = Field(default_factory=dict)  # value -> first line returning it
 
 
 class CallEdge(BaseModel):
@@ -51,6 +52,7 @@ class FieldAccess(BaseModel):
     field_name: str
     record: str
     record_file: str = ""  # file declaring the record (restricts heuristic name matches)
+    decl_line: int = 0     # line of the field's declaration in record_file
     path: str             # display access path, e.g. "u.stats.tx"
     root_kind: Literal["param", "this", "global", "local", "unknown"]
     mode: Literal["read", "write", "may_write"]

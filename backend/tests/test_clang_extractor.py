@@ -94,3 +94,12 @@ def test_load_failure_retries_with_safe_flag_subset(fx):
     assert {f.qualname for f in facts.functions} == {"hal_read", "hal_write"}
     assert "--target=vendorarch-none-elf" in facts.tu.stripped_flags
     assert all(not d.startswith("None") for d in facts.tu.diagnostics)
+
+
+def test_return_lines_and_field_declaration_lines(fx, fx_source):
+    uart = fx_source.load([101]).files[0]
+    facts = extract_tu(TuRequest(file=uart.local, args=args(fx), variant="after", unsaved={uart.local: uart.after}))
+    fn = {f.qualname: f for f in facts.functions}["uart_send"]
+    assert fn.return_lines == {"-2": 18, "0": 24}
+    errors = [a for a in facts.fields if a.field_name == "errors" and a.fn == fn.usr]
+    assert errors and all(a.decl_line == 14 and a.record_file.endswith("driver/uart.h") for a in errors)

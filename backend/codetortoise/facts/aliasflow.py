@@ -233,12 +233,14 @@ class FunctionAnalyzer:
             self.params[p.get_usr()] = (i, p)
         self.alias: dict[str, set[AP]] = {}
         self.field_files: dict[str, str] = {}  # FieldDecl USR -> canonical file declaring it
+        self.field_lines: dict[str, int] = {}  # FieldDecl USR -> declaration line
         self.fresh: set[str] = set()  # local pointers holding freshly allocated objects
 
     def _field_file(self, f: ci.Cursor) -> str:
         usr = f.get_usr()
         if usr not in self.field_files:
             self.field_files[usr] = canon(f.location.file.name) if f.location.file else ""
+            self.field_lines[usr] = f.location.line
         return self.field_files[usr]
 
     # ---- path resolution -------------------------------------------------
@@ -397,7 +399,8 @@ class FunctionAnalyzer:
                     via = list(a.via) + ([extra_via] if extra_via else [])
                     fields.append(FieldAccess(
                         fn=self.fn_usr, field=fstep[0], field_name=fstep[1], record=fstep[2],
-                        record_file=self.field_files.get(fstep[0], ""), path=a.display(), root_kind=a.root_kind, mode=mode, via=via,
+                        record_file=self.field_files.get(fstep[0], ""),
+                        decl_line=self.field_lines.get(fstep[0], 0), path=a.display(), root_kind=a.root_kind, mode=mode, via=via,
                         file=file, line=line, confidence="may" if (a.may or mode == "may_write") else "precise"))
                     emitted = True
                 elif not a.steps and a.root_kind == "global" and mode != "may_write":
@@ -412,7 +415,8 @@ class FunctionAnalyzer:
                     fields.append(FieldAccess(
                         fn=self.fn_usr, field=f.get_usr(), field_name=f.spelling,
                         record=f.semantic_parent.spelling if f.semantic_parent else "",
-                        record_file=self._field_file(f), path="?." + f.spelling, root_kind="unknown", mode=mode,
+                        record_file=self._field_file(f),
+                        decl_line=f.location.line, path="?." + f.spelling, root_kind="unknown", mode=mode,
                         via=[extra_via] if extra_via else [], file=file, line=line, confidence="may"))
 
         for c in self.fn.walk_preorder():
@@ -453,7 +457,8 @@ class FunctionAnalyzer:
                 fields.append(FieldAccess(
                     fn=self.fn_usr, field=f.get_usr(), field_name=f.spelling,
                     record=f.semantic_parent.spelling if f.semantic_parent else "",
-                    record_file=self._field_file(f), path=path, root_kind=root, mode="read", file=file, line=c.location.line,
+                    record_file=self._field_file(f),
+                    decl_line=f.location.line, path=path, root_kind=root, mode="read", file=file, line=c.location.line,
                     confidence="precise" if aps else "may"))
             elif (c.kind == K.DECL_REF_EXPR and c.referenced is not None and c.referenced.kind == K.VAR_DECL
                   and c.hash not in write_targets):
