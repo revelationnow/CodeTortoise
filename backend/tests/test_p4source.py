@@ -232,3 +232,24 @@ def test_read_prints_the_one_matched_file_and_checks_size_first():
     with pytest.raises(SourceTooLarge):
         P4Source(big).read("//depot/a.c")
     assert not any(c[0] == "print" for c in big.calls)
+
+
+def test_depots_for_speaks_the_client_root_as_perforce_knows_it(tmp_path):
+    real = tmp_path / "real-ws"
+    real.mkdir()
+    link = tmp_path / "ws"
+    link.symlink_to(real)
+
+    class SymlinkRootP4(FakeP4):
+        def run(self, command, *args):
+            self.calls.append((command, *args))
+            if command == "info":
+                return [{"clientRoot": str(link)}]
+            assert command == "where"
+            bad = [a for a in args if not a.startswith(str(link) + "/")]
+            if bad:                                      # what p4d says for paths outside the root as written
+                raise P4Error(f"p4 where: Path '{bad[0]}' is not under client's root '{link}'.")
+            return [{"depotFile": "//depot" + a[len(str(link)):], "path": a} for a in args]
+    p4 = SymlinkRootP4(describe={}, files={})
+    canon_a = str(real / "a.c")                          # the pipeline hands over canonical (realpath) locals
+    assert P4Source(p4).depots_for([canon_a]) == {canon_a: "//depot/a.c"}

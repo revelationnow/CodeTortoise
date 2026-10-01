@@ -93,13 +93,31 @@ class P4Source:
         return out
 
     def depots_for(self, locals_: list[str]) -> dict[str, str]:
+        """Depot path per canonical local path, in one `p4 where` (two when the client root is a symlink)."""
         if not locals_:
             return {}
+        try:
+            recs = self.p4.run("where", *locals_)
+        except P4Error as e:
+            # Perforce compares against the client root as written; canonical (realpath) locals of a symlinked
+            # root are "not under client's root". Re-spell them under that root and ask again.
+            if "not under client's root" not in str(e):
+                raise
+            asked = self._client_spelling(locals_)
+            recs = self.p4.run("where", *asked.values())
         out = {}
-        for r in self.p4.run("where", *locals_):
+        for r in recs:
             if "unmap" not in r and r.get("path") and r.get("depotFile"):
                 out.setdefault(canon(r["path"]), r["depotFile"])
         return {p: out[p] for p in locals_ if p in out}
+
+    def _client_spelling(self, locals_: list[str]) -> dict[str, str]:
+        info = self.p4.run("info")
+        root = (info[0].get("clientRoot") if info else "") or ""
+        real = canon(root) if root else ""
+        if not real or real == root:
+            raise P4Error("p4 where: paths are not under the client root")
+        return {p: root + p[len(real):] if p == real or p.startswith(real + "/") else p for p in locals_}
 
     def read(self, depot: str) -> SourceFile:
         """Unchanged file at the base workspace's have revision; refuses anything outside the client view.
