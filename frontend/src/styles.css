@@ -16,6 +16,12 @@
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--sans); }
+#root { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+#root > main { flex: 1; min-height: 0; overflow: auto; width: 100%; }
+#root > .topbar { flex: none; }
+.review { display: flex; flex-direction: column; overflow: hidden !important; }
+.review-body { flex: 1; min-height: 0; overflow: auto; padding: 16px 24px; }
+.review.board { overflow: hidden; }
 a, .link { color: var(--accent); }
 button { font: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--surface); color: var(--ink);
   border-radius: 6px; padding: 5px 12px; }

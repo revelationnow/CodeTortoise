@@ -10,8 +10,6 @@
     "e2e": "playwright test"
   },
   "dependencies": {
-    "cytoscape": "^3.34.3",
-    "cytoscape-elk": "^2.3.0",
     "diff": "^9.0.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
