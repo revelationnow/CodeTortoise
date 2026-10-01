@@ -20,3 +20,23 @@ describe("prefs", () => {
     expect(load(keys.aboutW, 360)).toBe(360);
   });
 });
+
+describe("typed prefs", () => {
+  const stub = (values: Record<string, string>) =>
+    vi.stubGlobal("window", { innerWidth: 1400, localStorage: { getItem: (k: string) => values[k] ?? null, setItem: () => {} } });
+
+  it("accept only well-formed values", async () => {
+    const { loadLens, loadMoved, loadWidth } = await import("./prefs");
+    stub({ "ct.lens": "4", "ct.board.1.moved": '{"N1": 40, "N2": -3.5}', "ct.panel.aboutW": "420" });
+    expect([loadLens(), loadMoved(1), loadWidth(keys.aboutW, 360)]).toEqual([4, { N1: 40, N2: -3.5 }, 420]);
+  });
+
+  it("fall back on wrong shapes", async () => {
+    const { loadLens, loadMoved, loadWidth } = await import("./prefs");
+    for (const [lens, moved, width] of [["3", "null", "null"], ['"2"', "[1,2]", '"wide"'], ["null", '{"N1": "x"}', "-5"],
+                                        ["2.5", '{"N1": null}', "1e9"]]) {
+      stub({ "ct.lens": lens, "ct.board.1.moved": moved, "ct.panel.aboutW": width });
+      expect([loadLens(), loadMoved(1), loadWidth(keys.aboutW, 360)]).toEqual([2, {}, 360]);
+    }
+  });
+});

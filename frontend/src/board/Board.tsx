@@ -7,8 +7,8 @@ import ChangePanel from "./ChangePanel";
 import FileViewer from "./FileViewer";
 import FlowBar from "./FlowBar";
 import { centrePan, layerRows, worldNodes } from "./layout";
-import { type LensStrength, makeLens, type Viewport } from "./lens";
-import { keys, load, save } from "./prefs";
+import { makeLens, type Viewport } from "./lens";
+import { keys, loadLens, loadMoved, loadWidth, save } from "./prefs";
 import { type Action, initialState, reduce } from "./reducer";
 import type { Board as BoardModel } from "./types";
 import { useSources } from "./useSources";
@@ -31,15 +31,15 @@ const wideScreen = () => window.innerWidth > 1100;
 /** The review board (spec §2–§4): flow bar, lensed canvas with cards, file viewer and change panel. */
 export default function Board({ reviewId, board, files, comments, onComments, risk, focus, head }: Props) {
   const [state, dispatch] = useReducer(reduce, undefined, () => {
-    const s = initialState(load<LensStrength>(keys.lens, 2), load<Record<string, number>>(keys.moved(reviewId), {}));
+    const s = initialState(loadLens(), loadMoved(reviewId));
     return board.flows.length ? s : { ...s, mode: "graph" as const };
   });
   const stateRef = useRef(state);
   stateRef.current = state;
   const sources = useSources(reviewId, files);
   const [vp, setVp] = useState<Viewport>({ W: 0, H: 0 });
-  const [viewerW, setViewerW] = useState(() => load(keys.viewerW, 0));
-  const [aboutW, setAboutW] = useState(() => load(keys.aboutW, 360));
+  const [viewerW, setViewerW] = useState(() => loadWidth(keys.viewerW, 0));
+  const [aboutW, setAboutW] = useState(() => loadWidth(keys.aboutW, 360));
   const [hint, setHint] = useState(true);
   const stage = useRef<HTMLDivElement>(null);
   const anim = useRef(0);
