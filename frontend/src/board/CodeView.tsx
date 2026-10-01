@@ -2,7 +2,7 @@ import { Fragment, memo, useMemo, useState } from "react";
 import type { Comment } from "../api";
 import Comments from "../components/Comments";
 import { lineAnchor, onLine } from "../lib/anchors";
-import { codeItems, lineKey, type Line, type Side } from "./codeRows";
+import { codeItems, lineKey, type Line, type Side, WINDOW, windowAround } from "./codeRows";
 import { tokens } from "./highlight";
 import type { Annotation } from "./types";
 
@@ -15,6 +15,8 @@ interface Props {
   comments: Comment[];
   onComments: () => void;
   focus?: number | null;
+  /** Full-file views: render big files as a window around the focus that grows on request. */
+  windowed?: boolean;
 }
 
 const ICON = { warn: "⚠ ", ok: "✓ ", info: "ⓘ " } as const;
@@ -24,7 +26,7 @@ function Src({ text }: { text: string }) {
 }
 
 /** Code lines (diff or plain) with inline annotations and line comment threads; click a line to comment. */
-function CodeView({ reviewId, path, lines, mode, anns, comments, onComments, focus }: Props) {
+function CodeView({ reviewId, path, lines, mode, anns, comments, onComments, focus, windowed }: Props) {
   const [opened, setOpened] = useState<Set<string>>(new Set());
   const mine = useMemo(() => anns.filter((a) => a.path === path), [anns, path]);
   const threads = useMemo(() => {
@@ -36,11 +38,23 @@ function CodeView({ reviewId, path, lines, mode, anns, comments, onComments, foc
     }
     return keys;
   }, [comments, opened, path]);
-  const items = useMemo(() => codeItems(lines, mode, mine, threads), [lines, mode, mine, threads]);
+  const [extra, setExtra] = useState({ above: 0, below: 0, focus });
+  const grow = extra.focus === focus ? extra : { above: 0, below: 0, focus };       // a new focus starts a new window
+  const win = useMemo(() => (windowed ? windowAround(lines, mine, focus ?? null, grow) : { start: 0, end: lines.length }),
+                      [windowed, lines, mine, focus, grow]);
+  const items = useMemo(() => codeItems(lines.slice(win.start, win.end), mode, mine, threads),
+                        [lines, win.start, win.end, mode, mine, threads]);
+  const more = (side: "above" | "below", n: number) => setExtra({ ...grow, [side]: grow[side] + n });
   const open = (side: Side, no: number) => setOpened((s) => new Set(s).add(lineKey(side, no)));
 
   return (
     <div className="bd-code">
+      {win.start > 0 && (
+        <div className="bd-more-lines">
+          ⋯ {win.start} lines above <button onClick={() => more("above", WINDOW)}>Show {Math.min(WINDOW, win.start)} more</button>
+          <button onClick={() => more("above", Infinity)}>Show all</button>
+        </div>
+      )}
       {items.map((it, i) => {
         if (it.kind === "ann")
           return (
@@ -79,6 +93,12 @@ function CodeView({ reviewId, path, lines, mode, anns, comments, onComments, foc
           </Fragment>
         );
       })}
+      {win.end < lines.length && (
+        <div className="bd-more-lines">
+          ⋯ {lines.length - win.end} lines below <button onClick={() => more("below", WINDOW)}>Show {Math.min(WINDOW, lines.length - win.end)} more</button>
+          <button onClick={() => more("below", Infinity)}>Show all</button>
+        </div>
+      )}
     </div>
   );
 }

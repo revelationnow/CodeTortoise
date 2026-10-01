@@ -79,3 +79,17 @@ export function codeItems(lines: Line[], mode: "unified" | "split", anns: Annota
   }
   return out;
 }
+
+/** Lines a full-file view renders: everything for ordinary files; for big ones (vendor register headers run to tens of
+ * thousands of lines) a window of WINDOW lines either side of the focus line, else the first change, else the first
+ * annotation, else the top — grown on request. */
+export const WINDOW = 400;
+export function windowAround(lines: Line[], anns: Annotation[], focus: number | null, extra: { above: number; below: number }) {
+  if (lines.length <= 2 * WINDOW) return { start: 0, end: lines.length };
+  const annotated = new Set(anns.filter((a) => a.side === "new").map((a) => a.line));
+  let at = focus ? lines.findIndex((l) => l.n === focus) : -1;
+  if (at < 0) at = lines.findIndex((l) => l.t !== "=");
+  if (at < 0) at = lines.findIndex((l) => l.n !== null && annotated.has(l.n));
+  if (at < 0) at = 0;
+  return { start: Math.max(0, at - WINDOW - extra.above), end: Math.min(lines.length, at + WINDOW + extra.below) };
+}

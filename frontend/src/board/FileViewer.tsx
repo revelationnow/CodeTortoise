@@ -88,7 +88,7 @@ function FileSection({ path, collapsed, focus, viewer, dispatch, sources, review
       </div>
       {!collapsed && (lines ? (
         <CodeView reviewId={reviewId} path={path} lines={lines} mode={change && viewer.mode === "split" ? "split" : "unified"}
-                  anns={anns} comments={comments} onComments={onComments} focus={focus} />
+                  anns={anns} comments={comments} onComments={onComments} focus={focus} windowed />
       ) : src && "status" in src && src.status === "error" ? (
         <div className="bd-note error">{src.error} <button className="bd-ibtn" onClick={() => sources.reload(path)}>Retry</button></div>
       ) : <div className="bd-note">Fetching {path}…</div>)}

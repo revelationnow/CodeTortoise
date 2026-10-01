@@ -171,6 +171,8 @@ body.bd-resizing, body.bd-resizing * { cursor: col-resize !important; user-selec
 .bd-about .thread { background: #fafbfe; border-color: var(--bd-line); }
 .bd-drift { background: var(--warn-bg); border-left: 3px solid var(--warn); border-radius: 0 10px 10px 0; padding: 8px 10px;
   font-size: 12.5px; margin-bottom: 14px; color: #8a1230; }
+.bd-more-lines { position: sticky; left: 0; padding: 4px 12px; background: #f1f2f8; color: var(--bd-muted); font: 11.5px var(--bd-sans); }
+.bd-more-lines button { margin-left: 8px; border: 0; background: none; color: var(--flow); font: 600 11.5px var(--bd-sans); cursor: pointer; padding: 0; }
 .bd-note { padding: 10px 12px; font-size: 12px; color: var(--bd-muted); } .bd-note.error { color: #b0163e; }
 
 /* code */

@@ -37,3 +37,20 @@ describe("code rows", () => {
     expect(items[2]).toMatchObject({ kind: "ann" });
   });
 });
+
+describe("windowing big files", () => {
+  const big = plainLines(Array.from({ length: 5000 }, (_, i) => `line ${i + 1}`).join("\n"));
+
+  it("shows everything for ordinary files", async () => {
+    const { windowAround } = await import("./codeRows");
+    expect(windowAround(plainLines("a\nb\nc"), [], null, { above: 0, below: 0 })).toEqual({ start: 0, end: 3 });
+  });
+
+  it("centres a window on the focus line, then the first change or annotation, and grows on request", async () => {
+    const { windowAround, WINDOW } = await import("./codeRows");
+    expect(windowAround(big, [], 2500, { above: 0, below: 0 })).toEqual({ start: 2499 - WINDOW, end: 2499 + WINDOW });
+    expect(windowAround(big, [ann(4000)], null, { above: 0, below: 0 }).start).toBe(3999 - WINDOW);
+    expect(windowAround(big, [], null, { above: 0, below: 0 })).toEqual({ start: 0, end: WINDOW });
+    expect(windowAround(big, [], 2500, { above: 100, below: Infinity })).toEqual({ start: 2399 - WINDOW, end: 5000 });
+  });
+});
