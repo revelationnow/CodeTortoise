@@ -232,3 +232,11 @@ def test_test_code_is_recognised_relative_to_the_workspace():
 def test_test_path_patterns(rel, test):
     from codetortoise.board import is_test_path
     assert is_test_path(rel) is test
+
+
+def test_about_lists_workspace_drift():
+    from codetortoise.vcs.model import DriftItem
+    ctx, _ = _synthetic()
+    ctx.cs.drift = [DriftItem(depot="//d/lib/src/a.c", local="/w/a.c", expected="#3", actual="#4")]
+    assert build_board(ctx).about.drift == ["//d/lib/src/a.c (base #3, workspace #4)"]
+    assert build_board(_synthetic()[0]).about.drift == []

@@ -22,6 +22,7 @@ export interface About {
   why: { severity: string; text: string; finding: string }[];
   cls: { cl: number; user: string; description: string; files: number }[];
   tree: { dir: string; files: AboutFile[] }[];
+  drift: string[];
 }
 export interface Board {
   nodes: BoardNode[]; edges: BoardEdge[]; flows: BoardFlow[]; impacts: Annotation[];

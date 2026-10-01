@@ -36,6 +36,12 @@ export default function ChangePanel({ reviewId, comments, onComments, layers, ab
           ? "summarised from the CL descriptions, the diff and the analysis" : "from the CL descriptions and the analysis"}</p>
       </div>
       <div className="body">
+        {about.drift.length > 0 && (
+          <div className="bd-drift">
+            ⚠ The base workspace is not at the changelists' base revision, so context code fetched from it may not match
+            what was analysed: {about.drift.join("; ")}
+          </div>
+        )}
         <h3>Files in this change</h3>
         <div className="tree">
           {about.tree.map((d) => (

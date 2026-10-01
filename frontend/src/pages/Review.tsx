@@ -72,6 +72,9 @@ export default function Review() {
         <NavLink to={`/r/${id}/cls`} className={({ isActive }) => (isActive ? "on" : "")}>CLs &amp; Swarm</NavLink>
       </nav>
       {me?.is_owner && ready && <button className="link rerun" onClick={() => api.rerun(id).then(loadDetail)}>Re-run</button>}
+      {board && board.about.drift.length > 0 && (
+        <span className="bd-pill high" title={board.about.drift.join("\n")}>⚠ workspace drift ({board.about.drift.length})</span>
+      )}
       {notes.length > 0 && (
         <details className="bd-notes">
           <summary>{notes.length} stage note(s)</summary>
@@ -95,7 +98,11 @@ export default function Review() {
                  focus={params.get("node")} head={head} />
         </main>
       ) : page(board === undefined ? <p className="muted">Loading…</p> : (
-        <div className="banner warn">No review board for this review (see the stage notes above). Findings, files and CLs are still available.</div>
+        <div className="banner warn">
+          No review board for this review (see the stage notes above; reviews made before the board existed have none).
+          {me?.is_owner ? " Re-run it to build one." : " The owner can re-run it to build one."} Findings, files and CLs are still available.
+          {me?.is_owner && <> <button onClick={() => api.rerun(id).then(loadDetail)}>Re-run</button></>}
+        </div>
       ))} />
       <Route path="findings" element={page(
         <Findings reviewId={id} findings={findings} focus={focus} comments={comments}

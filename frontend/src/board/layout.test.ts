@@ -8,7 +8,7 @@ const node = (id: string, layer: number | null, x: number) => ({
 const board = {
   nodes: [node("A", 3, 0), node("B", 1, -220), node("C", 1, 220), node("D", null, 0)],
   edges: [], flows: [], impacts: [], layers: [{ level: 3, name: "app" }, { level: 1, name: "hal" }],
-  about: { intent: "", intent_source: "template", why: [], cls: [], tree: [] }, hidden_nodes: 0,
+  about: { intent: "", intent_source: "template", why: [], cls: [], tree: [], drift: [] }, hidden_nodes: 0,
 } as Board;
 
 describe("layout", () => {

@@ -169,6 +169,8 @@ body.bd-resizing, body.bd-resizing * { cursor: col-resize !important; user-selec
 .bd-fn-comments { padding: 2px 12px 8px; border-top: 1px solid var(--bd-line); font-size: 12.5px; }
 .bd-about .bd-layer-thread .m { color: var(--bd-muted); font-size: 12px; margin-top: 10px; }
 .bd-about .thread { background: #fafbfe; border-color: var(--bd-line); }
+.bd-drift { background: var(--warn-bg); border-left: 3px solid var(--warn); border-radius: 0 10px 10px 0; padding: 8px 10px;
+  font-size: 12.5px; margin-bottom: 14px; color: #8a1230; }
 .bd-note { padding: 10px 12px; font-size: 12px; color: var(--bd-muted); } .bd-note.error { color: #b0163e; }
 
 /* code */

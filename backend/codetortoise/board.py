@@ -133,6 +133,7 @@ class About(BaseModel):
     why: list[AboutWhy] = Field(default_factory=list)
     cls: list[AboutCl] = Field(default_factory=list)
     tree: list[AboutDir] = Field(default_factory=list)
+    drift: list[str] = Field(default_factory=list)   # base workspace differs from the CL base: context code may not match
 
 
 class Board(BaseModel):
@@ -603,4 +604,5 @@ def build_about(c: BoardContext) -> About:
         dirs[d].append(AboutFile(path=f.depot, name=posixpath.basename(rel), action=f.action,
                                  cls=[p.cl for p in f.per_cl], add=add, rem=rem))
     tree = [AboutDir(dir=d, files=fs) for d, fs in sorted(dirs.items())]
-    return About(intent=intent, why=why, cls=cls, tree=tree)
+    drift = [f"{d.depot} (base {d.expected}, workspace {d.actual})" for d in c.cs.drift]
+    return About(intent=intent, why=why, cls=cls, tree=tree, drift=drift)
