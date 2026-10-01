@@ -19,6 +19,8 @@ export function save(key: string, value: unknown): void {
 export const keys = {
   moved: (reviewId: number) => `ct.board.${reviewId}.moved`,
   layout: (reviewId: number) => `ct.board.${reviewId}.layout`,
+  about: "ct.panel.about",
+  flowH: "ct.panel.flowH",
   viewerW: "ct.panel.viewerW",
   aboutW: "ct.panel.aboutW",
   lens: "ct.lens",
@@ -60,4 +62,14 @@ export function loadMovedAll(reviewId: number): { layers: Moved; depth: Moved } 
 export function loadWidth(key: string, fallback: number): number {
   const v = load<unknown>(key, fallback);
   return typeof v === "number" && Number.isFinite(v) && v >= 120 && v <= 8000 ? v : fallback;
+}
+
+export function loadAboutOpen(): boolean | null {
+  const v = load<unknown>(keys.about, null);
+  return typeof v === "boolean" ? v : null;
+}
+
+export function loadSize(key: string, min: number, max: number): number | null {
+  const v = load<unknown>(key, null);
+  return typeof v === "number" && Number.isFinite(v) && v >= min && v <= max ? v : null;
 }

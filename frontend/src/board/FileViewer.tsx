@@ -42,7 +42,7 @@ export default function FileViewer(p: Props) {
   }, [reveal]);
   return (
     <aside className="bd-viewer" style={{ ["--w" as string]: `${p.width}px` }}>
-      <Resizer width={p.width} min={360} maxFrac={0.75} onWidth={p.onWidth} onDone={p.onWidthDone} />
+      <Resizer size={p.width} edge="left" min={360} max={() => window.innerWidth * 0.75} onSize={p.onWidth} onDone={p.onWidthDone} />
       <div className="top">
         <b>Files</b><span className="muted">{viewer.files.length} open</span><span className="sp" />
         <span className="bd-seg">

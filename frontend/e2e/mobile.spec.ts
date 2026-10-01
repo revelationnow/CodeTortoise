@@ -10,9 +10,13 @@ test("the board is usable at phone width", async ({ page }) => {
   const fits = async () => expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
   await fits();
 
-  // header controls are on screen
-  const about = (await page.getByRole("button", { name: "✦ What's this change?" }).boundingBox())!;
-  expect(about.x + about.width).toBeLessThanOrEqual(width);
+  // the change panel starts as a narrow bar; it opens as a full-screen sheet and collapses back
+  await expect(page.locator(".bd-about.collapsed")).toBeVisible();
+  await page.getByRole("button", { name: "Show change summary" }).click();
+  const sheet0 = (await page.locator(".bd-about").boundingBox())!;
+  expect(Math.round(sheet0.width)).toBe(width);
+  await page.getByRole("button", { name: "Collapse change summary" }).click();
+  await expect(page.locator(".bd-about.collapsed")).toBeVisible();
 
   // a card is a bottom sheet
   await page.locator(".bd-flowinfo .step", { hasText: "uart_errors" }).click();

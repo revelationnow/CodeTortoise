@@ -317,3 +317,13 @@ submission order; the first failure stops applying (earlier results stay) and sk
   current layout only.
 - `GET /board` re-validates the stored blob through the `Board` model, so boards stored by an older version get the
   current defaults instead of breaking the page.
+
+## 10. Panels: change panel on the left, resizable flow bar (2026-10-01)
+
+- The change panel ("What this change is trying to do") sits left of the canvas and is open by default on screens wider
+  than 1100 px. Its toggle is at its top-left; collapsed, it is a 36 px bar with the toggle and a vertical
+  "What's this change?" label (the whole bar opens it). Below 1100 px it starts collapsed and opens as the full-screen
+  sheet. The viewer's choice is remembered (`ct.panel.about`) and wins over the default. Its resize grip is on its right
+  edge. The header no longer carries a "What's this change?" button.
+- The flow bar has a bottom-edge grip: height from the chips row up to half the window (`ct.panel.flowH`); the flow
+  summary scrolls inside a shorter bar; double-click the grip returns to automatic height.

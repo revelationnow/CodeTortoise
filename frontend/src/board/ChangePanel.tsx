@@ -6,6 +6,8 @@ import Resizer from "./Resizer";
 import type { About } from "./types";
 
 interface Props {
+  open: boolean;
+  onToggle: () => void;
   reviewId: number;
   comments: Comment[];
   onComments: () => void;
@@ -21,15 +23,23 @@ interface Props {
 }
 
 /** "What's this change?" (spec §3.6): files tree first, then intent, why it's risky, changelists. Pushes the board. */
-export default function ChangePanel({ reviewId, comments, onComments, layers, about, risk, openFiles, dispatch, wide, width, onWidth,
-  onWidthDone }: Props) {
+export default function ChangePanel({ open, onToggle, reviewId, comments, onComments, layers, about, risk, openFiles, dispatch, wide,
+  width, onWidth, onWidthDone }: Props) {
   const [shut, setShut] = useState<Set<string>>(new Set());
+  if (!open)
+    return (
+      <aside className="bd-about collapsed" onClick={onToggle}>
+        <button className="bd-ibtn toggle" aria-label="Show change summary" title="Show change summary"
+                onClick={(e) => { e.stopPropagation(); onToggle(); }}>›</button>
+        <div className="vlabel">✦ What's this change?</div>
+      </aside>
+    );
   const nFiles = about.tree.reduce((n, d) => n + d.files.length, 0);
   return (
     <aside className="bd-about" style={{ ["--w" as string]: `${width}px` }}>
-      <Resizer width={width} min={280} maxFrac={0.6} onWidth={onWidth} onDone={onWidthDone} />
+      <Resizer size={width} edge="right" min={280} max={() => window.innerWidth * 0.6} onSize={onWidth} onDone={onWidthDone} />
       <div className="top">
-        <button className="bd-ibtn close" title="Close" aria-label="Close change summary" onClick={() => dispatch({ t: "about.toggle", open: false })}>✕</button>
+        <button className="bd-ibtn toggle" title="Collapse" aria-label="Collapse change summary" onClick={onToggle}>‹</button>
         {risk && <span className={`bd-pill ${risk}`}>{risk.toUpperCase()} RISK</span>}
         <h2>What this change is trying to do</h2>
         <p>{about.cls.map((c) => `CL ${c.cl}`).join(" · ")} · {nFiles} files · {about.intent_source === "llm"

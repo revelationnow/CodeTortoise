@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { BoardState } from "./reducer";
+import Resizer from "./Resizer";
 import type { Board } from "./types";
 
 interface Props {
@@ -9,18 +10,22 @@ interface Props {
   onFlow: (i: number) => void;
   onStep: (id: string) => void;
   onStepOpen: (id: string) => void;
+  height: number | null;                  // null: as tall as its content
+  onHeight: (h: number | null) => void;
+  onHeightDone: (h: number | null) => void;
 }
 
 /** Numbered flow chips and the selected flow's summary (spec §2), or graph totals in Whole graph mode. */
-export default function FlowBar({ board, state, layerOf, onFlow, onStep, onStepOpen }: Props) {
+export default function FlowBar({ board, state, layerOf, onFlow, onStep, onStepOpen, height, onHeight, onHeightDone }: Props) {
+  const box = useRef<HTMLDivElement>(null), chips = useRef<HTMLDivElement>(null);
   const [details, setDetails] = useState(() => typeof window === "undefined" || window.innerWidth > 640);
   const byId = new Map(board.nodes.map((n) => [n.id, n]));
   const graph = state.mode === "graph" || !board.flows.length;
   const flow = board.flows[state.flow];
   return (
-    <div className="bd-flowbar">
+    <div className={`bd-flowbar${height !== null ? " sized" : ""}`} ref={box} style={height !== null ? { height } : undefined}>
       {board.flows.length > 0 && (
-        <div className="bd-flows" role="tablist" aria-label="Call flows">
+        <div className="bd-flows" role="tablist" aria-label="Call flows" ref={chips}>
           {board.flows.map((f, i) => (
             <button key={f.id} role="tab" aria-selected={!graph && i === state.flow}
                     className={`bd-chip${!graph && i === state.flow ? " on" : ""}`} onClick={() => onFlow(i)}>
@@ -75,6 +80,8 @@ export default function FlowBar({ board, state, layerOf, onFlow, onStep, onStepO
           </div>
         </div>
       )}
+      <Resizer size={() => box.current?.offsetHeight ?? 0} edge="bottom" min={(chips.current?.offsetHeight ?? 40) + 8}
+               max={() => window.innerHeight * 0.5} onSize={onHeight} onDone={onHeightDone} onReset={() => onHeightDone(null)} />
     </div>
   );
 }

@@ -8,7 +8,7 @@ import FileViewer from "./FileViewer";
 import FlowBar from "./FlowBar";
 import { bandsFor, centrePan, preferDepth, worldNodes } from "./layout";
 import { makeLens, type Viewport } from "./lens";
-import { keys, loadLayout, loadLens, loadMovedAll, loadWidth, save } from "./prefs";
+import { keys, loadAboutOpen, loadLayout, loadLens, loadMovedAll, loadSize, loadWidth, save } from "./prefs";
 import { type Action, initialState, reduce } from "./reducer";
 import type { Board as BoardModel } from "./types";
 import { useSources } from "./useSources";
@@ -22,8 +22,8 @@ interface Props {
   risk: string | null;
   /** Node to show (e.g. a finding's cite): its card is opened and the canvas centred on it. */
   focus?: string | null;
-  /** Renders the review header; receives the "What's this change?" button to place in it. */
-  head: (aboutButton: ReactNode) => ReactNode;
+  /** Renders the review header (extra content to place in it, if any). */
+  head: (extra: ReactNode) => ReactNode;
 }
 
 const wideScreen = () => window.innerWidth > 1100;
@@ -31,7 +31,8 @@ const wideScreen = () => window.innerWidth > 1100;
 /** The review board (spec §2–§4): flow bar, lensed canvas with cards, file viewer and change panel. */
 export default function Board({ reviewId, board, files, comments, onComments, risk, focus, head }: Props) {
   const [state, dispatch] = useReducer(reduce, undefined, () => {
-    const s = initialState(loadLens(), loadMovedAll(reviewId), loadLayout(reviewId) ?? (preferDepth(board) ? "depth" : "layers"));
+    const s = { ...initialState(loadLens(), loadMovedAll(reviewId), loadLayout(reviewId) ?? (preferDepth(board) ? "depth" : "layers")),
+                about: loadAboutOpen() ?? wideScreen() };        // change panel: remembered, else open on wide screens
     return board.flows.length ? s : { ...s, mode: "graph" as const };
   });
   const stateRef = useRef(state);
@@ -40,6 +41,7 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
   const [vp, setVp] = useState<Viewport>({ W: 0, H: 0 });
   const [viewerW, setViewerW] = useState(() => loadWidth(keys.viewerW, 0));
   const [aboutW, setAboutW] = useState(() => loadWidth(keys.aboutW, 360));
+  const [flowH, setFlowH] = useState<number | null>(() => loadSize(keys.flowH, 40, 4000));
   const [hint, setHint] = useState(true);
   const stage = useRef<HTMLDivElement>(null);
   const anim = useRef(0);
@@ -104,6 +106,7 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
   }, [board, panBy]);
 
   const act = useCallback((a: Action) => { setHint(false); dispatch(a); }, []);
+  const toggleAbout = () => { save(keys.about, !state.about); act({ t: "about.toggle" }); };
   const nodes = useMemo(() => new Map(board.nodes.map((n) => [n.id, n])), [board]);
   const openFile = useCallback((id: string) => {
     const n = nodes.get(id);
@@ -142,10 +145,14 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
   const cardCount = Object.keys(state.cards).length;
   return (
     <div className="bd">
-      {head(<button className="bd-about-btn" onClick={() => act({ t: "about.toggle" })}>✦ What's this change?</button>)}
+      {head(null)}
       <FlowBar board={board} state={state} layerOf={layerOf} onFlow={selectFlow}
-               onStep={(id) => act({ t: "card.toggle", id })} onStepOpen={openFile} />
+               onStep={(id) => act({ t: "card.toggle", id })} onStepOpen={openFile}
+               height={flowH} onHeight={setFlowH} onHeightDone={(h) => { setFlowH(h); save(keys.flowH, h); }} />
       <div className={`bd-main${state.about ? " with-about" : ""}`}>
+        <ChangePanel open={state.about} onToggle={toggleAbout} reviewId={reviewId} comments={comments} onComments={onComments}
+                     layers={board.layers} about={board.about} risk={risk} openFiles={state.viewer.files} dispatch={act}
+                     wide={wideScreen()} width={aboutW} onWidth={setAboutW} onWidthDone={(w) => save(keys.aboutW, w)} />
         <div className="bd-stage" ref={stage}>
           {vp.W > 0 && <>
             <Canvas board={board} lens={lens} pos={pos} vp={vp} bands={bands} state={state} dispatch={act}
@@ -187,10 +194,6 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
                       comments={comments} onComments={onComments}
                       width={viewerW || Math.min(window.innerWidth * 0.58, 980)} onWidth={setViewerW}
                       onWidthDone={(w) => save(keys.viewerW, w)} />
-        )}
-        {state.about && (
-          <ChangePanel reviewId={reviewId} comments={comments} onComments={onComments} layers={board.layers} about={board.about} risk={risk} openFiles={state.viewer.files} dispatch={act} wide={wideScreen()}
-                       width={aboutW} onWidth={setAboutW} onWidthDone={(w) => save(keys.aboutW, w)} />
         )}
       </div>
     </div>

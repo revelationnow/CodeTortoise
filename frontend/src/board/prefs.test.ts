@@ -59,3 +59,21 @@ describe("layout prefs", () => {
     expect(loadLayout(1)).toBeNull();
   });
 });
+
+describe("panel prefs", () => {
+  const stub = (values: Record<string, string>) =>
+    vi.stubGlobal("window", { innerWidth: 1400, localStorage: { getItem: (k: string) => values[k] ?? null, setItem: () => {} } });
+
+  it("remember whether the change panel is open, and the flow bar height", async () => {
+    const { loadAboutOpen, loadSize } = await import("./prefs");
+    stub({ "ct.panel.about": "false", "ct.panel.flowH": "180" });
+    expect(loadAboutOpen()).toBe(false);
+    expect(loadSize(keys.flowH, 40, 4000)).toBe(180);
+    stub({ "ct.panel.about": '"yes"', "ct.panel.flowH": "12" });
+    expect(loadAboutOpen()).toBeNull();
+    expect(loadSize(keys.flowH, 40, 4000)).toBeNull();
+    stub({});
+    expect(loadAboutOpen()).toBeNull();
+    expect(loadSize(keys.flowH, 40, 4000)).toBeNull();
+  });
+});

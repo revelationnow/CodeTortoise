@@ -46,21 +46,20 @@ test("flows, cards, comments, viewer, change panel and layout", async ({ page })
   await expect(viewer).toHaveCount(0);
   await expect(card).not.toHaveClass(/\bmin\b/);           // restored exactly
 
-  // the change panel opens beside the board and can be resized from its left edge
-  await page.getByRole("button", { name: "✦ What's this change?" }).click();
+  // the change panel is open beside the board and can be resized from its right edge
   const panel = page.locator(".bd-about");
   await expect(panel.getByText("Files in this change")).toBeVisible();
   const before = (await panel.boundingBox())!;
   const grip = (await panel.locator(".bd-resizer").boundingBox())!;
   await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
   await page.mouse.down();
-  await page.mouse.move(grip.x - 100, grip.y + grip.height / 2, { steps: 5 });
+  await page.mouse.move(grip.x + 100, grip.y + grip.height / 2, { steps: 5 });
   await page.mouse.up();
   expect((await panel.boundingBox())!.width).toBeGreaterThan(before.width + 80);
   await panel.locator(".file", { hasText: "regs.c" }).click();      // opening a file keeps the panel open
   await expect(page.locator(".bd-viewer .fsec")).toHaveCount(1);
   await expect(panel).toBeVisible();
-  await page.getByRole("button", { name: "Close change summary" }).click();
+  await page.getByRole("button", { name: "Collapse change summary" }).click();
   await page.locator(".bd-viewer").getByRole("button", { name: "Close all" }).click();
 });
 
@@ -104,8 +103,8 @@ test("a cited node opens once; closing it sticks when the canvas resizes", async
   await expect(card).toBeVisible();
   await page.getByRole("button", { name: "Close uart_errors" }).click();
   await expect(card).toHaveCount(0);
-  await page.getByRole("button", { name: "✦ What's this change?" }).click();      // narrows the canvas
-  await expect(page.locator(".bd-about")).toBeVisible();
+  await page.getByRole("button", { name: "Collapse change summary" }).click();    // widens the canvas
+  await expect(page.locator(".bd-about.collapsed")).toBeVisible();
   await page.waitForTimeout(400);
   await expect(card).toHaveCount(0);
 });
@@ -122,7 +121,6 @@ test("review, layer and function comments from M1 show on the board", async ({ p
   await post("why -2 and not -EINVAL?", "function", { key: send.key });
   await page.reload();
   await expect(page.locator(".bd-card", { hasText: "uart_send" }).getByText("why -2 and not -EINVAL?")).toBeVisible();
-  await page.getByRole("button", { name: "✦ What's this change?" }).click();
   const panel = page.locator(".bd-about");
   await expect(panel.getByText("overall: please split the CLs")).toBeVisible();
   await expect(panel.getByText("driver layer looks risky")).toBeVisible();
@@ -154,4 +152,31 @@ test("call-depth layout and free 2-D node moves", async ({ page }) => {
   await expect(node).toHaveClass(/\bmoved\b/);
   await page.getByRole("button", { name: "Reset layout" }).click();
   await expect(node).not.toHaveClass(/\bmoved\b/);
+});
+
+test("change panel opens on the left by default, collapses to a bar, and the flow bar resizes", async ({ page }) => {
+  await startReview(page);
+  const panel = page.locator(".bd-about");
+  await expect(panel.getByText("Files in this change")).toBeVisible();
+  const stage = (await page.locator(".bd-stage").boundingBox())!;
+  expect((await panel.boundingBox())!.x + 10).toBeLessThan(stage.x);              // left of the canvas
+  await page.getByRole("button", { name: "Collapse change summary" }).click();
+  const bar = page.locator(".bd-about.collapsed");
+  await expect(bar).toBeVisible();
+  expect((await bar.boundingBox())!.width).toBeLessThan(48);
+  await expect(page.getByRole("button", { name: "Show change summary" })).toBeVisible();
+  await page.reload();
+  await expect(page.locator(".bd-about.collapsed")).toBeVisible();                  // remembered
+  await page.getByRole("button", { name: "Show change summary" }).click();
+  await expect(panel.getByText("Files in this change")).toBeVisible();
+
+  const flowbar = page.locator(".bd-flowbar");
+  const h0 = (await flowbar.boundingBox())!.height;
+  const grip = (await flowbar.locator(".bd-resizer.bottom").boundingBox())!;
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2 + 120, { steps: 5 });
+  await page.mouse.up();
+  expect((await flowbar.boundingBox())!.height).toBeGreaterThan(h0 + 100);
+  await expect(page.locator(".bd-flowbar .bd-chip").first()).toBeVisible();
 });

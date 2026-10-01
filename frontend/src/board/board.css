@@ -14,6 +14,7 @@
 .bd button { font: inherit; color: inherit; }
 body.bd-dragging, body.bd-dragging * { user-select: none !important; -webkit-user-select: none !important; }
 body.bd-resizing, body.bd-resizing * { cursor: col-resize !important; user-select: none !important; }
+body.bd-resizing-v, body.bd-resizing-v * { cursor: row-resize !important; user-select: none !important; }
 
 /* header (rendered by the review page) */
 .bd-head { display: flex; align-items: center; gap: 10px; padding: 10px 18px; background: linear-gradient(90deg, #151a2d, #2a2466);
@@ -27,15 +28,14 @@ body.bd-resizing, body.bd-resizing * { cursor: col-resize !important; user-selec
 .bd-pill { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 99px; letter-spacing: .03em; white-space: nowrap; }
 .bd-pill.high { background: var(--fx); color: #fff; } .bd-pill.medium { background: #ffcf66; color: #5a3a00; }
 .bd-pill.low { background: #b9f0cc; color: #13692f; } .bd-pill.ghost { background: rgba(255,255,255,.14); color: #dfe0ff; }
-.bd-about-btn { margin-left: auto; border: 0 !important; cursor: pointer; font: 700 12.5px var(--bd-sans) !important; color: #151a2d !important;
-  padding: 7px 14px !important; border-radius: 99px !important; background: linear-gradient(90deg, #ffd36b, #ffab1f) !important;
-  box-shadow: 0 4px 14px rgba(255,176,32,.35); white-space: nowrap; }
-.bd-about-btn:hover { filter: brightness(1.05); }
 .bd-notes { font-size: 12px; color: #ffd36b; } .bd-notes summary { cursor: pointer; }
 .bd-notes .banner { color: var(--bd-ink); }
 
 /* flow bar */
-.bd-flowbar { background: #fff; border-bottom: 1px solid var(--bd-line); flex: none; }
+.bd-flowbar { position: relative; background: #fff; border-bottom: 1px solid var(--bd-line); flex: none; z-index: 46; }
+.bd-flowbar.sized { display: flex; flex-direction: column; overflow: hidden; }
+.bd-flowbar.sized .bd-flows { flex: none; }
+.bd-flowbar.sized .bd-flowinfo { flex: 1; min-height: 0; overflow: auto; }
 .bd-flows { display: flex; gap: 8px; padding: 10px 18px; overflow-x: auto; scrollbar-width: none; }
 .bd-chip { flex: none; display: flex; align-items: center; gap: 8px; padding: 7px 12px 7px 7px !important; border-radius: 99px !important;
   background: #f1f2f8 !important; border: 1.5px solid transparent !important; cursor: pointer; font-size: 12.5px; transition: .15s; user-select: none; }
@@ -210,7 +210,10 @@ body.bd-resizing, body.bd-resizing * { cursor: col-resize !important; user-selec
 /* side panels */
 .bd-resizer { position: absolute; left: -5px; top: 0; bottom: 0; width: 10px; cursor: col-resize; z-index: 6; touch-action: none; }
 .bd-resizer::after { content: ""; position: absolute; left: 4px; top: 50%; width: 2px; height: 36px; margin-top: -18px; border-radius: 2px; background: #c9cde0; }
-.bd-resizer:hover::after, body.bd-resizing .bd-resizer::after { background: var(--flow); }
+.bd-resizer.right { left: auto; right: -5px; }
+.bd-resizer.bottom { left: 0; right: 0; top: auto; bottom: -5px; width: auto; height: 10px; cursor: row-resize; }
+.bd-resizer.bottom::after { left: 50%; top: 4px; width: 36px; height: 2px; margin: 0 0 0 -18px; }
+.bd-resizer:hover::after, body.bd-resizing .bd-resizer::after, body.bd-resizing-v .bd-resizer.bottom::after { background: var(--flow); }
 .bd-viewer { position: relative; display: flex; flex-direction: column; width: var(--w); flex: none; max-width: 75vw; background: #fff;
   border-left: 1px solid var(--bd-line); box-shadow: -12px 0 32px rgba(21,26,45,.08); z-index: 60; min-width: 0; }
 .bd-viewer .top { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--bd-line);
@@ -224,9 +227,13 @@ body.bd-resizing, body.bd-resizing * { cursor: col-resize !important; user-selec
 .bd-viewer .fsec .cnt .m { color: var(--del-ink); margin-left: 4px; }
 .bd-viewer .fsec.flash > .hd { animation: bd-flash 1s; } @keyframes bd-flash { 0% { background: #d9d0ff; } 100% { } }
 .bd-about { position: relative; display: flex; flex-direction: column; width: var(--w); flex: none; max-width: 60vw; background: #fff;
-  border-left: 1px solid var(--bd-line); z-index: 55; min-height: 0; }
-.bd-about .top { position: relative; padding: 18px 20px 14px; background: linear-gradient(135deg, #151a2d, #2a2466); color: #fff; }
-.bd-about .top .close { position: absolute; right: 12px; top: 12px; background: rgba(255,255,255,.16) !important; color: #fff !important; }
+  border-right: 1px solid var(--bd-line); z-index: 55; min-height: 0; }
+.bd-about.collapsed { width: 36px; align-items: center; gap: 10px; padding-top: 8px; cursor: pointer;
+  background: linear-gradient(180deg, #151a2d, #2a2466); color: #fff; }
+.bd-about.collapsed .vlabel { writing-mode: vertical-rl; font: 700 12px var(--bd-sans); letter-spacing: .04em; color: #ffd36b; white-space: nowrap; }
+.bd-about .toggle { background: rgba(255,255,255,.16) !important; color: #fff !important; font-size: 16px !important; }
+.bd-about .top { position: relative; padding: 14px 20px 14px; background: linear-gradient(135deg, #151a2d, #2a2466); color: #fff; }
+.bd-about .top .toggle { margin: 0 0 6px -6px; }
 .bd-about .top h2 { margin: 6px 0 4px; font-size: 18px; } .bd-about .top p { margin: 0; color: #c9caff; font-size: 13px; }
 .bd-about .body { overflow: auto; padding: 16px 20px 24px; }
 .bd-about h3 { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--bd-muted); margin: 18px 0 8px; }
@@ -251,7 +258,7 @@ body.bd-resizing, body.bd-resizing * { cursor: col-resize !important; user-selec
 
 @media (max-width: 1100px) {
   .bd-viewer { position: fixed; inset: 0; width: auto; max-width: none; border-left: 0; z-index: 70; }
-  .bd-about { position: fixed; inset: 0; width: auto; max-width: none; border-left: 0; z-index: 65; }
+  .bd-about:not(.collapsed) { position: fixed; inset: 0; width: auto; max-width: none; border-right: 0; z-index: 65; }
   .bd-resizer { display: none; }
 }
 @media (max-width: 760px) {
@@ -264,12 +271,10 @@ body.bd-resizing, body.bd-resizing * { cursor: col-resize !important; user-selec
   .bd-legend { display: none; }
   .bd-chip .path { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .bd-hint { white-space: normal; width: calc(100% - 32px); text-align: center; bottom: auto; top: 54px; }
-  .bd-about-btn { margin-left: 0; }
   .bd-head { padding: 8px 16px; gap: 6px 8px; }
   .bd-head h1 { font-size: 15px; }
   .bd-head .bd-pill.ghost, .bd-head .rerun { display: none; }
   .bd-head nav a { padding: 2px 8px; font-size: 12px; }
-  .bd-about-btn { padding: 5px 12px !important; font-size: 12px !important; }
   .bd-more { display: inline; }
   .bd-flowinfo.brief .what, .bd-flowinfo.brief .landing { display: none; }
   .bd-flowinfo.brief .fnum { display: none; }
