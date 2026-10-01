@@ -10,6 +10,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+from codetortoise.board import Board
 from codetortoise.health import run_health
 from codetortoise.pipeline import JobRunner
 from codetortoise.services import Services
@@ -180,6 +181,7 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         b = store.get_blob(rid, "board")
         if b is None:
             raise HTTPException(404, "board not built yet")
+        b = Board.model_validate(b).model_dump()          # boards stored by an older version get current defaults
         overrides = store.kv_get("layer_overrides") or {}
         for layer in b.get("layers", []):
             if str(layer["level"]) in overrides:

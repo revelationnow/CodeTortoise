@@ -232,3 +232,17 @@ def test_source_endpoint_maps_unreadable_files(env, monkeypatch, exc, status):
     monkeypatch.setattr(svc.source, "read", refuse)
     r = owner.get(f"/api/reviews/{rid}/source", params={"path": "//fixture/service/logger.c"})
     assert r.status_code == status
+
+
+def test_board_stored_by_an_older_version_gets_current_defaults(env):
+    svc, app, _ = env
+    owner, rid = _review(app)
+    old = svc.store.get_blob(rid, "board")
+    del old["about"]["drift"]
+    for i in old["impacts"]:
+        del i["cause"], i["landing"]
+    svc.store.put_blob(rid, "board", old)
+    b = owner.get(f"/api/reviews/{rid}/board").json()
+    assert b["about"]["drift"] == []
+    assert all(i["landing"] is False and i["cause"] is None for i in b["impacts"])
+    assert len(b["flows"]) == 3
