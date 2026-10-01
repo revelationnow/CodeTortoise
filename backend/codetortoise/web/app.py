@@ -15,6 +15,7 @@ from codetortoise.pipeline import JobRunner
 from codetortoise.services import Services
 from codetortoise.swarm import SwarmError
 from codetortoise.vcs.p4runner import P4Error
+from codetortoise.vcs.source import SourceBinary, SourceNotAllowed, SourceTooLarge
 
 COOKIE = "ct_session"
 STATIC = Path(__file__).parent / "static"
@@ -172,6 +173,44 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
             if str(item.get("level")) in overrides:
                 item["name"] = overrides[str(item["level"])]
         return {"storyboard": sb, "drift": cs.get("drift", []), "layers": layers}
+
+    @app.get("/api/reviews/{rid}/board")
+    def board(rid: int, _: str = Depends(user_of)):
+        review_or_404(rid)
+        b = store.get_blob(rid, "board")
+        if b is None:
+            raise HTTPException(404, "board not built yet")
+        overrides = store.kv_get("layer_overrides") or {}
+        for layer in b.get("layers", []):
+            if str(layer["level"]) in overrides:
+                layer["name"] = overrides[str(layer["level"])]
+        return b
+
+    @app.get("/api/reviews/{rid}/source")
+    def source(rid: int, path: str, side: Literal["before", "after"] = "after", _: str = Depends(user_of)):
+        """A file's text for the board: changed files from the change set, others from the base workspace."""
+        review_or_404(rid)
+        cs = store.get_blob(rid, "changeset") or {}
+        f = next((f for f in cs.get("files", []) if f["depot"] == path), None)
+        if f is not None:
+            rev = (f.get("base_rev") or "base") if side == "before" else "changed"
+            return {"path": path, "depot": path, "rev": rev, "text": f[side], "changed": True}
+        key = f"source:{path}"
+        cached = store.get_blob(rid, key)
+        if cached is None:
+            try:
+                sf = svc.source.read(path)
+            except SourceNotAllowed as e:
+                raise HTTPException(403, str(e)) from e
+            except SourceBinary as e:
+                raise HTTPException(415, str(e)) from e
+            except SourceTooLarge as e:
+                raise HTTPException(413, str(e)) from e
+            except P4Error as e:
+                raise HTTPException(502, f"Perforce: {e}") from e
+            cached = {"path": path, "depot": sf.depot, "rev": sf.rev, "text": sf.text, "changed": False}
+            store.put_blob(rid, key, cached)
+        return cached
 
     @app.get("/api/reviews/{rid}/impact")
     def impact(rid: int, _: str = Depends(user_of)):

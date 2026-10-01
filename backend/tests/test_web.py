@@ -178,3 +178,57 @@ def test_expired_p4_password_is_explained_but_other_failures_stay_generic(fx, tm
     assert r.status_code == 401 and "expired" in r.json()["detail"] and "p4 passwd" in r.json()["detail"]
     r = c.post("/api/login", json={"user": "carol", "password": "x"})
     assert r.status_code == 401 and r.json()["detail"] == "invalid credentials"
+
+
+def _review(app):
+    owner = login(app, "owner")
+    rid = owner.post("/api/reviews", json={"cls": [101, 102]}).json()["id"]
+    return owner, rid
+
+
+def test_board_endpoint_serves_the_board_with_layer_renames(env):
+    svc, app, _ = env
+    owner, rid = _review(app)
+    assert owner.get("/api/reviews/999/board").status_code == 404
+    board = owner.get(f"/api/reviews/{rid}/board").json()
+    assert [f["id"] for f in board["flows"]] == ["FL1", "FL2", "FL3"]
+    level = next(l["level"] for l in board["layers"] if l["name"] == "driver")
+    owner.put(f"/api/layers/{level}", json={"name": "Drivers"})
+    names = {l["level"]: l["name"] for l in owner.get(f"/api/reviews/{rid}/board").json()["layers"]}
+    assert names[level] == "Drivers"
+    svc.store.put_blob(rid, "board", None)
+    r = owner.get(f"/api/reviews/{rid}/board")
+    assert r.status_code == 404 and "not built" in r.json()["detail"]
+
+
+def test_source_endpoint_serves_changed_and_unchanged_files(env):
+    svc, app, _ = env
+    owner, rid = _review(app)
+    bob = login(app, "bob")
+    new = bob.get(f"/api/reviews/{rid}/source", params={"path": "//fixture/driver/uart.c", "side": "after"}).json()
+    old = bob.get(f"/api/reviews/{rid}/source", params={"path": "//fixture/driver/uart.c", "side": "before"}).json()
+    assert new["changed"] and "err" in new["text"] and new["text"] != old["text"]
+    ctx = bob.get(f"/api/reviews/{rid}/source", params={"path": "//fixture/service/logger.c"}).json()
+    assert not ctx["changed"] and ctx["rev"] == "workspace" and "logger_flush" in ctx["text"]
+    assert svc.store.get_blob(rid, "source://fixture/service/logger.c")["text"] == ctx["text"]
+
+
+@pytest.mark.parametrize("path,status", [("//fixture/../../etc/passwd", 403), ("//other/x.c", 403),
+                                         ("//fixture/nope.c", 403)])
+def test_source_endpoint_refuses_paths_outside_the_workspace(env, path, status):
+    _, app, _ = env
+    owner, rid = _review(app)
+    assert owner.get(f"/api/reviews/{rid}/source", params={"path": path}).status_code == status
+
+
+@pytest.mark.parametrize("exc,status", [("SourceBinary", 415), ("SourceTooLarge", 413)])
+def test_source_endpoint_maps_unreadable_files(env, monkeypatch, exc, status):
+    from codetortoise.vcs import source
+    svc, app, _ = env
+    owner, rid = _review(app)
+
+    def refuse(depot):
+        raise getattr(source, exc)(depot)
+    monkeypatch.setattr(svc.source, "read", refuse)
+    r = owner.get(f"/api/reviews/{rid}/source", params={"path": "//fixture/service/logger.c"})
+    assert r.status_code == status
