@@ -41,6 +41,8 @@ class LlmConfig(BaseModel):
     model: str = "gpt-4o-mini"
     max_context_tokens: int = 64000
     timeout_s: float = 120.0
+    concurrency: int = 4           # parallel LLM calls (finding explanations, chapter and flow narratives)
+    max_flow_narratives: int = 6   # review board flows whose description the LLM rewrites
 
 
 class AuthConfig(BaseModel):
@@ -57,6 +59,9 @@ class AnalysisConfig(BaseModel):
     max_layers: int = 8
     workers: int = 4
     heuristic_fanin_cap: int = 50  # names with more out-of-TU callers/refs than this are not expanded heuristically
+    max_flows: int = 12            # review board: flows listed (entry -> change -> where the effect lands)
+    board_max_nodes: int = 150     # review board: functions/fields drawn
+    board_blast_nodes: int = 60    # review board: top blast-radius functions included
     entrypoint_patterns: list[str] = Field(
         default_factory=lambda: ["main", "*_isr", "*_irq_handler", "*Callback", "*_callback"])
 
