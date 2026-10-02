@@ -22,13 +22,15 @@ interface Props {
   width: number;
   onWidth: (w: number) => void;
   onWidthDone: (w: number) => void;
+  /** Phone Summary tab: always open, fills its tab, no toggle or resize grip. */
+  embedded?: boolean;
 }
 
 /** "What's this change?" (spec §3.6): files tree first, then intent, why it's risky, changelists. Pushes the board. */
 export default function ChangePanel({ open, onToggle, reviewId, comments, onComments, layers, about, sideEffects, risk, openFiles,
-  dispatch, wide, width, onWidth, onWidthDone }: Props) {
+  dispatch, wide, width, onWidth, onWidthDone, embedded }: Props) {
   const [shut, setShut] = useState<Set<string>>(new Set());
-  if (!open)
+  if (!open && !embedded)
     return (
       <aside className="bd-about collapsed" onClick={onToggle}>
         <button className="bd-ibtn toggle" aria-label="Show change summary" title="Show change summary"
@@ -38,10 +40,10 @@ export default function ChangePanel({ open, onToggle, reviewId, comments, onComm
     );
   const nFiles = about.tree.reduce((n, d) => n + d.files.length, 0);
   return (
-    <aside className="bd-about" style={{ ["--w" as string]: `${width}px` }}>
-      <Resizer size={width} edge="right" min={280} max={() => window.innerWidth * 0.6} onSize={onWidth} onDone={onWidthDone} />
+    <aside className={`bd-about${embedded ? " embedded" : ""}`} style={{ ["--w" as string]: `${width}px` }}>
+      {!embedded && <Resizer size={width} edge="right" min={280} max={() => window.innerWidth * 0.6} onSize={onWidth} onDone={onWidthDone} />}
       <div className="top">
-        <button className="bd-ibtn toggle" title="Collapse" aria-label="Collapse change summary" onClick={onToggle}>‹</button>
+        {!embedded && <button className="bd-ibtn toggle" title="Collapse" aria-label="Collapse change summary" onClick={onToggle}>‹</button>}
         {risk && <span className={`bd-pill ${risk}`}>{risk.toUpperCase()} RISK</span>}
         <h2>What this change is trying to do</h2>
         <p>{about.cls.map((c) => `CL ${c.cl}`).join(" · ")} · {nFiles} files · {about.intent_source === "llm"

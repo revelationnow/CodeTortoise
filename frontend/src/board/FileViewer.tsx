@@ -19,6 +19,8 @@ interface Props {
   width: number;
   onWidth: (w: number) => void;
   onWidthDone: (w: number) => void;
+  /** Phone Files tab: fills its tab, no resize grip. */
+  embedded?: boolean;
 }
 
 /** Stacked, collapsible full files (spec §3.5); newest on top, diff controls only for changed files. */
@@ -41,8 +43,9 @@ export default function FileViewer(p: Props) {
     return () => window.cancelAnimationFrame(id);
   }, [reveal]);
   return (
-    <aside className="bd-viewer" style={{ ["--w" as string]: `${p.width}px` }}>
-      <Resizer size={p.width} edge="left" min={360} max={() => window.innerWidth * 0.75} onSize={p.onWidth} onDone={p.onWidthDone} />
+    <aside className={`bd-viewer${p.embedded ? " embedded" : ""}`} style={{ ["--w" as string]: `${p.width}px` }}>
+      {!p.embedded && <Resizer size={p.width} edge="left" min={360} max={() => window.innerWidth * 0.75} onSize={p.onWidth}
+                               onDone={p.onWidthDone} />}
       <div className="top">
         <b>Files</b><span className="muted">{viewer.files.length} open</span><span className="sp" />
         <span className="bd-seg">

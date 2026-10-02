@@ -124,9 +124,10 @@ function Card({ node, rect, at, z, front, register, state, dispatch, narrow, onO
   );
 }
 
-type BodyProps = Pick<Props, "reviewId" | "board" | "sources" | "comments" | "onComments"> & { node: BoardNode };
+export type BodyProps = Pick<Props, "reviewId" | "board" | "sources" | "comments" | "onComments"> & { node: BoardNode };
 
-function CardBody({ node, reviewId, board, sources, comments, onComments }: BodyProps) {
+/** A function's code with its effects or context line: used by cards, the phone flow reader and the phone map sheet. */
+export function CardBody({ node, reviewId, board, sources, comments, onComments }: BodyProps) {
   const src = useEnsureSource(node.path, sources);
   const [lo, hi] = node.range ?? [0, 0];
   const pad = node.kind === "field" ? 4 : 0;

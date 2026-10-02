@@ -12,5 +12,6 @@ export async function startReview(page: Page) {
   await login(page);
   await page.getByLabel("Changelists (shelved or submitted)").fill("101 102");
   await page.getByRole("button", { name: "Start review" }).click();
-  await expect(page.locator(".bd-node").first()).toBeVisible({ timeout: 60_000 });
+  // desktop shows the canvas; phones open on the flow reader (spec §13)
+  await expect(page.locator(".bd-node, .ph-step").first()).toBeVisible({ timeout: 60_000 });
 }

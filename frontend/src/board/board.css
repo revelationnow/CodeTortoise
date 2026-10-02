@@ -190,11 +190,12 @@ body.bd-resizing-v, body.bd-resizing-v * { cursor: row-resize !important; user-s
 .bd-card .hd .sp, .bd-viewer .sp { flex: 1; }
 .bd-badge { font: 700 9.5px var(--bd-sans); letter-spacing: .08em; text-transform: uppercase; padding: 2px 7px; border-radius: 6px; }
 .bd-badge.ctx { background: var(--ctx-bg); color: var(--ctx-ink); } .bd-badge.chg { background: var(--chg-bg); color: var(--chg-ink); }
-.bd-card .effects { padding: 8px 12px; background: var(--effects-bg); border-bottom: 1px solid var(--bd-line); font-size: 12px; }
-.bd-card .effects div { margin: 3px 0; } .bd-card .effects .ico { color: var(--fx); font-weight: 700; margin-right: 4px; }
-.bd-card .fetched { padding: 5px 12px; font: 11px var(--bd-mono); color: var(--bd-muted); background: var(--bd-subtle);
+.bd-card .effects, .ph-code .effects { padding: 8px 12px; background: var(--effects-bg); border-bottom: 1px solid var(--bd-line); font-size: 12px; }
+.bd-card .effects div, .ph-code .effects div { margin: 3px 0; }
+.bd-card .effects .ico, .ph-code .effects .ico { color: var(--fx); font-weight: 700; margin-right: 4px; }
+.bd-card .fetched, .ph-code .fetched { padding: 5px 12px; font: 11px var(--bd-mono); color: var(--bd-muted); background: var(--bd-subtle);
   border-bottom: 1px solid var(--bd-line); }
-.bd-card .fetched b { color: var(--ctx-ink); font-weight: 600; }
+.bd-card .fetched b, .ph-code .fetched b { color: var(--ctx-ink); font-weight: 600; }
 .bd-card .bd-code { max-height: 300px; }
 .bd-card .hd .restore { display: none; }
 .bd-card.min { width: auto; border-radius: 99px; box-shadow: 0 6px 16px rgba(var(--bd-shadow), .18); cursor: pointer; }

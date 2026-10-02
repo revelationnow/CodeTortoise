@@ -12,6 +12,7 @@ import { makeLens, type Viewport } from "./lens";
 import { keys, loadAboutOpen, loadLayout, loadLens, loadMovedAll, loadSize, loadWidth, save } from "./prefs";
 import { type Action, initialState, reduce } from "./reducer";
 import type { Board as BoardModel } from "./types";
+import PhoneBoard from "./phone/PhoneBoard";
 import { useSources } from "./useSources";
 
 interface Props {
@@ -28,6 +29,18 @@ interface Props {
 }
 
 const wideScreen = () => window.innerWidth > 1100;
+const PHONE = "(max-width: 640px)";
+
+/** True while the window is phone-sized (spec §13); follows rotation and resizing. */
+function usePhone() {
+  const [phone, setPhone] = useState(() => window.matchMedia(PHONE).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(PHONE), on = () => setPhone(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  return phone;
+}
 
 /** The review board (spec §2–§4): flow bar, lensed canvas with cards, file viewer and change panel. */
 export default function Board({ reviewId, board, files, comments, onComments, risk, focus, head }: Props) {
@@ -44,7 +57,8 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
   const [aboutW, setAboutW] = useState(() => loadWidth(keys.aboutW, 360));
   const [flowH, setFlowH] = useState<number | null>(() => loadSize(keys.flowH, 40, 4000));
   const [hint, setHint] = useState(true);
-  const stage = useRef<HTMLDivElement>(null);
+  const [stage, setStage] = useState<HTMLDivElement | null>(null);   // the canvas element; on phones it mounts with the Map tab
+  const phone = usePhone();
   const anim = useRef(0);
 
   useEffect(() => save(keys.moved(reviewId), state.moved), [reviewId, state.moved]);
@@ -84,7 +98,7 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
 
   // canvas size: keep the focused world point centred when panels open, close or resize
   useLayoutEffect(() => {
-    const el = stage.current;
+    const el = stage;
     if (!el) return;
     let first = true;
     const ro = new ResizeObserver(() => {
@@ -105,7 +119,7 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, [board, panBy]);
+  }, [stage, board, panBy]);
 
   const act = useCallback((a: Action) => { setHint(false); dispatch(a); }, []);
   const toggleAbout = () => { save(keys.about, !state.about); act({ t: "about.toggle" }); };
@@ -145,6 +159,18 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
   const narrow = typeof window !== "undefined" && window.innerWidth <= 640;
   const viewerOpen = state.viewer.files.length > 0;
   const cardCount = Object.keys(state.cards).length;
+  const canvas = vp.W > 0 && <>
+    <Canvas board={board} lens={lens} pos={pos} vp={vp} bands={bands} state={state} dispatch={act}
+            panBy={panBy} onOpenFile={openFile} onInteract={interact} />
+    <CardLayer reviewId={reviewId} board={board} pos={pos} vp={vp} state={state} dispatch={act} sources={sources}
+               comments={comments} onComments={onComments} onOpenFile={openFile} narrow={narrow} />
+  </>;
+  if (phone)
+    return (
+      <PhoneBoard reviewId={reviewId} board={board} state={state} act={act} sources={sources} comments={comments}
+                  onComments={onComments} risk={risk} sideEffects={sideEffects} head={head} onOpenFile={openFile}
+                  map={<div className="bd-stage" ref={setStage}>{canvas}</div>} />
+    );
   return (
     <div className="bd">
       {head(null)}
@@ -155,13 +181,8 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
         <ChangePanel open={state.about} onToggle={toggleAbout} reviewId={reviewId} comments={comments} onComments={onComments}
                      layers={board.layers} about={board.about} sideEffects={sideEffects} risk={risk} openFiles={state.viewer.files} dispatch={act}
                      wide={wideScreen()} width={aboutW} onWidth={setAboutW} onWidthDone={(w) => save(keys.aboutW, w)} />
-        <div className="bd-stage" ref={stage}>
-          {vp.W > 0 && <>
-            <Canvas board={board} lens={lens} pos={pos} vp={vp} bands={bands} state={state} dispatch={act}
-                    panBy={panBy} onOpenFile={openFile} onInteract={interact} />
-            <CardLayer reviewId={reviewId} board={board} pos={pos} vp={vp} state={state} dispatch={act} sources={sources}
-                       comments={comments} onComments={onComments} onOpenFile={openFile} narrow={narrow} />
-          </>}
+        <div className="bd-stage" ref={setStage}>
+          {canvas}
           <div className="bd-tools">
             <div className="bd-toolbar">
               <span className="bd-seg">
