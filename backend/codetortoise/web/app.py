@@ -165,17 +165,6 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
 
         return StreamingResponse(gen(), media_type="text/event-stream")
 
-    @app.get("/api/reviews/{rid}/storyboard")
-    def storyboard(rid: int, _: str = Depends(user_of)):
-        review_or_404(rid)
-        cs = store.get_blob(rid, "changeset") or {}
-        sb, layers = store.get_blob(rid, "storyboard"), store.get_blob(rid, "layers")
-        overrides = store.kv_get("layer_overrides") or {}
-        for item in (sb or {}).get("chapters", []) + (layers or {}).get("layers", []):
-            if str(item.get("level")) in overrides:
-                item["name"] = overrides[str(item["level"])]
-        return {"storyboard": sb, "drift": cs.get("drift", []), "layers": layers}
-
     @app.get("/api/reviews/{rid}/board")
     def board(rid: int, _: str = Depends(user_of)):
         review_or_404(rid)
@@ -214,11 +203,6 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
             cached = {"path": path, "depot": sf.depot, "rev": sf.rev, "text": sf.text, "changed": False}
             store.put_blob(rid, key, cached)
         return cached
-
-    @app.get("/api/reviews/{rid}/impact")
-    def impact(rid: int, _: str = Depends(user_of)):
-        review_or_404(rid)
-        return store.get_blob(rid, "impact")
 
     @app.get("/api/reviews/{rid}/findings")
     def findings(rid: int, _: str = Depends(user_of)):

@@ -11,35 +11,12 @@ export interface SwarmInfo { id: number; state: string; state_label?: string; ur
 export interface ClRow { review_id: number; cl: number; status: string; user: string | null; description: string | null; swarm: SwarmInfo | null }
 export interface ReviewDetail { review: ReviewRow; cls: ClRow[]; stages: Stage[] }
 
-export interface Node {
-  id: string; key: string; kind: "function" | "field"; label: string; file: string | null; line: number | null;
-  status: "added" | "removed" | "changed" | "unchanged"; layer: number | null; confidence: "precise" | "heuristic";
-}
-export interface Edge {
-  id: string; src: string; dst: string; kind: "call" | "virtual" | "writes" | "reads";
-  status: "added" | "removed" | "unchanged"; confidence: "precise" | "may" | "heuristic"; file: string | null; line: number | null;
-}
-export interface Flow { root: string; nodes: string[]; edges: string[] }
-export interface BlastItem { node: string; hop: number; score: number; via: "call" | "data"; path: string[] }
-export interface FanOut { header: string; total_tus: number; by_layer: Record<string, number> }
-export interface Impact { nodes: Record<string, Node>; edges: Edge[]; changed: string[]; flows: Flow[]; blast: BlastItem[]; fanout: FanOut[] }
-
 export interface Evidence { text: string; file: string | null; line: number | null; severity: Severity }
 export interface Cited { text: string; cites: string[]; verified: boolean }
 export interface Finding {
   id: string; kind: string; severity: Severity; title: string; nodes: string[]; evidence: Evidence[]; summary: string;
   explanation: string | null; verify_steps: string[]; hypotheses: Cited[]; state: "open" | "ack" | "dismissed";
 }
-export interface Chapter {
-  level: number | null; name: string; narrative: string; cites: string[]; verified: boolean;
-  cross_layer_effects: Cited[]; nodes: string[]; findings: string[];
-}
-export interface Storyboard {
-  summary: string; risk: "low" | "medium" | "high"; review_order: string[]; verified: boolean;
-  chapters: Chapter[]; llm_used: boolean; llm_error: string | null;
-}
-export interface Drift { depot: string; local: string; expected: string; actual: string }
-export interface StoryboardResponse { storyboard: Storyboard | null; drift: Drift[] }
 export interface PerCl { cl: number; before: string; after: string }
 export interface FileChange { depot: string; local: string; action: string; before: string; after: string; base_rev: string | null; per_cl: PerCl[] }
 export type AnchorKind = "line" | "function" | "finding" | "chapter" | "review";
@@ -82,8 +59,6 @@ export const api = {
   createReview: (cls: number[], title?: string) => call<ReviewRow>("POST", "/api/reviews", { cls, title }),
   review: (id: number) => call<ReviewDetail>("GET", `/api/reviews/${id}`),
   rerun: (id: number) => call("POST", `/api/reviews/${id}/rerun`),
-  storyboard: (id: number) => call<StoryboardResponse>("GET", `/api/reviews/${id}/storyboard`),
-  impact: (id: number) => call<Impact | null>("GET", `/api/reviews/${id}/impact`),
   board: (id: number) => call<Board>("GET", `/api/reviews/${id}/board`),
   source: (id: number, path: string, side: "before" | "after" = "after") =>
     call<SourceText>("GET", `/api/reviews/${id}/source?${new URLSearchParams({ path, side })}`),

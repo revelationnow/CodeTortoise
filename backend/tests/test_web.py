@@ -64,8 +64,10 @@ def test_owner_creates_review_others_view_and_comment(env):
     rid = r.json()["id"]
     detail = bob.get(f"/api/reviews/{rid}").json()
     assert detail["review"]["status"] == "degraded" and len(detail["stages"]) == 11
-    assert bob.get(f"/api/reviews/{rid}/storyboard").json()["storyboard"]["risk"] == "high"
-    assert len(bob.get(f"/api/reviews/{rid}/impact").json()["nodes"]) > 5
+    assert detail["review"]["risk"] == "high"
+    # the raw storyboard and impact graph are not served: the board replaced them (spec §14.4)
+    assert bob.get(f"/api/reviews/{rid}/storyboard").status_code == 404
+    assert bob.get(f"/api/reviews/{rid}/impact").status_code == 404
     assert len(bob.get(f"/api/reviews/{rid}/findings").json()) == 6
     assert [f["depot"] for f in bob.get(f"/api/reviews/{rid}/files").json()][0] == "//fixture/driver/uart.c"
     ev = bob.get(f"/api/reviews/{rid}/events")
@@ -117,7 +119,7 @@ def test_health_and_layer_rename(env):
     assert h["ready"] is True and {c["name"] for c in h["checks"]} >= {"workspace root", "compile_commands", "libclang"}
     assert owner.put("/api/layers/2", json={"name": "Drivers"}).json() == {"2": "Drivers"}
     rid = owner.post("/api/reviews", json={"cls": [101]}).json()["id"]
-    names = [c["name"] for c in owner.get(f"/api/reviews/{rid}/storyboard").json()["storyboard"]["chapters"]]
+    names = [layer["name"] for layer in owner.get(f"/api/reviews/{rid}/board").json()["layers"]]
     assert "Drivers" in names and "L2: driver" not in names
     assert login(app, "bob").put("/api/layers/2", json={"name": "x"}).status_code == 403
 
