@@ -107,3 +107,36 @@ test("phone map: pinch to zoom, tap a node for its code, long-press to move it",
   await page.getByLabel("Flow").selectOption({ label: "2 · logger_flush ignores -2" });
   await expect(page.locator(".bd-node.onflow", { hasText: "logger_flush" })).toBeVisible();
 });
+
+test("a tap's late click does not land in the code sheet that opened under it", async ({ page }) => {
+  await startReview(page);
+  await tab(page, "Map").click();
+  await page.locator(".bd-node.chg", { hasText: "uart_send" }).tap();
+  const sheet = page.locator(".ph-sheet");
+  const line = sheet.locator(".bd-ln").first();
+  await expect(line).toBeVisible();
+  // real phones can deliver the tap's click after the sheet has rendered under the finger: replay it there
+  await line.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, clientX: r.x + 30, clientY: r.y + 5 }));
+  });
+  await expect(sheet.locator("textarea")).toHaveCount(0);
+  await line.tap();                                                                 // a real tap in the sheet still comments
+  await expect(sheet.locator("textarea")).toHaveCount(1);
+});
+
+test("a cited function opens on the phone map with its code", async ({ page }) => {
+  await startReview(page);
+  const rid = page.url().match(/\/r\/(\d+)/)![1];
+  const board = await (await page.request.get(`/api/reviews/${rid}/board`)).json();
+  const target = board.nodes.find((n: { label: string }) => n.label === "uart_errors");
+  await page.goto(`/r/${rid}?node=${target.id}`);
+  await expect(tab(page, "Map")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".ph-sheet .ph-sheet-head")).toContainText("uart_errors");
+  const stage = (await page.locator(".bd-stage").boundingBox())!;
+  const node = (await page.locator(".bd-node", { hasText: "uart_errors" }).boundingBox())!;
+  expect(node.x).toBeGreaterThanOrEqual(stage.x);
+  expect(node.x + node.width).toBeLessThanOrEqual(stage.x + stage.width);
+  expect(node.y).toBeGreaterThanOrEqual(stage.y);
+  expect(node.y + node.height).toBeLessThanOrEqual(stage.y + stage.height);
+});

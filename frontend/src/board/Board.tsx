@@ -140,6 +140,14 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
     act({ t: "card.open", id: focus });
     panTo([focus]);
   }, [focus, vp.W, nodes, act, panTo]);
+  const [showMap, setShowMap] = useState(0);           // phone: a citation shows the Map with the function's code sheet
+  const sheetFor = useRef<string | null>(null);
+  useEffect(() => {                                   // the effect above centres it once the Map has its size
+    if (!phone || !focus || focus === sheetFor.current || !nodes.get(focus)?.path) return;
+    sheetFor.current = focus;
+    setSheet(focus);
+    setShowMap((k) => k + 1);
+  }, [phone, focus, nodes]);
   const selectFlow = useCallback((i: number) => { act({ t: "flow", i }); panTo(board.flows[i].path); }, [act, panTo, board]);
   const setLayout = (layout: "layers" | "depth") => {
     if (layout === state.layout) return;
@@ -192,6 +200,7 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
     return (
       <PhoneBoard reviewId={reviewId} board={board} state={state} act={act} sources={sources} comments={comments}
                   onComments={onComments} risk={risk} sideEffects={sideEffects} head={head} onOpenFile={openFile}
+                  showMap={showMap}
                   map={
                     <PhoneMap reviewId={reviewId} board={board} state={state} act={act} setLayout={setLayout} onFlow={selectFlow}
                               sheet={sheet} onCloseSheet={() => setSheet(null)} onOpenFile={openFile} sources={sources}

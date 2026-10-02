@@ -26,6 +26,8 @@ interface Props {
   onOpenFile: (nodeId: string) => void;
   /** The Map tab's content: the board's canvas stage, built by Board. */
   map: ReactNode;
+  /** Bumped by Board to show the Map (a cited function opens there). */
+  showMap: number;
 }
 
 const TABS: [PhoneTab, string, string][] = [["flows", "☰", "Flows"], ["map", "◎", "Map"], ["files", "▤", "Files"], ["summary", "✦", "Summary"]];
@@ -41,6 +43,7 @@ export default function PhoneBoard(p: Props) {
     const seq = state.viewer.reveal?.seq ?? 0;
     if (seq !== seen.current) { seen.current = seq; setTab("files"); }
   }, [state.viewer.reveal]);
+  useEffect(() => { if (p.showMap) setTab("map"); }, [p.showMap]);
   const open = (path: string, line: number | null = null) => act({ t: "viewer.open", path, line, wide: false });
 
   return (

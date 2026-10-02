@@ -28,6 +28,7 @@ export default function PhoneMap(p: Props) {
   const [more, setMore] = useState(false);
   const [full, setFull] = useState(false);
   const grip = useRef<number | null>(null);
+  const touched = useRef<string | null>(null);         // the sheet's node once a finger has gone down inside the sheet
   const node = board.nodes.find((n) => n.id === p.sheet);
   const value = state.mode === "graph" ? "graph" : String(state.flow);
   return (
@@ -64,7 +65,10 @@ export default function PhoneMap(p: Props) {
         </div>
       )}
       {node && (
-        <div className={`ph-sheet${full ? " full" : ""}`}>
+        <div className={`ph-sheet${full ? " full" : ""}`} onPointerDownCapture={() => { touched.current = node.id; }}
+             onClickCapture={(e) => {                    // the opening tap's click can arrive after the sheet renders under it
+               if (touched.current !== node.id) { e.stopPropagation(); e.preventDefault(); }
+             }}>
           <div className="ph-grip"
                onPointerDown={(e) => { grip.current = e.clientY; e.currentTarget.setPointerCapture(e.pointerId); }}
                onPointerUp={(e) => {                     // drag up: full height; down: half, then away
