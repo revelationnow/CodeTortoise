@@ -124,7 +124,7 @@ button.go { background: var(--amber); color: #2b1a00; border: 0; border-radius: 
 button.go:disabled { opacity: .55; }
 
 /* ---- landing (spec §12) ---- */
-.landing { display: grid; grid-template-columns: minmax(280px, 340px) 1fr; padding: 0 !important; overflow: auto; }
+.home-page { display: grid; grid-template-columns: minmax(280px, 340px) 1fr; padding: 0 !important; overflow: auto; }
 .rv-hello { background: var(--chrome); background-color: #1e2148; color: var(--chrome-ink); padding: 26px 24px; }
 .rv-hello h1 { font-size: 22px; margin: 12px 0 6px; color: var(--chrome-ink); }
 .rv-hello p { color: var(--chrome-muted); margin: 0 0 14px; font-size: 13.5px; }
@@ -196,7 +196,7 @@ button.go:disabled { opacity: .55; }
 .review-body .badge { border: 0; padding: 2px 9px; background: var(--gap-bg); }
 
 @media (max-width: 760px) {
-  .landing { grid-template-columns: 1fr; }
+  .home-page { grid-template-columns: 1fr; }
   .rv-main { padding: 16px; }
   .rv-row .when { width: 100%; }
   .rv-hello { padding: 18px 16px; } .rv-hello > form > svg:first-child, .rv-hello > svg:first-child { display: none; }

@@ -34,7 +34,7 @@ export default function Reviews() {
   const counts = useMemo(() => chipCounts(rows ?? [], me?.user ?? null), [rows, me]);
 
   return (
-    <main className="landing">
+    <main className="home-page">
       <section className="rv-hello">
         {me?.is_owner ? <StartReview /> : (
           <>

@@ -7,6 +7,8 @@ test("flows, cards, comments, viewer, change panel and layout", async ({ page })
   await startReview(page);
   await expect(page.getByRole("tab")).toHaveCount(3);
   await expect(page.locator(".bd-flowinfo .landing")).toContainText("Side effect lands on uart_errors");
+  // the landing page's own classes must not leak into the board (its .landing grid once did)
+  expect(await page.locator(".bd-flowinfo .landing").evaluate((el) => getComputedStyle(el).display)).toBe("block");
 
   // select a flow; its summary names where the effect lands
   await page.getByRole("tab", { name: /logger_flush/ }).click();
