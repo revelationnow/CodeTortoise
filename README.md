@@ -49,26 +49,101 @@ Perforce call goes through a read-only allowlist: `describe`, `print`, `where`, 
 
 ### 2. Prepare the environment the server runs in
 
-CodeTortoise passes `-p <p4port> -c <client>` to every command and takes everything else from the normal Perforce
-environment of the user running the server. Set it up once, as that OS user:
+CodeTortoise runs `p4` from the workspace root, as the OS user who runs the server, so it sees the same Perforce
+settings you see in a terminal there: a P4CONFIG file, environment variables, `p4 set` values and the tickets file.
+Set it up once, as that user.
+
+The simplest setup is a P4CONFIG file at the workspace root, which many teams already use:
 
 ```bash
-export P4PORT=ssl:perforce.example.com:1666   # the same value goes in tortoise.yaml
-export P4USER=anoop                           # the owner
-export P4CLIENT=anoop-main-ws
-export P4TICKETS=$HOME/.p4tickets             # or a dedicated file for the service
-export P4CHARSET=utf8                         # only on Unicode-mode servers
-p4 trust -y                                   # once, for ssl: ports
-p4 login -a                                   # a ticket valid from any host
-p4 client -o | grep -E '^(Root|AltRoots)'     # must match workspace.root below
+export P4CONFIG=.p4config                     # in that user's shell profile
+cat > /work/main/.p4config <<'EOF'
+P4PORT=ssl:perforce.example.com:1666
+P4CLIENT=anoop-main-ws
+P4USER=anoop
+P4CHARSET=utf8
+EOF
 ```
 
-### 3. Configure
+Then, from inside the workspace:
 
-`tortoise.yaml` (relative paths are resolved against the config file's directory):
+```bash
+cd /work/main
+p4 set                                        # shows each value and where it comes from
+p4 trust -y                                   # once, for ssl: ports
+p4 login -a                                   # a ticket valid from any host
+p4 info                                       # User name, Client name and Server address must be right
+p4 client -o | grep -E '^(Root|AltRoots)'     # the workspace root you put in tortoise.yaml
+```
+
+Plain environment variables (`P4PORT`, `P4CLIENT`, `P4USER`) work too. Values in `tortoise.yaml` win over a P4CONFIG
+file, and a P4CONFIG file wins over the environment, as in `p4` itself. Only `P4CHARSET` is needed for Unicode-mode
+servers, and `P4TICKETS` only if the service keeps its ticket in a dedicated file.
+
+### 3. Write tortoise.yaml
+
+`tortoise.yaml` tells CodeTortoise who owns it, which workspace to read, how your code is compiled and how to serve
+the app. Relative paths are resolved against the folder that holds the file.
+
+#### Start with `codetortoise init`
+
+Run it from anywhere inside the workspace:
+
+```bash
+cd /work/main/src
+uv run --project /path/to/CodeTortoise/backend codetortoise init --out ~/codetortoise/tortoise.yaml
+```
+
+It writes a commented starter file and prints what it found:
+
+- **owner, server address and client:** read the way `p4` reads them. Values from a P4CONFIG file are left to that
+  file, so the two stay in sync.
+- **Workspace root:** the client's `Root`, from `p4 client -o` (read-only).
+- **Compile database:** `compile_commands.json` under the workspace, or in a `build*`/`out*` folder beside it. If it
+  finds several, it lists them all.
+- **Compiler:** the compiler that the first compile command uses.
+- **Server:** this machine only (`127.0.0.1:8765`). Swarm and AI settings stay commented out.
+
+Read every line marked `check:`. If your ticket has expired, `init` can't read the client's Root and tells you to run
+`p4 login -a` first. It never overwrites a file unless you pass `--force`.
+
+#### Fill it in step by step
+
+Whether you start from `init` or from scratch, check these values in order.
+
+1. **`owner`: who runs reviews.** Your Perforce user name, from `p4 info` (User name). The owner starts reviews and
+   their Perforce access decides what the app can show. Leave it out to use `P4USER`.
+2. **`workspace.p4port` and `workspace.client`: which server and workspace.** From `p4 info` (Server address and
+   Client name). Leave them out to use your P4CONFIG file or environment.
+3. **`workspace.root`: where the workspace is on disk.** It must equal the client's `Root`, or one of its `AltRoots`:
+   `p4 client -o | grep -E '^(Root|AltRoots)'`. Symbolic links to it are fine.
+4. **`workspace.compile_commands`: how each file is compiled.** The path to `compile_commands.json` for the build you
+   review. To create one, see [Compile database](#compile-database).
+5. **`toolchain.clang`: your compiler.** The compiler driver your build uses, such as a vendor `clang` or `gcc`.
+   CodeTortoise asks it for its built-in include paths and macros. Find it in the first entry of
+   `compile_commands.json`.
+6. **`server`: how people reach the app.** `host: 127.0.0.1` keeps it on this machine. To share it, use `0.0.0.0`,
+   set `public_url` to the address colleagues open, and set `tls_cert` and `tls_key` so sign-ins aren't sent in plain
+   text. `data_dir` holds the database and caches; back it up.
+7. **Optional: `swarm.url` and `llm`.** Add Swarm to read and post Swarm reviews. Add an OpenAI-compatible `llm`
+   endpoint for AI-written narratives; code is sent to it (see [LLM and data egress](#llm-and-data-egress)).
+
+#### Minimal example
+
+With a P4CONFIG file in the workspace, this is a complete configuration:
 
 ```yaml
-owner: anoop                        # P4 user who creates reviews; everyone else views and comments
+workspace:
+  root: /work/main
+  compile_commands: /work/main/build/compile_commands.json
+toolchain:
+  clang: /opt/vendor/bin/clang
+```
+
+#### Every setting
+
+```yaml
+owner: anoop                        # optional with P4CONFIG or P4USER; the P4 user who creates reviews
 server:
   host: 0.0.0.0                     # 127.0.0.1 to keep it local
   port: 8765
@@ -78,8 +153,8 @@ server:
   # tls_key: /etc/codetortoise/ct.key    #   is allowed but warned about at startup and in a banner)
 workspace:
   vcs: p4
-  p4port: ssl:perforce.example.com:1666
-  client: anoop-main-ws
+  p4port: ssl:perforce.example.com:1666   # optional with P4CONFIG or P4PORT
+  client: anoop-main-ws             # optional with P4CONFIG or P4CLIENT
   root: /work/main                  # must equal the client's Root (or one of its AltRoots); symlinks are fine
   compile_commands: /work/main/build/compile_commands.json
   # p4_bin: /opt/perforce/bin/p4
@@ -245,6 +320,8 @@ restart. Reviews keep working across upgrades, and re-running a review rebuilds 
 
 | Symptom | Cause and fix |
 |---|---|
+| `config error: owner is not set` (or `workspace.p4port`, `workspace.client`) | The value isn't in `tortoise.yaml`, the P4CONFIG file or the environment. The message says where it looked. Run `p4 set` in the workspace as the service user, or put the value in `tortoise.yaml`. |
+| Health shows the wrong server or client | A P4CONFIG file or environment variable you didn't expect is in effect. The Health page lists where each value came from; `p4 set` in the workspace shows the same. |
 | `ingest failed: … Your session has expired, please login again` | The service user's ticket expired. Run `p4 login -a` and see [Tickets and session timeouts](#tickets-and-session-timeouts). |
 | Health: `p4 client` fails with `Root=…` | `workspace.root` is not the client's `Root` or an `AltRoots` entry. Fix the config or the client spec. |
 | `The authenticity of '…' can't be established` / fingerprint mismatch | Run `p4 trust -y` (again) as the service user. |
