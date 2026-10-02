@@ -12,12 +12,13 @@ from codetortoise.detectors.base import SEVERITY_RANK, Finding, Hypothesis
 from codetortoise.impact import ImpactModel
 from codetortoise.layers import LayerModel
 from codetortoise.llm.client import LlmClient, LlmError
+from codetortoise.llm.style import MODES, STYLE, check_style
 from codetortoise.provenance import merge
 
 SYSTEM = ("You are a senior C/C++ code reviewer. You are given facts extracted by static analysis "
           "for a set of changes. Use ONLY these facts. Refer to functions/fields by their node id (e.g. N3) "
           "and to findings by their id (e.g. F2). Every claim must list the ids it relies on in `cites`. "
-          "Be concise and concrete; prefer what a reviewer must verify.")
+          "Be concise and concrete; prefer what a reviewer must verify. " + STYLE)
 
 
 class Cited(BaseModel):
@@ -45,6 +46,7 @@ class Storyboard(BaseModel):
     chapters: list[Chapter] = Field(default_factory=list)
     llm_used: bool = False
     llm_error: str | None = None
+    style_dropped: int = 0           # LLM outputs dropped for breaking the house style (llm/style.py)
 
 
 class _ExplainOut(BaseModel):
@@ -174,7 +176,8 @@ def _flow_prompt(fl: Flow, impact: ImpactModel, findings: list[Finding], snippet
     parts += [f"CODE {n}:\n{snippets[n]}" for n in fl.path if n in snippets]
     return ("Describe this call flow for a reviewer in 2-3 sentences: how the entry reaches the change and what the "
             "change does to the function where the effect lands, plus a headline of at most 8 words (title). "
-            f"Draft headline: {fl.title}. Cite the node and finding ids you rely on.\n\n" +
+            f"Draft headline: {fl.title}. Cite the node and finding ids you rely on.\n"
+            f"Description: {MODES['explanation']} Title: {MODES['headline']}\n\n" +
             budget(parts, per_call))
 
 
@@ -200,6 +203,13 @@ def build_storyboard(impact: ImpactModel, findings: list[Finding], layers: Layer
     per_call = max(2000, max_tokens // 2)
     jobs: list[tuple[str, type[BaseModel], Callable]] = []
 
+    def styled(text: str, mode: str) -> bool:
+        """True when `text` keeps the house style; otherwise it is counted and the caller keeps its own text."""
+        if check_style(text, mode):
+            sb.style_dropped += 1
+            return False
+        return True
+
     for f in findings:
         nodes = [n for n in f.nodes if n in impact.nodes]
         neighbours = sorted({e.src for e in impact.edges if e.dst in nodes} |
@@ -208,11 +218,15 @@ def build_storyboard(impact: ImpactModel, findings: list[Finding], layers: Layer
         parts += [f"CODE {n}:\n{snippets[n]}" for n in nodes + neighbours if n in snippets]
 
         def explain(out: _ExplainOut, f=f, seen=nodes + neighbours):
-            f.explanation, f.explain_files = out.explanation, prompt_files(seen, [f.id])
-            f.verify_steps = out.verify_steps
-            f.hypotheses = [Hypothesis(text=h.text, cites=h.cites) for h in ground(out.hypotheses, known)]
+            f.explanation = out.explanation if styled(out.explanation, "explanation") else None
+            f.explain_files = prompt_files(seen, [f.id])
+            f.verify_steps = [step for step in out.verify_steps if styled(step, "how-to")]
+            f.hypotheses = [Hypothesis(text=h.text, cites=h.cites) for h in ground(out.hypotheses, known)
+                            if styled(h.text, "explanation")]
         jobs.append(("Explain the risk of this finding, list concrete verification steps, and propose additional "
-                     "side-effect hypotheses (each citing ids).\n\n" + budget(parts, per_call), _ExplainOut, explain))
+                     "side-effect hypotheses (each citing ids).\n"
+                     f"Explanation and hypotheses: {MODES['explanation']} Verification steps: {MODES['how-to']}\n\n"
+                     + budget(parts, per_call), _ExplainOut, explain))
 
     for ch in sb.chapters:
         parts = [f"LAYER: {ch.name}",
@@ -221,19 +235,21 @@ def build_storyboard(impact: ImpactModel, findings: list[Finding], layers: Layer
         parts += [f"CODE {n}:\n{snippets[n]}" for n in ch.nodes if n in snippets]
 
         def narrate(out: _ChapterOut, ch=ch):
-            ch.narrative = out.narrative
-            ch.cites = [c for c in out.cites if c in known]
-            ch.verified = bool(ch.cites)
-            ch.cross_layer_effects = ground(out.cross_layer_effects, known)
+            if styled(out.narrative, "explanation"):
+                ch.narrative = out.narrative
+                ch.cites = [c for c in out.cites if c in known]
+                ch.verified = bool(ch.cites)
+            ch.cross_layer_effects = [c for c in ground(out.cross_layer_effects, known) if styled(c.text, "explanation")]
         jobs.append(("Write the narrative for this architectural layer: what changed, why it matters, and effects on "
-                     "layers above/below (cross_layer_effects).\n\n" + budget(parts, per_call), _ChapterOut, narrate))
+                     f"layers above/below (cross_layer_effects).\n{MODES['explanation']}\n\n" + budget(parts, per_call),
+                     _ChapterOut, narrate))
 
     for fl in (board.flows[:max_flow_narratives] if board else []):
         def describe(out: _FlowOut, fl=fl):
             # grounded: keep the LLM text only if it cites a node on this flow or one of its findings
-            if out.what.strip() and set(out.cites) & (set(fl.path) | set(fl.findings)):
+            if out.what.strip() and set(out.cites) & (set(fl.path) | set(fl.findings)) and styled(out.what, "explanation"):
                 fl.what, fl.what_source, fl.what_files = out.what.strip(), "llm", prompt_files(fl.path, fl.findings)
-                if 0 < len(out.title.strip()) <= 80:
+                if 0 < len(out.title.strip()) <= 80 and styled(out.title.strip(), "headline"):
                     fl.title = out.title.strip()
         jobs.append((_flow_prompt(fl, impact, findings, snippets, per_call), _FlowOut, describe))
 
@@ -245,8 +261,11 @@ def build_storyboard(impact: ImpactModel, findings: list[Finding], layers: Layer
         overview = [f"CHAPTER {c.name}: {c.narrative} (cites {c.cites})" for c in sb.chapters]
         overview += [_finding_text(f) for f in findings[:30]]
         out = llm.complete_json(SYSTEM, "Summarize the whole change for a reviewer in 3-6 sentences, give an overall "
-                                "risk, and a review_order of node ids.\n\n" + budget(overview, per_call), _SummaryOut)
-        sb.summary = out.summary
+                                f"risk, and a review_order of node ids.\n{MODES['explanation']}\n\n"
+                                + budget(overview, per_call), _SummaryOut)
+        summary_ok = bool(out.summary.strip()) and styled(out.summary, "explanation")
+        if summary_ok:
+            sb.summary = out.summary
         # the LLM may raise the risk, never lower it below what the findings establish
         order_ = ["low", "medium", "high"]
         sb.risk = max(sb.risk, out.risk, key=order_.index)
@@ -254,7 +273,7 @@ def build_storyboard(impact: ImpactModel, findings: list[Finding], layers: Layer
         sb.review_order = order or sb.review_order
         sb.verified = any(c in known for c in out.cites)
         sb.llm_used = True
-        if board is not None and out.summary.strip():
+        if board is not None and summary_ok:
             board.about.intent, board.about.intent_source = out.summary.strip(), "llm"
             board.about.intent_files = merge(*(prompt_files(c.nodes, c.findings) for c in sb.chapters),
                                              prompt_files([], [f.id for f in findings[:30]]))

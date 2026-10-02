@@ -244,6 +244,8 @@ def run_review(rid: int, svc: Services) -> None:
             raise Degraded("no LLM configured; deterministic storyboard only")
         if sb.llm_error:
             raise Degraded(sb.llm_error)
+        if sb.style_dropped:
+            return f"{sb.style_dropped} AI output(s) broke the house style and were dropped"
 
     def finalize():
         sb = ctx.get("storyboard")

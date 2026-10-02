@@ -215,3 +215,56 @@ def test_llm_failure_keeps_template_flow_text():
     sb = build_storyboard(im, findings, layers, {}, llm, board=board, concurrency=4)
     assert not sb.llm_used and sb.llm_error
     assert board.flows[0].what == "template what" and board.about.intent_source == "template"
+
+
+def test_prompts_carry_the_style_guide_and_one_diataxis_mode_per_output():
+    from codetortoise.llm.style import MODES, STYLE
+    im, findings, layers = model()
+    seen = []
+
+    def respond(system, user):
+        seen.append((system, user))
+        return _respond(lambda u: {"what": "w", "cites": ["N3"]})(system, user)
+    build_storyboard(im, findings, layers, {}, fake_llm(respond), board=_board(1))
+    assert seen and all(STYLE in system for system, _ in seen)
+    by_kind = {k: [u for _, u in seen if marker in u] for k, marker in [
+        ("explain", "Explain the risk"), ("chapter", "narrative for this architectural layer"),
+        ("flow", "Describe this call flow"), ("summary", "Summarize the whole change")]}
+    assert all(by_kind.values())
+    assert all(MODES["explanation"] in u and MODES["how-to"] in u for u in by_kind["explain"])
+    assert all(MODES["explanation"] in u for u in by_kind["chapter"] + by_kind["summary"])
+    assert all(MODES["explanation"] in u and MODES["headline"] in u for u in by_kind["flow"])
+
+
+def test_llm_text_that_breaks_the_style_is_dropped_for_the_deterministic_text():
+    im, findings, layers = model()
+    board = _board(1)
+
+    def respond(system, user):
+        if "Explain the risk" in user:
+            return {"explanation": "This is just wrong!",
+                    "verify_steps": ["Check that logger_flush handles -2.", "The caller ignores it."],
+                    "hypotheses": [{"text": "Simply put, it breaks.", "cites": ["N1"]},
+                                   {"text": "uart_send can now return -2.", "cites": ["N2"]}]}
+        if "Describe this call flow" in user:
+            return {"what": "Please simply check the result.", "title": "t", "cites": ["N3"]}
+        if "Summarize the whole change" in user:
+            return {"summary": "Please read this.", "risk": "medium", "cites": ["F1"]}
+        return _respond(lambda u: {})(system, user)
+    sb = build_storyboard(im, findings, layers, {}, fake_llm(respond), board=board)
+    assert all(f.explanation is None for f in findings)
+    assert [f.verify_steps for f in findings] == [["Check that logger_flush handles -2."]] * 2
+    assert [[h.text for h in f.hypotheses] for f in findings] == [["uart_send can now return -2."]] * 2
+    assert (board.flows[0].what, board.flows[0].what_source) == ("template what", "template")
+    assert board.about.intent == "template intent" and board.about.intent_source == "template"
+    assert sb.style_dropped == 8          # 2 explanations, 2 steps, 2 hypotheses, 1 flow, 1 summary
+
+
+def test_a_flow_title_that_breaks_the_headline_rules_keeps_the_template_title():
+    im, findings, layers = model()
+    board = _board(1)
+    sb = build_storyboard(im, findings, layers, {}, fake_llm(_respond(
+        lambda u: {"what": "logger_flush drops -2.", "title": "logger_flush drops the new -2 result on every flush.",
+                   "cites": ["N3"]})), board=board)
+    assert board.flows[0].what == "logger_flush drops -2." and board.flows[0].title == "template title"
+    assert sb.style_dropped == 1

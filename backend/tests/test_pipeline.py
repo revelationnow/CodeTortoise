@@ -161,6 +161,30 @@ def test_llm_text_stored_by_a_review_records_its_prompt_files(fx, tmp_path):
     known = [f for f in svc.store.list_findings(rid) if f.files is not None]
     assert known and all(f.explain_files and set(f.files) <= set(f.explain_files) for f in known)
 
+
+def test_the_llm_stage_reports_text_dropped_for_breaking_the_style(fx, tmp_path):
+    import json
+
+    import httpx
+
+    from codetortoise.llm.client import LlmClient
+    cites = [f"N{i}" for i in range(1, 40)] + [f"F{i}" for i in range(1, 10)]
+
+    def reply(req):
+        user = json.loads(req.content)["messages"][1]["content"]
+        out = ({"explanation": "It is fine."} if "Explain the risk" in user else
+               {"narrative": "n", "cites": cites} if "narrative for this architectural layer" in user else
+               {"what": "Please simply look!", "cites": cites} if "Describe this call flow" in user else
+               {"summary": "s", "risk": "high", "cites": cites})
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(out)}}]})
+    svc = make_services(fx, tmp_path, llm=LlmClient("http://llm/v1", "k", "m", sleep=lambda s: None,
+                                                    transport=httpx.MockTransport(reply)))
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    llm = next(s for s in svc.store.list_stages(rid) if s["name"] == "llm")
+    assert llm["status"] == "ok" and llm["message"] == "3 AI output(s) broke the house style and were dropped"
+    assert all(f["what_source"] == "template" for f in svc.store.get_blob(rid, "board")["flows"])
+
 class WarningSource:
     def __init__(self, inner):
         self.inner = inner

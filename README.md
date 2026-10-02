@@ -199,6 +199,11 @@ endpoint. Use an on-prem or contractually approved endpoint (any OpenAI-compatib
 OpenAI, …). Leave `llm` out to keep everything on the host. Reviews then use deterministic text and still show every
 flow and annotation.
 
+LLM text follows a house style: the Microsoft Writing Style Guide (you, active voice, short sentences, plain words) and
+one Diátaxis mode per output (narratives and explanations are explanation, verification steps are a how-to, flow
+titles are headlines; facts and evidence stay deterministic reference). Text that breaks a checkable rule is dropped in
+favour of the deterministic text, and the LLM stage says how many outputs were dropped (`backend/codetortoise/llm/style.py`).
+
 ### Swarm
 
 Set `swarm.url`. When the owner signs in, CodeTortoise can read the Swarm review attached to each CL, create a Swarm
