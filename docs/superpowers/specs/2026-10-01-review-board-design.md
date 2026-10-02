@@ -480,7 +480,7 @@ the item's text, name or existence, including code given to the LLM as context.
 | Board edge | both ends' files |
 | Impact (annotation) | `path`, plus the files of `node` and of `cause` |
 | Flow | files of every step (`path`, `lands`, `fx_at`); template `title`/`what`/`effect`/`check` use these |
-| Flow LLM text | `what_files`: every file whose code was in the prompt (path nodes and any context snippets) when `what_source == "llm"`, else equal to `files` |
+| Flow LLM text (`what`, `title`) | `what_files`: every file whose code was in the prompt (path nodes and any context snippets) when `what_source == "llm"`, else equal to `files` |
 | Finding | its nodes' files plus evidence paths (`files`); LLM explanation, verify steps and hypotheses: `explain_files`, the prompt's files (finding nodes plus neighbours), `None` when not LLM-written |
 | Board layer name | files of the board's nodes in that layer (names come from directory names; stage 2 falls back to `L<n>` when hidden) |
 | About: tree file | itself |
@@ -514,4 +514,5 @@ them. Two fewer surfaces to tag and secure.
   `explain_files` include neighbours; `comment_scope` for each anchor kind; a stored old board gets structural tags and
   `None` for LLM text; the two removed endpoints return 404.
 - vitest: banner rule (http + non-loopback → shown; https, localhost, 127.0.0.1, [::1] → hidden).
-- e2e: the banner is not shown on the e2e server (loopback); a page served on a non-loopback address shows it.
+- e2e: no banner on the e2e server's loopback address; the same server opened as a non-loopback host name
+  (Chromium `--host-resolver-rules="MAP ct-lan.test 127.0.0.1"`) shows it, on the login page and on a review.
