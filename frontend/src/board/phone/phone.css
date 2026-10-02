@@ -70,3 +70,25 @@
   border-radius: 12px !important; background: var(--bd-surface) !important; border: 1px solid var(--bd-line) !important;
   font: 600 13.5px var(--bd-mono) !important; color: var(--bd-ink) !important; }
 .ph-pick button span { font: 12px var(--bd-sans); color: var(--bd-muted); word-break: break-all; }
+
+/* Map tab */
+.ph-mapwrap { position: relative; flex: 1; display: flex; min-width: 0; }
+.ph-mapwrap .bd-stage { flex: 1; }
+.ph-mapwrap .bd-node::before { content: ""; position: absolute; left: 50%; top: 50%; width: max(100%, var(--hit, 40px));
+  height: max(100%, var(--hit, 40px)); transform: translate(-50%, -50%); }    /* ≥ 40 px touch target at any zoom */
+.ph-pill { position: absolute; left: 10px; right: 10px; top: 10px; z-index: 46; display: flex; gap: 6px; align-items: center;
+  background: var(--bd-surface); border-radius: 99px; padding: 5px 6px 5px 12px; box-shadow: 0 4px 14px rgba(var(--bd-shadow), .18); }
+.ph-pill select { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--bd-ink); font: 600 13px var(--bd-sans); padding: 4px 0; }
+.ph-more { position: absolute; left: 10px; right: 10px; top: 58px; z-index: 46; display: flex; flex-wrap: wrap; gap: 8px; padding: 10px;
+  background: var(--bd-surface); border-radius: 14px; box-shadow: 0 8px 24px rgba(var(--bd-shadow), .2); }
+.ph-tip { width: 100%; font-size: 12px; color: var(--bd-muted); }
+.ph-sheet { position: absolute; left: 0; right: 0; bottom: 0; height: 50%; z-index: 60; display: flex; flex-direction: column;
+  background: var(--bd-card); border-radius: 16px 16px 0 0; box-shadow: 0 -10px 30px rgba(var(--bd-shadow), .25); }
+.ph-sheet.full { height: calc(100% - 8px); }
+.ph-grip { flex: none; height: 22px; touch-action: none; cursor: ns-resize; }
+.ph-grip::after { content: ""; display: block; width: 40px; height: 4px; border-radius: 2px; background: var(--bd-grip); margin: 9px auto 0; }
+.ph-sheet-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px 8px; border-bottom: 1px solid var(--bd-line); }
+.ph-sheet-head b { font: 600 14px var(--bd-mono); } .ph-sheet-head .sp { flex: 1; }
+.ph-sheet-body { flex: 1; min-height: 0; overflow: auto; }
+.ph-sheet-body .effects { padding: 8px 12px; background: var(--effects-bg); border-bottom: 1px solid var(--bd-line); font-size: 12px; }
+.ph-sheet-body .fetched { padding: 5px 12px; font: 11px var(--bd-mono); color: var(--bd-muted); background: var(--bd-subtle); }

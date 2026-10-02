@@ -389,7 +389,8 @@ changes.
 - The existing canvas (Layers / Call depth, selected flow highlighted), full height. One floating pill: flow picker,
   and a ⋯ menu with layout, lens and Reset layout.
 - **Gestures:** one finger pans; two fingers pinch-zoom a phone-only scale `z ∈ [0.5, 2.5]` applied after the lens
-  (screen = centre + (lensed − centre) · z), keeping the pinch midpoint fixed; tap a node → its code in a bottom
+  (screen = centre + (lensed − centre) · z); the world point under the fingers when the pinch starts stays under
+  their midpoint (so two fingers also pan), solved through the real lens projection; tap a node → its code in a bottom
   sheet (half height; drag the grip up to full, down to dismiss); long-press (≥ 450 ms) then drag moves a node.
   Node hit areas are at least 40 px whatever the zoom. Dragging never selects text.
 

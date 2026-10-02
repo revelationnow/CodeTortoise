@@ -15,15 +15,37 @@ interface Props {
   panBy: (dx: number, dy: number) => void;
   onOpenFile: (id: string) => void;
   onInteract: () => void;
+  /** Phone Map (spec §13.4): two-finger pinch, tap opens the code sheet, long-press before a node moves. */
+  touch?: {
+    onPinchStart: (mid: { x: number; y: number }) => void;
+    onPinch: (d0: number, d1: number, mid: { x: number; y: number }) => void;
+    onTap: (id: string) => void;
+  };
 }
+
+const LONG_PRESS = 450;
 
 const KIND = { modified: "Δ modified", added: "Δ added", removed: "Δ removed", signature: "Δ signature" } as const;
 
 /** Layer bands, edges and nodes, all drawn through the lens; pans on drag, moves a node sideways when dragged by it. */
-export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, panBy, onOpenFile, onInteract }: Props) {
+export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, panBy, onOpenFile, onInteract, touch }: Props) {
   const root = useRef<HTMLDivElement>(null);
   const down = useRef<{ x: number; y: number; px: number; py: number; id: number; node: string | null; go: boolean;
-                        dragging: boolean; ox: number; oy: number } | null>(null);
+                        dragging: boolean; ox: number; oy: number; armed: boolean; timer: number } | null>(null);
+  const pts = useRef(new Map<number, { x: number; y: number }>());     // touch: active pointers
+  const pinch = useRef<{ d: number } | null>(null);
+  const spread = () => {
+    const [a, b] = [...pts.current.values()];
+    const r = root.current!.getBoundingClientRect();
+    return { d: Math.hypot(a.x - b.x, a.y - b.y), mid: { x: (a.x + b.x) / 2 - r.left, y: (a.y + b.y) / 2 - r.top } };
+  };
+  const end = () => {
+    if (down.current) window.clearTimeout(down.current.timer);
+    down.current = null;
+    document.body.classList.remove("bd-dragging");
+    setGrab(null);
+    setPanning(false);
+  };
   const [grab, setGrab] = useState<string | null>(null);   // node being dragged
   const [panning, setPanning] = useState(false);
   const { W } = vp;
@@ -58,19 +80,45 @@ export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, p
   return (
     <div ref={root} className={`bd-canvas${panning ? " drag" : ""}`}
       onPointerDown={(e) => {
+        e.preventDefault();                                  // no text selection starting on the board
+        if (touch) {
+          pts.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+          if (pts.current.size === 2) {                      // a second finger: pinch, never a drag or a tap
+            end();
+            const s = spread();
+            pinch.current = { d: s.d };
+            touch.onPinchStart(s.mid);
+            root.current?.setPointerCapture(e.pointerId);
+            return;
+          }
+          if (pts.current.size > 2) return;
+        }
         const t = e.target as HTMLElement, n = t.closest<HTMLElement>(".bd-node"), r = root.current!.getBoundingClientRect();
         const at = n?.dataset.id ? pos.get(n.dataset.id) : undefined;     // keep the grab point under the pointer
-        down.current = { x: e.clientX, y: e.clientY, px: state.view.panX, py: state.view.panY, id: e.pointerId,
-                         node: n?.dataset.id ?? null, go: !!t.closest(".bd-go"), dragging: false,
-                         ox: at ? at.x - (e.clientX - r.left) : 0, oy: at ? at.y - (e.clientY - r.top) : 0 };
-        e.preventDefault();                                  // no text selection starting on the board
+        const d = { x: e.clientX, y: e.clientY, px: state.view.panX, py: state.view.panY, id: e.pointerId,
+                    node: n?.dataset.id ?? null, go: !!t.closest(".bd-go"), dragging: false,
+                    ox: at ? at.x - (e.clientX - r.left) : 0, oy: at ? at.y - (e.clientY - r.top) : 0,
+                    armed: !touch, timer: 0 };
+        if (touch && d.node)                                 // touch: a node moves only after a long press
+          d.timer = window.setTimeout(() => { if (down.current === d && !d.dragging) { d.armed = true; setGrab(d.node); } }, LONG_PRESS);
+        down.current = d;
       }}
       onPointerMove={(e) => {
+        if (touch && pts.current.has(e.pointerId)) pts.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (touch && pinch.current && pts.current.size === 2) {
+          const { d, mid } = spread();
+          touch.onPinch(pinch.current.d, d, mid);
+          pinch.current.d = d;
+          onInteract();
+          return;
+        }
         const d = down.current;
-        if (!d) return;
+        if (!d || d.id !== e.pointerId) return;
         if (!d.dragging) {
           if (Math.hypot(e.clientX - d.x, e.clientY - d.y) <= 6) return;
           d.dragging = true;
+          window.clearTimeout(d.timer);
+          if (!d.armed) d.node = null;                       // touch without a long press: pan, don't move the node
           root.current?.setPointerCapture(d.id);             // only once dragging: early capture swallows clicks
           document.body.classList.add("bd-dragging");
           window.getSelection()?.removeAllRanges();
@@ -82,23 +130,29 @@ export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, p
           dispatch({ t: "node.move", id: d.node, x: Math.round(lens.unprojectX(sx)), y: Math.round(lens.unprojectY(sx, sy)) });
         } else dispatch({ t: "pan", panX: d.px + (e.clientX - d.x), panY: d.py + (e.clientY - d.y) });
       }}
-      onPointerUp={() => {
+      onPointerUp={(e) => {
+        if (touch) {
+          pts.current.delete(e.pointerId);
+          if (pinch.current) { if (pts.current.size < 2) pinch.current = null; return; }
+        }
         const d = down.current;
-        down.current = null;
-        document.body.classList.remove("bd-dragging");
-        setGrab(null);
-        setPanning(false);
+        if (d && d.id !== e.pointerId) return;
+        end();
         if (!d || d.dragging || !d.node) return;
         const n = byId.get(d.node);
         if (!n?.path || !n.range) return;
         onInteract();
-        if (d.go) onOpenFile(d.node); else dispatch({ t: "card.open", id: d.node });
+        if (d.go) onOpenFile(d.node);
+        else if (touch) {                                    // after the tap's click, or it lands in the sheet that opens under it
+          const id = d.node;
+          window.setTimeout(() => touch.onTap(id), 0);
+        }
+        else dispatch({ t: "card.open", id: d.node });
       }}
-      onPointerCancel={() => {
-        down.current = null;
-        document.body.classList.remove("bd-dragging");
-        setGrab(null);
-        setPanning(false);
+      onPointerCancel={(e) => {
+        pts.current.delete(e.pointerId);
+        if (pts.current.size < 2) pinch.current = null;
+        end();
       }}>
       <svg className="bd-bands">
         {bands.map(({ key, row: i }) => (
@@ -137,7 +191,8 @@ export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, p
         const fx = badge.get(n.id);
         return (
           <div key={n.id} data-id={n.id} className={cls} title={n.label}
-               style={{ left: p.x, top: p.y, transform: `translate(-50%, -50%) scale(${p.s})`, zIndex: Math.round(p.s * 20) }}>
+               style={{ left: p.x, top: p.y, transform: `translate(-50%, -50%) scale(${p.s})`, zIndex: Math.round(p.s * 20),
+                        ["--hit" as string]: `${40 / Math.max(p.s, 0.1)}px` }}>
             {n.change && <span className="kind">{KIND[n.change.kind]}</span>}
             <span className="lbl">{n.label}</span>
             {n.change && <span className="stat"><b className="p">+{n.change.add}</b><b className="m">−{n.change.rem}</b></span>}

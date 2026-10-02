@@ -68,3 +68,42 @@ test("the phone tab is remembered for the review", async ({ page }) => {
   await page.reload();
   await expect(tab(page, "Summary")).toHaveAttribute("aria-selected", "true");
 });
+
+test("phone map: pinch to zoom, tap a node for its code, long-press to move it", async ({ page }) => {
+  await startReview(page);
+  await tab(page, "Map").click();
+  const node = page.locator(".bd-node.chg", { hasText: "uart_send" });
+  await expect(node).toBeVisible();
+  const cdp = await page.context().newCDPSession(page);
+  const touch = (type: string, pts: [number, number][]) =>
+    cdp.send("Input.dispatchTouchEvent", { type, touchPoints: pts.map(([x, y], id) => ({ x, y, id })) });
+  const centre = async () => { const b = (await node.boundingBox())!; return [b.x + b.width / 2, b.y + b.height / 2, b.width] as const; };
+
+  // pinch out around the node: it grows and stays under the fingers
+  const [x0, y0, w0] = await centre();
+  await touch("touchStart", [[x0 - 30, y0], [x0 + 30, y0]]);
+  for (let k = 1; k <= 6; k++) await touch("touchMove", [[x0 - 30 - k * 12, y0], [x0 + 30 + k * 12, y0]]);
+  await touch("touchEnd", []);
+  const [x1, y1, w1] = await centre();
+  expect(w1).toBeGreaterThan(w0 * 1.5);
+  expect(Math.hypot(x1 - x0, y1 - y0)).toBeLessThan(40);
+
+  // tap: the node's code opens in a sheet
+  await node.tap();
+  const sheet = page.locator(".ph-sheet");
+  await expect(sheet.locator(".bd-ann").first()).toContainText("through alias");
+  await expect(sheet.locator("textarea")).toHaveCount(0);                          // the tap's click must not land in the sheet
+  await sheet.getByRole("button", { name: "Close code" }).click();
+  await expect(sheet).toHaveCount(0);
+
+  // long-press, then drag: the node moves; a plain drag pans instead
+  await touch("touchStart", [[x1, y1]]);
+  await page.waitForTimeout(600);
+  for (let k = 1; k <= 5; k++) await touch("touchMove", [[x1 + k * 14, y1 + k * 10]]);
+  await touch("touchEnd", []);
+  await expect(node).toHaveClass(/\bmoved\b/);
+
+  // the floating pill picks flows
+  await page.getByLabel("Flow").selectOption({ label: "2 · logger_flush ignores -2" });
+  await expect(page.locator(".bd-node.onflow", { hasText: "logger_flush" })).toBeVisible();
+});

@@ -13,6 +13,8 @@ import { keys, loadAboutOpen, loadLayout, loadLens, loadMovedAll, loadSize, load
 import { type Action, initialState, reduce } from "./reducer";
 import type { Board as BoardModel } from "./types";
 import PhoneBoard from "./phone/PhoneBoard";
+import PhoneMap from "./phone/PhoneMap";
+import { pinchView, pinchZoom, zoomLens } from "./zoom";
 import { useSources } from "./useSources";
 
 interface Props {
@@ -59,6 +61,8 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
   const [hint, setHint] = useState(true);
   const [stage, setStage] = useState<HTMLDivElement | null>(null);   // the canvas element; on phones it mounts with the Map tab
   const phone = usePhone();
+  const [zoom, setZoom] = useState(1);                // phone Map only (spec §13.4)
+  const [sheet, setSheet] = useState<string | null>(null);
   const anim = useRef(0);
 
   useEffect(() => save(keys.moved(reviewId), state.moved), [reviewId, state.moved]);
@@ -69,7 +73,8 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
   const sideEffects = useMemo(() => sideEffectFiles(board), [board]);
   const bands = useMemo(() => bandsFor(board, state.layout), [board, state.layout]);
   const world = useMemo(() => worldNodes(board, state.layout, state.moved[state.layout]), [board, state.layout, state.moved]);
-  const lens = useMemo(() => makeLens(state.view, vp, [...world.values()].map((n) => n.x)), [state.view, vp, world]);
+  const baseLens = useMemo(() => makeLens(state.view, vp, [...world.values()].map((n) => n.x)), [state.view, vp, world]);
+  const lens = useMemo(() => (phone ? zoomLens(baseLens, zoom, vp) : baseLens), [phone, baseLens, zoom, vp]);
   const pos = useMemo(() => new Map([...world.values()].map((n) => [n.id, lens.project(n.x, n.y)])), [world, lens]);
 
   const vpRef = useRef(vp);
@@ -156,20 +161,44 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
     return board.layers.find((l) => l.level === lv)?.name ?? "unlayered";
   }, [nodes, board]);
 
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  const anchor = useRef({ x: 0, y: 0 });               // world point under the fingers when the pinch started
+  const lensRef = useRef(lens);
+  lensRef.current = lens;
+  const onPinchStart = useCallback((mid: { x: number; y: number }) => {
+    anchor.current = { x: lensRef.current.unprojectX(mid.x), y: lensRef.current.unprojectY(mid.x, mid.y) };
+  }, []);
+  const onPinch = useCallback((d0: number, d1: number, mid: { x: number; y: number }) => {
+    const z1 = pinchZoom(zoomRef.current, d0, d1);
+    const next = pinchView(stateRef.current.view, z1, anchor.current, mid, vpRef.current, [...worldRef.current.values()].map((n) => n.x));
+    zoomRef.current = z1;
+    setZoom(z1);
+    window.cancelAnimationFrame(anim.current);
+    stateRef.current = { ...stateRef.current, view: next };       // several pinch moves can arrive before a render
+    dispatch({ t: "pan", panX: next.panX, panY: next.panY });
+  }, []);
   const narrow = typeof window !== "undefined" && window.innerWidth <= 640;
   const viewerOpen = state.viewer.files.length > 0;
   const cardCount = Object.keys(state.cards).length;
   const canvas = vp.W > 0 && <>
     <Canvas board={board} lens={lens} pos={pos} vp={vp} bands={bands} state={state} dispatch={act}
-            panBy={panBy} onOpenFile={openFile} onInteract={interact} />
-    <CardLayer reviewId={reviewId} board={board} pos={pos} vp={vp} state={state} dispatch={act} sources={sources}
-               comments={comments} onComments={onComments} onOpenFile={openFile} narrow={narrow} />
+            panBy={panBy} onOpenFile={openFile} onInteract={interact}
+            touch={phone ? { onPinchStart, onPinch, onTap: setSheet } : undefined} />
+    {!phone && <CardLayer reviewId={reviewId} board={board} pos={pos} vp={vp} state={state} dispatch={act} sources={sources}
+                          comments={comments} onComments={onComments} onOpenFile={openFile} narrow={narrow} />}
   </>;
   if (phone)
     return (
       <PhoneBoard reviewId={reviewId} board={board} state={state} act={act} sources={sources} comments={comments}
                   onComments={onComments} risk={risk} sideEffects={sideEffects} head={head} onOpenFile={openFile}
-                  map={<div className="bd-stage" ref={setStage}>{canvas}</div>} />
+                  map={
+                    <PhoneMap reviewId={reviewId} board={board} state={state} act={act} setLayout={setLayout} onFlow={selectFlow}
+                              sheet={sheet} onCloseSheet={() => setSheet(null)} onOpenFile={openFile} sources={sources}
+                              comments={comments} onComments={onComments}>
+                      <div className="bd-stage" ref={setStage}>{canvas}</div>
+                    </PhoneMap>
+                  } />
     );
   return (
     <div className="bd">
