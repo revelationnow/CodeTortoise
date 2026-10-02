@@ -11,28 +11,29 @@ export default function Health() {
   if (!h) return <main className="page muted">Checking…</main>;
   return (
     <main className="page">
-      <h1>Health {h.ready ? <span className="badge ok">ready</span> : <span className="badge failed">not ready</span>}</h1>
-      <div className="table-wrap"><table className="table">
-        <thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead>
-        <tbody>
-          {h.checks.map((c) => (
-            <tr key={c.name}>
-              <td>{c.name}{c.hard ? "" : <span className="muted"> (warning only)</span>}</td>
-              <td><span className={`badge ${c.ok ? "ok" : c.hard ? "failed" : "degraded"}`}>{c.ok ? "ok" : "fail"}</span></td>
-              <td className="mono small">{c.detail}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table></div>
-      <section className="card">
-        <h2>Symbol index</h2>
-        <p>Generation {h.index_generation}{h.index_building ? " — rebuilding…" : ""}</p>
-        <button onClick={() => api.rebuildIndex().then(load)}>Rebuild index</button>
-      </section>
-      <section className="card">
-        <h2>Flags stripped for libclang</h2>
-        <p className="mono small">{h.strip_flags.length ? h.strip_flags.join(" ") : "none"}</p>
-      </section>
+      <h1 className="hc-title">Health <span className={`hc-pill ${h.ready ? "ok" : "bad"}`}>● {h.ready ? "ready" : "not ready"}</span></h1>
+      <div className="hc-list">
+        {h.checks.map((c) => {
+          const kind = c.ok ? "ok" : c.hard ? "bad" : "warn";
+          return (
+            <div key={c.name} className={`hc-row ${kind}`}>
+              <span className="icon">{c.ok ? "✓" : c.hard ? "✗" : "!"}</span>
+              <div><b>{c.name}</b>{!c.hard && <span className="muted small"> · warning only</span>}<div className="detail">{c.detail}</div></div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="hc-cards">
+        <section className="card">
+          <h2>Symbol index</h2>
+          <p>Generation {h.index_generation}{h.index_building ? " — rebuilding…" : ""}</p>
+          <button onClick={() => api.rebuildIndex().then(load)}>Rebuild index</button>
+        </section>
+        <section className="card">
+          <h2>Flags stripped for libclang</h2>
+          <p className="mono small">{h.strip_flags.length ? h.strip_flags.join(" ") : "none"}</p>
+        </section>
+      </div>
       <p className="muted small">Code snippets of changed functions and their callers are sent to the configured LLM endpoint.</p>
     </main>
   );

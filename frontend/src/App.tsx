@@ -1,10 +1,10 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api, type Me } from "./api";
+import Logo from "./components/Logo";
 import ThemeSwitch from "./components/ThemeSwitch";
 import Health from "./pages/Health";
 import Login from "./pages/Login";
-import NewReview from "./pages/NewReview";
 import Review from "./pages/Review";
 import Reviews from "./pages/Reviews";
 
@@ -15,9 +15,11 @@ export default function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
   const location = useLocation();
   const navigate = useNavigate();
+  const [menu, setMenu] = useState(false);
 
   useEffect(() => {
     api.me().then(setMe).catch(() => setMe(null));
+    setMenu(false);
   }, [location.pathname]);
 
   if (me === undefined) return <div className="page muted">Loading…</div>;
@@ -26,12 +28,14 @@ export default function App() {
 
   return (
     <MeContext.Provider value={me}>
-      <header className="topbar">
-        <Link to="/" className="brand">CodeTortoise</Link>
+      <header className={`topbar${menu ? " open" : ""}`}>
+        <Link to="/" className="brand"><Logo size={28} />CodeTortoise</Link>
+        {me && (
+          <button className="menu-btn" aria-label="Menu" aria-expanded={menu} onClick={() => setMenu(!menu)}>☰</button>
+        )}
         {me && (
           <nav>
             <Link to="/">Reviews</Link>
-            {me.is_owner && <Link to="/new">New review</Link>}
             {me.is_owner && <Link to="/health">Health</Link>}
             <span className="muted">{me.user}</span>
             <button className="link" onClick={() => api.logout().then(() => { setMe(null); navigate("/login"); })}>
@@ -44,7 +48,7 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login onLogin={() => api.me().then(setMe)} />} />
         <Route path="/" element={<Reviews />} />
-        <Route path="/new" element={<NewReview />} />
+        <Route path="/new" element={<Navigate to="/" replace />} />
         <Route path="/health" element={<Health />} />
         <Route path="/r/:id/*" element={<Review />} />
         <Route path="*" element={<Navigate to="/" replace />} />

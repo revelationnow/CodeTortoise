@@ -39,10 +39,13 @@ for (const theme of ["light", "dark"] as const) {
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme);      // follows the system by default
     await expect(page.locator(".bd-card .bd-code .src").first()).toBeVisible();
     for (const sel of CHECKS) expect(await contrast(page, sel), sel).toBeGreaterThanOrEqual(4.5);
-    await page.goto("/new");
-    const input = page.getByLabel("Changelists (shelved or submitted)");
+    await page.goto("/");
+    const input = page.getByRole("searchbox", { name: "Search reviews" });            // on the page surface
     expect(await input.evaluate((el) => getComputedStyle(el).colorScheme)).toContain(theme);
-    expect(await contrast(page, "input")).toBeGreaterThanOrEqual(4.5);
+    for (const sel of ["textarea", ".rv-search input", ".rv-row b", ".rv-hello h1", ".rv-head h2", ".topbar a"])
+      expect(await contrast(page, sel), sel).toBeGreaterThanOrEqual(4.5);
+    await page.goto("/health");
+    for (const sel of [".hc-row b", ".hc-row .detail"]) expect(await contrast(page, sel), sel).toBeGreaterThanOrEqual(4.5);
   });
 }
 

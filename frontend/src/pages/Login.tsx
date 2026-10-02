@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
+import Logo from "../components/Logo";
 
 export default function Login({ onLogin }: { onLogin: () => Promise<unknown> }) {
   const [user, setUser] = useState("");
@@ -26,14 +27,15 @@ export default function Login({ onLogin }: { onLogin: () => Promise<unknown> }) 
   }
 
   return (
-    <main className="page narrow">
-      <h1>Sign in</h1>
-      <p className="muted">Use your Perforce credentials.</p>
-      <form onSubmit={submit} className="stack">
+    <main className="login-wrap">
+      <form onSubmit={submit} className="login-card stack">
+        <Logo size={64} />
+        <h1>CodeTortoise</h1>
+        <p className="muted">Sign in with your Perforce account</p>
         <label>P4 user<input autoFocus value={user} onChange={(e) => setUser(e.target.value)} required /></label>
         <label>Password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
         {error && <div className="error">{error}</div>}
-        <button disabled={busy || !user.trim()}>{busy ? "Checking…" : "Sign in"}</button>
+        <button className="go" disabled={busy || !user.trim()}>{busy ? "Checking…" : "Sign in"}</button>
       </form>
     </main>
   );

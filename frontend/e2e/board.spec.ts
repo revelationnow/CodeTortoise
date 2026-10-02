@@ -28,6 +28,7 @@ test("flows, cards, comments, viewer, change panel and layout", async ({ page })
   await expect(card.getByText("flush drops -2 silently")).toBeVisible();
 
   // ⤢ on a node opens its file in the viewer, at the function; cards collapse to pills
+  await page.getByRole("button", { name: "Close uart_send" }).click();             // the card opened on arrival can cover main
   await page.locator(".bd-node", { hasText: /^main/ }).locator(".bd-go").click();
   const viewer = page.locator(".bd-viewer");
   await expect(viewer.locator('.fsec[data-path="//fixture/app/main.c"]')).toBeVisible();

@@ -339,3 +339,16 @@ submission order; the first failure stops applying (earlier results stay) and sk
 - Pinned by `theme.test.ts` (resolution) and `e2e/theme.spec.ts` (follows the OS; switch overrides and is remembered;
   WCAG contrast ≥ 4.5 for flow summary, node label, card code, annotation, change panel, board button, top-bar link and
   a native input in both themes; the input's `color-scheme` matches).
+
+## 12. Landing page, mascot and page styling (2026-10-01)
+
+- **Mascot:** a tortoise seen from above in a dark rounded tile (violet hex shell, amber head and legs):
+  `frontend/public/logo.svg` (also the tab icon) and `components/Logo.tsx`, in the top bar, the landing panel and Login.
+- **Landing (`/`):** left, a dark "Review a change" panel (owner; others see a welcome); right, the reviews list with a search
+  box (title, CL number, author, status; every word must match; matches highlighted; "N of M reviews"; Esc clears) and
+  chips All / High risk / Running (incl. queued) / Mine with counts. While any review is queued or running the list
+  refreshes every 5 s. `/new` redirects to `/`. Phone: the panel stacks above the list and the top-bar links fold into ☰.
+- **Login:** a card with the mascot on the dark gradient. **Health:** a ready pill and one row per check (✓ / ! / ✗).
+  Review sub-pages get the same card and badge styling. Everything uses the light/dark tokens; the dark chrome panels
+  carry a solid fallback colour under their gradients.
+- Pinned by `lib/reviewFilter.test.ts` and `e2e/landing.spec.ts`, plus landing/health contrast checks in `e2e/theme.spec.ts`.
