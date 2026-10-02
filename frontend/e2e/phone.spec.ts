@@ -133,10 +133,11 @@ test("a cited function opens on the phone map with its code", async ({ page }) =
   await page.goto(`/r/${rid}?node=${target.id}`);
   await expect(tab(page, "Map")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".ph-sheet .ph-sheet-head")).toContainText("uart_errors");
-  const stage = (await page.locator(".bd-stage").boundingBox())!;
-  const node = (await page.locator(".bd-node", { hasText: "uart_errors" }).boundingBox())!;
-  expect(node.x).toBeGreaterThanOrEqual(stage.x);
-  expect(node.x + node.width).toBeLessThanOrEqual(stage.x + stage.width);
-  expect(node.y).toBeGreaterThanOrEqual(stage.y);
-  expect(node.y + node.height).toBeLessThanOrEqual(stage.y + stage.height);
+  const inside = async () => {                                                     // once the eased pan has settled
+    const stage = (await page.locator(".bd-stage").boundingBox())!;
+    const node = (await page.locator(".bd-node", { hasText: "uart_errors" }).boundingBox())!;
+    return node.x >= stage.x && node.x + node.width <= stage.x + stage.width &&
+      node.y >= stage.y && node.y + node.height <= stage.y + stage.height;
+  };
+  await expect.poll(inside).toBe(true);
 });
