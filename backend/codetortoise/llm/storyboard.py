@@ -223,7 +223,7 @@ def build_storyboard(impact: ImpactModel, findings: list[Finding], layers: Layer
         def describe(out: _FlowOut, fl=fl):
             # grounded: keep the LLM text only if it cites a node on this flow or one of its findings
             if out.what.strip() and set(out.cites) & (set(fl.path) | set(fl.findings)):
-                fl.what, fl.what_source = out.what.strip(), "llm"
+                fl.what, fl.what_source, fl.what_files = out.what.strip(), "llm", None
                 if 0 < len(out.title.strip()) <= 80:
                     fl.title = out.title.strip()
         jobs.append((_flow_prompt(fl, impact, findings, snippets, per_call), _FlowOut, describe))
@@ -246,7 +246,7 @@ def build_storyboard(impact: ImpactModel, findings: list[Finding], layers: Layer
         sb.verified = any(c in known for c in out.cites)
         sb.llm_used = True
         if board is not None and out.summary.strip():
-            board.about.intent, board.about.intent_source = out.summary.strip(), "llm"
+            board.about.intent, board.about.intent_source, board.about.intent_files = out.summary.strip(), "llm", None
     except Exception as e:  # any LLM-side failure leaves the deterministic storyboard intact
         sb.llm_error = str(e) if isinstance(e, LlmError) else f"{type(e).__name__}: {e}"
     finally:

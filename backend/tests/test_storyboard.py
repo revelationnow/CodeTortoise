@@ -131,7 +131,9 @@ def _board(flows=2):
                findings=["F1"], text="logger_flush → uart_send ⟶ -2 ignored", title="template title", what="template what",
                effect="e",
                check="c") for i in range(flows)]
-    return Board(flows=fl, about=About(intent="template intent"))
+    for f in fl:
+        f.files = f.what_files = ["//fixture/service/logger.c"]
+    return Board(flows=fl, about=About(intent="template intent", intent_files=["//fixture/driver/uart.c"]))
 
 
 def _respond(flow_reply):
@@ -159,6 +161,8 @@ def test_llm_writes_grounded_flow_narratives_and_the_change_intent():
         ("flush drops -2", "llm"), ("template what", "template"), ("template what", "template")]
     assert [f.title for f in board.flows] == ["logger_flush drops -2 on flush", "template title", "template title"]
     assert board.about.intent == "the change adds tx stats" and board.about.intent_source == "llm"
+    # LLM text no longer depends only on the template's files: unknown until its prompt's files are recorded
+    assert board.flows[0].what_files is None and board.about.intent_files is None
 
 
 def test_llm_calls_run_concurrently():

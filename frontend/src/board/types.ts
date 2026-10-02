@@ -21,9 +21,9 @@ export interface AboutFile { path: string; name: string; action: string; cls: nu
 export interface About {
   intent: string; intent_source: "template" | "llm";
   why: { severity: string; text: string; finding: string }[];
-  cls: { cl: number; user: string; description: string; files: number }[];
+  cls: { cl: number; user: string; description: string; file_count: number }[];
   tree: { dir: string; files: AboutFile[] }[];
-  drift: string[];
+  drift: { text: string }[];
 }
 export interface Board {
   nodes: BoardNode[]; edges: BoardEdge[]; flows: BoardFlow[]; impacts: Annotation[];

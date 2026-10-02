@@ -53,7 +53,7 @@ export default function ChangePanel({ open, onToggle, reviewId, comments, onComm
         {about.drift.length > 0 && (
           <div className="bd-drift">
             ⚠ The base workspace is not at the changelists' base revision, so context code fetched from it may not match
-            what was analysed: {about.drift.join("; ")}
+            what was analysed: {about.drift.map((d) => d.text).join("; ")}
           </div>
         )}
         <h3>Files in this change</h3>
@@ -116,7 +116,7 @@ export default function ChangePanel({ open, onToggle, reviewId, comments, onComm
           ))}
         <h3>Changelists</h3>
         {about.cls.map((c) => (
-          <div key={c.cl} className="cl"><span className="n">CL {c.cl}</span> <span className="m">· {c.user} · {c.files} files</span>
+          <div key={c.cl} className="cl"><span className="n">CL {c.cl}</span> <span className="m">· {c.user} · {c.file_count} files</span>
             <div className="desc">{c.description}</div></div>
         ))}
       </div>

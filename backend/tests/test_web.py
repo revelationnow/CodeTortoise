@@ -253,6 +253,24 @@ def test_board_stored_by_an_older_version_gets_current_defaults(env):
     assert [f["title"] for f in b["flows"]] == ["affects uart_errors", "-2 ignored", "signature changed"]
 
 
+def test_board_stored_before_file_tags_gets_them_on_load(env):
+    svc, app, _ = env
+    owner, rid = _review(app)
+    old = svc.store.get_blob(rid, "board")
+    for item in [*old["nodes"], *old["edges"], *old["impacts"], *old["layers"], *old["about"]["why"],
+                 *(f for d in old["about"]["tree"] for f in d["files"])]:
+        item.pop("files")
+    for f in old["flows"]:
+        f.pop("files"), f.pop("what_files")
+    for c in old["about"]["cls"]:
+        c["files"] = c.pop("file_count")
+    old["about"].pop("intent_files")
+    svc.store.put_blob(rid, "board", old)
+    b = owner.get(f"/api/reviews/{rid}/board").json()
+    assert all(n["files"] for n in b["nodes"]) and all(f["files"] == f["what_files"] for f in b["flows"])
+    assert [c["file_count"] for c in b["about"]["cls"]] == [1, 3] and all(c["files"] for c in b["about"]["cls"])
+
+
 def test_session_cookie_is_secure_only_when_https_is_configured(fx, tmp_path):
     from pathlib import Path
     svc = make_services(fx, tmp_path)

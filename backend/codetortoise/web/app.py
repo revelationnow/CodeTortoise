@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from codetortoise.board import Board
 from codetortoise.health import run_health
 from codetortoise.pipeline import JobRunner
+from codetortoise.provenance import tag_board
 from codetortoise.services import Services
 from codetortoise.swarm import SwarmError
 from codetortoise.vcs.p4runner import P4Error
@@ -171,7 +172,8 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         b = store.get_blob(rid, "board")
         if b is None:
             raise HTTPException(404, "board not built yet")
-        b = Board.model_validate(b).model_dump()          # boards stored by an older version get current defaults
+        # boards stored by an older version get current defaults and file tags (spec §14.3)
+        b = tag_board(Board.model_validate(b)).model_dump()
         overrides = store.kv_get("layer_overrides") or {}
         for layer in b.get("layers", []):
             if str(layer["level"]) in overrides:

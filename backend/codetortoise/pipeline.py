@@ -15,6 +15,7 @@ from codetortoise.facts.runner import build_requests, run_extraction
 from codetortoise.impact import ImpactModel, build_impact
 from codetortoise.llm.storyboard import build_storyboard
 from codetortoise.paths import canon
+from codetortoise.provenance import tag_board
 from codetortoise.services import Services
 from codetortoise.swarm import SwarmError
 from codetortoise.tu_select import TuSelection, field_follow_up, select_tus
@@ -191,8 +192,9 @@ def run_review(rid: int, svc: Services) -> None:
     def board():
         notes: list[str] = []
         resolve = depot_resolver(svc.source, ctx["cs"], cfg.workspace.root, notes)
-        b = build_board(BoardContext(ctx["cs"], ctx["dm"], ctx["before"], ctx["after"], ctx["impact"], ctx["findings"],
-                                     ctx.get("layers"), cfg.analysis, resolve, root=canon(str(cfg.workspace.root))))
+        b = tag_board(build_board(BoardContext(ctx["cs"], ctx["dm"], ctx["before"], ctx["after"], ctx["impact"],
+                                               ctx["findings"], ctx.get("layers"), cfg.analysis, resolve,
+                                               root=canon(str(cfg.workspace.root)))))
         ctx["board"] = b
         store.put_blob(rid, "board", b)
         if notes:

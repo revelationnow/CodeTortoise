@@ -25,6 +25,7 @@ from codetortoise.layers import LayerModel
 from codetortoise.vcs.model import ChangeSet
 
 Channel = Literal["contract", "signature", "state"]
+Files = list[str] | None          # depot paths an item depends on (spec §14.3); None = unknown, owner-only in stage 2
 Sev = Literal["warn", "info", "ok"]
 _RANGE_OPS = ("!=", "<", ">", "<=", ">=")
 X_SPACING = 220.0
@@ -56,6 +57,7 @@ class BoardNode(BaseModel):
     change: NodeChange | None = None
     x: float = 0.0
     warn: int = 0
+    files: Files = None
 
 
 class BoardEdge(BaseModel):
@@ -64,6 +66,7 @@ class BoardEdge(BaseModel):
     kind: str
     status: str
     confidence: str
+    files: Files = None
 
 
 class Impact(BaseModel):
@@ -78,6 +81,7 @@ class Impact(BaseModel):
     finding: str | None = None
     cause: str | None = None         # the changed node this impact comes from
     landing: bool = False            # a flow may land here (ignoring caller, field reader, signature caller)
+    files: Files = None
 
 
 class Flow(BaseModel):
@@ -94,6 +98,8 @@ class Flow(BaseModel):
     effect: str
     check: str
     what_source: Literal["template", "llm"] = "template"
+    files: Files = None
+    what_files: Files = None         # files behind `what`/`title`: the flow's own for template text, the prompt's for LLM text
 
     @model_validator(mode="after")
     def _title_from_text(self) -> Flow:
@@ -107,6 +113,7 @@ class Flow(BaseModel):
 class BoardLayer(BaseModel):
     level: int
     name: str
+    files: Files = None
 
 
 class AboutFile(BaseModel):
@@ -116,6 +123,7 @@ class AboutFile(BaseModel):
     cls: list[int]
     add: int
     rem: int
+    files: Files = None
 
 
 class AboutDir(BaseModel):
@@ -127,22 +135,46 @@ class AboutCl(BaseModel):
     cl: int
     user: str
     description: str
-    files: int
+    file_count: int
+    files: Files = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _count_was_files(cls, data):
+        """Boards stored before tags kept the file count in `files`."""
+        if isinstance(data, dict) and isinstance(data.get("files"), int):
+            data = {**data, "file_count": data["files"], "files": None}
+        return data
 
 
 class AboutWhy(BaseModel):
     severity: str
     text: str
     finding: str
+    files: Files = None
+
+
+class AboutDrift(BaseModel):
+    text: str
+    files: Files = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _from_text(cls, data):
+        """Boards stored before tags kept drift lines as "<depot> (base #a, workspace #b)" strings."""
+        if isinstance(data, str):
+            return {"text": data, "files": [data.split(" (base ", 1)[0]]}
+        return data
 
 
 class About(BaseModel):
     intent: str
     intent_source: Literal["template", "llm"] = "template"
+    intent_files: Files = None
     why: list[AboutWhy] = Field(default_factory=list)
     cls: list[AboutCl] = Field(default_factory=list)
     tree: list[AboutDir] = Field(default_factory=list)
-    drift: list[str] = Field(default_factory=list)   # base workspace differs from the CL base: context code may not match
+    drift: list[AboutDrift] = Field(default_factory=list)   # base workspace differs from the CL base: context code may not match
 
 
 class Board(BaseModel):
@@ -619,7 +651,7 @@ def build_about(c: BoardContext) -> About:
     intent = (f"{fn_count} function(s) changed in {len(files)} file(s). " + (descs + "." if descs else "")).strip()
     why = [AboutWhy(severity=f.severity, text=f.title, finding=f.id) for f in c.findings[:4]]
     cls = [AboutCl(cl=m.cl, user=m.user, description=m.description,
-                   files=sum(1 for f in files if any(p.cl == m.cl for p in f.per_cl))) for m in c.cs.cls]
+                   file_count=sum(1 for f in files if any(p.cl == m.cl for p in f.per_cl))) for m in c.cs.cls]
     prefix = _tree_prefix([f.depot for f in files])
     dirs: dict[str, list[AboutFile]] = defaultdict(list)
     for f in sorted(files, key=lambda f: f.depot):
@@ -629,5 +661,5 @@ def build_about(c: BoardContext) -> About:
         dirs[d].append(AboutFile(path=f.depot, name=posixpath.basename(rel), action=f.action,
                                  cls=[p.cl for p in f.per_cl], add=add, rem=rem))
     tree = [AboutDir(dir=d, files=fs) for d, fs in sorted(dirs.items())]
-    drift = [f"{d.depot} (base {d.expected}, workspace {d.actual})" for d in c.cs.drift]
+    drift = [AboutDrift(text=f"{d.depot} (base {d.expected}, workspace {d.actual})", files=[d.depot]) for d in c.cs.drift]
     return About(intent=intent, why=why, cls=cls, tree=tree, drift=drift)

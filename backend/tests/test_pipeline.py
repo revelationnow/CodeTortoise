@@ -29,6 +29,7 @@ def test_full_review_without_llm_or_swarm(fx, tmp_path):
     assert [f["tag"] for f in board["flows"]] == ["state", "contract", "contract"]
     assert all(n["path"].startswith("//fixture/") for n in board["nodes"] if n["kind"] == "function")
     assert board["about"]["intent_source"] == "template"
+    assert all(n["files"] for n in board["nodes"]) and all(f["files"] for f in board["flows"])   # tags stored (spec §14.3)
 
 
 def test_ingest_failure_skips_dependent_stages(fx, tmp_path):

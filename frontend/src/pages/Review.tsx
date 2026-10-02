@@ -73,7 +73,7 @@ export default function Review() {
       </nav>
       {me?.is_owner && ready && <button className="link rerun" onClick={() => api.rerun(id).then(loadDetail)}>Re-run</button>}
       {board && board.about.drift.length > 0 && (
-        <span className="bd-pill high" title={board.about.drift.join("\n")}>⚠ workspace drift ({board.about.drift.length})</span>
+        <span className="bd-pill high" title={board.about.drift.map((d) => d.text).join("\n")}>⚠ workspace drift ({board.about.drift.length})</span>
       )}
       {notes.length > 0 && (
         <details className="bd-notes">
