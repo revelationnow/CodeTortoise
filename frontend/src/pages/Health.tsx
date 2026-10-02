@@ -33,6 +33,12 @@ export default function Health() {
           <h2>Flags stripped for libclang</h2>
           <p className="mono small">{h.strip_flags.length ? h.strip_flags.join(" ") : "none"}</p>
         </section>
+        {Object.keys(h.p4_sources ?? {}).length > 0 && (
+          <section className="card">
+            <h2>Perforce settings from</h2>
+            {Object.entries(h.p4_sources).map(([k, v]) => <p key={k} className="small"><b>{k}</b> · {v}</p>)}
+          </section>
+        )}
       </div>
       <p className="muted small">Code snippets of changed functions and their callers are sent to the configured LLM endpoint.</p>
     </main>

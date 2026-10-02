@@ -113,10 +113,13 @@ def test_swarm_actions(env):
 
 
 def test_health_and_layer_rename(env):
-    _, app, _ = env
+    svc, app, _ = env
     owner = login(app, "owner")
+    svc.cfg.workspace.p4_sources = {"p4port": "P4CONFIG file /w/.p4config"}   # as load_config records it
     h = owner.get("/api/health").json()
-    assert h["ready"] is True and {c["name"] for c in h["checks"]} >= {"workspace root", "compile_commands", "libclang"}
+    assert h["ready"] is True
+    assert h["p4_sources"] == {"p4port": "P4CONFIG file /w/.p4config"}
+    assert {c["name"] for c in h["checks"]} >= {"workspace root", "compile_commands", "libclang"}
     assert owner.put("/api/layers/2", json={"name": "Drivers"}).json() == {"2": "Drivers"}
     rid = owner.post("/api/reviews", json={"cls": [101]}).json()["id"]
     names = [layer["name"] for layer in owner.get(f"/api/reviews/{rid}/board").json()["layers"]]

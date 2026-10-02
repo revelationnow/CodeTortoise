@@ -25,7 +25,8 @@ export interface Comment {
   anchor_kind: AnchorKind; anchor: Record<string, unknown>; resolved: boolean; created_at: string; edited_at: string | null;
 }
 export interface HealthCheck { name: string; ok: boolean; hard: boolean; detail: string }
-export interface Health { checks: HealthCheck[]; ready: boolean; index_generation: number; libclang: string | null; strip_flags: string[]; index_building: boolean }
+export interface Health { checks: HealthCheck[]; ready: boolean; index_generation: number; libclang: string | null; strip_flags: string[]; index_building: boolean;
+  p4_sources: Record<string, string> }
 
 export type { Board, SourceText } from "./board/types";
 import type { Board, SourceText } from "./board/types";

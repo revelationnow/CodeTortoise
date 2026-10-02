@@ -28,8 +28,33 @@ workspace:
 
 
 def test_p4_requires_port_and_client(tmp_path):
-    with pytest.raises(ConfigError, match="p4port"):
-        load_config(write(tmp_path, "owner: a\nworkspace: {root: /w, compile_commands: /w/cc.json}\n"))
+    with pytest.raises(ConfigError, match="workspace.p4port is not set: not in tortoise.yaml, no P4CONFIG file was found"):
+        load_config(write(tmp_path, "owner: a\nworkspace: {root: /w, compile_commands: /w/cc.json}\n"), env={})
+
+
+def test_port_client_and_owner_come_from_the_p4config_file(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / ".p4config").write_text("P4PORT=ssl:p4:1666\nP4CLIENT=anoop-ws\nP4USER=anoop\n")
+    cfg = load_config(write(tmp_path, "workspace: {root: ws, compile_commands: ws/cc.json}\n"),
+                      env={"P4CONFIG": ".p4config", "P4PORT": "env:1666"})
+    assert (cfg.owner, cfg.workspace.p4port, cfg.workspace.client) == ("anoop", "ssl:p4:1666", "anoop-ws")
+    assert cfg.workspace.p4_sources == {"p4port": f"P4CONFIG file {ws / '.p4config'}",
+                                        "client": f"P4CONFIG file {ws / '.p4config'}",
+                                        "owner": f"P4CONFIG file {ws / '.p4config'}"}
+
+
+def test_tortoise_yaml_beats_the_p4config_file(tmp_path):
+    (tmp_path / ".p4config").write_text("P4PORT=file:1666\nP4CLIENT=file-ws\n")
+    cfg = load_config(write(tmp_path, "owner: a\nworkspace: {root: ., compile_commands: cc.json, p4port: yaml:1666}\n"),
+                      env={"P4CONFIG": ".p4config"})
+    assert (cfg.workspace.p4port, cfg.workspace.client) == ("yaml:1666", "file-ws")
+    assert cfg.workspace.p4_sources["p4port"] == "tortoise.yaml"
+
+
+def test_a_missing_owner_names_where_it_looked(tmp_path):
+    with pytest.raises(ConfigError, match="owner is not set: not in tortoise.yaml, .*P4USER"):
+        load_config(write(tmp_path, "workspace: {vcs: git, root: /w, compile_commands: /w/cc.json}\n"), env={})
 
 
 def test_git_workspace_needs_no_p4(tmp_path):

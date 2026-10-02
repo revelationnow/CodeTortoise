@@ -112,7 +112,7 @@ def build_services(cfg: Config, llm: LlmClient | None = None, source: Source | N
         if cfg.workspace.vcs == "git":
             source = GitFixtureSource(cfg.workspace.root)
         else:
-            p4 = P4Runner(cfg.workspace.p4port or "", cfg.workspace.client, cfg.workspace.p4_bin)
+            p4 = P4Runner(cfg.workspace.p4port or "", cfg.workspace.client, cfg.workspace.p4_bin, cwd=cfg.workspace.root)
             source = P4Source(p4)
     return Services(cfg=cfg, store=store, source=source, index=index, cdb=cdb, toolchain=tc, llm=llm,
                     layers=LayersProvider(cfg, index, store, llm), p4=p4)

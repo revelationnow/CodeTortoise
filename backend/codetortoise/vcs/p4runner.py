@@ -4,6 +4,7 @@ from __future__ import annotations
 import io
 import marshal
 import subprocess
+from pathlib import Path
 
 READ_ONLY = frozenset({"describe", "print", "where", "have", "client", "info", "changes", "fstat", "files"})
 
@@ -29,11 +30,14 @@ def unmarshal_all(data: bytes) -> list[dict]:
 
 
 class P4Runner:
-    def __init__(self, p4port: str, client: str | None, p4_bin: str = "p4", timeout: float = 120):
+    def __init__(self, p4port: str, client: str | None, p4_bin: str = "p4", timeout: float = 120,
+                 cwd: str | Path | None = None):
         self.p4port = p4port
         self.client = client
         self.p4_bin = p4_bin
         self.timeout = timeout
+        # p4 runs from the workspace, so it also reads the P4CONFIG file there (P4CHARSET, P4TICKETS, P4TRUST, ...)
+        self.cwd = str(cwd) if cwd else None
 
     def _base(self, user: str | None = None) -> list[str]:
         cmd = [self.p4_bin, "-p", self.p4port]
@@ -47,7 +51,7 @@ class P4Runner:
         if command not in READ_ONLY:
             raise P4Error(f"p4 {command} is not allowed (read-only runner)")
         try:
-            r = subprocess.run(self._base() + ["-G", command, *args], capture_output=True, timeout=self.timeout)
+            r = subprocess.run(self._base() + ["-G", command, *args], capture_output=True, timeout=self.timeout, cwd=self.cwd)
         except (OSError, subprocess.TimeoutExpired) as e:
             raise P4Error(f"p4 {command}: {e}") from e
         records = unmarshal_all(r.stdout)
@@ -62,7 +66,7 @@ class P4Runner:
 
     def print_text(self, filespec: str) -> str:
         try:
-            r = subprocess.run(self._base() + ["print", "-q", filespec], capture_output=True, timeout=self.timeout)
+            r = subprocess.run(self._base() + ["print", "-q", filespec], capture_output=True, timeout=self.timeout, cwd=self.cwd)
         except (OSError, subprocess.TimeoutExpired) as e:
             raise P4Error(f"p4 print {filespec}: {e}") from e
         if r.returncode != 0:
@@ -78,7 +82,7 @@ class P4Runner:
         cmd = self._base(user) + ["login", "-p"] + (["-a"] if all_hosts else [])
         try:
             r = subprocess.run(cmd, input=(password + "\n").encode(),
-                               capture_output=True, timeout=30)
+                               capture_output=True, timeout=30, cwd=self.cwd)
         except (OSError, subprocess.TimeoutExpired) as e:
             raise P4Error(f"p4 login: {e}") from e
         if r.returncode != 0:

@@ -253,3 +253,12 @@ def test_depots_for_speaks_the_client_root_as_perforce_knows_it(tmp_path):
     p4 = SymlinkRootP4(describe={}, files={})
     canon_a = str(real / "a.c")                          # the pipeline hands over canonical (realpath) locals
     assert P4Source(p4).depots_for([canon_a]) == {canon_a: "//depot/a.c"}
+
+
+def test_p4_runs_from_the_workspace_so_it_reads_the_p4config_file_too(monkeypatch, tmp_path):
+    import subprocess
+    seen = []
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **k: seen.append(k.get("cwd")) or Completed(b""))
+    P4Runner("p4:1666", "ws", cwd=tmp_path).run("info")
+    P4Runner("p4:1666", "ws", cwd=tmp_path).login_check("bob", "pw")
+    assert seen == [str(tmp_path), str(tmp_path)]

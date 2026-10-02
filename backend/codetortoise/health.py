@@ -21,6 +21,7 @@ class HealthReport(BaseModel):
     index_generation: int = 0
     libclang: str | None = None
     strip_flags: list[str] = []
+    p4_sources: dict[str, str] = {}    # where the owner, port and client came from (tortoise.yaml, P4CONFIG, environment)
 
 
 def run_health(svc: Services) -> HealthReport:
@@ -63,4 +64,5 @@ def run_health(svc: Services) -> HealthReport:
     lc = svc.toolchain.libclang
     return HealthReport(checks=checks, ready=all(c.ok for c in checks if c.hard),
                         index_generation=svc.index.generation(),
-                        libclang=lc.version if lc else None, strip_flags=sorted(svc.toolchain.strip))
+                        libclang=lc.version if lc else None, strip_flags=sorted(svc.toolchain.strip),
+                        p4_sources=dict(ws.p4_sources))

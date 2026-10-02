@@ -1,6 +1,7 @@
 """tortoise.yaml configuration."""
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Literal
 
@@ -24,6 +25,7 @@ class WorkspaceConfig(BaseModel):
     root: Path
     compile_commands: Path
     p4_bin: str = "p4"
+    p4_sources: dict[str, str] = Field(default_factory=dict)   # where p4port, client and owner came from (set on load)
 
 
 class ToolchainConfig(BaseModel):
@@ -69,7 +71,7 @@ class AnalysisConfig(BaseModel):
 
 
 class Config(BaseModel):
-    owner: str
+    owner: str = ""                  # defaults to P4USER (P4CONFIG file, then environment)
     server: ServerConfig = Field(default_factory=ServerConfig)
     workspace: WorkspaceConfig
     toolchain: ToolchainConfig = Field(default_factory=ToolchainConfig)
@@ -83,7 +85,10 @@ class ConfigError(ValueError):
     pass
 
 
-def load_config(path: Path) -> Config:
+def load_config(path: Path, env: Mapping[str, str] | None = None) -> Config:
+    """Read tortoise.yaml. Missing `owner`, `workspace.p4port` and `workspace.client` come from Perforce's own settings:
+    the P4CONFIG file found from the workspace root, then P4USER/P4PORT/P4CLIENT in the environment (`env`)."""
+    from codetortoise.vcs.p4settings import p4_settings
     path = Path(path)
     try:
         raw = yaml.safe_load(path.read_text()) or {}
@@ -93,11 +98,23 @@ def load_config(path: Path) -> Config:
         cfg = Config.model_validate(raw)
     except Exception as e:  # pydantic.ValidationError
         raise ConfigError(str(e)) from e
-    if cfg.workspace.vcs == "p4" and (not cfg.workspace.p4port or not cfg.workspace.client):
-        raise ConfigError("workspace.p4port and workspace.client are required when workspace.vcs is p4")
     base = path.parent
     ws = cfg.workspace
     ws.root = (base / ws.root).resolve() if not ws.root.is_absolute() else ws.root
+    p4 = p4_settings(ws.root, env)
+    wanted = [("owner", cfg, "owner", "P4USER")]
+    if ws.vcs == "p4":
+        wanted += [("workspace.p4port", ws, "p4port", "P4PORT"), ("workspace.client", ws, "client", "P4CLIENT")]
+    for label, obj, attr, var in wanted:
+        if getattr(obj, attr):
+            ws.p4_sources[attr] = "tortoise.yaml"
+            continue
+        value = p4.get(var)
+        if not value:
+            where = f"the P4CONFIG file {p4.file}" if p4.file else "no P4CONFIG file was found"
+            raise ConfigError(f"{label} is not set: not in tortoise.yaml, {where}, and {var} is not in the environment")
+        setattr(obj, attr, value)
+        ws.p4_sources[attr] = p4.source(var) or ""
     ws.compile_commands = (base / ws.compile_commands).resolve() if not ws.compile_commands.is_absolute() else ws.compile_commands
     if not cfg.server.data_dir.is_absolute():
         cfg.server.data_dir = (base / cfg.server.data_dir).resolve()
