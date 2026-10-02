@@ -165,6 +165,32 @@ def test_llm_writes_grounded_flow_narratives_and_the_change_intent():
     assert board.flows[0].what_files is None and board.about.intent_files is None
 
 
+def test_llm_text_records_the_files_behind_its_prompt():
+    im, findings, layers = model()
+    findings[0].files, findings[1].files = ["//w/d/uart.c"], ["//w/include/hal/regs.h"]
+    node_files = {"N1": ["//w/hal/regs.c"], "N2": ["//w/d/uart.c"], "N3": ["//w/svc/logger.c"]}
+    board = _board(1)
+    build_storyboard(im, findings, layers, {}, fake_llm(_respond(lambda u: {"what": "flush drops -2", "cites": ["N3"]})),
+                     board=board, node_files=node_files)
+    # the flow's prompt: its steps (N3, N2) and its finding F1
+    assert board.flows[0].what_source == "llm" and board.flows[0].what_files == ["//w/d/uart.c", "//w/svc/logger.c"]
+    # a finding's explanation also saw its nodes' neighbours (N3 calls N2, N2 calls N1)
+    assert findings[0].explain_files == ["//w/d/uart.c", "//w/hal/regs.c", "//w/svc/logger.c"]
+    assert findings[1].explain_files == ["//w/include/hal/regs.h"]
+    # the intent summarises every chapter (its nodes and findings) and the findings
+    assert board.about.intent_files == ["//w/d/uart.c", "//w/hal/regs.c", "//w/include/hal/regs.h"]
+
+
+def test_llm_text_is_unknown_when_a_prompt_file_is():
+    im, findings, layers = model()
+    findings[0].files = None                                   # F1 stored before tags
+    findings[1].files = ["//w/include/hal/regs.h"]
+    board = _board(1)
+    build_storyboard(im, findings, layers, {}, fake_llm(_respond(lambda u: {"what": "w", "cites": ["N3"]})),
+                     board=board, node_files={"N1": ["//w/hal/regs.c"], "N2": ["//w/d/uart.c"], "N3": ["//w/svc/logger.c"]})
+    assert board.flows[0].what_files is None and findings[0].explain_files is None and board.about.intent_files is None
+    assert findings[1].explain_files == ["//w/include/hal/regs.h"]
+
 def test_llm_calls_run_concurrently():
     import threading
     im, findings, layers = model()

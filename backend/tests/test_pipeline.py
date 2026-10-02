@@ -129,6 +129,31 @@ def test_malformed_llm_reply_still_stores_storyboard(fx, tmp_path):
     assert sb is not None and sb["risk"] == "high" and "unexpected LLM response" in sb["llm_error"]
 
 
+def test_llm_text_stored_by_a_review_records_its_prompt_files(fx, tmp_path):
+    import json
+
+    import httpx
+
+    from codetortoise.llm.client import LlmClient
+    cites = [f"N{i}" for i in range(1, 40)] + [f"F{i}" for i in range(1, 10)]
+
+    def reply(req):
+        user = json.loads(req.content)["messages"][1]["content"]
+        out = ({"explanation": "e"} if "Explain the risk" in user else
+               {"narrative": "n", "cites": cites} if "narrative for this architectural layer" in user else
+               {"what": "w", "title": "t", "cites": cites} if "Describe this call flow" in user else
+               {"summary": "s", "risk": "high", "cites": cites})
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(out)}}]})
+    llm = LlmClient("http://llm/v1", "k", "m", sleep=lambda s: None, transport=httpx.MockTransport(reply))
+    svc = make_services(fx, tmp_path, llm=llm)
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    board = svc.store.get_blob(rid, "board")
+    assert board["about"]["intent_source"] == "llm" and board["about"]["intent_files"]
+    llm_flows = [f for f in board["flows"] if f["what_source"] == "llm"]
+    assert llm_flows and all(f["what_files"] and set(f["files"]) <= set(f["what_files"]) for f in llm_flows)
+    assert all(f.explain_files and set(f.files) <= set(f.explain_files) for f in svc.store.list_findings(rid))
+
 class WarningSource:
     def __init__(self, inner):
         self.inner = inner

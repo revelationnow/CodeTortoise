@@ -12,6 +12,7 @@ from codetortoise.detectors.base import SEVERITY_RANK, Finding, Hypothesis
 from codetortoise.impact import ImpactModel
 from codetortoise.layers import LayerModel
 from codetortoise.llm.client import LlmClient, LlmError
+from codetortoise.provenance import merge
 
 SYSTEM = ("You are a senior C/C++ code reviewer. You are given facts extracted by static analysis "
           "for a set of changes. Use ONLY these facts. Refer to functions/fields by their node id (e.g. N3) "
@@ -179,11 +180,19 @@ def _flow_prompt(fl: Flow, impact: ImpactModel, findings: list[Finding], snippet
 
 def build_storyboard(impact: ImpactModel, findings: list[Finding], layers: LayerModel | None,
                      snippets: dict[str, str], llm: LlmClient | None, max_tokens: int = 64000, *,
-                     board: Board | None = None, concurrency: int = 1, max_flow_narratives: int = 6) -> Storyboard:
+                     board: Board | None = None, concurrency: int = 1, max_flow_narratives: int = 6,
+                     node_files: dict[str, list[str] | None] | None = None) -> Storyboard:
     """Skeleton storyboard, then (with an LLM) finding explanations, chapter and flow narratives on a thread pool.
 
     Results are applied in a fixed order, so the output depends only on the replies; the summary call runs last.
-    Any LLM-side failure keeps the deterministic text for everything not yet applied."""
+    Any LLM-side failure keeps the deterministic text for everything not yet applied. LLM text records the files whose
+    code or findings were in its prompt (spec §14.3), from `node_files`; without it they stay unknown."""
+    tags = {f.id: f.files for f in findings}
+
+    def prompt_files(nodes: list[str], finding_ids: list[str]) -> list[str] | None:
+        if node_files is None:
+            return None
+        return merge(*(node_files.get(n) for n in nodes), *(tags.get(i) for i in finding_ids))
     sb = skeleton(impact, findings, layers)
     if llm is None:
         return sb
@@ -198,8 +207,8 @@ def build_storyboard(impact: ImpactModel, findings: list[Finding], layers: Layer
         parts = ["FINDING:\n" + _finding_text(f), "GRAPH FACTS:\n" + _facts_for_nodes(impact, nodes + neighbours)]
         parts += [f"CODE {n}:\n{snippets[n]}" for n in nodes + neighbours if n in snippets]
 
-        def explain(out: _ExplainOut, f=f):
-            f.explanation = out.explanation
+        def explain(out: _ExplainOut, f=f, seen=nodes + neighbours):
+            f.explanation, f.explain_files = out.explanation, prompt_files(seen, [f.id])
             f.verify_steps = out.verify_steps
             f.hypotheses = [Hypothesis(text=h.text, cites=h.cites) for h in ground(out.hypotheses, known)]
         jobs.append(("Explain the risk of this finding, list concrete verification steps, and propose additional "
@@ -223,7 +232,7 @@ def build_storyboard(impact: ImpactModel, findings: list[Finding], layers: Layer
         def describe(out: _FlowOut, fl=fl):
             # grounded: keep the LLM text only if it cites a node on this flow or one of its findings
             if out.what.strip() and set(out.cites) & (set(fl.path) | set(fl.findings)):
-                fl.what, fl.what_source, fl.what_files = out.what.strip(), "llm", None
+                fl.what, fl.what_source, fl.what_files = out.what.strip(), "llm", prompt_files(fl.path, fl.findings)
                 if 0 < len(out.title.strip()) <= 80:
                     fl.title = out.title.strip()
         jobs.append((_flow_prompt(fl, impact, findings, snippets, per_call), _FlowOut, describe))
@@ -246,7 +255,9 @@ def build_storyboard(impact: ImpactModel, findings: list[Finding], layers: Layer
         sb.verified = any(c in known for c in out.cites)
         sb.llm_used = True
         if board is not None and out.summary.strip():
-            board.about.intent, board.about.intent_source, board.about.intent_files = out.summary.strip(), "llm", None
+            board.about.intent, board.about.intent_source = out.summary.strip(), "llm"
+            board.about.intent_files = merge(*(prompt_files(c.nodes, c.findings) for c in sb.chapters),
+                                             prompt_files([], [f.id for f in findings[:30]]))
     except Exception as e:  # any LLM-side failure leaves the deterministic storyboard intact
         sb.llm_error = str(e) if isinstance(e, LlmError) else f"{type(e).__name__}: {e}"
     finally:

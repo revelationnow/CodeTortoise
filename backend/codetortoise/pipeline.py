@@ -219,11 +219,11 @@ def run_review(rid: int, svc: Services) -> None:
         b = ctx.get("board")
         sb = build_storyboard(ctx["impact"], findings, ctx.get("layers"), snippets, svc.llm, cfg.llm.max_context_tokens,
                               board=b, concurrency=cfg.llm.concurrency,
-                              max_flow_narratives=cfg.llm.max_flow_narratives)
+                              max_flow_narratives=cfg.llm.max_flow_narratives, node_files=ctx.get("node_files"))
         store.put_findings(rid, findings)
         store.put_blob(rid, "storyboard", sb)
         if b is not None:
-            store.put_blob(rid, "board", b)
+            store.put_blob(rid, "board", tag_board(b, {f.id: f.files for f in findings}))
         ctx["storyboard"] = sb
         if svc.llm is None:
             raise Degraded("no LLM configured; deterministic storyboard only")

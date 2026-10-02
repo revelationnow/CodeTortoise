@@ -59,8 +59,9 @@ def test_llm_text_keeps_its_recorded_files_and_is_unknown_when_none_were_recorde
     b.flows[0].what_source = "llm"
     tagged = tag_board(b.model_copy(deep=True))
     assert tagged.flows[0].what_files is None and tagged.about.intent_files is None
-    b.flows[0].what_files, b.about.intent_files = ["//d/a.c", "//d/z.c"], ["//d/a.c"]
+    b.flows[0].what_files, b.about.intent_files = ["//d/z.c"], ["//d/a.c"]
     tagged = tag_board(b)
+    # LLM text stands in for the flow's own text, so it also carries the flow's files
     assert tagged.flows[0].what_files == ["//d/a.c", "//d/z.c"] and tagged.about.intent_files == ["//d/a.c"]
 
 

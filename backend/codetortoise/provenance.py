@@ -53,6 +53,8 @@ def tag_board(board: Board, finding_files: dict[str, Files] | None = None) -> Bo
         fl.files = of([*fl.path, fl.lands, *([fl.fx_at] if fl.fx_at else [])])
         if fl.what_source == "template":
             fl.what_files = fl.files
+        elif fl.what_files is not None:                              # LLM text stands in for the flow's own text
+            fl.what_files = merge(fl.what_files, fl.files)
     for layer in board.layers:
         layer.files = of(n.id for n in board.nodes if n.layer == layer.level)
     tree = [f for d in board.about.tree for f in d.files]
