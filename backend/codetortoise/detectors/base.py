@@ -21,6 +21,7 @@ class Evidence(BaseModel):
     file: str | None = None
     line: int | None = None
     severity: Severity = "info"
+    nodes: list[str] | None = None   # for evidence without a file: the graph nodes its text names (None = undeclared)
 
 
 class Hypothesis(BaseModel):

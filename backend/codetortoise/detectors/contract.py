@@ -41,7 +41,7 @@ def detect_contract(ctx: DetectorContext) -> list[Finding]:
             if callers:
                 names = sorted({ctx.impact.nodes[e.src].label for e in callers})
                 ev.append(Evidence(text=f"{len(names)} caller(s) must be re-checked: {', '.join(names[:10])}",
-                                   severity="medium"))
+                                   severity="medium", nodes=sorted({e.src for e in callers})))
         new_values = [r for r in after.returns if r not in before.returns]
         names = {**before.return_names, **after.return_names}
         new_text = ", ".join(_val(v, names) for v in new_values)
@@ -69,11 +69,11 @@ def detect_contract(ctx: DetectorContext) -> list[Finding]:
                                        file=c.file, line=c.line, severity="low"))
             if after.name in ctx.impact.capped:
                 ev.append(Evidence(text=f"{ctx.impact.capped[after.name]} caller(s) outside the parsed TUs not examined "
-                                        "(over heuristic_fanin_cap)", severity="low"))
+                                        "(over heuristic_fanin_cap)", severity="low", nodes=[]))
             heur = [e for e in ctx.impact.edges_into(nid, {"call"}) if e.confidence == "heuristic"]
             if heur:
                 ev.append(Evidence(text=f"{len(heur)} more caller(s) outside the parsed TUs (heuristic) not checked",
-                                   severity="low"))
+                                   severity="low", nodes=[]))
         if not ev:
             continue
         findings.append(Finding(

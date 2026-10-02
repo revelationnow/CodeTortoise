@@ -73,10 +73,23 @@ def depot_resolver(source, cs: ChangeSet, root: str, notes: list[str]):
             try:
                 known.update(source.depots_for(rest))
             except Exception as e:  # board still useful without depot paths for context nodes
-                notes.append(f"depot paths unavailable for context nodes: {type(e).__name__}: {e}")
+                note = f"depot paths unavailable for context nodes: {type(e).__name__}: {e}"
+                if note not in notes:
+                    notes.append(note)
         return {p: known[p] for p in locals_ if p in known}
     return resolve
 
+
+
+SYSTEM_DIRS = ("/usr/include", "/usr/local/include", "/usr/lib/gcc", "/usr/lib/clang")
+
+
+def system_include_dirs(toolchain) -> list[str]:
+    """Directories whose headers are not under Perforce: the usual system ones and the toolchain driver's."""
+    dirs = list(SYSTEM_DIRS)
+    for info in getattr(toolchain, "driver", {}).values():
+        dirs += [*info.include_dirs, *([info.resource_dir] if info.resource_dir else [])]
+    return dirs
 
 def run_review(rid: int, svc: Services) -> None:
     store, cfg = svc.store, svc.cfg
@@ -199,9 +212,11 @@ def run_review(rid: int, svc: Services) -> None:
                                      ctx.get("layers"), cfg.analysis, resolve, root=canon(str(cfg.workspace.root))))
         # file tags (spec §14.3): every graph node and finding, from one more lookup of the files not yet resolved
         findings, im = ctx["findings"], ctx["impact"]
-        locals_ = sorted({n.file for n in im.nodes.values() if n.file} | {e.file for f in findings for e in f.evidence if e.file})
-        by_local = local_files(locals_, resolve(locals_), str(cfg.workspace.root))
-        node_files = impact_node_files(im, by_local)
+        decl = {f"field:{a.field}": a.record_file for fx in ctx["before"] + ctx["after"] for a in fx.fields if a.record_file}
+        locals_ = sorted({n.file for n in im.nodes.values() if n.file} | set(decl.values())
+                         | {e.file for f in findings for e in f.evidence if e.file})
+        by_local = local_files(locals_, resolve(locals_), str(cfg.workspace.root), system_include_dirs(svc.toolchain))
+        node_files = impact_node_files(im, by_local, decl)
         for f in findings:
             f.files = finding_files(f, node_files, by_local)
         store.put_findings(rid, findings)

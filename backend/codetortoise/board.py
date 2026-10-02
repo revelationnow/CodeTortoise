@@ -81,6 +81,7 @@ class Impact(BaseModel):
     finding: str | None = None
     cause: str | None = None         # the changed node this impact comes from
     landing: bool = False            # a flow may land here (ignoring caller, field reader, signature caller)
+    refs: list[str] | None = None    # other nodes its text names (readers, writers, the field); None = stored before refs
     files: Files = None
 
 
@@ -289,7 +290,7 @@ def build_impacts(x: _Ctx) -> list[Impact]:
     seen: set[tuple] = set()
 
     def add(node: str | None, local: str, line: int, sev: Sev, channel: Channel, title: str, text: str, finding=None,
-            landing=False):
+            landing=False, refs=()):
         if not node or not line:
             return
         k = (node, local, line, channel, text)
@@ -297,7 +298,8 @@ def build_impacts(x: _Ctx) -> list[Impact]:
             return
         seen.add(k)
         out.append(Impact(node=node, path=local, line=line, severity=sev, channel=channel, title=title,
-                          text=text, finding=finding, cause=cause, landing=landing and sev == "warn" and node != cause))
+                          text=text, finding=finding, cause=cause, landing=landing and sev == "warn" and node != cause,
+                          refs=sorted({r for r in refs if r})))
 
     for nid in sorted(x.changed, key=lambda s: int(s[1:])):
         node, cause = x.im.nodes[nid], nid
@@ -348,17 +350,18 @@ def build_impacts(x: _Ctx) -> list[Impact]:
             for a in accs:
                 alias = [v for v in a.via if not v.startswith("call:")]
                 how = f" through alias `{alias[0]}`" if alias else (f" via {a.via[0][5:]}()" if a.via else "")
-                add(nid, a.file, a.line, "warn", "state", "State", f"writes {label}{how}", fm)
+                add(nid, a.file, a.line, "warn", "state", "State", f"writes {label}{how}", fm, refs=[fid])
             wline = a0.line
             modes: dict[tuple[str, str, int], set[str]] = defaultdict(set)   # one annotation per line: r, w or both
             for o in x.fields_after:
                 if o.field == field and o.fn not in x.changed_keys:
                     modes[(o.fn, o.file, o.line)].add("read" if o.mode == "read" else "write")
-            readers, writers = set(), set()
+            readers, writers, named = set(), set(), set()
             for (fn, file, line), ms in sorted(modes.items()):
                 oid = x.id_of.get(fn)
                 if not oid:
                     continue
+                named.add(oid)
                 if "read" in ms:
                     readers.add(x.label(oid))
                 if "write" in ms:
@@ -366,18 +369,18 @@ def build_impacts(x: _Ctx) -> list[Impact]:
                 verb = "reads and writes" if len(ms) == 2 else "reads" if "read" in ms else "writes"
                 # the effect lands on readers: they observe the new values; pure co-writers are annotated only
                 add(oid, file, line, "warn", "state", "State", f"{verb} {label} — now also written by {name} (line {wline})", fm,
-                    landing="read" in ms)
+                    landing="read" in ms, refs=[fid])
             if fid:
                 for e in x.im.edges:
                     if e.dst == fid and e.confidence == "heuristic" and e.file and e.src not in x.changed:
                         add(e.src, e.file, e.line or 0, "info", "state", "State",
-                            f"may access {label} (name match) — now written by {name}", fm)
+                            f"may access {label} (name match) — now written by {name}", fm, refs=[fid])
                 if a0.record_file and a0.decl_line:
                     text = f"new writer: {name} · readers: {', '.join(sorted(readers)) or 'none in the parsed code'}"
                     if writers:
                         text += f" · other writers: {', '.join(sorted(writers))}"
                     add(fid, a0.record_file, a0.decl_line, "warn" if readers or writers else "info", "state", "State",
-                        text, fm)
+                        text, fm, refs=named)
     return out
 
 
@@ -439,7 +442,6 @@ def build_flows(x: _Ctx, impacts: list[Impact]) -> list[Flow]:
     flows: list[Flow] = []
     for (cause, land, _), imp in by_key.items():
         F, L = x.label(cause), x.label(land)
-        layer_name = _layer_name(x, x.im.nodes[land].layer)
         if imp.channel == "state":
             field_id = next((e.dst for e in x.im.edges if e.src == cause and e.kind == "writes"
                              and any(e2.dst == e.dst and e2.src == land for e2 in x.im.edges)), None)
@@ -448,7 +450,7 @@ def build_flows(x: _Ctx, impacts: list[Impact]) -> list[Flow]:
             fl = x.label(field_id) if field_id else "the field"
             text = " → ".join(x.label(n) for n in path)
             lead = f"{F} now writes" if head[0] == cause else f"{x.label(head[0])} reaches {F}, which now writes"
-            what = f"{lead} {fl}. {L} ({layer_name}) uses that field, so it now observes values written by {F}."
+            what = f"{lead} {fl}. {L} uses that field, so it now observes values written by {F}."
             effect = f"{L} now sees {fl} changed by {F}; code that assumed the old writers may be surprised."
             check = f"whether {L} assumes {fl} only changes the way it did before"
             title = flow_title("state", L, F, field=fl)
@@ -456,7 +458,7 @@ def build_flows(x: _Ctx, impacts: list[Impact]) -> list[Flow]:
         else:
             head = _entry_path(x, land, warn)
             path = head + [cause]
-            who = f"{L} ({layer_name})" if head[0] == land else f"{x.label(head[0])} reaches {L} ({layer_name}), which"
+            who = L if head[0] == land else f"{x.label(head[0])} reaches {L}, which"
             if imp.channel == "signature":
                 what = f"{who} calls {F}. {imp.text[0].upper()}{imp.text[1:]}."
                 effect = f"Arguments {L} passes to {F} are converted to the new parameter types."

@@ -471,20 +471,20 @@ rest, HTTPS enforcement.
 
 **Rule:** every item a viewer can see carries the Perforce depot paths it depends on, as `files: list[str] | None`
 (sorted, unique). `None` means unknown; stage 2 treats unknown as owner-only (fail closed), and a tag built from any
-unknown part is unknown. `[]` means the item depends on no Perforce file (e.g. a function defined in a system header,
-outside the workspace). Tags are stored with the item and returned by the API unchanged; stage 1 filters nothing.
+unknown part is unknown. `[]` means the item depends on no Perforce file: a function defined under a system or toolchain
+include directory. Any other path outside the workspace is unknown (another client could map it). Tags are stored with the item and returned by the API unchanged; stage 1 filters nothing.
 "Depends on" means: any file whose contents produced the item's text, name or existence, including code and findings
 given to the LLM.
 
 | Item | Tag |
 |---|---|
-| Board node | `files`: its own `path`; a node without a path (no visible definition, e.g. `hal_read`) gets the files of the board nodes that call or read it, since its name comes from their code; unknown if none is on the board |
+| Board node | `files`: its own `path`; a node without a visible definition (no `local`, e.g. `hal_read`) gets the files of the board nodes that call or read it, since its name comes from their code; unknown if none is on the board. A node whose definition is known but whose depot lookup failed is unknown |
 | Board edge | `files`: both ends' files |
-| Impact (annotation) | `files`: `path`, plus the files of `node` and of `cause` |
-| Flow | `files`: files of every step (`path`, `lands`, `fx_at`); template `title`/`what`/`effect`/`check` use these |
+| Impact (annotation) | `files`: `path`, plus the files of `node`, of `cause` and of `refs`, the other nodes its text names (the field; a declaration's readers and writers). Unknown when `path` did not resolve, and for impacts stored before `refs` |
+| Flow | `files`: files of every step (`path`, `lands`, `fx_at`); template `title`/`what`/`effect`/`check` use these and name no layer |
 | Flow LLM text (`what`, `title`) | `what_files`: equal to `files` for template text; for LLM text, the files of the prompt (its steps' code and facts, and its findings' files) plus the flow's own `files`, since the text stands in for the flow's |
-| Finding | `files`: its nodes' files plus the files its evidence points at; `explain_files` (LLM explanation, verify steps, hypotheses): the finding's `files` plus its nodes' and their graph neighbours' files, `None` when not LLM-written |
-| Board layer name | `files`: files of the board's nodes in that layer (names come from directory names; stage 2 falls back to `L<n>` when hidden) |
+| Finding | `files`: its nodes' files plus, per evidence line, its file or, for a line without a file, the files of the nodes it names (`Evidence.nodes`; `[]` for a count that names nothing). A line that names things but declares no nodes (header fan-out's per-layer counts) makes the finding unknown; `explain_files` (LLM explanation, verify steps, hypotheses): the finding's `files` plus its nodes' and their graph neighbours' files, `None` when not LLM-written |
+| Board layer name | `files`: always unknown. Names come from directory names across the whole workspace level, not only the board's files; stage 2 shows `L<n>` |
 | About: tree file | `files`: itself |
 | About: changelist (number, user, description) | `files`: the tree files in that changelist. Its file count moves from `files` to `file_count` (stored boards are migrated on load) |
 | About: why line | `files`: its finding's `files` |
@@ -492,15 +492,21 @@ given to the LLM.
 | About: drift line | now `{text, files}` with `files` = that depot file (stored string lines are migrated on load) |
 
 Graph nodes behind findings and LLM prompts are not all on the board. Their files come from the impact graph: a node's
-own file looked up through Perforce (one batched lookup per review, each file asked once); `[]` outside the workspace;
-unknown when the lookup failed; a node without a file (e.g. a field) takes the files of the nodes that access it.
+own file looked up through Perforce (each file asked once per review); `[]` under a system or toolchain include directory;
+unknown when the lookup failed or the file is elsewhere outside the workspace; a node without a file (a field) takes the
+files of the nodes that access it and of its declaring header.
 
 **Derived, not stored — `comment_scope(board, findings, anchor_kind, anchor)`:** line → the anchored file (`path`, or
 `depot` for M1 anchors); function → the board node's `files` (unknown if not on the board); finding (anchored by kind
-and title) → its `files`, plus `explain_files` once explained; chapter (layer) → that layer's `files`; review →
-every tag on the board and on the findings (`review_files`). The review's title names only its CL numbers and needs no
+and title) → the `files` of every finding with that kind and title, plus their `explain_files` once explained; chapter
+(layer) → the files of the board's nodes in that layer; review → every tag on the board and on the findings
+(`review_files`), layer names aside. The review's title names only its CL numbers and needs no
 tag; the CL list's descriptions use each changelist's tag. `/files` diffs and `/source` text are addressed by path and
 need no tag.
+
+**Not tagged, owner-only in stage 2:** stage messages (shown as banners; they can carry paths and error text), the
+review's risk (from all findings), the hidden-node count and per-node warning counts (they summarise other files).
+Stage 2 shows these to the owner, or to a viewer who can read every file in `review_files`.
 
 **Boards and findings stored before this change:** on load (`/board`), structural tags (nodes, edges, impacts, flows,
 tree, changelists, drift, layer names) are derived as above from the stored board; why lines take their findings' tags;

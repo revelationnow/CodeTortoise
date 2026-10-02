@@ -1,5 +1,5 @@
 """File tags on every visible item (spec §14.3)."""
-from codetortoise.board import About, AboutDir, AboutFile, Board, BoardEdge, BoardNode, Flow
+from codetortoise.board import About, AboutDir, AboutFile, Board, BoardEdge, BoardNode, Flow, Impact
 from codetortoise.provenance import tag_board
 from tests.test_board import board  # noqa: F401  (module fixture: the fixture review's board)
 
@@ -8,7 +8,7 @@ D = "//fixture/"
 
 def test_every_item_on_the_fixture_board_is_tagged(board):  # noqa: F811
     b = tag_board(board.model_copy(deep=True))
-    items = [*b.nodes, *b.edges, *b.impacts, *b.flows, *b.layers, *b.about.cls,
+    items = [*b.nodes, *b.edges, *b.impacts, *b.flows, *b.about.cls,
              *(f for d in b.about.tree for f in d.files)]
     assert items and all(i.files for i in items)
     assert all(f.what_files == f.files for f in b.flows)                  # template text: the flow's own files
@@ -22,9 +22,15 @@ def test_fixture_tags_are_exact(board):  # noqa: F811
     by_cl = {c.cl: c.files for c in b.about.cls}
     assert by_cl == {101: [D + "driver/uart.c"], 102: [D + "driver/uart.h", D + "hal/regs.c", D + "include/hal/regs.h"]}
     assert [c.file_count for c in b.about.cls] == [1, 3]
-    assert next(layer.files for layer in b.layers if layer.name == "driver") == [D + "driver/uart.c", D + "driver/uart.h"]
+    # layer names come from directory names across the workspace, not only these files: unknown (stage 2 shows L<n>)
+    assert all(layer.files is None for layer in b.layers)
+    assert not any(f"({layer.name})" in f.what for f in b.flows for layer in b.layers)
     imp = next(i for i in b.impacts if i.node == "N8" and i.line == 8)   # uart_init calls hal_write (changed)
     assert imp.files == [D + "driver/uart.c", D + "hal/regs.c"]
+    decl = next(i for i in b.impacts if i.text.startswith("new writer: uart_send · readers: uart_errors"))   # uart.h
+    assert decl.files == [D + "driver/uart.c", D + "driver/uart.h"]
+    tx = next(i for i in b.impacts if i.text.startswith("writes Stats::tx"))          # on uart_send in uart.c
+    assert tx.files == [D + "driver/uart.c", D + "driver/uart.h"]
 
 
 def test_why_lines_take_their_findings_files_and_are_unknown_without_them(board):  # noqa: F811
@@ -52,6 +58,10 @@ def test_a_node_without_a_path_takes_its_callers_files_else_is_unknown():
     assert files == {"A": ["//d/a.c"], "B": ["//d/a.c"], "C": None}
     assert [e.files for e in b.edges] == [["//d/a.c"], None]               # unknown on either end: unknown
     assert b.flows[0].files == ["//d/a.c"]
+    b.nodes[1].local = "/ws/hal.c"                       # a definition we know of, whose depot lookup failed
+    b.impacts = [Impact(node="A", path=None, line=3, severity="warn", channel="contract", title="t", text="x", refs=[])]
+    b = tag_board(b)
+    assert b.nodes[1].files is None and b.impacts[0].files is None
 
 
 def test_llm_text_keeps_its_recorded_files_and_is_unknown_when_none_were_recorded():
@@ -72,12 +82,17 @@ def test_boards_stored_before_tags_load_with_counts_and_drift_migrated():
     b = tag_board(Board.model_validate(old))
     assert b.about.cls[0].file_count == 1 and b.about.cls[0].files == ["//d/a.c"]
     assert b.about.drift[0].text == "//d/a.c (base #3, workspace #4)" and b.about.drift[0].files == ["//d/a.c"]
+    old["impacts"] = [{"node": "A", "path": "//d/a.c", "line": 3, "severity": "warn", "channel": "state", "title": "t",
+                       "text": "new writer: x · readers: y"}]                 # stored before refs: may name anything
+    assert tag_board(Board.model_validate(old)).impacts[0].files is None
 
 
 def test_local_files_resolve_through_perforce_and_skip_paths_outside_the_workspace():
     from codetortoise.provenance import local_files
-    got = local_files(["/ws/a.c", "/ws/b.c", "/usr/include/stdio.h"], {"/ws/a.c": "//d/a.c"}, "/ws")
-    assert got == {"/ws/a.c": ["//d/a.c"], "/ws/b.c": None, "/usr/include/stdio.h": []}   # not under Perforce: no tag
+    got = local_files(["/ws/a.c", "/ws/b.c", "/usr/include/stdio.h", "/sdk/vendor/bsp.h"], {"/ws/a.c": "//d/a.c"}, "/ws",
+                      ["/usr/include"])
+    # system headers are not under Perforce; anything else outside the workspace may be (another client): unknown
+    assert got == {"/ws/a.c": ["//d/a.c"], "/ws/b.c": None, "/usr/include/stdio.h": [], "/sdk/vendor/bsp.h": None}
 
 
 def _impact():
@@ -94,10 +109,12 @@ def _impact():
 
 def test_graph_nodes_take_their_files_or_their_accessors_files():
     from codetortoise.provenance import impact_node_files, local_files
-    by_local = local_files(["/ws/a.c", "/ws/b.c", "/usr/include/stdio.h", "/ws/lost.c"],
-                           {"/ws/a.c": "//d/a.c", "/ws/b.c": "//d/b.c"}, "/ws")
+    by_local = local_files(["/ws/a.c", "/ws/b.c", "/usr/include/stdio.h", "/ws/lost.c", "/ws/r.h"],
+                           {"/ws/a.c": "//d/a.c", "/ws/b.c": "//d/b.c", "/ws/r.h": "//d/r.h"}, "/ws", ["/usr/include"])
     assert impact_node_files(_impact(), by_local) == {
         "N1": ["//d/a.c"], "N2": ["//d/a.c", "//d/b.c"], "N3": ["//d/b.c"], "N4": [], "N5": None}
+    # a field is also named by its declaration
+    assert impact_node_files(_impact(), by_local, {"field:R::v": "/ws/r.h"})["N2"] == ["//d/a.c", "//d/b.c", "//d/r.h"]
 
 
 def test_a_finding_depends_on_its_nodes_and_its_evidence():
@@ -110,6 +127,12 @@ def test_a_finding_depends_on_its_nodes_and_its_evidence():
     assert finding_files(f, nf, by_local) == ["//d/a.c", "//d/b.c"]
     assert finding_files(f.model_copy(update={"nodes": ["N1", "N5"]}), nf, by_local) is None
     assert Finding(kind="k", severity="low", title="t", summary="s").files is None        # stored before tags: unknown
+    named = f.model_copy(update={"evidence": [Evidence(text="2 callers: a, z", nodes=["N1", "N9"])]})
+    assert finding_files(named, {**nf, "N9": ["//d/z.c"]}, by_local) == ["//d/a.c", "//d/z.c"]
+    counted = f.model_copy(update={"evidence": [Evidence(text="3 caller(s) outside the parsed TUs", nodes=[])]})
+    assert finding_files(counted, nf, by_local) == ["//d/a.c"]
+    undeclared = f.model_copy(update={"evidence": [Evidence(text="by layer: {'L2: net': 4}")]})
+    assert finding_files(undeclared, nf, by_local) is None
 
 
 def test_comment_scope_follows_the_anchor(board):  # noqa: F811
@@ -134,3 +157,12 @@ def test_comment_scope_follows_the_anchor(board):  # noqa: F811
     assert scope("line", {}) is None
     unknown_why = tag_board(board.model_copy(deep=True), {"F1": [D + "driver/uart.c"]})   # F2-F4 unknown
     assert comment_scope(unknown_why, [finding], "review", {}) is None
+
+
+def test_a_finding_comment_covers_every_finding_with_that_kind_and_title(board):  # noqa: F811
+    from codetortoise.detectors.base import Finding
+    from codetortoise.provenance import comment_scope
+    twins = [Finding(id=f"F{i}", kind="contract", severity="medium", title="init: new return value(s) -1", summary="s",
+                     files=[f"//d/{n}.c"]) for i, n in ((1, "a"), (2, "b"))]
+    anchor = {"kind": "contract", "title": "init: new return value(s) -1"}
+    assert comment_scope(board, twins, "finding", anchor) == ["//d/a.c", "//d/b.c"]

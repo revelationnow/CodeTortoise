@@ -31,8 +31,13 @@ def test_full_review_without_llm_or_swarm(fx, tmp_path):
     assert board["about"]["intent_source"] == "template"
     assert all(n["files"] for n in board["nodes"]) and all(f["files"] for f in board["flows"])   # tags stored (spec §14.3)
     findings = {f.id: f for f in svc.store.list_findings(rid)}
-    assert all(f.files for f in findings.values())
-    assert "//fixture/driver/uart.c" in findings["F1"].files
+    assert all(f.files for f in findings.values() if f.kind != "header_fanout")
+    # header fan-out evidence lists layers by name, which come from directory names: unknown
+    assert all(f.files is None for f in findings.values() if f.kind == "header_fanout")
+    # F1: the field Uart::errors is declared in uart.h; other accessors are named in its evidence
+    assert findings["F1"].files == ["//fixture/driver/uart.c", "//fixture/driver/uart.h"]
+    # F4: "callers must be re-checked: uart_init, uart_send" names functions in uart.c
+    assert findings["F4"].files == ["//fixture/driver/uart.c", "//fixture/hal/regs.c"]
     assert [w["files"] for w in board["about"]["why"]] == [findings[w["finding"]].files for w in board["about"]["why"]]
 
 
@@ -149,10 +154,12 @@ def test_llm_text_stored_by_a_review_records_its_prompt_files(fx, tmp_path):
     rid = svc.store.create_review("t", "owner", [101, 102])
     run_review(rid, svc)
     board = svc.store.get_blob(rid, "board")
-    assert board["about"]["intent_source"] == "llm" and board["about"]["intent_files"]
+    # the summary prompt includes the header fan-out findings, whose layer lists are unknown: so is the intent
+    assert board["about"]["intent_source"] == "llm" and board["about"]["intent_files"] is None
     llm_flows = [f for f in board["flows"] if f["what_source"] == "llm"]
     assert llm_flows and all(f["what_files"] and set(f["files"]) <= set(f["what_files"]) for f in llm_flows)
-    assert all(f.explain_files and set(f.files) <= set(f.explain_files) for f in svc.store.list_findings(rid))
+    known = [f for f in svc.store.list_findings(rid) if f.files is not None]
+    assert known and all(f.explain_files and set(f.files) <= set(f.explain_files) for f in known)
 
 class WarningSource:
     def __init__(self, inner):
@@ -249,6 +256,24 @@ def test_board_without_depot_paths_for_context_nodes_is_degraded(fx, tmp_path):
     assert f5.files is None
     assert st["board"]["message"].count("connect failed") == 1              # one lookup, not one per caller
 
+
+
+class NoLogger(GitFixtureSource):
+    """Perforce answers for every file but service/logger.c."""
+    def depots_for(self, locals_):
+        return {p: d for p, d in super().depots_for(locals_).items() if not p.endswith("service/logger.c")}
+
+
+def test_one_failed_lookup_leaves_that_files_items_unknown_not_guessed_from_callers(fx, tmp_path):
+    svc = make_services(fx, tmp_path, source=NoLogger(fx.root))
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    board = svc.store.get_blob(rid, "board")
+    tags = {n["label"]: n["files"] for n in board["nodes"]}
+    assert tags["logger_write"] is None and tags["logger_flush"] is None and tags["main"] == ["//fixture/app/main.c"]
+    assert all(i["files"] is None for i in board["impacts"] if i["node"] in ("N3", "N5"))
+    flows = {f["id"]: f["files"] for f in board["flows"]}
+    assert flows["FL1"] is None and flows["FL2"] is None and flows["FL3"] is not None   # FL3 avoids logger.c
 
 def test_depot_resolver_asks_the_source_only_about_workspace_files():
     from codetortoise.pipeline import depot_resolver

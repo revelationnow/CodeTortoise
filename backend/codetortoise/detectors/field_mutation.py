@@ -52,10 +52,11 @@ def detect_field_mutation(ctx: DetectorContext) -> list[Finding]:
                                    severity=sev))
             if others:
                 ev.append(Evidence(text=f"{len(others)} other function(s) access this field: {', '.join(others[:10])}",
-                                   severity=sev))
+                                   severity=sev, nodes=sorted({e.src for e in users if e.confidence != "heuristic"})))
             if heuristic:
                 ev.append(Evidence(text=f"{len(heuristic)} more by name match outside parsed TUs (heuristic): "
-                                        f"{', '.join(heuristic[:10])}", severity="low"))
+                                        f"{', '.join(heuristic[:10])}", severity="low",
+                                   nodes=sorted({e.src for e in users if e.confidence == "heuristic"})))
             label = field_node.label if field_node else a0.field_name
             alias = any(not v.startswith("call:") for a in accesses for v in a.via)
             findings.append(Finding(

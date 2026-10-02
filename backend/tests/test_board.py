@@ -191,9 +191,9 @@ def test_tests_are_neither_flow_entries_nor_blast_nodes():
     labels = {n.id: n.label for n in b.nodes}
     state, contract = sorted(b.flows, key=lambda f: f.tag, reverse=True)
     assert [labels[n] for n in state.path] == ["set", "R::v", "peek"]
-    assert state.what.startswith("set now writes R::v. peek (unlayered) uses that field")
+    assert state.what.startswith("set now writes R::v. peek uses that field")    # no layer name (spec §14.3)
     assert [labels[n] for n in contract.path] == ["peek", "set"]
-    assert contract.what.startswith("peek (unlayered) calls set and ignores the result.")
+    assert contract.what.startswith("peek calls set and ignores the result.")
     assert "test_set" not in labels.values()
 
 
