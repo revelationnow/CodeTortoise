@@ -413,11 +413,12 @@ from their `text` (the part before "⟶", else the last step) when `/board` re-v
 
 ### 13.7 Files with side effects (change panel, all sizes)
 
-A section after "Files in this change": files that are not in the change but hold annotated functions (any annotation
-on a node outside the change set, landing or `warn` first), grouped by directory (same prefix rule as the change tree).
-Per file: name, warn count, and its functions with the first annotation each ("uart_errors · reads Uart::errors —
-now also written by uart_send (line 29)"). Clicking a function opens the file in the viewer at its line. Built on the
-client from `board.impacts` and `board.nodes`.
+A section after "Files in this change": every file holding a function the change did **not** modify that carries an
+annotation (a landing or `warn` first, then `info`/`ok`), grouped by directory (same prefix rule as the change tree). A
+file may also be in the change (e.g. `driver/uart.c`: `uart_errors` and `uart_init` are unchanged but affected); such
+files are marked "also changed". Per file: name, warn count, and its affected functions with their first annotation
+("uart_errors · reads Uart::errors — now also written by uart_send (line 29)"). Clicking a function opens the file in
+the viewer at that line. Built on the client from `board.impacts` and `board.nodes`.
 
 ### 13.8 Tests
 
@@ -426,5 +427,6 @@ client from `board.impacts` and `board.nodes`.
 - pytest: flow titles on the fixture (three flows) and on the synthetic real-code shapes; old boards get a title.
 - e2e (phone): Flows shows the fixture's first flow as steps; swipe changes flow; tapping uart_send shows its diff with
   the "writes Uart::errors" annotation; ⤢ opens Files at the line; Map pinch-zooms and a tap opens the sheet;
-  Summary lists side-effect files (`service/logger.c`, `driver/uart.c` when not changed …); no horizontal overflow.
+  Summary lists side-effect files (`service/logger.c` with logger_flush and logger_write; `driver/uart.c`, "also
+  changed", with uart_errors and uart_init); no horizontal overflow.
   e2e (desktop): a side-effect function in the change panel opens the viewer at its line.
