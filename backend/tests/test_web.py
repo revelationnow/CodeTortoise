@@ -249,3 +249,15 @@ def test_board_stored_by_an_older_version_gets_current_defaults(env):
     assert all(i["landing"] is False and i["cause"] is None for i in b["impacts"])
     assert len(b["flows"]) == 3
     assert [f["title"] for f in b["flows"]] == ["affects uart_errors", "-2 ignored", "signature changed"]
+
+
+def test_session_cookie_is_secure_only_when_https_is_configured(fx, tmp_path):
+    from pathlib import Path
+    svc = make_services(fx, tmp_path)
+    plain = TestClient(create_app(svc, InlineRunner(svc), make_authenticator(svc)))
+    r = plain.post("/api/login", json={"user": "anoop", "password": "x"})
+    assert "secure" not in r.headers["set-cookie"].lower()
+    svc.cfg.server.tls_cert, svc.cfg.server.tls_key = Path("/c.pem"), Path("/c.key")
+    tls = TestClient(create_app(svc, InlineRunner(svc), make_authenticator(svc)))
+    r = tls.post("/api/login", json={"user": "anoop", "password": "x"})
+    assert "secure" in r.headers["set-cookie"].lower()

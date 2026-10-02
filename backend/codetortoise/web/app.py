@@ -96,7 +96,8 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         if body.user == cfg.owner:
             svc.owner_ticket = ticket
         token = store.create_session(body.user)
-        response.set_cookie(COOKIE, token, httponly=True, samesite="lax", max_age=7 * 86400)
+        response.set_cookie(COOKIE, token, httponly=True, samesite="lax", max_age=7 * 86400,
+                            secure=cfg.server.tls_cert is not None)
         return {"user": body.user, "is_owner": body.user == cfg.owner}
 
     @app.post("/api/logout")

@@ -74,6 +74,8 @@ server:
   port: 8765
   public_url: "https://codetortoise.example.com"   # what shared links and Swarm summaries point to
   data_dir: /var/lib/codetortoise   # SQLite database, symbol index, toolchain cache
+  # tls_cert: /etc/codetortoise/ct.pem   # both set: serve HTTPS directly (plain HTTP on a network address
+  # tls_key: /etc/codetortoise/ct.key    #   is allowed but warned about at startup and in a banner)
 workspace:
   vcs: p4
   p4port: ssl:perforce.example.com:1666
@@ -224,8 +226,10 @@ Restart=on-failure
 WantedBy=multi-user.target
 ```
 
-The app speaks plain HTTP. Beyond a trusted LAN or VPN, put it behind a TLS-terminating reverse proxy (nginx, Caddy,
-your ingress) and set `server.public_url` to the HTTPS address. Proxy `/api/reviews/*/events` without buffering
+The app speaks plain HTTP unless `server.tls_cert` and `server.tls_key` are set. On a network address over plain HTTP
+it prints a warning at startup and every page shows a "Not encrypted" banner. Beyond a trusted LAN or VPN, set the
+certificate or put it behind a TLS-terminating reverse proxy (nginx, Caddy, your ingress), and set `server.public_url`
+to the HTTPS address. Proxy `/api/reviews/*/events` without buffering
 (server-sent events), for example `proxy_buffering off;` in nginx. Sessions are HTTP-only cookies. There is no built-in
 sign-in rate limit; Perforce's own login policies apply.
 

@@ -2,13 +2,31 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import logging
 import sys
 from pathlib import Path
 
 import yaml
 
-from codetortoise.config import ConfigError, load_config
+from codetortoise.config import ConfigError, ServerConfig, load_config
+
+
+def _loopback(host: str) -> bool:
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def plain_http_warning(server: ServerConfig) -> str | None:
+    """The startup warning for plain HTTP reachable beyond this machine (spec §14.2), or None."""
+    if server.tls_cert is not None or _loopback(server.host):
+        return None
+    return (f"Serving plain HTTP on {server.host}:{server.port} — logins (Perforce passwords) and source code cross the "
+            "network unencrypted. Set server.tls_cert/tls_key, or bind 127.0.0.1.")
 
 
 def _services(config: str):
@@ -29,7 +47,14 @@ def cmd_serve(args) -> int:
     app = create_app(svc, runner, make_authenticator(svc))
     if svc.cfg.auth.mode == "dev":
         logging.warning("auth.mode=dev: any username logs in without a password. Do not expose this server.")
-    uvicorn.run(app, host=svc.cfg.server.host, port=svc.cfg.server.port)
+    srv = svc.cfg.server
+    warning = plain_http_warning(srv)
+    if warning:
+        print(f"WARNING: {warning}", file=sys.stderr)
+        logging.warning(warning)
+    uvicorn.run(app, host=srv.host, port=srv.port,
+                ssl_certfile=str(srv.tls_cert) if srv.tls_cert else None,
+                ssl_keyfile=str(srv.tls_key) if srv.tls_key else None)
     return 0
 
 

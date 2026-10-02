@@ -18,3 +18,19 @@ def test_bad_config_exit_code(tmp_path, capsys):
     (tmp_path / "bad.yaml").write_text("owner: x\n")
     assert main(["index", "--config", str(tmp_path / "bad.yaml")]) == 2
     assert "config error" in capsys.readouterr().err
+
+
+def test_plain_http_on_the_network_is_warned_about():
+    from pathlib import Path
+
+    from codetortoise.cli import plain_http_warning
+    from codetortoise.config import ServerConfig
+    w = plain_http_warning(ServerConfig(host="0.0.0.0", port=8767))
+    assert w is not None and w.startswith("Serving plain HTTP on 0.0.0.0:8767")
+    assert "Set server.tls_cert/tls_key, or bind 127.0.0.1." in w
+    for host in ("192.168.1.122", "::", "myhost.local"):                  # IPv6 any-address and host names too
+        assert plain_http_warning(ServerConfig(host=host)) is not None
+    for host in ("127.0.0.1", "127.0.1.1", "::1", "localhost"):
+        assert plain_http_warning(ServerConfig(host=host)) is None
+    tls = ServerConfig(host="0.0.0.0", tls_cert=Path("/c.pem"), tls_key=Path("/c.key"))
+    assert plain_http_warning(tls) is None

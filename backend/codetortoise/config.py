@@ -13,6 +13,8 @@ class ServerConfig(BaseModel):
     port: int = 8765
     public_url: str = "http://127.0.0.1:8765"
     data_dir: Path = Path(".tortoise")
+    tls_cert: Path | None = None     # both set: serve HTTPS (spec §14.2)
+    tls_key: Path | None = None
 
 
 class WorkspaceConfig(BaseModel):
@@ -99,4 +101,13 @@ def load_config(path: Path) -> Config:
     ws.compile_commands = (base / ws.compile_commands).resolve() if not ws.compile_commands.is_absolute() else ws.compile_commands
     if not cfg.server.data_dir.is_absolute():
         cfg.server.data_dir = (base / cfg.server.data_dir).resolve()
+    srv = cfg.server
+    if (srv.tls_cert is None) != (srv.tls_key is None):
+        raise ConfigError("server.tls_cert and server.tls_key must be set together")
+    if srv.tls_cert is not None and srv.tls_key is not None:
+        srv.tls_cert = srv.tls_cert if srv.tls_cert.is_absolute() else (base / srv.tls_cert).resolve()
+        srv.tls_key = srv.tls_key if srv.tls_key.is_absolute() else (base / srv.tls_key).resolve()
+        for name, f in (("tls_cert", srv.tls_cert), ("tls_key", srv.tls_key)):
+            if not f.is_file():
+                raise ConfigError(f"server.{name}: no such file: {f}")
     return cfg
