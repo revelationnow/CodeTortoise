@@ -110,3 +110,27 @@ def test_a_finding_depends_on_its_nodes_and_its_evidence():
     assert finding_files(f, nf, by_local) == ["//d/a.c", "//d/b.c"]
     assert finding_files(f.model_copy(update={"nodes": ["N1", "N5"]}), nf, by_local) is None
     assert Finding(kind="k", severity="low", title="t", summary="s").files is None        # stored before tags: unknown
+
+
+def test_comment_scope_follows_the_anchor(board):  # noqa: F811
+    from codetortoise.detectors.base import Finding
+    from codetortoise.provenance import comment_scope
+    why = {"F1": [D + "driver/uart.c"], "F2": [D + "include/hal/regs.h"], "F3": [D + "driver/uart.h"],
+           "F4": [D + "hal/regs.c"]}
+    b = tag_board(board.model_copy(deep=True), why)
+    finding = Finding(id="F1", kind="field_mutation", severity="high", title="uart_send now writes Uart::errors",
+                      summary="s", explanation="e", files=[D + "driver/uart.c"],
+                      explain_files=[D + "driver/uart.c", D + "service/logger.c"])
+    scope = lambda kind, anchor: comment_scope(b, [finding], kind, anchor)  # noqa: E731
+    assert scope("line", {"path": D + "service/logger.c", "side": "new", "line": 21}) == [D + "service/logger.c"]
+    assert scope("line", {"depot": D + "app/main.c", "cl": 101, "side": "new", "line": 3}) == [D + "app/main.c"]  # M1 shape
+    assert scope("function", {"key": next(n.key for n in b.nodes if n.label == "uart_errors")}) == [D + "driver/uart.c"]
+    assert scope("function", {"key": "c:@F@not_on_the_board"}) is None
+    assert scope("finding", {"kind": "field_mutation", "title": "uart_send now writes Uart::errors"}) == \
+        [D + "driver/uart.c", D + "service/logger.c"]                   # what its readers saw, explanation included
+    assert scope("chapter", {"level": 2}) == [D + "driver/uart.c", D + "driver/uart.h"]
+    everything = scope("review", {})
+    assert set(everything) >= {f.path for d in b.about.tree for f in d.files} | {n.path for n in b.nodes}
+    assert scope("line", {}) is None
+    unknown_why = tag_board(board.model_copy(deep=True), {"F1": [D + "driver/uart.c"]})   # F2-F4 unknown
+    assert comment_scope(unknown_why, [finding], "review", {}) is None

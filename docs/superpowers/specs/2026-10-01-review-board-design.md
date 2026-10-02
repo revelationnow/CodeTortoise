@@ -456,8 +456,8 @@ rest, HTTPS enforcement.
 ### 14.2 Plain HTTP on the network: warn, don't refuse
 
 - **Optional HTTPS:** `server.tls_cert` and `server.tls_key` (paths). When both are set, uvicorn serves HTTPS with them
-  and the session cookie gets `Secure`. When only one is set, startup fails with a config error. Plain HTTP stays
-  allowed.
+  and the session cookie gets `Secure`. When only one is set, or a file does not exist, startup fails with a config
+  error. Plain HTTP stays allowed.
 - **Startup warning:** when `server.host` is not loopback (`127.0.0.0/8`, `::1`, `localhost`) and HTTPS is not
   configured, `codetortoise serve` prints, to stderr and the log at WARNING:
   `Serving plain HTTP on <host>:<port> — logins (Perforce passwords) and source code cross the network unencrypted.
@@ -470,33 +470,41 @@ rest, HTTPS enforcement.
 ### 14.3 File tags on every visible item
 
 **Rule:** every item a viewer can see carries the Perforce depot paths it depends on, as `files: list[str] | None`
-(sorted, unique). `None` means unknown; stage 2 treats unknown as owner-only (fail closed). Tags are stored with the
-item and returned by the API unchanged; stage 1 filters nothing. "Depends on" means: any file whose contents produced
-the item's text, name or existence, including code given to the LLM as context.
+(sorted, unique). `None` means unknown; stage 2 treats unknown as owner-only (fail closed), and a tag built from any
+unknown part is unknown. `[]` means the item depends on no Perforce file (e.g. a function defined in a system header,
+outside the workspace). Tags are stored with the item and returned by the API unchanged; stage 1 filters nothing.
+"Depends on" means: any file whose contents produced the item's text, name or existence, including code and findings
+given to the LLM.
 
-| Item | `files` |
+| Item | Tag |
 |---|---|
-| Board node | its own `path`; a node without a path (no visible definition, e.g. `hal_read`) gets the files of the nodes that call or read it, since its name comes from their code |
-| Board edge | both ends' files |
-| Impact (annotation) | `path`, plus the files of `node` and of `cause` |
-| Flow | files of every step (`path`, `lands`, `fx_at`); template `title`/`what`/`effect`/`check` use these |
-| Flow LLM text (`what`, `title`) | `what_files`: every file whose code was in the prompt (path nodes and any context snippets) when `what_source == "llm"`, else equal to `files` |
-| Finding | its nodes' files plus evidence paths (`files`); LLM explanation, verify steps and hypotheses: `explain_files`, the prompt's files (finding nodes plus neighbours), `None` when not LLM-written |
-| Board layer name | files of the board's nodes in that layer (names come from directory names; stage 2 falls back to `L<n>` when hidden) |
-| About: tree file | itself |
-| About: changelist (number, user, description) | that changelist's files |
-| About: why line | its finding's `files` |
-| About: intent | `intent_files`: the LLM prompt's files when `intent_source == "llm"`, else all changed files |
-| About: drift line | that file |
+| Board node | `files`: its own `path`; a node without a path (no visible definition, e.g. `hal_read`) gets the files of the board nodes that call or read it, since its name comes from their code; unknown if none is on the board |
+| Board edge | `files`: both ends' files |
+| Impact (annotation) | `files`: `path`, plus the files of `node` and of `cause` |
+| Flow | `files`: files of every step (`path`, `lands`, `fx_at`); template `title`/`what`/`effect`/`check` use these |
+| Flow LLM text (`what`, `title`) | `what_files`: equal to `files` for template text; for LLM text, the files of the prompt (its steps' code and facts, and its findings' files) plus the flow's own `files`, since the text stands in for the flow's |
+| Finding | `files`: its nodes' files plus the files its evidence points at; `explain_files` (LLM explanation, verify steps, hypotheses): the finding's `files` plus its nodes' and their graph neighbours' files, `None` when not LLM-written |
+| Board layer name | `files`: files of the board's nodes in that layer (names come from directory names; stage 2 falls back to `L<n>` when hidden) |
+| About: tree file | `files`: itself |
+| About: changelist (number, user, description) | `files`: the tree files in that changelist. Its file count moves from `files` to `file_count` (stored boards are migrated on load) |
+| About: why line | `files`: its finding's `files` |
+| About: intent | `intent_files`: for LLM text, the files of every chapter's nodes and findings and of the first 30 findings (the summary prompt's inputs); for template text, all changed files |
+| About: drift line | now `{text, files}` with `files` = that depot file (stored string lines are migrated on load) |
 
-**Derived, not stored — `comment_scope(review, anchor)`:** line → the anchored file; function → the function's node
-files; finding → the finding's `files`; flow → the flow's `files`; chapter (layer) → that layer's files; review → all
-files of the review. The review's title and CL list use the review scope (all files of its changelists). `/files`
-diffs and `/source` text are addressed by path and need no tag.
+Graph nodes behind findings and LLM prompts are not all on the board. Their files come from the impact graph: a node's
+own file looked up through Perforce (one batched lookup per review, each file asked once); `[]` outside the workspace;
+unknown when the lookup failed; a node without a file (e.g. a field) takes the files of the nodes that access it.
 
-**Boards and findings stored before this change:** on load (the `/board` and `/findings` re-validation), structural
-tags (nodes, edges, impacts, flows, tree, changelists, drift, why, layer names) are derived exactly as above from the
-stored board; LLM-written text gets `None`; template text is derived like new boards.
+**Derived, not stored — `comment_scope(board, findings, anchor_kind, anchor)`:** line → the anchored file (`path`, or
+`depot` for M1 anchors); function → the board node's `files` (unknown if not on the board); finding (anchored by kind
+and title) → its `files`, plus `explain_files` once explained; chapter (layer) → that layer's `files`; review →
+every tag on the board and on the findings (`review_files`). The review's title names only its CL numbers and needs no
+tag; the CL list's descriptions use each changelist's tag. `/files` diffs and `/source` text are addressed by path and
+need no tag.
+
+**Boards and findings stored before this change:** on load (`/board`), structural tags (nodes, edges, impacts, flows,
+tree, changelists, drift, layer names) are derived as above from the stored board; why lines take their findings' tags;
+LLM-written text gets `None`. Findings stored before this change keep `None` (their graph lookup is not repeated).
 
 ### 14.4 Remove unused endpoints
 
@@ -506,13 +514,17 @@ them. Two fewer surfaces to tag and secure.
 
 ### 14.5 Tests
 
-- pytest: startup warning shown for a non-loopback host over plain HTTP, not for `127.0.0.1` or with HTTPS configured;
-  one-sided TLS config is an error; cookie `Secure` only with HTTPS.
+- pytest: startup warning shown for a non-loopback host over plain HTTP (including `::` and host names), not for
+  `127.0.0.1` or with HTTPS configured; one-sided TLS config and a missing certificate or key file are config errors;
+  cookie `Secure` only with HTTPS.
 - pytest: every board item and finding on the fixture review has non-empty `files`; FL1's `files` are
   `app/main.c`, `service/logger.c`, `driver/uart.c`, `driver/uart.h` (depot paths); a pathless node gets its caller's
   file; LLM flow text whose prompt included a neighbour snippet lists the neighbour's file in `what_files`; finding
   `explain_files` include neighbours; `comment_scope` for each anchor kind; a stored old board gets structural tags and
-  `None` for LLM text; the two removed endpoints return 404.
+  `None` for LLM text; the two removed endpoints return 404. A review run with an LLM stores `what_files`,
+  `explain_files` and `intent_files`.
 - vitest: banner rule (http + non-loopback → shown; https, localhost, 127.0.0.1, [::1] → hidden).
+- e2e (phone, network host name): the banner and the phone board fit the screen together (tab bar visible, no
+  horizontal overflow).
 - e2e: no banner on the e2e server's loopback address; the same server opened as a non-loopback host name
   (Chromium `--host-resolver-rules="MAP ct-lan.test 127.0.0.1"`) shows it, on the login page and on a review.

@@ -91,3 +91,29 @@ def finding_files(f: Finding, node_files: dict[str, Files], by_local: dict[str, 
     """A finding's nodes' files and the files its evidence points at."""
     return merge(*(node_files.get(n) for n in f.nodes),
                  *(by_local.get(e.file) if e.file else [] for e in f.evidence))
+
+
+def comment_scope(board: Board, findings: list[Finding], anchor_kind: str, anchor: dict) -> Files:
+    """The files a comment depends on, from where it is anchored (not stored): what its author was looking at."""
+    if anchor_kind == "line":
+        path = anchor.get("path") or anchor.get("depot")             # M1 line anchors used `depot`
+        return [path] if path else None
+    if anchor_kind == "function":
+        return next((n.files for n in board.nodes if n.key == anchor.get("key")), None)
+    if anchor_kind == "finding":
+        f = next((f for f in findings if f.kind == anchor.get("kind") and f.title == anchor.get("title")), None)
+        return merge(f.files, f.explain_files if f.explanation else []) if f else None
+    if anchor_kind == "chapter":
+        return next((layer.files for layer in board.layers if layer.level == anchor.get("level")), None)
+    if anchor_kind == "review":
+        return review_files(board, findings)
+    return None
+
+
+def review_files(board: Board, findings: list[Finding]) -> Files:
+    """Every file behind anything shown for the review: the board, the change summary and the findings."""
+    a = board.about
+    tags = [*(i.files for i in [*board.nodes, *board.edges, *board.impacts, *board.layers, *a.cls, *a.why, *a.drift]),
+            *(f.files for d in a.tree for f in d.files), *(t for fl in board.flows for t in (fl.files, fl.what_files)),
+            a.intent_files, *(f.files for f in findings), *(f.explain_files for f in findings if f.explanation)]
+    return merge(*tags)
