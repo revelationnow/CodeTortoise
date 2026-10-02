@@ -7,6 +7,7 @@ import ChangePanel from "./ChangePanel";
 import FileViewer from "./FileViewer";
 import FlowBar from "./FlowBar";
 import { bandsFor, centrePan, preferDepth, worldNodes } from "./layout";
+import { sideEffectFiles } from "./sideEffects";
 import { makeLens, type Viewport } from "./lens";
 import { keys, loadAboutOpen, loadLayout, loadLens, loadMovedAll, loadSize, loadWidth, save } from "./prefs";
 import { type Action, initialState, reduce } from "./reducer";
@@ -51,6 +52,7 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
   useEffect(() => { const t = window.setTimeout(() => setHint(false), 7000); return () => window.clearTimeout(t); }, []);
   const interact = useCallback(() => setHint(false), []);
 
+  const sideEffects = useMemo(() => sideEffectFiles(board), [board]);
   const bands = useMemo(() => bandsFor(board, state.layout), [board, state.layout]);
   const world = useMemo(() => worldNodes(board, state.layout, state.moved[state.layout]), [board, state.layout, state.moved]);
   const lens = useMemo(() => makeLens(state.view, vp, [...world.values()].map((n) => n.x)), [state.view, vp, world]);
@@ -151,7 +153,7 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
                height={flowH} onHeight={setFlowH} onHeightDone={(h) => { setFlowH(h); save(keys.flowH, h); }} />
       <div className={`bd-main${state.about ? " with-about" : ""}`}>
         <ChangePanel open={state.about} onToggle={toggleAbout} reviewId={reviewId} comments={comments} onComments={onComments}
-                     layers={board.layers} about={board.about} risk={risk} openFiles={state.viewer.files} dispatch={act}
+                     layers={board.layers} about={board.about} sideEffects={sideEffects} risk={risk} openFiles={state.viewer.files} dispatch={act}
                      wide={wideScreen()} width={aboutW} onWidth={setAboutW} onWidthDone={(w) => save(keys.aboutW, w)} />
         <div className="bd-stage" ref={stage}>
           {vp.W > 0 && <>

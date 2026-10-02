@@ -292,6 +292,11 @@ body.bd-resizing-v, body.bd-resizing-v * { cursor: row-resize !important; user-s
 .bd-about .tree .act { font: 700 9.5px var(--bd-sans); text-transform: uppercase; padding: 1px 6px; border-radius: 5px; background: var(--chg-bg-soft); color: var(--chg-ink); }
 .bd-about .tree .cnt { margin-left: auto; font-size: 11px; } .bd-about .tree .cnt .p { color: var(--add-ink); }
 .bd-about .tree .cnt .m { color: var(--del-ink); margin-left: 4px; }
+.bd-about .fx-fn { padding: 3px 12px 3px 52px; font: 12px var(--bd-sans); color: var(--bd-muted); cursor: pointer; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; border-left: 3px solid transparent; }
+.bd-about .fx-fn b { font: 600 12px var(--bd-mono); color: var(--bd-ink); }
+.bd-about .fx-fn.landing { border-left-color: var(--fx); } .bd-about .fx-fn.warn { border-left-color: var(--warn); }
+.bd-about .fx-fn:hover { background: var(--bd-hover); } .bd-about .fx-fn .ln { color: var(--bd-faint); }
 .bd-about .tree .clb { font: 600 10px var(--bd-sans); color: var(--flow); background: var(--bd-sel); padding: 1px 6px; border-radius: 5px; }
 
 @media (max-width: 1100px) {

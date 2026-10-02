@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { Comment } from "../api";
 import Comments from "../components/Comments";
 import type { Action } from "./reducer";
+import type { AffectedDir } from "./sideEffects";
 import Resizer from "./Resizer";
 import type { About } from "./types";
 
@@ -13,6 +14,7 @@ interface Props {
   onComments: () => void;
   layers: { level: number; name: string }[];
   about: About;
+  sideEffects: AffectedDir[];
   risk: string | null;
   openFiles: string[];
   dispatch: (a: Action) => void;
@@ -23,8 +25,8 @@ interface Props {
 }
 
 /** "What's this change?" (spec §3.6): files tree first, then intent, why it's risky, changelists. Pushes the board. */
-export default function ChangePanel({ open, onToggle, reviewId, comments, onComments, layers, about, risk, openFiles, dispatch, wide,
-  width, onWidth, onWidthDone }: Props) {
+export default function ChangePanel({ open, onToggle, reviewId, comments, onComments, layers, about, sideEffects, risk, openFiles,
+  dispatch, wide, width, onWidth, onWidthDone }: Props) {
   const [shut, setShut] = useState<Set<string>>(new Set());
   if (!open)
     return (
@@ -70,6 +72,31 @@ export default function ChangePanel({ open, onToggle, reviewId, comments, onComm
             </div>
           ))}
         </div>
+        {sideEffects.length > 0 && <>
+          <h3>Files with side effects</h3>
+          <div className="tree fx-tree">
+            {sideEffects.map((d) => (
+              <div key={d.dir}>
+                <div className="dir"><span className="caret">▾</span>📁 {d.dir}/</div>
+                {d.files.map((f) => (
+                  <div key={f.path}>
+                    <div className={`file fx-file${openFiles.includes(f.path) ? " on" : ""}`}
+                         onClick={() => dispatch({ t: "viewer.open", path: f.path, line: f.fns[0]?.line ?? null, wide })}>
+                      📄 {f.name}{f.alsoChanged && <span className="act">also changed</span>}
+                      {f.warn > 0 && <span className="cnt"><span className="m">⚠ {f.warn}</span></span>}
+                    </div>
+                    {f.fns.map((fn) => (
+                      <div key={fn.node} className={`fx-fn ${fn.landing ? "landing" : fn.severity}`} title={fn.text}
+                           onClick={() => dispatch({ t: "viewer.open", path: f.path, line: fn.line, wide })}>
+                        <b>{fn.label}</b> · {fn.text} <span className="ln">(line {fn.line})</span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </>}
         <h3>Intent</h3>
         <div className="intent">{about.intent}</div>
         {about.why.length > 0 && <>

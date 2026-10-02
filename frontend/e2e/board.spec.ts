@@ -181,3 +181,15 @@ test("change panel opens on the left by default, collapses to a bar, and the flo
   expect((await flowbar.boundingBox())!.height).toBeGreaterThan(h0 + 100);
   await expect(page.locator(".bd-flowbar .bd-chip").first()).toBeVisible();
 });
+
+test("the change panel lists files with side effects and opens them at the affected line", async ({ page }) => {
+  await startReview(page);
+  const panel = page.locator(".bd-about");
+  const fx = panel.locator(".fx-tree");
+  await expect(fx.locator(".fx-file", { hasText: "uart.c" })).toContainText("also changed");
+  await expect(fx.locator(".fx-file", { hasText: "logger.c" })).toBeVisible();
+  await fx.locator(".fx-fn", { hasText: "logger_flush" }).click();
+  const viewer = page.locator(".bd-viewer");
+  await expect(viewer.locator('.fsec[data-path="//fixture/service/logger.c"]')).toBeVisible();
+  await expect(viewer.locator(".bd-ln.focus")).toContainText("uart_send(lg->uart");
+});
