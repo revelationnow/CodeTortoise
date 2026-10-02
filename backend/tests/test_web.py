@@ -241,8 +241,11 @@ def test_board_stored_by_an_older_version_gets_current_defaults(env):
     del old["about"]["drift"]
     for i in old["impacts"]:
         del i["cause"], i["landing"]
+    for f in old["flows"]:
+        del f["title"]
     svc.store.put_blob(rid, "board", old)
     b = owner.get(f"/api/reviews/{rid}/board").json()
     assert b["about"]["drift"] == []
     assert all(i["landing"] is False and i["cause"] is None for i in b["impacts"])
     assert len(b["flows"]) == 3
+    assert [f["title"] for f in b["flows"]] == ["affects uart_errors", "-2 ignored", "signature changed"]

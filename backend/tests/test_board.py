@@ -39,6 +39,8 @@ def test_fixture_board_has_the_three_prototype_flows(board):
     assert _labels(board, [ignored.fx_at]) == ["logger_flush"] and ignored.findings
     assert sig.text.endswith("⟶ signature changed")
     assert "uart_errors" in state.effect and "Uart::errors" in state.check
+    assert [f.title for f in board.flows] == ["uart_errors sees a new writer of Uart::errors", "logger_flush ignores -2",
+                                              "uart_init calls hal_write (signature changed)"]
 
 
 def test_fixture_board_annotates_where_the_effects_land(board):
@@ -240,3 +242,19 @@ def test_about_lists_workspace_drift():
     ctx.cs.drift = [DriftItem(depot="//d/lib/src/a.c", local="/w/a.c", expected="#3", actual="#4")]
     assert build_board(ctx).about.drift == ["//d/lib/src/a.c (base #3, workspace #4)"]
     assert build_board(_synthetic()[0]).about.drift == []
+
+
+def test_flow_titles_for_every_kind():
+    from codetortoise.board import flow_title
+    assert flow_title("state", "peek", "set", field="R::v") == "peek sees a new writer of R::v"
+    assert flow_title("ignored", "check_safecrlf", "output_eol", values="-1") == "check_safecrlf ignores -1"
+    assert flow_title("unhandled", "check_safecrlf", "output_eol", values="-1") == "check_safecrlf doesn't handle -1"
+    assert flow_title("signature", "uart_init", "hal_write") == "uart_init calls hal_write (signature changed)"
+
+
+def test_flows_stored_without_a_title_get_one_from_their_text():
+    from codetortoise.board import Flow
+    common = dict(id="FL1", tag="contract", lands="N3", severity="medium", what="w", effect="e", check="c")
+    assert Flow(path=["N1", "N3"], text="main → logger_flush → uart_send ⟶ -2 ignored", **common).title == "-2 ignored"
+    assert Flow(path=["N1", "N3"], text="main → uart_send → Uart::errors → uart_errors", **common).title == \
+        "affects uart_errors"

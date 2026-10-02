@@ -14,7 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from codetortoise.config import AnalysisConfig
 from codetortoise.detectors.base import SEVERITY_RANK, Finding
@@ -89,10 +89,19 @@ class Flow(BaseModel):
     severity: str
     findings: list[str] = Field(default_factory=list)
     text: str
+    title: str = ""                  # short headline for the phone flow reader (spec §13.6)
     what: str
     effect: str
     check: str
     what_source: Literal["template", "llm"] = "template"
+
+    @model_validator(mode="after")
+    def _title_from_text(self) -> Flow:
+        """Boards stored before titles existed: the effect after "⟶", else what the flow ends on."""
+        if not self.title:
+            head, _, tail = self.text.partition("⟶")
+            self.title = tail.strip() or f"affects {head.split(' → ')[-1].strip()}"
+        return self
 
 
 class BoardLayer(BaseModel):
@@ -374,6 +383,17 @@ def _entry_path(x: _Ctx, start: str, warn: dict[str, int], avoid: frozenset[str]
     return [start]
 
 
+def flow_title(kind: str, landing: str, changed: str, field: str | None = None, values: str | None = None) -> str:
+    """Short headline of a flow (spec §13.6)."""
+    if kind == "state":
+        return f"{landing} sees a new writer of {field or 'a field'}"
+    if kind == "ignored":
+        return f"{landing} ignores {values}"
+    if kind == "unhandled":
+        return f"{landing} doesn't handle {values}"
+    return f"{landing} calls {changed} (signature changed)"
+
+
 def build_flows(x: _Ctx, impacts: list[Impact]) -> list[Flow]:
     sev_of = {f.id: f.severity for f in x.c.findings}
     warn: dict[str, int] = defaultdict(int)
@@ -399,6 +419,7 @@ def build_flows(x: _Ctx, impacts: list[Impact]) -> list[Flow]:
             what = f"{lead} {fl}. {L} ({layer_name}) uses that field, so it now observes values written by {F}."
             effect = f"{L} now sees {fl} changed by {F}; code that assumed the old writers may be surprised."
             check = f"whether {L} assumes {fl} only changes the way it did before"
+            title = flow_title("state", L, F, field=fl)
             tag, fx_at = "state", None
         else:
             head = _entry_path(x, land, warn)
@@ -409,23 +430,27 @@ def build_flows(x: _Ctx, impacts: list[Impact]) -> list[Flow]:
                 effect = f"Arguments {L} passes to {F} are converted to the new parameter types."
                 check = f"arguments {L} passes that could change meaning under the new types"
                 tail = "signature changed"
+                title = flow_title("signature", L, F)
             elif imp.text.startswith("result ignored"):
                 vals = imp.text.split("can now return ", 1)[-1]
                 what = f"{who} calls {F} and ignores the result. {F} can now return {vals}."
                 effect = f"{L} silently drops the new {vals} result."
                 check = f"whether {L} can hit the new {vals} path, and what it should do then"
                 tail = f"{vals} ignored"
+                title = flow_title("ignored", L, F, values=vals)
             else:
                 vals = imp.text.split("does not handle ", 1)[-1]
                 what = f"{who} calls {F} and {imp.text}."
                 effect = f"{L} does not handle {vals}."
                 check = f"how {L} should treat {vals}"
                 tail = f"{vals} unhandled"
+                title = flow_title("unhandled", L, F, values=vals)
             text = " → ".join(x.label(n) for n in path) + f" ⟶ {tail}"
             tag, fx_at = "contract", land
         sev = sev_of.get(imp.finding or "", "medium")
         flows.append(Flow(id="", path=path, tag=tag, lands=land, fx_at=fx_at, severity=sev,
-                          findings=[imp.finding] if imp.finding else [], text=text, what=what, effect=effect, check=check))
+                          findings=[imp.finding] if imp.finding else [], text=text, title=title, what=what, effect=effect,
+                          check=check))
     flows.sort(key=lambda f: (-SEVERITY_RANK.get(f.severity, 0), 0 if f.tag == "state" else 1, len(f.path), f.text))
     flows = flows[: x.c.cfg.max_flows]
     for i, f in enumerate(flows):

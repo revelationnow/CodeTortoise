@@ -128,7 +128,8 @@ def test_unexpected_llm_client_exception_keeps_skeleton():
 def _board(flows=2):
     from codetortoise.board import About, Board, Flow
     fl = [Flow(id=f"FL{i + 1}", path=["N3", "N2"], tag="contract", lands="N3", fx_at="N3", severity="medium",
-               findings=["F1"], text="logger_flush → uart_send ⟶ -2 ignored", what="template what", effect="e",
+               findings=["F1"], text="logger_flush → uart_send ⟶ -2 ignored", title="template title", what="template what",
+               effect="e",
                check="c") for i in range(flows)]
     return Board(flows=fl, about=About(intent="template intent"))
 
@@ -148,7 +149,7 @@ def _respond(flow_reply):
 def test_llm_writes_grounded_flow_narratives_and_the_change_intent():
     im, findings, layers = model()
     board = _board(3)
-    replies = iter([{"what": "flush drops -2", "cites": ["N3", "F1"]},
+    replies = iter([{"what": "flush drops -2", "title": "logger_flush drops -2 on flush", "cites": ["N3", "F1"]},
                     {"what": "uncited guess", "cites": ["N99"]},
                     {"what": "not asked for", "cites": ["N3"]}])
     sb = build_storyboard(im, findings, layers, {}, fake_llm(_respond(lambda u: next(replies))),
@@ -156,6 +157,7 @@ def test_llm_writes_grounded_flow_narratives_and_the_change_intent():
     assert sb.llm_used
     assert [(f.what, f.what_source) for f in board.flows] == [
         ("flush drops -2", "llm"), ("template what", "template"), ("template what", "template")]
+    assert [f.title for f in board.flows] == ["logger_flush drops -2 on flush", "template title", "template title"]
     assert board.about.intent == "the change adds tx stats" and board.about.intent_source == "llm"
 
 

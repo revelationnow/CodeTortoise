@@ -67,6 +67,7 @@ class _SummaryOut(BaseModel):
 
 class _FlowOut(BaseModel):
     what: str
+    title: str = ""
     cites: list[str] = Field(default_factory=list)
 
 
@@ -171,7 +172,8 @@ def _flow_prompt(fl: Flow, impact: ImpactModel, findings: list[Finding], snippet
              "GRAPH FACTS:\n" + _facts_for_nodes(impact, [n for n in fl.path if n in impact.nodes])]
     parts += [f"CODE {n}:\n{snippets[n]}" for n in fl.path if n in snippets]
     return ("Describe this call flow for a reviewer in 2-3 sentences: how the entry reaches the change and what the "
-            "change does to the function where the effect lands. Cite the node and finding ids you rely on.\n\n" +
+            "change does to the function where the effect lands, plus a headline of at most 8 words (title). "
+            f"Draft headline: {fl.title}. Cite the node and finding ids you rely on.\n\n" +
             budget(parts, per_call))
 
 
@@ -222,6 +224,8 @@ def build_storyboard(impact: ImpactModel, findings: list[Finding], layers: Layer
             # grounded: keep the LLM text only if it cites a node on this flow or one of its findings
             if out.what.strip() and set(out.cites) & (set(fl.path) | set(fl.findings)):
                 fl.what, fl.what_source = out.what.strip(), "llm"
+                if 0 < len(out.title.strip()) <= 80:
+                    fl.title = out.title.strip()
         jobs.append((_flow_prompt(fl, impact, findings, snippets, per_call), _FlowOut, describe))
 
     pool = ThreadPoolExecutor(max(1, concurrency), thread_name_prefix="tortoise-llm")

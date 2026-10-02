@@ -409,7 +409,8 @@ changes.
 - signature: "<landing> calls <changed> (signature changed)".
 
 The LLM may rewrite it along with `what` (grounded the same way). Boards stored before this change get the title
-from their `text` (the part before "⟶", else the last step) when `/board` re-validates them.
+from their `text` when `/board` re-validates them: the effect after "⟶" ("-2 ignored"), else
+"affects <last step>".
 
 ### 13.7 Files with side effects (change panel, all sizes)
 
