@@ -432,3 +432,86 @@ the viewer at that line. Built on the client from `board.impacts` and `board.nod
   Summary lists side-effect files (`service/logger.c` with logger_flush and logger_write; `driver/uart.c`, "also
   changed", with uart_errors and uart_init); no horizontal overflow.
   e2e (desktop): a side-effect function in the change panel opens the viewer at its line.
+
+## 14. Security, stage 1: proof-of-concept safety pack (2026-10-02)
+
+### 14.1 Context and staging
+
+CodeTortoise rolls out in two stages. **Stage 1** is a proof of concept that runs entirely on the review owner's machine,
+to demonstrate the tool's value. **Stage 2** hardens it with the company IT team (hosting, per-viewer Perforce
+permissions, audit, encryption at rest), from a best-practices proposal written separately.
+
+Stage 1 does not enforce per-viewer permissions. The proof-of-concept audience is limited to viewers who can read all of
+the reviewed code. Stage 1 does two things: it makes plain-HTTP network exposure visible, and it records, on every
+item a viewer can see, the Perforce files that item depends on, so that stage 2 can filter by permission without
+redesigning the data.
+
+Constraints carried into stage 2 (decided 2026-10-02): viewers' Perforce tickets and passwords must eventually not be
+sent to the backend; there is no SSO and no privileged Perforce account; no feature of the app may let anyone, the owner
+included, show a viewer more than Perforce lets them read. Deliberate leaks outside the app are out of scope.
+
+Not in stage 1: review deletion or retention, permission enforcement, comment paste checks, audit log, encryption at
+rest, HTTPS enforcement.
+
+### 14.2 Plain HTTP on the network: warn, don't refuse
+
+- **Optional HTTPS:** `server.tls_cert` and `server.tls_key` (paths). When both are set, uvicorn serves HTTPS with them
+  and the session cookie gets `Secure`. When only one is set, startup fails with a config error. Plain HTTP stays
+  allowed.
+- **Startup warning:** when `server.host` is not loopback (`127.0.0.0/8`, `::1`, `localhost`) and HTTPS is not
+  configured, `codetortoise serve` prints, to stderr and the log at WARNING:
+  `Serving plain HTTP on <host>:<port> — logins (Perforce passwords) and source code cross the network unencrypted.
+  Set server.tls_cert/tls_key, or bind 127.0.0.1.`
+- **In-app banner:** an amber strip at the top of every page, the login page included:
+  "Not encrypted — this connection to CodeTortoise is plain HTTP over the network." The browser decides:
+  `location.protocol === "http:"` and the hostname is not loopback (`localhost`, `127.x.x.x`, `[::1]`). A
+  TLS-terminating proxy in front therefore hides the banner correctly. No API.
+
+### 14.3 File tags on every visible item
+
+**Rule:** every item a viewer can see carries the Perforce depot paths it depends on, as `files: list[str] | None`
+(sorted, unique). `None` means unknown; stage 2 treats unknown as owner-only (fail closed). Tags are stored with the
+item and returned by the API unchanged; stage 1 filters nothing. "Depends on" means: any file whose contents produced
+the item's text, name or existence, including code given to the LLM as context.
+
+| Item | `files` |
+|---|---|
+| Board node | its own `path`; a node without a path (no visible definition, e.g. `hal_read`) gets the files of the nodes that call or read it, since its name comes from their code |
+| Board edge | both ends' files |
+| Impact (annotation) | `path`, plus the files of `node` and of `cause` |
+| Flow | files of every step (`path`, `lands`, `fx_at`); template `title`/`what`/`effect`/`check` use these |
+| Flow LLM text | `what_files`: every file whose code was in the prompt (path nodes and any context snippets) when `what_source == "llm"`, else equal to `files` |
+| Finding | its nodes' files plus evidence paths (`files`); LLM explanation, verify steps and hypotheses: `explain_files`, the prompt's files (finding nodes plus neighbours), `None` when not LLM-written |
+| Board layer name | files of the board's nodes in that layer (names come from directory names; stage 2 falls back to `L<n>` when hidden) |
+| About: tree file | itself |
+| About: changelist (number, user, description) | that changelist's files |
+| About: why line | its finding's `files` |
+| About: intent | `intent_files`: the LLM prompt's files when `intent_source == "llm"`, else all changed files |
+| About: drift line | that file |
+
+**Derived, not stored — `comment_scope(review, anchor)`:** line → the anchored file; function → the function's node
+files; finding → the finding's `files`; flow → the flow's `files`; chapter (layer) → that layer's files; review → all
+files of the review. The review's title and CL list use the review scope (all files of its changelists). `/files`
+diffs and `/source` text are addressed by path and need no tag.
+
+**Boards and findings stored before this change:** on load (the `/board` and `/findings` re-validation), structural
+tags (nodes, edges, impacts, flows, tree, changelists, drift, why, layer names) are derived exactly as above from the
+stored board; LLM-written text gets `None`; template text is derived like new boards.
+
+### 14.4 Remove unused endpoints
+
+`GET /api/reviews/{id}/storyboard` and `GET /api/reviews/{id}/impact` are not called by the frontend since the board
+replaced those tabs. Remove both routes and their `api.ts` entries; the stored blobs stay, as the board is built from
+them. Two fewer surfaces to tag and secure.
+
+### 14.5 Tests
+
+- pytest: startup warning shown for a non-loopback host over plain HTTP, not for `127.0.0.1` or with HTTPS configured;
+  one-sided TLS config is an error; cookie `Secure` only with HTTPS.
+- pytest: every board item and finding on the fixture review has non-empty `files`; FL1's `files` are
+  `app/main.c`, `service/logger.c`, `driver/uart.c`, `driver/uart.h` (depot paths); a pathless node gets its caller's
+  file; LLM flow text whose prompt included a neighbour snippet lists the neighbour's file in `what_files`; finding
+  `explain_files` include neighbours; `comment_scope` for each anchor kind; a stored old board gets structural tags and
+  `None` for LLM text; the two removed endpoints return 404.
+- vitest: banner rule (http + non-loopback → shown; https, localhost, 127.0.0.1, [::1] → hidden).
+- e2e: the banner is not shown on the e2e server (loopback); a page served on a non-loopback address shows it.
