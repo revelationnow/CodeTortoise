@@ -21,6 +21,7 @@ export const keys = {
   layout: (reviewId: number) => `ct.board.${reviewId}.layout`,
   about: "ct.panel.about",
   flowH: "ct.panel.flowH",
+  tab: (reviewId: number) => `ct.board.${reviewId}.tab`,
   viewerW: "ct.panel.viewerW",
   aboutW: "ct.panel.aboutW",
   lens: "ct.lens",
@@ -72,4 +73,10 @@ export function loadAboutOpen(): boolean | null {
 export function loadSize(key: string, min: number, max: number): number | null {
   const v = load<unknown>(key, null);
   return typeof v === "number" && Number.isFinite(v) && v >= min && v <= max ? v : null;
+}
+
+export type PhoneTab = "flows" | "map" | "files" | "summary";
+export function loadTab(reviewId: number): PhoneTab | null {
+  const v = load<unknown>(keys.tab(reviewId), null);
+  return v === "flows" || v === "map" || v === "files" || v === "summary" ? v : null;
 }

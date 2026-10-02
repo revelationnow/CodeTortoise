@@ -77,3 +77,12 @@ describe("panel prefs", () => {
     expect(loadSize(keys.flowH, 40, 4000)).toBeNull();
   });
 });
+
+describe("phone tab pref", () => {
+  it("remembers the tab per review and ignores junk", async () => {
+    const { loadTab } = await import("./prefs");
+    vi.stubGlobal("window", { localStorage: { getItem: (k: string) => (k === "ct.board.3.tab" ? '"map"' : '"other"'), setItem: () => {} } });
+    expect(loadTab(3)).toBe("map");
+    expect(loadTab(4)).toBeNull();
+  });
+});
