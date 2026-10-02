@@ -81,6 +81,23 @@ def cmd_review(args) -> int:
     return 0
 
 
+def cmd_init(args) -> int:
+    from codetortoise.init_config import render, scan, summary
+    from codetortoise.vcs.p4runner import P4Runner
+    out = Path(args.out).resolve()
+    if out.exists() and not args.force:
+        print(f"{out} exists; use --force to replace it", file=sys.stderr)
+        return 1
+
+    def client_root(port: str, client: str) -> str | None:
+        recs = P4Runner(port, client, args.p4_bin, timeout=30, cwd=args.root).run("client", "-o", client)
+        return recs[0].get("Root") if recs else None
+    s = scan(Path(args.root), client_root=None if args.no_p4 else client_root)
+    out.write_text(render(s))
+    print(summary(s, out))
+    return 0
+
+
 def cmd_fixture_demo(args) -> int:
     from codetortoise.fixture import build_fixture
     dest = Path(args.dir).resolve()
@@ -117,6 +134,13 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--title")
     s.add_argument("cls", nargs="+", type=int)
     s.set_defaults(fn=cmd_review)
+    s = sub.add_parser("init", help="write a starter tortoise.yaml for the workspace you are in")
+    s.add_argument("--root", default=".", help="a folder inside the workspace (default: the current folder)")
+    s.add_argument("--out", default="tortoise.yaml")
+    s.add_argument("--force", action="store_true", help="replace an existing file")
+    s.add_argument("--p4-bin", default="p4")
+    s.add_argument("--no-p4", action="store_true", help="do not ask Perforce for the client's Root")
+    s.set_defaults(fn=cmd_init)
     s = sub.add_parser("fixture-demo", help="create a demo workspace + config from the bundled fixture")
     s.add_argument("--dir", required=True)
     s.add_argument("--port", type=int, default=8765)
