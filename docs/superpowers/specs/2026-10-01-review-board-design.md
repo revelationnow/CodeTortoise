@@ -352,3 +352,79 @@ submission order; the first failure stops applying (earlier results stay) and sk
   Review sub-pages get the same card and badge styling. Everything uses the light/dark tokens; the dark chrome panels
   carry a solid fallback colour under their gradients.
 - Pinned by `lib/reviewFilter.test.ts` and `e2e/landing.spec.ts`, plus landing/health contrast checks in `e2e/theme.spec.ts`.
+
+## 13. Phone board and side-effect files (2026-10-01)
+
+### 13.1 Why
+
+On a phone the canvas is cramped (header, flow bar and toolbar leave a sliver of graph), gestures conflict (pan vs
+scroll, accidental node moves, no pinch zoom, small tap targets), code sheets cover the graph, and a flow is hard to
+follow. Below 641 px the board becomes a different shell built around reading flows; at 641 px and wider nothing
+changes.
+
+### 13.2 Phone shell (≤ 640 px)
+
+- **Header:** compact bar with title and risk pill; ☰ holds Findings, Files, CLs & Swarm, the theme switch and Log out.
+- **Bottom tab bar:** `Flows · Map · Files · Summary`. Tab per review in `ct.board.<id>.tab`; default Flows, or Map
+  when the review has no flows.
+
+### 13.3 Flows tab (flow reader)
+
+- **Pager:** ‹ › and horizontal swipe (> 50 px, mostly horizontal) between flows; "n/N". Headline `Flow.title`
+  (§13.6) and the flow's `what` as a one-line summary.
+- **Steps:** vertical timeline of `Flow.path`. Marker: number for plain calls, Δ for changed nodes, f for fields, ! for
+  the landing (`lands`, or `fx_at`). One-line reason per step, derived on the client:
+  - changed: `Δ <kind> +a −r`;
+  - field: `field · new writer` (from the field's declaration annotation when present);
+  - landing: the landing annotation's text;
+  - entry (first step): `entry · <layer>`;
+  - otherwise: `calls <next step>`, plus that call line's annotation text when the step has one (e.g. "checks != 0 — covers -2").
+- **Expanding:** tapping a step expands its code inline (one step open at a time): changed function → its diff sliced
+  to the function; context function → its lines fetched on demand; field → its declaration ± 4 lines. Uses `CodeView`
+  (annotations, line comments, `+ comment`). A ⤢ on the step opens the whole file in the Files tab at the function.
+- **Landing box** at the end: "Side effect lands on <label> (<layer>)", `effect`, "Check · <check>".
+
+### 13.4 Map tab (touch canvas)
+
+- The existing canvas (Layers / Call depth, selected flow highlighted), full height. One floating pill: flow picker,
+  and a ⋯ menu with layout, lens and Reset layout.
+- **Gestures:** one finger pans; two fingers pinch-zoom a phone-only scale `z ∈ [0.5, 2.5]` applied after the lens
+  (screen = centre + (lensed − centre) · z), keeping the pinch midpoint fixed; tap a node → its code in a bottom
+  sheet (half height; drag the grip up to full, down to dismiss); long-press (≥ 450 ms) then drag moves a node.
+  Node hit areas are at least 40 px whatever the zoom. Dragging never selects text.
+
+### 13.5 Files and Summary tabs
+
+- **Files:** the file viewer full-screen. With no file open it shows a picker: files in the change, then files with
+  side effects (§13.7).
+- **Summary:** the change panel's content (files tree, side-effect files, intent, why it's risky, Discussion,
+  Changelists), as a scrolling page.
+
+### 13.6 Flow titles (backend)
+
+`Flow.title`, a short headline from templates:
+- state: "<landing> sees a new writer of <field>";
+- contract, ignored: "<landing> ignores <values>";
+- contract, unhandled: "<landing> doesn't handle <values>";
+- signature: "<landing> calls <changed> (signature changed)".
+
+The LLM may rewrite it along with `what` (grounded the same way). Boards stored before this change get the title
+from their `text` (the part before "⟶", else the last step) when `/board` re-validates them.
+
+### 13.7 Files with side effects (change panel, all sizes)
+
+A section after "Files in this change": files that are not in the change but hold annotated functions (any annotation
+on a node outside the change set, landing or `warn` first), grouped by directory (same prefix rule as the change tree).
+Per file: name, warn count, and its functions with the first annotation each ("uart_errors · reads Uart::errors —
+now also written by uart_send (line 29)"). Clicking a function opens the file in the viewer at its line. Built on the
+client from `board.impacts` and `board.nodes`.
+
+### 13.8 Tests
+
+- vitest: step list and reasons (`flowSteps`), side-effect file grouping (`sideEffectFiles`), pinch-zoom maths
+  (fixed midpoint, clamped scale), tab preference reader.
+- pytest: flow titles on the fixture (three flows) and on the synthetic real-code shapes; old boards get a title.
+- e2e (phone): Flows shows the fixture's first flow as steps; swipe changes flow; tapping uart_send shows its diff with
+  the "writes Uart::errors" annotation; ⤢ opens Files at the line; Map pinch-zooms and a tap opens the sheet;
+  Summary lists side-effect files (`service/logger.c`, `driver/uart.c` when not changed …); no horizontal overflow.
+  e2e (desktop): a side-effect function in the change panel opens the viewer at its line.
