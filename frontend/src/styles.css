@@ -6,13 +6,11 @@
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: light;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #17161a; --surface: #201f24; --ink: #ece9e2; --muted: #a29d92; --line: #34323a; --accent: #8fb0ff;
-    --ok: #7bc47f; --warn: #e0b64c; --bad: #f08a82; --info: #9aa6b5;
-    --add-bg: #1e3321; --del-bg: #3a2020; --gap-bg: #26252b;
-    color-scheme: dark;
-  }
+:root[data-theme="dark"] {
+  --bg: #17161a; --surface: #201f24; --ink: #ece9e2; --muted: #a29d92; --line: #34323a; --accent: #8fb0ff;
+  --ok: #7bc47f; --warn: #e0b64c; --bad: #f08a82; --info: #9aa6b5;
+  --add-bg: #1e3321; --del-bg: #3a2020; --gap-bg: #26252b;
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--sans); }
@@ -37,6 +35,9 @@ h4 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .topbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 24px; padding: 10px 24px; border-bottom: 1px solid var(--line); background: var(--surface); }
 .topbar nav { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-left: auto; }
 .topbar nav a, .topbar nav button { white-space: nowrap; }
+.theme-switch { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.theme-switch button { border: 0; border-radius: 0; padding: 3px 9px; background: var(--surface); color: var(--muted); }
+.theme-switch button.on { background: var(--accent); color: var(--surface); }
 .brand { font-weight: 700; text-decoration: none; color: var(--ink); letter-spacing: .01em; }
 .page { padding: 24px; max-width: 1200px; margin: 0 auto; }
 .page.narrow { max-width: 480px; } .page.wide { max-width: none; }

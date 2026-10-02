@@ -4,6 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CodeTortoise</title>
+    <script>
+      // apply the saved theme before the app loads (no light flash on dark machines); see src/theme.ts
+      (function () {
+        var c = "system";
+        try { c = JSON.parse(localStorage.getItem("ct.theme")) || "system"; } catch (e) {}
+        if (c !== "light" && c !== "dark") c = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.dataset.theme = c;
+        document.documentElement.style.colorScheme = c;
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

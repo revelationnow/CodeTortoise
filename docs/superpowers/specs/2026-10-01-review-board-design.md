@@ -327,3 +327,15 @@ submission order; the first failure stops applying (earlier results stay) and sk
   edge. The header no longer carries a "What's this change?" button.
 - The flow bar has a bottom-edge grip: height from the chips row up to half the window (`ct.panel.flowH`); the flow
   summary scrolls inside a shorter bar; double-click the grip returns to automatic height.
+
+## 11. Light and dark themes (2026-10-01)
+
+- `System / Light / Dark` switch in the top bar (`ct.theme`, JSON like every pref; bad values mean System). System follows
+  the OS live. The resolved theme is `data-theme` + `color-scheme` on `<html>`, set by an inline script in `index.html`
+  before the app loads (no light flash), so native inputs, selects and scrollbars always match the page.
+- `styles.css` tokens have light and `[data-theme="dark"]` values. `board.css` colours are role tokens (surfaces, ink,
+  lines, bands, nodes, cards, code and syntax, diff, annotations, chips) with dark values; the header/panel-top chrome
+  stays dark in both themes and changed nodes keep their amber fill with dark text.
+- Pinned by `theme.test.ts` (resolution) and `e2e/theme.spec.ts` (follows the OS; switch overrides and is remembered;
+  WCAG contrast ≥ 4.5 for flow summary, node label, card code, annotation, change panel, board button, top-bar link and
+  a native input in both themes; the input's `color-scheme` matches).

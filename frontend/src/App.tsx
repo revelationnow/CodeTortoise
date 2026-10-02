@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api, type Me } from "./api";
+import ThemeSwitch from "./components/ThemeSwitch";
 import Health from "./pages/Health";
 import Login from "./pages/Login";
 import NewReview from "./pages/NewReview";
@@ -38,6 +39,7 @@ export default function App() {
             </button>
           </nav>
         )}
+        <ThemeSwitch />
       </header>
       <Routes>
         <Route path="/login" element={<Login onLogin={() => api.me().then(setMe)} />} />
