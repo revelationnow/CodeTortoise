@@ -173,7 +173,7 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         if b is None:
             raise HTTPException(404, "board not built yet")
         # boards stored by an older version get current defaults and file tags (spec §14.3)
-        b = tag_board(Board.model_validate(b)).model_dump()
+        b = tag_board(Board.model_validate(b), {f.id: f.files for f in store.list_findings(rid)}).model_dump()
         overrides = store.kv_get("layer_overrides") or {}
         for layer in b.get("layers", []):
             if str(layer["level"]) in overrides:

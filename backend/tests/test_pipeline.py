@@ -30,6 +30,10 @@ def test_full_review_without_llm_or_swarm(fx, tmp_path):
     assert all(n["path"].startswith("//fixture/") for n in board["nodes"] if n["kind"] == "function")
     assert board["about"]["intent_source"] == "template"
     assert all(n["files"] for n in board["nodes"]) and all(f["files"] for f in board["flows"])   # tags stored (spec §14.3)
+    findings = {f.id: f for f in svc.store.list_findings(rid)}
+    assert all(f.files for f in findings.values())
+    assert "//fixture/driver/uart.c" in findings["F1"].files
+    assert [w["files"] for w in board["about"]["why"]] == [findings[w["finding"]].files for w in board["about"]["why"]]
 
 
 def test_ingest_failure_skips_dependent_stages(fx, tmp_path):
@@ -212,6 +216,13 @@ def test_board_without_depot_paths_for_context_nodes_is_degraded(fx, tmp_path):
     paths = {n["label"]: n["path"] for n in board["nodes"]}
     assert paths["uart_send"] == "//fixture/driver/uart.c" and paths["main"] is None
     assert len(board["flows"]) == 3
+    # the files Perforce could not name are unknown, never guessed (spec §14.3)
+    tags = {n["label"]: n["files"] for n in board["nodes"]}
+    assert tags["uart_send"] == ["//fixture/driver/uart.c"] and tags["main"] is None
+    assert all(f["files"] is None for f in board["flows"])                    # every flow starts at main
+    f5 = next(f for f in svc.store.list_findings(rid) if f.id == "F5")      # evidence in service/logger.c
+    assert f5.files is None
+    assert st["board"]["message"].count("connect failed") == 1              # one lookup, not one per caller
 
 
 def test_depot_resolver_asks_the_source_only_about_workspace_files():
@@ -229,6 +240,8 @@ def test_depot_resolver_asks_the_source_only_about_workspace_files():
     got = resolve(["/ws/a.c", "/ws/b/c.h", "/usr/include/stdio.h", "/wsx/d.c"])
     assert got == {"/ws/a.c": "//d/a.c", "/ws/b/c.h": "//d/b/c.h"}
     assert asked == [["/ws/b/c.h"]] and notes == []
+    assert resolve(["/ws/b/c.h", "/ws/e.c"]) == {"/ws/b/c.h": "//d/b/c.h", "/ws/e.c": "//d/e.c"}
+    assert asked == [["/ws/b/c.h"], ["/ws/e.c"]]                       # each workspace file is asked about once
 
 
 def test_depot_resolver_failure_keeps_changed_files_and_notes_why():

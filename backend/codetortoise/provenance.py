@@ -9,6 +9,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from codetortoise.board import Board, Files
+from codetortoise.detectors.base import Finding
+from codetortoise.impact import ImpactModel
+from codetortoise.paths import canon
 
 
 def merge(*parts: Iterable[str] | None) -> Files:
@@ -62,3 +65,27 @@ def tag_board(board: Board, finding_files: dict[str, Files] | None = None) -> Bo
     if board.about.intent_source == "template":                     # counts and CL descriptions: every changed file
         board.about.intent_files = sorted(f.path for f in tree)
     return board
+
+
+def local_files(locals_: Iterable[str], resolved: dict[str, str], root: str) -> dict[str, Files]:
+    """Workspace paths to tags: the depot path Perforce gave; `[]` outside the workspace (not under Perforce, e.g.
+    system headers); unknown when a workspace file could not be looked up."""
+    prefix = canon(str(root)).rstrip("/") + "/"
+    return {p: [resolved[p]] if p in resolved else ([] if not p.startswith(prefix) else None) for p in locals_}
+
+
+def impact_node_files(impact: ImpactModel, by_local: dict[str, Files]) -> dict[str, Files]:
+    """Tags for every node of the impact graph: its file; a node without one is named by the code that accesses it."""
+    own: dict[str, Files] = {nid: by_local.get(n.file) if n.file else None for nid, n in impact.nodes.items()}
+    out = dict(own)
+    for nid, n in impact.nodes.items():
+        if n.file is None:
+            refs = [own[e.src] for e in impact.edges if e.dst == nid and own.get(e.src)]
+            out[nid] = merge(*refs) if refs else None
+    return out
+
+
+def finding_files(f: Finding, node_files: dict[str, Files], by_local: dict[str, Files]) -> Files:
+    """A finding's nodes' files and the files its evidence points at."""
+    return merge(*(node_files.get(n) for n in f.nodes),
+                 *(by_local.get(e.file) if e.file else [] for e in f.evidence))

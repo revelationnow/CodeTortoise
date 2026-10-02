@@ -71,3 +71,41 @@ def test_boards_stored_before_tags_load_with_counts_and_drift_migrated():
     b = tag_board(Board.model_validate(old))
     assert b.about.cls[0].file_count == 1 and b.about.cls[0].files == ["//d/a.c"]
     assert b.about.drift[0].text == "//d/a.c (base #3, workspace #4)" and b.about.drift[0].files == ["//d/a.c"]
+
+
+def test_local_files_resolve_through_perforce_and_skip_paths_outside_the_workspace():
+    from codetortoise.provenance import local_files
+    got = local_files(["/ws/a.c", "/ws/b.c", "/usr/include/stdio.h"], {"/ws/a.c": "//d/a.c"}, "/ws")
+    assert got == {"/ws/a.c": ["//d/a.c"], "/ws/b.c": None, "/usr/include/stdio.h": []}   # not under Perforce: no tag
+
+
+def _impact():
+    from codetortoise.impact import Edge, ImpactModel, Node
+    nodes = {"N1": Node(id="N1", key="set", label="set", file="/ws/a.c", line=1, status="changed"),
+             "N2": Node(id="N2", key="field:R::v", kind="field", label="R::v"),         # no file: named by its accessors
+             "N3": Node(id="N3", key="peek", label="peek", file="/ws/b.c", line=20),
+             "N4": Node(id="N4", key="printf", label="printf", file="/usr/include/stdio.h", line=9),
+             "N5": Node(id="N5", key="lost", label="lost", file="/ws/lost.c", line=3)}      # lookup failed: unknown
+    edges = [Edge(id="E1", src="N1", dst="N2", kind="writes"), Edge(id="E2", src="N3", dst="N2", kind="reads"),
+             Edge(id="E3", src="N3", dst="N1", kind="call"), Edge(id="E4", src="N1", dst="N4", kind="call")]
+    return ImpactModel(nodes=nodes, edges=edges, changed=["N1"])
+
+
+def test_graph_nodes_take_their_files_or_their_accessors_files():
+    from codetortoise.provenance import impact_node_files, local_files
+    by_local = local_files(["/ws/a.c", "/ws/b.c", "/usr/include/stdio.h", "/ws/lost.c"],
+                           {"/ws/a.c": "//d/a.c", "/ws/b.c": "//d/b.c"}, "/ws")
+    assert impact_node_files(_impact(), by_local) == {
+        "N1": ["//d/a.c"], "N2": ["//d/a.c", "//d/b.c"], "N3": ["//d/b.c"], "N4": [], "N5": None}
+
+
+def test_a_finding_depends_on_its_nodes_and_its_evidence():
+    from codetortoise.detectors.base import Evidence, Finding
+    from codetortoise.provenance import finding_files
+    nf = {"N1": ["//d/a.c"], "N5": None}
+    by_local = {"/ws/b.c": ["//d/b.c"], "/usr/include/stdio.h": []}
+    f = Finding(kind="k", severity="high", title="t", summary="s", nodes=["N1"],
+                evidence=[Evidence(text="e", file="/ws/b.c", line=2), Evidence(text="sys", file="/usr/include/stdio.h")])
+    assert finding_files(f, nf, by_local) == ["//d/a.c", "//d/b.c"]
+    assert finding_files(f.model_copy(update={"nodes": ["N1", "N5"]}), nf, by_local) is None
+    assert Finding(kind="k", severity="low", title="t", summary="s").files is None        # stored before tags: unknown

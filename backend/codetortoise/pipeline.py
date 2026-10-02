@@ -15,7 +15,7 @@ from codetortoise.facts.runner import build_requests, run_extraction
 from codetortoise.impact import ImpactModel, build_impact
 from codetortoise.llm.storyboard import build_storyboard
 from codetortoise.paths import canon
-from codetortoise.provenance import tag_board
+from codetortoise.provenance import finding_files, impact_node_files, local_files, tag_board
 from codetortoise.services import Services
 from codetortoise.swarm import SwarmError
 from codetortoise.tu_select import TuSelection, field_follow_up, select_tus
@@ -63,10 +63,13 @@ def depot_resolver(source, cs: ChangeSet, root: str, notes: list[str]):
     leaves those nodes without a depot path (no context code on demand for them)."""
     prefix = canon(str(root)).rstrip("/") + "/"
 
+    known = {f.local: f.depot for f in cs.files}
+    asked: set[str] = set()                 # each workspace file is looked up once, found or not
+
     def resolve(locals_: list[str]) -> dict[str, str]:
-        known = {f.local: f.depot for f in cs.files}
-        rest = sorted({p for p in locals_ if p not in known and p.startswith(prefix)})
+        rest = sorted({p for p in locals_ if p not in known and p not in asked and p.startswith(prefix)})
         if rest:
+            asked.update(rest)
             try:
                 known.update(source.depots_for(rest))
             except Exception as e:  # board still useful without depot paths for context nodes
@@ -192,9 +195,18 @@ def run_review(rid: int, svc: Services) -> None:
     def board():
         notes: list[str] = []
         resolve = depot_resolver(svc.source, ctx["cs"], cfg.workspace.root, notes)
-        b = tag_board(build_board(BoardContext(ctx["cs"], ctx["dm"], ctx["before"], ctx["after"], ctx["impact"],
-                                               ctx["findings"], ctx.get("layers"), cfg.analysis, resolve,
-                                               root=canon(str(cfg.workspace.root)))))
+        b = build_board(BoardContext(ctx["cs"], ctx["dm"], ctx["before"], ctx["after"], ctx["impact"], ctx["findings"],
+                                     ctx.get("layers"), cfg.analysis, resolve, root=canon(str(cfg.workspace.root))))
+        # file tags (spec §14.3): every graph node and finding, from one more lookup of the files not yet resolved
+        findings, im = ctx["findings"], ctx["impact"]
+        locals_ = sorted({n.file for n in im.nodes.values() if n.file} | {e.file for f in findings for e in f.evidence if e.file})
+        by_local = local_files(locals_, resolve(locals_), str(cfg.workspace.root))
+        node_files = impact_node_files(im, by_local)
+        for f in findings:
+            f.files = finding_files(f, node_files, by_local)
+        store.put_findings(rid, findings)
+        ctx["node_files"], ctx["local_files"] = node_files, by_local
+        b = tag_board(b, {f.id: f.files for f in findings})
         ctx["board"] = b
         store.put_blob(rid, "board", b)
         if notes:

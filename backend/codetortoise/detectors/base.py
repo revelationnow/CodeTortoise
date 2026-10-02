@@ -41,6 +41,8 @@ class Finding(BaseModel):
     verify_steps: list[str] = Field(default_factory=list)
     hypotheses: list[Hypothesis] = Field(default_factory=list)
     state: Literal["open", "ack", "dismissed"] = "open"
+    files: list[str] | None = None          # depot paths behind the finding (spec §14.3); None = unknown
+    explain_files: list[str] | None = None  # files behind the LLM explanation, verify steps and hypotheses
 
 
 @dataclass
