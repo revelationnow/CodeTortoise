@@ -17,6 +17,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(-
 #root { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
 #root > main { flex: 1; min-height: 0; overflow: auto; width: 100%; }
 #root > .topbar { flex: none; }
+#root > .insecure { flex: none; padding: 5px 16px; background: #f5b83d; color: #2b1a00; font: 600 12.5px/1.4 var(--sans);
+  text-align: center; }
 .review { display: flex; flex-direction: column; overflow: hidden !important; }
 .review-body { flex: 1; min-height: 0; overflow: auto; padding: 16px 24px; }
 .review.board { overflow: hidden; }

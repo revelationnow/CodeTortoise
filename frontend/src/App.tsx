@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api, type Me } from "./api";
+import InsecureBanner from "./components/InsecureBanner";
 import Logo from "./components/Logo";
 import ThemeSwitch from "./components/ThemeSwitch";
 import Health from "./pages/Health";
@@ -28,6 +29,7 @@ export default function App() {
 
   return (
     <MeContext.Provider value={me}>
+      <InsecureBanner />
       <header className={`topbar${menu ? " open" : ""}`}>
         <Link to="/" className="brand"><Logo size={28} />CodeTortoise</Link>
         {me && (
