@@ -105,6 +105,11 @@ test("a cited node opens once; closing it sticks when the canvas resizes", async
   // by the card's title: other cards' notes can mention uart_errors once their code loads
   const card = page.locator(".bd-card").filter({ has: page.locator(".hd b", { hasText: /^uart_errors$/ }) });
   await expect(card).toBeVisible();
+  await expect.poll(async () => {                  // the board pans to the cited card; a click while it moves is lost
+    const y = (await card.boundingBox())?.y;
+    await page.waitForTimeout(120);
+    return y === (await card.boundingBox())?.y;
+  }).toBe(true);
   await page.getByRole("button", { name: "Close uart_errors" }).click();
   await expect(card).toHaveCount(0);
   await page.getByRole("button", { name: "Collapse change summary" }).click();    // widens the canvas
