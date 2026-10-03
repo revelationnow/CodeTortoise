@@ -102,7 +102,8 @@ test("a cited node opens once; closing it sticks when the canvas resizes", async
   const board = await (await page.request.get(`/api/reviews/${rid}/board`)).json();
   const target = board.nodes.find((n: { label: string }) => n.label === "uart_errors");
   await page.goto(`/r/${rid}?node=${target.id}`);
-  const card = page.locator(".bd-card", { hasText: "uart_errors" });
+  // by the card's title: other cards' notes can mention uart_errors once their code loads
+  const card = page.locator(".bd-card").filter({ has: page.locator(".hd b", { hasText: /^uart_errors$/ }) });
   await expect(card).toBeVisible();
   await page.getByRole("button", { name: "Close uart_errors" }).click();
   await expect(card).toHaveCount(0);
