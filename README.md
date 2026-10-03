@@ -119,9 +119,10 @@ Whether you start from `init` or from scratch, check these values in order.
    `p4 client -o | grep -E '^(Root|AltRoots)'`. Symbolic links to it are fine.
 4. **`workspace.compile_commands`: how each file is compiled.** The path to `compile_commands.json` for the build you
    review. To create one, see [Compile database](#compile-database).
-5. **`toolchain.clang`: your compiler.** The compiler driver your build uses, such as a vendor `clang` or `gcc`.
-   CodeTortoise asks it for its built-in include paths and macros. Find it in the first entry of
-   `compile_commands.json`.
+5. **`toolchain`: usually nothing.** Each file's own compiler, from the compile database, is asked for its built-in
+   include paths and macros, and the target comes from the compiler. Set `toolchain.clang` only if that compiler
+   isn't installed on this machine, and see [Toolchains and libclang](#toolchains-and-libclang) for mixed targets
+   and vendor toolchains. Check one file with `codetortoise check-parse`.
 6. **`server`: how people reach the app.** `host: 127.0.0.1` keeps it on this machine. To share it, use `0.0.0.0`,
    set `public_url` to the address colleagues open, and set `tls_cert` and `tls_key` so sign-ins aren't sent in plain
    text. `data_dir` holds the database and caches; back it up.
@@ -136,8 +137,6 @@ With a P4CONFIG file in the workspace, this is a complete configuration:
 workspace:
   root: /work/main
   compile_commands: /work/main/build/compile_commands.json
-toolchain:
-  clang: /opt/vendor/bin/clang
 ```
 
 #### Every setting
@@ -159,9 +158,17 @@ workspace:
   compile_commands: /work/main/build/compile_commands.json
   # p4_bin: /opt/perforce/bin/p4
 toolchain:
-  clang: /opt/vendor/bin/clang      # your compiler driver, queried for implicit include paths and macros
-  libclang: /opt/vendor/lib/libclang.so   # optional; the bundled libclang 18 is used otherwise
+  # clang: /opt/vendor/bin/clang    # optional: query this compiler for every file (default: each file's own compiler)
+  # target: armv7m-none-eabi        # optional: for files whose command names none (default: from the compiler)
+  # libclang: /opt/vendor/lib/libclang.so   # optional: default is found (see Toolchains and libclang)
+  search_paths: [/opt/tools]        # optional: folders to search for a newer libclang
   strip_flags: []                   # vendor flags libclang must ignore (unknown ones are learned automatically)
+  overrides:                        # optional, first match wins
+    - match: "dsp/**"               # workspace-relative glob
+      compile_commands: /work/main/build/dsp/compile_commands.json
+      clang: /opt/hexagon/bin/hexagon-clang
+      target: hexagon
+      libclang: /opt/hexagon/lib/libclang.so
 swarm:
   url: "https://swarm.example.com"  # optional
 llm:                                # optional; without it, narratives use built-in templates
@@ -215,10 +222,54 @@ libclang needs the exact compile command of each file. Typical ways to get `comp
 | Make or anything else | [Bear](https://github.com/rizsotto/Bear): `bear -- make -j` |
 | Vendor IDEs | most can export it; otherwise wrap the build with Bear |
 
-Keep it in or under the workspace and regenerate it when the build changes. A changed file missing from it is still
-parsed, with flags borrowed from the nearest entry. With a vendor cross-compiler, point `toolchain.clang`
-at the vendor driver, so its built-in include paths and macros are used. Flags libclang does not understand are
-stripped and remembered per workspace; the Health page lists them.
+Regenerate it when the build changes. A changed file missing from it is still parsed, with flags borrowed from the
+nearest file of the same database.
+
+**Several databases.** `workspace.compile_commands` takes one path, a list of paths or globs, or `auto`:
+
+```yaml
+workspace:
+  compile_commands: auto            # every compile_commands.json under build_root
+  build_root: /work/main/build      # default: the folder of the first database `codetortoise init` finds
+```
+
+A file listed in several databases uses the first one in your list, or with `auto` the deepest (a nested build is
+usually the specialised build of that component). To choose for some paths, use `toolchain.overrides` with
+`compile_commands`. The Health page lists every database and how many files appear in more than one.
+
+**What CodeTortoise understands in a command.** Compiler wrappers (`ccache`, `sccache`, `distcc`, `icecc`,
+`buildcache`, an `env VAR=x` prefix) are skipped; `@file` response files are expanded; relative paths resolve from
+the entry's `directory`; MSVC commands (`cl`, `clang-cl`) use clang's `cl` mode. Flags libclang doesn't understand
+are stripped and remembered per workspace; the Health page lists them.
+
+### Toolchains and libclang
+
+Each file is parsed for its own toolchain. CodeTortoise asks the file's compiler (or `toolchain.clang`, or an
+override's `clang`) for its built-in include paths and macros, once per group of files that share a compiler, target
+and target flags. The target comes from the command (`--target`), an override, `toolchain.target`, the compiler's
+name (`arm-none-eabi-gcc` means `arm-none-eabi`), or the compiler's `-dumpmachine`. The Health page lists each group,
+parses one sample file of it, and shows the first error if that fails.
+
+libclang only parses, so one upstream library handles every standard target (ARM, AArch64, RISC-V, x86, MIPS,
+PowerPC). A newer library knows more recent flags. The library for a group is, in order: an override's or
+`toolchain.libclang`; the one next to a clang compiler (that toolchain's own, for vendor forks); the newest under
+`toolchain.search_paths`; one installed with `codetortoise fetch-libclang`; the newest system LLVM
+(`/usr/lib/llvm-*`); the one bundled with CodeTortoise (18.1.1). Groups that need different libraries parse in
+separate worker processes.
+
+```bash
+uv run --project backend codetortoise fetch-libclang --config tortoise.yaml       # LLVM 23.1.2, ~2 GB streamed, ~230 MB kept
+uv run --project backend codetortoise fetch-libclang --config tortoise.yaml \
+    --from LLVM-23.1.2-Linux-X64.tar.xz                                          # offline: a copied release archive
+uv run --project backend codetortoise check-parse --config tortoise.yaml src/drivers/uart.c
+```
+
+`fetch-libclang` checks the archive's SHA-256 against the digest GitHub publishes (or a pinned one, or `--sha256`).
+`check-parse` shows how one file is parsed: the compile entry and database used, the compiler, target and library,
+the exact arguments, the result and the first errors. Run it on the server when a review's `facts` stage says files
+fell back to tree-sitter; the stage message names the most common problem.
+
+Compilers that are neither GCC- nor clang-compatible (IAR, TI `cl6x`, Green Hills, Tasking) aren't supported yet.
 
 ## Enterprise environments
 
@@ -336,7 +387,7 @@ restart. Reviews keep working across upgrades, and re-running a review rebuilds 
 | `Unicode server permits only unicode enabled clients` | Set `P4CHARSET` in the service environment. |
 | `CL … is pending with no shelved files` | The CL isn't shelved, or it was shelved on another edge server. See [SSL, Unicode and network topology](#ssl-unicode-and-network-topology). |
 | Files listed as warnings ("content unavailable", "not in client view") | The owner lacks `read` on those paths, or the client view doesn't map them. |
-| `facts` stage degraded, "fell back to tree-sitter" | Unknown vendor flags or missing includes. Check the Health page's stripped flags, add `toolchain.strip_flags`, and make sure `toolchain.clang` points at the vendor driver. |
+| `facts` stage degraded, "fell back to tree-sitter" | Run `codetortoise check-parse` on one of the files: it shows the compile entry, compiler, target, library and first errors. Common causes: the build's compiler isn't on this machine (set `toolchain.clang`), a missing generated header, a target libclang doesn't know (set `toolchain.target`, or a vendor `libclang`). See [Toolchains and libclang](#toolchains-and-libclang). |
 | Board warns about workspace drift | The workspace isn't at the CL's base revision. Sync it, or expect context code to differ from what was analysed. |
 | `llm` stage degraded | The endpoint is unreachable or rejected the request. Reviews are complete without it. Check `llm.base_url` and the key variable. |
 | Swarm actions missing | The owner hasn't signed in since the server started, or `swarm.url` is wrong. |

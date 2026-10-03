@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import multiprocessing as mp
+import re
+from collections import Counter
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from concurrent.futures.process import BrokenProcessPool
@@ -95,3 +97,22 @@ def run_extraction(reqs: list[TuRequest], libclang_path: str | None, workers: in
         except BrokenProcessPool:
             finish(i, extract_tu_treesitter(r, reason="libclang crashed while parsing this TU"))
     return [f for f in out if f is not None]
+
+
+_LOCATION = re.compile(r"^\S+?:\d+(:\d+)?: ")
+
+
+def parse_summary(facts: list[Facts]) -> str:
+    """"N parse(s): a precise, b degraded, c tree-sitter fallback; most common problem (k): <message>"."""
+    precise = sum(f.tu.confidence == "precise" for f in facts)
+    fallback = sum(f.tu.extractor == "treesitter" for f in facts)
+    degraded = len(facts) - precise - fallback
+    parts = [f"{precise} precise"] + ([f"{degraded} degraded"] if degraded else []) + \
+            ([f"{fallback} tree-sitter fallback"] if fallback else [])
+    out = f"{len(facts)} parse(s): " + ", ".join(parts)
+    problems = Counter(_LOCATION.sub("", f.tu.diagnostics[0]) for f in facts
+                       if f.tu.confidence != "precise" and f.tu.diagnostics)
+    if problems:
+        text, n = problems.most_common(1)[0]
+        out += f"; most common problem ({n}): {text}"
+    return out

@@ -11,7 +11,7 @@ from codetortoise.board import BoardContext, build_board
 from codetortoise.detectors.base import DetectorContext, run_detectors
 from codetortoise.diffmap import map_changes
 from codetortoise.facts.model import Facts
-from codetortoise.facts.runner import build_requests, run_extraction
+from codetortoise.facts.runner import build_requests, parse_summary, run_extraction
 from codetortoise.impact import ImpactModel, build_impact
 from codetortoise.llm.storyboard import build_storyboard
 from codetortoise.paths import canon
@@ -194,10 +194,10 @@ def run_review(rid: int, svc: Services) -> None:
         if learned:
             svc.remember_stripped(learned)
             note += f"; stripped flags learned for this workspace: {' '.join(learned)}"
-        bad = [f.tu.file for f in before + after if f.tu.confidence != "precise"]
-        if bad:
-            raise Degraded(f"{len(bad)} TU parse(s) degraded or fell back to tree-sitter{note}")
-        return f"{len(before) + len(after)} TU parse(s){note}"
+        summary = parse_summary(before + after) + note
+        if any(f.tu.confidence != "precise" for f in before + after):
+            raise Degraded(summary)
+        return summary
 
     def impact():
         im = build_impact(ctx["before"], ctx["after"], ctx["dm"], ctx["sel"], svc.index, ctx.get("layers"), cfg.analysis)
