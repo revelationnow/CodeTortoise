@@ -9,10 +9,14 @@ from codetortoise.fixture import build_fixture
 from codetortoise.impact import build_impact
 from codetortoise.index.symbols import SymbolIndex
 from codetortoise.layers import infer_layers
+from codetortoise.toolchain import libclang as _libclang
 from codetortoise.toolchain.compile_db import CompileDb
 from codetortoise.toolchain.toolchain import Toolchain
 from codetortoise.tu_select import select_tus
 from codetortoise.vcs.gitfixture import GitFixtureSource
+
+# hermetic: never pick up whatever system LLVM the machine running the tests has; tests opt in explicitly
+_libclang.SYSTEM_GLOBS = []
 
 
 @pytest.fixture(scope="session")

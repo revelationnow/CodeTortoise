@@ -36,7 +36,8 @@ def build_requests(sel: TuSelection, cs: ChangeSet, tc: Toolchain, variant: str)
             continue
         if variant == "before" and any(f.local == tu and f.action == "add" for f in cs.files):
             continue
-        reqs.append(TuRequest(file=tu, args=tc.args_for(tu), variant=variant, unsaved=unsaved, focus=focus))
+        reqs.append(TuRequest(file=tu, args=tc.args_for(tu), variant=variant, unsaved=unsaved, focus=focus,
+                              libclang=tc.libclang_for(tu).path))
     return reqs
 
 

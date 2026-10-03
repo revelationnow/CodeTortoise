@@ -35,6 +35,7 @@ class TuRequest:
     variant: str
     unsaved: dict[str, str] = field(default_factory=dict)
     focus: list[str] = field(default_factory=list)
+    libclang: str | None = None      # the library to parse with (None: bundled); requests are grouped by it
 
 
 def _norm(path: str) -> str:

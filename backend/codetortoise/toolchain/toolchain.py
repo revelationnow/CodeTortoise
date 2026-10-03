@@ -14,7 +14,7 @@ from codetortoise.config import ToolchainConfig, ToolchainOverride
 from codetortoise.paths import canon
 from codetortoise.toolchain.compile_db import CompileDb, CompileEntry, sanitize_args
 from codetortoise.toolchain.driver import DriverInfo, query_driver, target_flags
-from codetortoise.toolchain.libclang import LibclangInfo, load_libclang
+from codetortoise.toolchain.libclang import LibclangChoice, LibclangInfo, find_libclang, load_libclang
 
 _CXX_EXTS = {".cc", ".cpp", ".cxx", ".c++", ".hpp", ".hh", ".hxx"}
 
@@ -41,6 +41,7 @@ class Group:
     flags: tuple[str, ...]
     files: int = 0
     error: str | None = None
+    libclang: LibclangChoice | None = None
     info: dict[str, DriverInfo] = field(default_factory=dict)
     preludes: dict[str, Path] = field(default_factory=dict)
 
@@ -76,11 +77,15 @@ class Toolchain:
         self.libclang: LibclangInfo | None = None
         self._groups: dict[tuple, Group] = {}
         self._machines: dict[str, str | None] = {}
+        self.data_dir = self.work_dir.parent          # where fetch-libclang puts libraries
+        self.choice: LibclangChoice | None = None    # the library this process loads
 
     def prepare(self) -> None:
-        """Idempotent: loads libclang. Compilers are queried lazily, per group."""
+        """Idempotent: loads this process's library (the default choice). Groups that need another library are parsed
+        in worker processes that load it; compilers are queried lazily, per group."""
         if self.libclang is None:
-            self.libclang = load_libclang(self.cfg.libclang)
+            self.choice = find_libclang(self.cfg, data_dir=self.data_dir)
+            self.libclang = load_libclang(self.choice.path)
 
     # ---- per file
     def _override(self, file: str) -> ToolchainOverride | None:
@@ -119,9 +124,11 @@ class Toolchain:
             target = ((ov.target if ov else None) or self.cfg.target or triple_from_name(entry.compiler)
                       or triple_from_name(driver) or self._machine(driver))
         flags = tuple(target_flags(args))
-        key = (driver, target, flags)
+        lib_override = ov.libclang if ov else None
+        key = (driver, target, flags, lib_override)
         if key not in self._groups:
-            self._groups[key] = Group(compiler=driver, target=target, flags=flags)
+            lib = find_libclang(self.cfg, compiler=driver, override=lib_override, data_dir=self.data_dir)
+            self._groups[key] = Group(compiler=driver, target=target, flags=flags, libclang=lib)
         return self._groups[key]
 
     def _query(self, g: Group, lang: str) -> DriverInfo | None:
@@ -151,18 +158,22 @@ class Toolchain:
         if g.target:
             args += [f"--target={g.target}"]
         lang = lang_of(entry.file)
-        vendor = self.libclang is not None and self.libclang.vendor
-        info = None if vendor else self._query(g, lang)
+        info = None if g.libclang.vendor else self._query(g, lang)
+        rd = self.cfg.resource_dir or g.libclang.resource_dir or (info.resource_dir if info else None)
+        if rd:
+            args += ["-resource-dir", rd]
         if info is not None:
-            rd = self.cfg.resource_dir or info.resource_dir
-            if rd:
-                args += ["-resource-dir", rd]
-            for d in info.include_dirs:
-                if rd and os.path.normpath(d).startswith(os.path.normpath(rd)):
+            builtins = [os.path.normpath(r) for r in (rd, info.resource_dir) if r]
+            for d in info.include_dirs:      # built-in headers come only from the parsing library's resource dir
+                if any(os.path.normpath(d).startswith(b) for b in builtins):
                     continue
                 args += ["-isystem", d]
             args += ["-include", str(g.preludes[lang]), "-Wno-macro-redefined", "-Wno-builtin-macro-redefined"]
         return args
+
+    def libclang_for(self, file: str) -> LibclangChoice:
+        g = self.group_of(file)
+        return g.libclang if g else find_libclang(self.cfg, data_dir=self.data_dir)
 
     def group_of(self, file: str) -> Group | None:
         file = canon(file)

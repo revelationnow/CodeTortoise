@@ -54,7 +54,7 @@ def run_health(svc: Services) -> HealthReport:
         svc.toolchain.prepare()
         lc = svc.toolchain.libclang
         checks.append(Check(name="libclang", ok=True, hard=True,
-                            detail=f"{lc.version} ({'vendor' if lc.vendor else 'bundled'}) {lc.path}"))
+                            detail=f"{lc.version} ({svc.toolchain.choice.reason}) {lc.path}"))
     except (OSError, RuntimeError) as e:
         checks.append(Check(name="libclang", ok=False, hard=True, detail=str(e)))
     for g in svc.toolchain.groups():          # one compiler query per toolchain group (warning only)
@@ -62,9 +62,10 @@ def run_health(svc: Services) -> HealthReport:
             sample = next((e.file for e in svc.cdb.entries if svc.toolchain.group_of(e.file) is g), None)
             if sample:
                 svc.toolchain.args_for(sample)
+        lib = g.libclang.path or "bundled libclang"
         checks.append(Check(name=f"toolchain {os.path.basename(g.compiler)}", ok=g.error is None, hard=False,
-                            detail=f"{g.files} file(s), target {g.target or 'from the command or host'}"
-                                   + (f": {g.error}" if g.error else "")))
+                            detail=f"{g.files} file(s), target {g.target or 'from the command or host'}, "
+                                   f"parsed with {lib} ({g.libclang.reason})" + (f": {g.error}" if g.error else "")))
     if svc.llm is not None:
         checks.append(Check(name="llm endpoint", ok=svc.llm.ping(), hard=False, detail=cfg.llm.base_url or ""))
     else:
