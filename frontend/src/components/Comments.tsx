@@ -1,6 +1,10 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api, type AnchorKind, type Comment } from "../api";
 import { useMe } from "../App";
+import { useAi } from "../lib/ai";
+import { aiAvailability } from "../lib/aiState";
+import { insertMention, mentionOptions, mentionQuery, TORTOISE } from "../lib/mention";
+import Logo from "./Logo";
 
 export function anchorMatches(c: Comment, kind: AnchorKind, anchor: Record<string, unknown>): boolean {
   return c.anchor_kind === kind && Object.entries(anchor).every(([k, v]) => c.anchor[k] === v);
@@ -53,13 +57,18 @@ function Thread({ root, replies, reviewId, onChange }: { root: Comment; replies:
 
 function CommentView({ c, onChange }: { c: Comment; onChange: () => void }) {
   const me = useMe();
+  const usage = useAi();
   const [editing, setEditing] = useState(false);
   const [body, setBody] = useState(c.body);
-  const mine = me?.user === c.author;
+  const ai = c.author === TORTOISE;
+  const mine = me?.user === c.author && !ai;
+  const meta = c.ai_meta;
   return (
-    <div className="comment">
+    <div className={`comment${ai ? " ai" : ""}${meta?.pending ? " pending" : ""}`}>
       <div className="comment-head">
+        {ai && <Logo size={16} />}
         <strong>{c.author}</strong>
+        {ai && <span className="ai-label">AI</span>}
         <span className="muted small">{c.created_at.replace("T", " ").slice(0, 16)}{c.edited_at ? " (edited)" : ""}</span>
         {mine && !editing && <button className="link small" onClick={() => setEditing(true)}>edit</button>}
         {(mine || me?.is_owner) && (
@@ -74,8 +83,14 @@ function CommentView({ c, onChange }: { c: Comment; onChange: () => void }) {
             <button className="link" onClick={() => setEditing(false)}>Cancel</button>
           </div>
         </div>
+      ) : meta?.pending ? (
+        <div className="comment-body muted">thinking…{meta.round ? ` (round ${meta.round} of ${meta.of})` : ""}</div>
       ) : (
         <div className="comment-body">{c.body}</div>
+      )}
+      {ai && meta && meta.read.length > 0 && <div className="ai-read muted small">read: {meta.read.join(", ")}</div>}
+      {ai && me?.is_owner && usage && /review has used its/.test(meta?.error ?? "") && (
+        <button className="link small" onClick={() => usage.setUsageOpen(true)}>Raise budget</button>
       )}
     </div>
   );
@@ -92,9 +107,66 @@ function Composer({ onSubmit, placeholder, small, autoFocus }:
       setBusy(true);
       onSubmit(body.trim()).then(() => setBody("")).finally(() => setBusy(false));
     }}>
-      <textarea rows={small ? 1 : 2} value={body} placeholder={placeholder} autoFocus={autoFocus}
-                onChange={(e) => setBody(e.target.value)} />
+      <MentionBox rows={small ? 1 : 2} value={body} placeholder={placeholder} autoFocus={autoFocus} onChange={setBody} />
       <button disabled={busy || !body.trim()}>{small ? "Reply" : "Comment"}</button>
     </form>
+  );
+}
+
+/** A comment textarea with the @ menu (spec 2026-10-03 §6): @tortoise first, then the review's people. */
+function MentionBox({ value, onChange, rows, placeholder, autoFocus }:
+  { value: string; onChange: (v: string) => void; rows: number; placeholder: string; autoFocus?: boolean }) {
+  const ai = useAi();
+  const box = useRef<HTMLTextAreaElement>(null);
+  const [caret, setCaret] = useState(0);
+  const [active, setActive] = useState(0);
+  const [closedAt, setClosedAt] = useState<number | null>(null);     // Esc: closed until another @ is typed
+  const q = mentionQuery(value, caret);
+  const options = q && q.start !== closedAt ? mentionOptions(q.query, ai?.people ?? [], aiAvailability(ai?.view ?? null)) : [];
+  const open = options.length > 0;
+  const at = Math.min(active, options.length - 1);
+  const pick = (i: number) => {
+    const o = options[i];
+    if (!q || !o || o.disabled) { setClosedAt(q?.start ?? null); return; }
+    const next = insertMention(value, q.start, caret, o.name);
+    onChange(next.text);
+    setCaret(next.caret);
+    window.requestAnimationFrame(() => { box.current?.focus(); box.current?.setSelectionRange(next.caret, next.caret); });
+  };
+  const track = (el: HTMLTextAreaElement) => setCaret(el.selectionStart ?? el.value.length);
+  return (
+    <span className="mention-box">
+      <textarea ref={box} rows={rows} value={value} placeholder={placeholder} autoFocus={autoFocus}
+                aria-autocomplete="list" aria-expanded={open}
+                onChange={(e) => { onChange(e.target.value); track(e.target); setActive(0); }}
+                onSelect={(e) => track(e.currentTarget)}
+                onKeyDown={(e) => {
+                  if (!open) return;
+                  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setActive((at + (e.key === "ArrowDown" ? 1 : -1) + options.length) % options.length);
+                  } else if (e.key === "Enter" || e.key === "Tab") {
+                    e.preventDefault();
+                    pick(at);
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setClosedAt(q!.start);
+                  }
+                }} />
+      {open && (
+        <ul className="mention-menu" role="listbox" aria-label="Mention">
+          {options.map((o, i) => (
+            <li key={o.name} role="option" aria-selected={i === at} aria-disabled={o.disabled}
+                className={`${i === at ? "on" : ""}${o.disabled ? " off" : ""}`}
+                onMouseDown={(e) => e.preventDefault()} onClick={() => pick(i)}>
+              {o.ai ? <Logo size={14} /> : <span className="who">@</span>}
+              <b>@{o.name}</b>{o.ai && <span className="ai-label">AI</span>}
+              {o.detail && <span className="detail">{o.detail}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </span>
   );
 }

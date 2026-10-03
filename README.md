@@ -179,6 +179,11 @@ llm:                                # optional; without it, narratives use built
   api_key_env: TORTOISE_LLM_KEY     # name of the environment variable holding the key
   max_context_tokens: 64000
   concurrency: 4                    # parallel LLM calls
+  upfront_flows: 3                  # flow narratives written when a review runs; the rest on demand (✦ Explain)
+  budget:                           # AI calls (failed calls count; refused ones cost nothing)
+    per_review: 200                 # per review, everyone and the pipeline together; the owner can raise it
+    per_person_daily: 100           # calls one person can trigger per day (UTC), across reviews
+    per_mention: 6                  # rounds one @tortoise answer may take
 auth:
   mode: p4                          # sign in with Perforce credentials ("dev" accepts any name: demos only)
 analysis:
@@ -344,6 +349,18 @@ LLM text follows a house style: the Microsoft Writing Style Guide (you, active v
 one Diátaxis mode per output (narratives and explanations are explanation, verification steps are a how-to, flow
 titles are headlines; facts and evidence stay deterministic reference). Text that breaks a checkable rule is dropped in
 favour of the deterministic text, and the LLM stage says how many outputs were dropped (`backend/codetortoise/llm/style.py`).
+
+### AI calls on a budget
+
+When a review runs, the AI writes only the change summary and the first `upfront_flows` flow narratives. Everything
+else is written when someone asks, once, and shown to everyone: **✦ Explain** on a flow or a finding, **✦ Summarise**
+on a changed file. Type `@tortoise` in any comment (the `@` menu offers it) to ask the AI about that thread; it reads the
+functions, callers, declarations and files it needs from this review and the workspace, up to `per_mention` calls, and
+answers in the thread with what it read.
+
+Every call is recorded and checked against `llm.budget` before it is made. The **AI 57/200** pill in the review
+header shows the review's usage (by person, by purpose, every call); the owner raises the review's budget there. The
+Health page shows the limits and today's total.
 
 ### Swarm
 
