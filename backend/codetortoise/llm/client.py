@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 import time
 from collections.abc import Callable
 from typing import TypeVar
@@ -36,6 +37,7 @@ class LlmClient:
         self._format = "json_object"  # -> "json_schema" (e.g. LM Studio) or "none" as servers reject formats
         self._http = httpx.Client(base_url=base_url.rstrip("/"), timeout=timeout, transport=transport,
                                   headers={"Authorization": f"Bearer {api_key}"})
+        self._usage = threading.local()          # tokens reported by the responses of this thread's current call
 
     def _response_format(self, schema: type[BaseModel] | None) -> dict | None:
         if self._format == "json_object":
@@ -69,7 +71,12 @@ class LlmClient:
                     if r.status_code >= 400:
                         raise LlmError(f"LLM HTTP {r.status_code}: {r.text[:300]}")
                     try:
-                        return r.json()["choices"][0]["message"]["content"] or ""
+                        data = r.json()
+                        u = data.get("usage") if isinstance(data, dict) else None
+                        if isinstance(u, dict):
+                            p, c = getattr(self._usage, "tokens", None) or (0, 0)
+                            self._usage.tokens = (p + int(u.get("prompt_tokens") or 0), c + int(u.get("completion_tokens") or 0))
+                        return data["choices"][0]["message"]["content"] or ""
                     except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
                         raise LlmError(f"unexpected LLM response: {r.text[:300]}") from e
                 last = LlmError(f"LLM HTTP {r.status_code}")
@@ -92,6 +99,15 @@ class LlmClient:
                 return schema.model_validate_json(_extract_json(text))
             except ValidationError as e2:
                 raise LlmError(f"LLM returned invalid JSON twice: {str(e2)[:300]}") from e2
+
+    def start_usage(self) -> None:
+        self._usage.tokens = None
+
+    def take_usage(self) -> tuple[int, int] | None:
+        """(prompt, completion) tokens the responses reported since start_usage, on this thread; None if none did."""
+        t = getattr(self._usage, "tokens", None)
+        self._usage.tokens = None
+        return t
 
     def ping(self) -> bool:
         try:
