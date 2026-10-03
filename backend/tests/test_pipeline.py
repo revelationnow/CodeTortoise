@@ -210,15 +210,16 @@ def test_index_is_built_with_compile_db_include_dirs(fx, tmp_path):
     seen = {}
     real_build = svc.index.build
 
-    def spy(root, workers=0, include_dirs=None):
-        seen["include_dirs"] = include_dirs
-        return real_build(root, workers=workers, include_dirs=include_dirs)
+    def spy(root, workers=0, include_dirs=None, **kw):
+        seen["include_dirs"], seen["seeds"] = include_dirs, kw.get("seeds")
+        return real_build(root, workers=workers, include_dirs=include_dirs, **kw)
 
     svc.index.build = spy
     rid = svc.store.create_review("t", "owner", [101])
     run_review(rid, svc)
     root = str(fx.root.resolve())
     assert seen["include_dirs"] == [f"{root}/include", root]
+    assert seen["seeds"] and all(f.startswith(root) for f in seen["seeds"])          # compile-DB scope by default
 
 
 def test_facts_stage_parses_field_follow_up_tus(fx, tmp_path, monkeypatch):
