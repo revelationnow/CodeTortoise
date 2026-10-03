@@ -29,8 +29,18 @@ class WorkspaceConfig(BaseModel):
     p4_sources: dict[str, str] = Field(default_factory=dict)   # where p4port, client and owner came from (set on load)
 
 
+class ToolchainOverride(BaseModel):
+    match: str                       # glob on the workspace-relative source path, e.g. "dsp/**"
+    compile_commands: Path | None = None   # use this database's entry for matching files
+    clang: str | None = None         # compiler to query for built-in includes and macros
+    target: str | None = None        # e.g. "hexagon"
+    libclang: str | None = None
+
+
 class ToolchainConfig(BaseModel):
-    clang: str | None = None
+    clang: str | None = None         # query this compiler for every file (default: each entry's own compiler)
+    target: str | None = None        # target for files whose command names none (default: from the compiler)
+    overrides: list[ToolchainOverride] = Field(default_factory=list)
     libclang: str | None = None
     resource_dir: str | None = None
     strip_flags: list[str] = Field(default_factory=list)

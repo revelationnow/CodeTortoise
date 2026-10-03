@@ -89,8 +89,10 @@ class CompileDb:
     def __init__(self, entries: list[CompileEntry], problems: list[str] | None = None):
         self.problems = problems or []           # e.g. response files that could not be read
         self._by_file: dict[str, CompileEntry] = {}
+        self._all: dict[str, list[CompileEntry]] = {}
         self.duplicates = 0
         for e in entries:
+            self._all.setdefault(e.file, []).append(e)
             first = self._by_file.setdefault(e.file, e)
             if first is not e and first.args[1:] != e.args[1:]:
                 self.duplicates += 1
@@ -113,8 +115,14 @@ class CompileDb:
     def files(self) -> list[str]:
         return list(self._by_file)
 
-    def entry_for(self, file: str) -> CompileEntry | None:
-        return self._by_file.get(canon(file))
+    def entry_for(self, file: str, prefer: str | None = None) -> CompileEntry | None:
+        """The file's entry; with `prefer`, the entry from that database when it has one."""
+        file = canon(file)
+        if prefer is not None:
+            hit = next((e for e in self._all.get(file, []) if e.db == str(prefer)), None)
+            if hit is not None:
+                return hit
+        return self._by_file.get(file)
 
     def nearest_entry(self, file: str) -> CompileEntry | None:
         """Exact entry, else one in the same folder, else the nearest folder up, within the file's own database."""
