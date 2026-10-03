@@ -102,3 +102,10 @@ def test_usage_groups_by_person_and_purpose(tmp_path):
     ledger.call(_llm(), rid, None, "summary", "", _ask)
     u = ledger.usage(rid)
     assert u["by_person"] == {"bob": 2, "pipeline": 1} and u["by_purpose"] == {"flow": 1, "mention": 1, "summary": 1}
+
+
+def test_workspace_calls_are_recorded_without_a_review_budget(tmp_path):
+    ledger, _, rid = _ledger(tmp_path, per_review=1)
+    ledger.call(_llm(), None, None, "layers", "generation 3", _ask)          # layer naming: once per index
+    ledger.call(_llm(), rid, "bob", "flow", "FL1", _ask)                     # the review's one call is still free
+    assert ledger.workspace_calls() == 1 and ledger.usage(rid)["used"] == 1

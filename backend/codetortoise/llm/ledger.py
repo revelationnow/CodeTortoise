@@ -52,17 +52,18 @@ class Ledger:
         return self.store._all("SELECT COUNT(*) AS n FROM llm_calls WHERE user=? AND outcome != 'refused' "
                                "AND started_at >= ?", (user, day))[0]["n"]
 
-    def check(self, rid: int, user: str | None) -> str | None:
+    def check(self, rid: int | None, user: str | None) -> str | None:
         """Why a call by `user` on review `rid` would be refused now, or None."""
-        budget = self.budget(rid)
-        if self.used(rid) >= budget:
-            return f"this review has used its {budget} AI calls; the owner can raise it"
+        if rid is not None:
+            budget = self.budget(rid)
+            if self.used(rid) >= budget:
+                return f"this review has used its {budget} AI calls; the owner can raise it"
         if user and self.person_today(user) >= self.limits.per_person_daily:
             return f"you've used your {self.limits.per_person_daily} AI calls today"
         return None
 
     # ---- calls
-    def reserve(self, rid: int, user: str | None, purpose: str, target: str) -> int:
+    def reserve(self, rid: int | None, user: str | None, purpose: str, target: str) -> int:
         """Record a call about to be made and return its id, or raise Refused (recording the refusal)."""
         with self.store._lock:
             reason = self.check(rid, user)
@@ -78,7 +79,7 @@ class Ledger:
         self.store._exec("UPDATE llm_calls SET finished_at=?, outcome=?, prompt_tokens=?, completion_tokens=?, error=? "
                          "WHERE id=?", (_now(), outcome, p, c, error, call_id))
 
-    def call(self, llm: LlmClient, rid: int, user: str | None, purpose: str, target: str,
+    def call(self, llm: LlmClient, rid: int | None, user: str | None, purpose: str, target: str,
              fn: Callable[[LlmClient], T]) -> T:
         """Reserve, run `fn(llm)` (one AI call, its retries included), and record the outcome and tokens."""
         call_id = self.reserve(rid, user, purpose, target)
@@ -92,6 +93,11 @@ class Ledger:
         return out
 
     # ---- reporting
+    def workspace_calls(self) -> int:
+        """Calls made for the workspace rather than a review (layer naming)."""
+        return self.store._all("SELECT COUNT(*) AS n FROM llm_calls WHERE review_id IS NULL AND outcome != 'refused'"
+                               )[0]["n"]
+
     def usage(self, rid: int) -> dict:
         calls = self.store._all("SELECT id, user, purpose, target, started_at, finished_at, prompt_tokens, "
                                 "completion_tokens, outcome, error FROM llm_calls WHERE review_id=? ORDER BY id", (rid,))

@@ -6,7 +6,18 @@ from codetortoise.detectors.base import Evidence, Finding
 from codetortoise.impact import Edge, ImpactModel, Node
 from codetortoise.layers import Layer, LayerModel
 from codetortoise.llm.client import LlmClient
-from codetortoise.llm.storyboard import Cited, budget, build_storyboard, ground, name_layers, skeleton
+from codetortoise.llm.storyboard import (
+    AiContext,
+    Cited,
+    budget,
+    build_storyboard,
+    finding_job,
+    flow_job,
+    ground,
+    name_layers,
+    run_job,
+    skeleton,
+)
 
 
 def model():
@@ -60,69 +71,12 @@ def fake_llm(responder):
     return LlmClient("http://llm/v1", "k", "m", transport=httpx.MockTransport(handler), sleep=lambda s: None)
 
 
-def test_llm_storyboard_is_grounded():
-    im, findings, layers = model()
-
-    def respond(system, user):
-        if "Explain the risk" in user:
-            return {"explanation": "exp", "verify_steps": ["check callers"],
-                    "hypotheses": [{"text": "flush drops -2", "cites": ["N3", "F1"]},
-                                   {"text": "made up", "cites": []}]}
-        if "narrative for this architectural layer" in user:
-            return {"narrative": "story", "cites": ["N2", "BOGUS"],
-                    "cross_layer_effects": [{"text": "logger affected", "cites": ["N3"]}]}
-        return {"summary": "sum", "risk": "medium", "review_order": ["N2", "N1", "NX"], "cites": ["F1"]}
-
-    sb = build_storyboard(im, findings, layers, {"N2": "   9 int uart_send(...)"}, fake_llm(respond))
-    assert sb.llm_used and sb.summary == "sum" and sb.risk == "high"  # LLM said medium; findings say high
-    assert sb.review_order == ["N2", "N1"]
-    assert findings[0].explanation == "exp" and findings[0].verify_steps == ["check callers"]
-    assert [h.text for h in findings[0].hypotheses] == ["flush drops -2"]
-    ch = sb.chapters[2]
-    assert ch.narrative == "story" and ch.cites == ["N2"] and ch.verified
-    assert [c.text for c in ch.cross_layer_effects] == ["logger affected"]
-
-
-def test_llm_failure_keeps_deterministic_storyboard():
-    im, findings, layers = model()
-    llm = LlmClient("http://llm/v1", "k", "m", transport=httpx.MockTransport(lambda r: httpx.Response(500)),
-                    sleep=lambda s: None)
-    sb = build_storyboard(im, findings, layers, {}, llm)
-    assert not sb.llm_used and "failed after" in sb.llm_error
-    assert sb.chapters[1].narrative.startswith("Changed: hal_write")
-
-
 def test_name_layers():
     _, _, layers = model()
     llm = fake_llm(lambda s, u: {"layers": [{"level": 0, "name": "HAL API", "description": "d"},
                                             {"level": 2, "name": "Drivers"}]})
     out = name_layers(layers, llm)
     assert [l.name for l in out.layers] == ["L0: HAL API", "L1: hal", "L2: Drivers"]
-
-
-def test_llm_cannot_lower_risk_below_findings():
-    im, findings, layers = model()
-
-    def respond(system, user):
-        if "Explain the risk" in user:
-            return {"explanation": "e"}
-        if "narrative for this architectural layer" in user:
-            return {"narrative": "n", "cites": ["N1"]}
-        return {"summary": "all fine", "risk": "low", "cites": ["F1"]}
-
-    sb = build_storyboard(im, findings, layers, {}, fake_llm(respond))
-    assert sb.llm_used and sb.risk == "high"
-
-
-def test_unexpected_llm_client_exception_keeps_skeleton():
-    im, findings, layers = model()
-
-    class Exploding:
-        def complete_json(self, *a, **k):
-            raise TypeError("boom")
-
-    sb = build_storyboard(im, findings, layers, {}, Exploding())
-    assert not sb.llm_used and "boom" in sb.llm_error and sb.chapters
 
 
 def _board(flows=2):
@@ -148,76 +102,120 @@ def _respond(flow_reply):
     return respond
 
 
-def test_llm_writes_grounded_flow_narratives_and_the_change_intent():
+def _ctx(findings, im, node_files=None, snippets=None):
+    return AiContext(impact=im, findings=findings, snippets=snippets or {}, max_tokens=64000, node_files=node_files)
+
+
+def test_the_upfront_pass_writes_the_summary_and_the_top_flows_only():
     im, findings, layers = model()
-    board = _board(3)
-    replies = iter([{"what": "flush drops -2", "title": "logger_flush drops -2 on flush", "cites": ["N3", "F1"]},
-                    {"what": "uncited guess", "cites": ["N99"]},
-                    {"what": "not asked for", "cites": ["N3"]}])
-    sb = build_storyboard(im, findings, layers, {}, fake_llm(_respond(lambda u: next(replies))),
-                          board=board, max_flow_narratives=2)
-    assert sb.llm_used
-    assert [(f.what, f.what_source) for f in board.flows] == [
-        ("flush drops -2", "llm"), ("template what", "template"), ("template what", "template")]
-    assert [f.title for f in board.flows] == ["logger_flush drops -2 on flush", "template title", "template title"]
+    board = _board(4)
+    asked = []
+
+    def respond(system, user):
+        asked.append(user.split("\n", 1)[0][:30])
+        return _respond(lambda u: {"what": "flush drops -2", "title": "logger_flush drops -2", "cites": ["N3", "F1"]})(system, user)
+    sb = build_storyboard(im, findings, layers, {}, fake_llm(respond), board=board, upfront_flows=2)
+    assert sb.llm_used and sb.summary == "the change adds tx stats" and sb.risk == "high"   # never below the findings
+    assert sum("Describe this call flow" in a for a in asked) == 2 and sum("Summarize" in a for a in asked) == 1
+    assert not any("Explain the risk" in a or "architectural layer" in a for a in asked)    # on demand only
+    assert [f.what_source for f in board.flows] == ["llm", "llm", "template", "template"]
     assert board.about.intent == "the change adds tx stats" and board.about.intent_source == "llm"
-    # LLM text no longer depends only on the template's files: unknown until its prompt's files are recorded
-    assert board.flows[0].what_files is None and board.about.intent_files is None
+    assert all(f.explanation is None for f in findings)
 
 
-def test_llm_text_records_the_files_behind_its_prompt():
+def test_upfront_flows_run_concurrently_then_the_summary():
+    import threading
+    im, findings, layers = model()
+    board = _board(2)
+    gate = threading.Barrier(2, timeout=5)
+
+    def respond(system, user):
+        if "Describe this call flow" in user:
+            gate.wait()
+        return _respond(lambda u: {"what": "w", "cites": ["N3"]})(system, user)
+    sb = build_storyboard(im, findings, layers, {}, fake_llm(respond), board=board, concurrency=4, upfront_flows=2)
+    assert sb.llm_used, sb.llm_error
+    assert [f.what_source for f in board.flows] == ["llm", "llm"]
+
+
+def test_every_upfront_call_goes_through_the_ledger_and_stops_at_the_budget(tmp_path):
+    from codetortoise.config import LlmBudget
+    from codetortoise.llm.ledger import Ledger
+    from codetortoise.store import Store
+    im, findings, layers = model()
+    store = Store(tmp_path / "t.db")
+    rid = store.create_review("t", "owner", [1])
+    ledger = Ledger(store, LlmBudget(per_review=2))
+    board = _board(3)
+    sb = build_storyboard(im, findings, layers, {}, fake_llm(_respond(lambda u: {"what": "w", "cites": ["N3"]})),
+                          board=board, upfront_flows=3, ledger=ledger, rid=rid)
+    u = ledger.usage(rid)
+    assert u["used"] == 2 and all(c["user"] == "pipeline" for c in u["calls"])
+    assert "this review has used its 2 AI calls" in (sb.llm_error or "")
+    assert board.about.intent_source == "template"                                         # the summary was refused
+
+
+def test_llm_failure_keeps_the_deterministic_storyboard():
+    im, findings, layers = model()
+    board = _board(1)
+    llm = LlmClient("http://llm/v1", "k", "m", transport=httpx.MockTransport(lambda r: httpx.Response(500)),
+                    sleep=lambda s: None)
+    sb = build_storyboard(im, findings, layers, {}, llm, board=board)
+    assert not sb.llm_used and "failed after" in sb.llm_error
+    assert sb.chapters[1].narrative.startswith("Changed: hal_write")
+    assert board.flows[0].what == "template what" and board.about.intent_source == "template"
+
+
+def test_unexpected_llm_client_exception_keeps_skeleton():
+    im, findings, layers = model()
+
+    class Exploding:
+        def complete_json(self, *a, **k):
+            raise TypeError("boom")
+
+    sb = build_storyboard(im, findings, layers, {}, Exploding(), board=_board(1))
+    assert not sb.llm_used and "boom" in sb.llm_error and sb.chapters
+
+
+def test_a_finding_explanation_is_one_grounded_call():
+    im, findings, layers = model()
+    out = {"explanation": "exp", "verify_steps": ["Check callers."],
+           "hypotheses": [{"text": "flush drops -2", "cites": ["N3", "F1"]}, {"text": "made up", "cites": []}]}
+    dropped = run_job(fake_llm(lambda s, u: out), finding_job(_ctx(findings, im), findings[0]))
+    assert dropped == 0
+    assert findings[0].explanation == "exp" and findings[0].verify_steps == ["Check callers."]
+    assert [h.text for h in findings[0].hypotheses] == ["flush drops -2"]
+    assert findings[1].explanation is None
+
+
+def test_flow_and_summary_jobs_ground_their_text():
+    im, findings, layers = model()
+    board = _board(2)
+    ctx = _ctx(findings, im)
+    run_job(fake_llm(lambda s, u: {"what": "uncited guess", "cites": ["N99"]}), flow_job(ctx, board.flows[0]))
+    assert board.flows[0].what_source == "template"
+    run_job(fake_llm(lambda s, u: {"what": "flush drops -2", "title": "logger_flush drops -2", "cites": ["N3"]}),
+            flow_job(ctx, board.flows[1]))
+    assert (board.flows[1].what, board.flows[1].title) == ("flush drops -2", "logger_flush drops -2")
+
+
+def test_ai_text_records_the_files_behind_its_prompt():
     im, findings, layers = model()
     findings[0].files, findings[1].files = ["//w/d/uart.c"], ["//w/include/hal/regs.h"]
     node_files = {"N1": ["//w/hal/regs.c"], "N2": ["//w/d/uart.c"], "N3": ["//w/svc/logger.c"]}
     board = _board(1)
     build_storyboard(im, findings, layers, {}, fake_llm(_respond(lambda u: {"what": "flush drops -2", "cites": ["N3"]})),
                      board=board, node_files=node_files)
-    # the flow's prompt: its steps (N3, N2) and its finding F1
     assert board.flows[0].what_source == "llm" and board.flows[0].what_files == ["//w/d/uart.c", "//w/svc/logger.c"]
-    # a finding's explanation also saw its nodes' neighbours (N3 calls N2, N2 calls N1)
-    assert findings[0].explain_files == ["//w/d/uart.c", "//w/hal/regs.c", "//w/svc/logger.c"]
-    assert findings[1].explain_files == ["//w/include/hal/regs.h"]
-    # the intent summarises every chapter (its nodes and findings) and the findings
     assert board.about.intent_files == ["//w/d/uart.c", "//w/hal/regs.c", "//w/include/hal/regs.h"]
+    run_job(fake_llm(lambda s, u: {"explanation": "e"}), finding_job(_ctx(findings, im, node_files), findings[0]))
+    assert findings[0].explain_files == ["//w/d/uart.c", "//w/hal/regs.c", "//w/svc/logger.c"]   # nodes + neighbours
+    findings[1].files = None
+    run_job(fake_llm(lambda s, u: {"explanation": "e"}), finding_job(_ctx(findings, im, node_files), findings[1]))
+    assert findings[1].explain_files is None                                            # an unknown input: unknown
 
 
-def test_llm_text_is_unknown_when_a_prompt_file_is():
-    im, findings, layers = model()
-    findings[0].files = None                                   # F1 stored before tags
-    findings[1].files = ["//w/include/hal/regs.h"]
-    board = _board(1)
-    build_storyboard(im, findings, layers, {}, fake_llm(_respond(lambda u: {"what": "w", "cites": ["N3"]})),
-                     board=board, node_files={"N1": ["//w/hal/regs.c"], "N2": ["//w/d/uart.c"], "N3": ["//w/svc/logger.c"]})
-    assert board.flows[0].what_files is None and findings[0].explain_files is None and board.about.intent_files is None
-    assert findings[1].explain_files == ["//w/include/hal/regs.h"]
-
-def test_llm_calls_run_concurrently():
-    import threading
-    im, findings, layers = model()
-    board = _board(2)
-    gate = threading.Barrier(4, timeout=5)   # 2 findings + 2 flows must be in flight together
-
-    def respond(system, user):
-        if "Explain the risk" in user or "Describe this call flow" in user:
-            gate.wait()
-        return _respond(lambda u: {"what": "w", "cites": ["N3"]})(system, user)
-
-    sb = build_storyboard(im, findings, layers, {}, fake_llm(respond), board=board, concurrency=4)
-    assert sb.llm_used, sb.llm_error
-    assert [f.what_source for f in board.flows] == ["llm", "llm"]
-
-
-def test_llm_failure_keeps_template_flow_text():
-    im, findings, layers = model()
-    board = _board(1)
-    llm = LlmClient("http://llm/v1", "k", "m", transport=httpx.MockTransport(lambda r: httpx.Response(500)),
-                    sleep=lambda s: None)
-    sb = build_storyboard(im, findings, layers, {}, llm, board=board, concurrency=4)
-    assert not sb.llm_used and sb.llm_error
-    assert board.flows[0].what == "template what" and board.about.intent_source == "template"
-
-
-def test_prompts_carry_the_style_guide_and_one_diataxis_mode_per_output():
+def test_prompts_carry_the_style_guide_and_one_diataxis_mode_each():
     from codetortoise.llm.style import MODES, STYLE
     im, findings, layers = model()
     seen = []
@@ -225,39 +223,36 @@ def test_prompts_carry_the_style_guide_and_one_diataxis_mode_per_output():
     def respond(system, user):
         seen.append((system, user))
         return _respond(lambda u: {"what": "w", "cites": ["N3"]})(system, user)
-    build_storyboard(im, findings, layers, {}, fake_llm(respond), board=_board(1))
+    llm = fake_llm(respond)
+    build_storyboard(im, findings, layers, {}, llm, board=_board(1))
+    run_job(llm, finding_job(_ctx(findings, im), findings[0]))
     assert seen and all(STYLE in system for system, _ in seen)
-    by_kind = {k: [u for _, u in seen if marker in u] for k, marker in [
-        ("explain", "Explain the risk"), ("chapter", "narrative for this architectural layer"),
-        ("flow", "Describe this call flow"), ("summary", "Summarize the whole change")]}
-    assert all(by_kind.values())
-    assert all(MODES["explanation"] in u and MODES["how-to"] in u for u in by_kind["explain"])
-    assert all(MODES["explanation"] in u for u in by_kind["chapter"] + by_kind["summary"])
-    assert all(MODES["explanation"] in u and MODES["headline"] in u for u in by_kind["flow"])
+    kinds = {k: [u for _, u in seen if marker in u] for k, marker in [
+        ("explain", "Explain the risk"), ("flow", "Describe this call flow"), ("summary", "Summarize the whole change")]}
+    assert all(kinds.values())
+    assert all(MODES["explanation"] in u and MODES["how-to"] in u for u in kinds["explain"])
+    assert all(MODES["explanation"] in u for u in kinds["summary"])
+    assert all(MODES["explanation"] in u and MODES["headline"] in u for u in kinds["flow"])
 
 
-def test_llm_text_that_breaks_the_style_is_dropped_for_the_deterministic_text():
+def test_ai_text_that_breaks_the_style_is_dropped_for_the_deterministic_text():
     im, findings, layers = model()
     board = _board(1)
 
     def respond(system, user):
-        if "Explain the risk" in user:
-            return {"explanation": "This is just wrong!",
-                    "verify_steps": ["Check that logger_flush handles -2.", "The caller ignores it."],
-                    "hypotheses": [{"text": "Simply put, it breaks.", "cites": ["N1"]},
-                                   {"text": "uart_send can now return -2.", "cites": ["N2"]}]}
         if "Describe this call flow" in user:
             return {"what": "Please simply check the result.", "title": "t", "cites": ["N3"]}
-        if "Summarize the whole change" in user:
-            return {"summary": "Please read this.", "risk": "medium", "cites": ["F1"]}
-        return _respond(lambda u: {})(system, user)
+        return {"summary": "Please read this.", "risk": "medium", "cites": ["F1"]}
     sb = build_storyboard(im, findings, layers, {}, fake_llm(respond), board=board)
-    assert all(f.explanation is None for f in findings)
-    assert [f.verify_steps for f in findings] == [["Check that logger_flush handles -2."]] * 2
-    assert [[h.text for h in f.hypotheses] for f in findings] == [["uart_send can now return -2."]] * 2
     assert (board.flows[0].what, board.flows[0].what_source) == ("template what", "template")
-    assert board.about.intent == "template intent" and board.about.intent_source == "template"
-    assert sb.style_dropped == 8          # 2 explanations, 2 steps, 2 hypotheses, 1 flow, 1 summary
+    assert board.about.intent == "template intent" and sb.style_dropped == 2
+    dropped = run_job(fake_llm(lambda s, u: {
+        "explanation": "This is just wrong!", "verify_steps": ["Check that logger_flush handles -2.", "The caller ignores it."],
+        "hypotheses": [{"text": "Simply put, it breaks.", "cites": ["N1"]},
+                       {"text": "uart_send can now return -2.", "cites": ["N2"]}]}),
+        finding_job(_ctx(findings, im), findings[0]))
+    assert findings[0].explanation is None and findings[0].verify_steps == ["Check that logger_flush handles -2."]
+    assert [h.text for h in findings[0].hypotheses] == ["uart_send can now return -2."] and dropped == 3
 
 
 def test_a_flow_title_that_breaks_the_headline_rules_keeps_the_template_title():
