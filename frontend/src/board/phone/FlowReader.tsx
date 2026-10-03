@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Comment } from "../../api";
+import Explain from "../../components/Explain";
 import { CardBody } from "../CardLayer";
 import type { Action, BoardState } from "../reducer";
 import type { Board } from "../types";
@@ -47,7 +48,8 @@ export default function FlowReader({ reviewId, board, state, act, sources, comme
         <span className="ph-count">{i + 1}/{n}</span>
         <button className="ph-nav" aria-label="Next flow" onClick={() => go(i + 1)} disabled={n < 2}>›</button>
       </div>
-      <div className="ph-what">{flow.what}</div>
+      <div className="ph-what">{flow.what_source === "llm" && <span className="ai-label">AI</span>}{flow.what}{" "}
+        <Explain kind="flow" target={flow.id} has={flow.what_source === "llm"} /></div>
       <ol className="ph-steps">
         {steps.map((s) => (
           <li key={s.id} className={`ph-step ${s.kind}${open === s.id ? " open" : ""}`}>

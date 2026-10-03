@@ -33,6 +33,14 @@ export default function Health() {
           <h2>Flags stripped for libclang</h2>
           <p className="mono small">{h.strip_flags.length ? h.strip_flags.join(" ") : "none"}</p>
         </section>
+        {h.ai?.limits && (
+          <section className="card">
+            <h2>AI calls</h2>
+            <p className="small">Limits: {h.ai.limits.per_review} a review · {h.ai.limits.per_person_daily} a person a day ·{" "}
+              {h.ai.limits.per_mention} for one @tortoise answer</p>
+            <p className="small">Today: {h.ai.calls_today ?? 0} calls across reviews</p>
+          </section>
+        )}
         {Object.keys(h.p4_sources ?? {}).length > 0 && (
           <section className="card">
             <h2>Perforce settings from</h2>

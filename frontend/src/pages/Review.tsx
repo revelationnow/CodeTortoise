@@ -1,12 +1,14 @@
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, ApiError, type Board as BoardModel, type Comment, type FileChange, type Finding, type ReviewDetail } from "../api";
+import { api, ApiError, type AiJob, type Board as BoardModel, type Comment, type FileChange, type Finding, type ReviewDetail } from "../api";
 import { useMe } from "../App";
 import Board from "../board/Board";
 import { driftSummary } from "../board/drift";
+import AiPill from "../components/AiPill";
 import ClsPanel from "../components/ClsPanel";
 import Findings from "../components/Findings";
 import Stages from "../components/Stages";
+import { AiProvider, useAiState } from "../lib/ai";
 
 const TERMINAL = new Set(["done", "degraded", "failed"]);
 
@@ -47,6 +49,15 @@ export default function Review() {
     return () => es.close();
   }, [id, status, loadResults, loadDetail]);
 
+  const ready = !!status && TERMINAL.has(status);
+  const people = useMemo(() => [...new Set([detail?.review.created_by ?? "", ...comments.map((c) => c.author)])].filter(Boolean),
+                         [detail, comments]);
+  const onAiDone = useCallback((jobs: AiJob[]) => {   // an explanation finished: show it
+    if (jobs.some((j) => j.kind === "flow")) api.board(id).then(setBoard).catch(() => {});
+    if (jobs.some((j) => j.kind === "finding")) loadFindings();
+  }, [id, loadFindings]);
+  const ai = useAiState(id, ready, people, comments.some((c) => c.ai_meta?.pending), onAiDone, loadComments);
+
   const onCite = useCallback((cite: string) => {
     if (cite.startsWith("F")) { setFocus(cite); navigate(`/r/${id}/findings`); }
     else navigate(`/r/${id}?node=${encodeURIComponent(cite)}`);
@@ -55,7 +66,6 @@ export default function Review() {
   if (error) return <main className="page error">{error}</main>;
   if (!detail) return <main className="page muted">Loading…</main>;
   const r = detail.review;
-  const ready = TERMINAL.has(r.status);
   const notes = detail.stages.filter((s) => s.status === "failed" || s.status === "degraded");
 
   const head = (extra?: ReactNode) => (
@@ -65,6 +75,7 @@ export default function Review() {
       {!ready && <span className="bd-pill ghost">{r.status}</span>}
       <span className="bd-pill ghost">{r.cls.map((c) => `CL ${c}`).join(" · ")}</span>
       {board && <span className="bd-pill ghost">{board.flows.length} flows · {findings.length} findings</span>}
+      {ready && <AiPill />}
       <nav aria-label="Review sections">
         <NavLink end to={`/r/${id}`} className={({ isActive }) => (isActive ? "on" : "")}>Board</NavLink>
         <NavLink to={`/r/${id}/findings`} className={({ isActive }) => (isActive ? "on" : "")}>Findings ({findings.length})</NavLink>
@@ -91,6 +102,7 @@ export default function Review() {
   if (!ready)
     return page(<><Stages stages={detail.stages} /><p className="muted">Analysis in progress…</p></>);
   return (
+    <AiProvider value={ai}>
     <Routes>
       <Route index element={board ? (
         <main className="review board">
@@ -110,5 +122,6 @@ export default function Review() {
       <Route path="files" element={<Navigate to={`/r/${id}`} replace />} />
       <Route path="cls" element={page(<ClsPanel reviewId={id} cls={detail.cls} onChange={loadDetail} />)} />
     </Routes>
+    </AiProvider>
   );
 }

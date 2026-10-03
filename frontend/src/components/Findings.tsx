@@ -4,6 +4,7 @@ import { useMe } from "../App";
 import { SeverityBadge } from "./Badges";
 import CiteText, { CiteList } from "./CiteText";
 import Comments from "./Comments";
+import Explain from "./Explain";
 
 interface Props {
   reviewId: number;
@@ -40,7 +41,7 @@ export default function Findings({ reviewId, findings, focus, comments, onCommen
               </span>
             )}
           </div>
-          <p>{f.summary} <CiteList ids={f.nodes} onCite={onCite} /></p>
+          <p>{f.summary} <CiteList ids={f.nodes} onCite={onCite} /> <Explain kind="finding" target={f.id} has={!!f.explanation} /></p>
           <h4>Evidence (static analysis)</h4>
           <ul className="evidence">
             {f.evidence.map((e, i) => (
