@@ -28,7 +28,9 @@ test.describe("desktop", () => {
     await search.press("Escape");
     await expect(rows).toHaveCount(total);
     await search.fill("101");                                                         // a CL number
-    for (const r of await rows.all()) await expect(r.locator(".cl")).toContainText(["101"]);
+    // wait for the filter itself: no row may remain without CL 101 (reading rows.all() first raced the re-render)
+    await expect(rows.filter({ hasNot: page.locator(".cl", { hasText: "101" }) })).toHaveCount(0);
+    await expect(rows.first()).toBeVisible();
     await search.fill("");
     const high = page.getByRole("button", { name: /^High risk/ });
     const n = Number((await high.locator("span").textContent())!.trim());
