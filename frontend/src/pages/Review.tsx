@@ -1,10 +1,10 @@
 import { type ReactNode, useCallback, useEffect, useState } from "react";
-import { NavLink, Route, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Navigate, NavLink, Route, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, type Board as BoardModel, type Comment, type FileChange, type Finding, type ReviewDetail } from "../api";
 import { useMe } from "../App";
 import Board from "../board/Board";
+import { driftSummary } from "../board/drift";
 import ClsPanel from "../components/ClsPanel";
-import Files from "../components/Files";
 import Findings from "../components/Findings";
 import Stages from "../components/Stages";
 
@@ -68,12 +68,12 @@ export default function Review() {
       <nav aria-label="Review sections">
         <NavLink end to={`/r/${id}`} className={({ isActive }) => (isActive ? "on" : "")}>Board</NavLink>
         <NavLink to={`/r/${id}/findings`} className={({ isActive }) => (isActive ? "on" : "")}>Findings ({findings.length})</NavLink>
-        <NavLink to={`/r/${id}/files`} className={({ isActive }) => (isActive ? "on" : "")}>Files ({files.length})</NavLink>
         <NavLink to={`/r/${id}/cls`} className={({ isActive }) => (isActive ? "on" : "")}>CLs &amp; Swarm</NavLink>
       </nav>
       {me?.is_owner && ready && <button className="link rerun" onClick={() => api.rerun(id).then(loadDetail)}>Re-run</button>}
-      {board && board.about.drift.length > 0 && (
-        <span className="bd-pill high" title={board.about.drift.map((d) => d.text).join("\n")}>⚠ workspace drift ({board.about.drift.length})</span>
+      {board && driftSummary(board.about.drift).warn.length > 0 && (
+        <span className="bd-pill high" title={driftSummary(board.about.drift).warn.join("\n")}>
+          ⚠ workspace drift ({driftSummary(board.about.drift).warn.length})</span>
       )}
       {notes.length > 0 && (
         <details className="bd-notes">
@@ -100,14 +100,14 @@ export default function Review() {
       ) : page(board === undefined ? <p className="muted">Loading…</p> : (
         <div className="banner warn">
           No review board for this review (see the stage notes above; reviews made before the board existed have none).
-          {me?.is_owner ? " Re-run it to build one." : " The owner can re-run it to build one."} Findings, files and CLs are still available.
+          {me?.is_owner ? " Re-run it to build one." : " The owner can re-run it to build one."} Findings and CLs are still available.
           {me?.is_owner && <> <button onClick={() => api.rerun(id).then(loadDetail)}>Re-run</button></>}
         </div>
       ))} />
       <Route path="findings" element={page(
         <Findings reviewId={id} findings={findings} focus={focus} comments={comments}
                   onComments={loadComments} onFindings={loadFindings} onCite={onCite} />)} />
-      <Route path="files" element={page(<Files reviewId={id} files={files} comments={comments} onComments={loadComments} />)} />
+      <Route path="files" element={<Navigate to={`/r/${id}`} replace />} />
       <Route path="cls" element={page(<ClsPanel reviewId={id} cls={detail.cls} onChange={loadDetail} />)} />
     </Routes>
   );

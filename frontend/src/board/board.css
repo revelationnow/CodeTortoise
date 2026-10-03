@@ -325,3 +325,22 @@ body.bd-resizing-v, body.bd-resizing-v * { cursor: row-resize !important; user-s
   .bd-flowinfo.brief { grid-template-columns: 1fr; }
   .bd-flows { padding: 8px 16px; } .bd-flowinfo { padding: 2px 16px 10px; }
 }
+
+/* ---- changes view, file tools, panel tabs (step 2) ---- */
+.bd-gap { position: sticky; left: 0; display: flex; gap: 10px; align-items: center; padding: 3px 12px; background: var(--bd-sunken);
+  color: var(--bd-muted); font: 11.5px var(--bd-sans); border-top: 1px dashed var(--bd-line); border-bottom: 1px dashed var(--bd-line); }
+.bd-gap button { border: 0; background: none; color: var(--flow); font: 600 11.5px var(--bd-sans); cursor: pointer; padding: 2px 0; }
+.bd-gap button:hover { text-decoration: underline; }
+.bd-viewer .fsec .hd .act { font: 700 9.5px var(--bd-sans); text-transform: uppercase; padding: 1px 6px; border-radius: 5px;
+  background: var(--chg-bg-soft); color: var(--chg-ink); }
+.bd-file-tools { display: inline-flex; gap: 6px; align-items: center; }
+.bd-file-tools select { font: 12px var(--bd-sans); padding: 2px 4px; border-radius: 6px; border: 1px solid var(--bd-line);
+  background: var(--bd-surface); color: var(--bd-ink); }
+.bd-tabs { display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--bd-line); flex: none; }
+.bd-tabs button { border: 0; background: none; padding: 8px 10px; font: 600 12.5px var(--bd-sans); color: var(--bd-muted);
+  border-bottom: 2px solid transparent; cursor: pointer; }
+.bd-tabs button.on { color: var(--flow); border-bottom-color: var(--flow); }
+details.bd-drift { padding: 6px 10px; font-size: 12px; } details.bd-drift summary { cursor: pointer; font-weight: 600; }
+details.bd-drift.info { background: var(--bd-sunken); border-left-color: var(--bd-line); color: var(--bd-muted); }
+.bd-about .cl .head { display: block; text-align: left; padding: 0; border: 0; background: none; cursor: pointer; width: 100%; }
+.bd-about .cl .first { margin-top: 3px; font-size: 12.5px; }

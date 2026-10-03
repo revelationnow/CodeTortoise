@@ -53,7 +53,6 @@ export default function PhoneBoard(p: Props) {
         <nav className="ph-menu" onClick={() => setMenu(false)}>
           <NavLink to="/">All reviews</NavLink>
           <NavLink to={`/r/${reviewId}/findings`}>Findings</NavLink>
-          <NavLink to={`/r/${reviewId}/files`}>Files (diff)</NavLink>
           <NavLink to={`/r/${reviewId}/cls`}>CLs &amp; Swarm</NavLink>
           <span onClick={(e) => e.stopPropagation()}><ThemeSwitch /></span>
           <button className="link" onClick={() => api.logout().then(() => window.location.assign("/login"))}>Log out</button>

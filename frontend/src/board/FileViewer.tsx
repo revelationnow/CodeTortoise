@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Comment } from "../api";
+import { onLine } from "../lib/anchors";
 import CodeView from "./CodeView";
 import { lineDiff, plainLines } from "./codeRows";
+import { expandRange, foldRuns, type Range, revealRange } from "./fold";
+import { keys, loadViewerView, save, type ViewerView } from "./prefs";
 import type { Action, ViewerState } from "./reducer";
 import Resizer from "./Resizer";
 import type { Annotation } from "./types";
@@ -70,31 +73,96 @@ function FileSection({ path, collapsed, focus, viewer, dispatch, sources, review
   Props & { path: string; collapsed: boolean; focus: number | null }) {
   const src = useEnsureSource(path, sources);
   const change = isChange(src) ? src : null;
+  const [cl, setCl] = useState<number | null>(null);               // null: all changelists together
+  const [view, setView] = useState<ViewerView>(loadViewerView);     // changed files: changes only, or the full file
+  const [shown, setShown] = useState<Range[]>([]);                  // folded runs opened by the reader
+  const sec = useRef<HTMLElement>(null);
+  const keepAt = useRef<{ line: number; offset: number } | null>(null);
+  const step = change && cl !== null ? change.per_cl.find((x) => x.cl === cl) ?? null : null;
   const lines = useMemo(() => {
-    if (change) return lineDiff(change.before, change.after);
+    if (change) return step ? lineDiff(step.before, step.after) : lineDiff(change.before, change.after);
     if (src && "status" in src && src.status === "ok") return plainLines(src.file.text);
     return null;
-  }, [src, change]);
+  }, [src, change, step]);
+  const mine = useMemo(() => anns.filter((x) => x.path === path && x.side === "new"), [anns, path]);
+  const keep = useMemo(() => {                       // lines with notes or comment threads stay in the changes view
+    if (!lines) return new Set<number>();
+    const ns = new Set<number>([...mine.map((x) => x.line),
+      ...comments.filter((c) => c.anchor_kind === "line" && c.parent_id === null && onLineAny(c, path, cl)).map((c) => c.anchor.line as number)]);
+    return new Set(lines.flatMap((l, i) => (l.n !== null && ns.has(l.n) ? [i] : [])));
+  }, [lines, mine, comments, path, cl]);
+  useEffect(() => setShown([]), [cl]);
+  useEffect(() => {                                  // opening the file at a folded line opens the lines around it
+    if (focus && lines) {
+      const r = revealRange(lines, focus);
+      if (r) setShown((s) => [...s, r]);
+    }
+  }, [focus, lines]);
+  const folding = !!change && view === "changes";
+  const runs = useMemo(() => (folding && lines ? foldRuns(lines, shown, keep) : null), [folding, lines, shown, keep]);
+  useLayoutEffect(() => {                            // after a view switch, put the remembered line back where it was
+    const k = keepAt.current, box = sec.current?.closest<HTMLElement>(".files");
+    if (!k || !box) return;
+    keepAt.current = null;
+    const row = sec.current?.querySelector<HTMLElement>(`[data-n="${k.line}"]`);
+    if (row) box.scrollTop += row.getBoundingClientRect().top - box.getBoundingClientRect().top - k.offset;
+  });
+  const switchView = (v: ViewerView) => {
+    const box = sec.current?.closest<HTMLElement>(".files");
+    const top = box?.getBoundingClientRect().top ?? 0;
+    const row = [...(sec.current?.querySelectorAll<HTMLElement>("[data-n]") ?? [])]
+      .find((r) => r.getBoundingClientRect().bottom > top + 1);             // the first line in view
+    if (row && lines) {
+      const line = Number(row.dataset.n);
+      keepAt.current = { line, offset: Math.max(0, row.getBoundingClientRect().top - top) };
+      const r = revealRange(lines, line);
+      if (v === "changes" && r) setShown((s) => [...s, r]);
+    }
+    setView(v);
+    save(keys.viewerView, v);
+  };
   const counts = useMemo(() => lines && change ? [lines.filter((l) => l.t === "+").length, lines.filter((l) => l.t === "-").length] : null,
                          [lines, change]);
   const cls = change ? [...new Set(change.per_cl.map((c) => c.cl))] : [];
   return (
-    <section className={`fsec${collapsed ? " collapsed" : ""}`} data-path={path}>
+    <section ref={sec} className={`fsec${collapsed ? " collapsed" : ""}`} data-path={path}>
       <div className="hd" onClick={() => dispatch({ t: "viewer.toggle", path })}>
         <span className="chev">{collapsed ? "▸" : "▾"}</span><b>{path}</b>
-        <span className="file">{change ? `CL ${cls.join(", ")}` : src && "status" in src && src.status === "ok"
+        {change && <span className="act">{change.action}</span>}
+        {change && change.base_rev && <span className="file">base {change.base_rev}</span>}
+        <span className="file">{change ? "" : src && "status" in src && src.status === "ok"
           ? `unchanged · p4 print ${src.file.depot}${src.file.rev.startsWith("#") ? src.file.rev : ""}` : ""}</span>
         {counts && <span className="cnt"><span className="p">+{counts[0]}</span><span className="m">−{counts[1]}</span></span>}
         <span className="sp" />
+        {change && (
+          <span className="bd-file-tools" onClick={(e) => e.stopPropagation()}>
+            <select aria-label="Changelist" value={cl === null ? "all" : String(cl)}
+                    onChange={(e) => setCl(e.target.value === "all" ? null : Number(e.target.value))}>
+              <option value="all">All CLs</option>
+              {cls.map((c) => <option key={c} value={String(c)}>CL {c}</option>)}
+            </select>
+            <span className="bd-seg">
+              <button className={`bd-ibtn${view === "changes" ? " on" : ""}`} onClick={() => switchView("changes")}>Changes</button>
+              <button className={`bd-ibtn${view === "full" ? " on" : ""}`} onClick={() => switchView("full")}>Full file</button>
+            </span>
+          </span>
+        )}
         <button className="bd-ibtn x" title="Close file" aria-label={`Close ${path}`}
                 onClick={(e) => { e.stopPropagation(); dispatch({ t: "viewer.close", path }); }}>✕</button>
       </div>
       {!collapsed && (lines ? (
         <CodeView reviewId={reviewId} path={path} lines={lines} mode={change && viewer.mode === "split" ? "split" : "unified"}
-                  anns={anns} comments={comments} onComments={onComments} focus={focus} windowed />
+                  anns={anns} comments={comments} onComments={onComments} focus={focus} windowed cl={cl}
+                  runs={runs} onExpand={(run, how) => setShown((s) => [...s, expandRange(run, how)])} />
       ) : src && "status" in src && src.status === "error" ? (
         <div className="bd-note error">{src.error} <button className="bd-ibtn" onClick={() => sources.reload(path)}>Retry</button></div>
       ) : <div className="bd-note">Fetching {path}…</div>)}
     </section>
   );
+}
+
+/** A root line comment on this file, on either side, for the changelist in view (null: all changelists). */
+function onLineAny(c: Comment, path: string, cl: number | null): boolean {
+  const side = c.anchor.side as "new" | "old", line = c.anchor.line as number;
+  return side === "new" && onLine(c, path, side, line, cl);
 }

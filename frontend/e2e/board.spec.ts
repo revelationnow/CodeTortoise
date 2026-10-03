@@ -5,7 +5,7 @@ test.use({ viewport: { width: 1440, height: 900 } });
 
 test("flows, cards, comments, viewer, change panel and layout", async ({ page }) => {
   await startReview(page);
-  await expect(page.getByRole("tab")).toHaveCount(3);
+  await expect(page.getByRole("tablist", { name: "Call flows" }).getByRole("tab")).toHaveCount(3);
   await expect(page.locator(".bd-flowinfo .landing")).toContainText("Side effect lands on uart_errors");
   // the landing page's own classes must not leak into the board (its .landing grid once did)
   expect(await page.locator(".bd-flowinfo .landing").evaluate((el) => getComputedStyle(el).display)).toBe("block");

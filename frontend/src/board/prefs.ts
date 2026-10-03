@@ -22,6 +22,8 @@ export const keys = {
   about: "ct.panel.about",
   flowH: "ct.panel.flowH",
   tab: (reviewId: number) => `ct.board.${reviewId}.tab`,
+  panelTab: (reviewId: number) => `ct.board.${reviewId}.panelTab`,
+  viewerView: "ct.viewer.view",
   viewerW: "ct.panel.viewerW",
   aboutW: "ct.panel.aboutW",
   lens: "ct.lens",
@@ -79,4 +81,14 @@ export type PhoneTab = "flows" | "map" | "files" | "summary";
 export function loadTab(reviewId: number): PhoneTab | null {
   const v = load<unknown>(keys.tab(reviewId), null);
   return v === "flows" || v === "map" || v === "files" || v === "summary" ? v : null;
+}
+
+export type PanelTab = "summary" | "cls";
+export function loadPanelTab(reviewId: number): PanelTab {
+  return load<unknown>(keys.panelTab(reviewId), null) === "cls" ? "cls" : "summary";
+}
+
+export type ViewerView = "changes" | "full";
+export function loadViewerView(): ViewerView {
+  return load<unknown>(keys.viewerView, null) === "full" ? "full" : "changes";
 }

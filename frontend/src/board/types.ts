@@ -23,7 +23,7 @@ export interface About {
   why: { severity: string; text: string; finding: string }[];
   cls: { cl: number; user: string; description: string; file_count: number }[];
   tree: { dir: string; files: AboutFile[] }[];
-  drift: { text: string }[];
+  drift: { text: string; kind?: "ahead" | "behind" | "missing" | "unknown"; severity?: "warn" | "info" }[];
 }
 export interface Board {
   nodes: BoardNode[]; edges: BoardEdge[]; flows: BoardFlow[]; impacts: Annotation[];
