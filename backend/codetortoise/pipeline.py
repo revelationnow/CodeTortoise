@@ -239,8 +239,8 @@ def run_review(rid: int, svc: Services) -> None:
         snippets = collect_snippets(ctx["impact"], ctx["cs"], ctx["after"])
         b = ctx.get("board")
         sb = build_storyboard(ctx["impact"], findings, ctx.get("layers"), snippets, svc.llm, cfg.llm.max_context_tokens,
-                              board=b, concurrency=cfg.llm.concurrency,
-                              max_flow_narratives=cfg.llm.max_flow_narratives, node_files=ctx.get("node_files"))
+                              board=b, concurrency=cfg.llm.concurrency, upfront_flows=cfg.llm.upfront_flows,
+                              node_files=ctx.get("node_files"), ledger=svc.ledger, rid=rid)
         store.put_findings(rid, findings)
         store.put_blob(rid, "storyboard", sb)
         if b is not None:

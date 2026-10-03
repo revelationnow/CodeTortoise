@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -12,6 +13,7 @@ from codetortoise.detectors.base import SEVERITY_RANK, Finding, Hypothesis
 from codetortoise.impact import ImpactModel
 from codetortoise.layers import LayerModel
 from codetortoise.llm.client import LlmClient, LlmError
+from codetortoise.llm.ledger import Ledger, Refused
 from codetortoise.llm.style import MODES, STYLE, check_style
 from codetortoise.provenance import merge
 
@@ -53,12 +55,6 @@ class _ExplainOut(BaseModel):
     explanation: str
     verify_steps: list[str] = Field(default_factory=list)
     hypotheses: list[Cited] = Field(default_factory=list)
-
-
-class _ChapterOut(BaseModel):
-    narrative: str
-    cites: list[str] = Field(default_factory=list)
-    cross_layer_effects: list[Cited] = Field(default_factory=list)
 
 
 class _SummaryOut(BaseModel):
@@ -181,103 +177,144 @@ def _flow_prompt(fl: Flow, impact: ImpactModel, findings: list[Finding], snippet
             budget(parts, per_call))
 
 
+@dataclass
+class AiContext:
+    """What every AI job needs: the analysis, code snippets, the prompt budget and the files behind each node."""
+    impact: ImpactModel
+    findings: list[Finding]
+    snippets: dict[str, str]
+    max_tokens: int = 64000
+    node_files: dict[str, list[str] | None] | None = None
+
+    @property
+    def per_call(self) -> int:
+        return max(2000, self.max_tokens // 2)
+
+    @property
+    def known(self) -> set[str]:
+        return set(self.impact.nodes) | {f.id for f in self.findings}
+
+    def prompt_files(self, nodes: list[str], finding_ids: list[str]) -> list[str] | None:
+        """The files behind a prompt about these nodes and findings (spec 2026-10-01 §14.3); None if any is unknown."""
+        if self.node_files is None:
+            return None
+        tags = {f.id: f.files for f in self.findings}
+        return merge(*(self.node_files.get(n) for n in nodes), *(tags.get(i) for i in finding_ids))
+
+
+@dataclass
+class Job:
+    """One AI call: what it is for (ledger purpose and target), its prompt and reply schema, and how the reply is
+    applied. `apply` returns how many outputs it dropped for breaking the house style."""
+    purpose: str
+    target: str
+    prompt: str
+    schema: type[BaseModel]
+    apply: Callable[[BaseModel], int]
+
+
+def _styled(text: str, mode: str) -> bool:
+    return not check_style(text, mode)
+
+
+def finding_job(ctx: AiContext, f: Finding) -> Job:
+    impact = ctx.impact
+    nodes = [n for n in f.nodes if n in impact.nodes]
+    neighbours = sorted({e.src for e in impact.edges if e.dst in nodes} | {e.dst for e in impact.edges if e.src in nodes})
+    parts = ["FINDING:\n" + _finding_text(f), "GRAPH FACTS:\n" + _facts_for_nodes(impact, nodes + neighbours)]
+    parts += [f"CODE {n}:\n{ctx.snippets[n]}" for n in nodes + neighbours if n in ctx.snippets]
+
+    def apply(out: _ExplainOut) -> int:
+        dropped = 0
+        if _styled(out.explanation, "explanation"):
+            f.explanation = out.explanation
+        else:
+            f.explanation, dropped = None, dropped + 1
+        f.explain_files = ctx.prompt_files(nodes + neighbours, [f.id])
+        steps = [st for st in out.verify_steps if _styled(st, "how-to")]
+        hyps = [h for h in ground(out.hypotheses, ctx.known) if _styled(h.text, "explanation")]
+        dropped += len(out.verify_steps) - len(steps) + len(ground(out.hypotheses, ctx.known)) - len(hyps)
+        f.verify_steps, f.hypotheses = steps, [Hypothesis(text=h.text, cites=h.cites) for h in hyps]
+        return dropped
+    prompt = ("Explain the risk of this finding, list concrete verification steps, and propose additional side-effect "
+              "hypotheses (each citing ids).\n"
+              f"Explanation and hypotheses: {MODES['explanation']} Verification steps: {MODES['how-to']}\n\n"
+              + budget(parts, ctx.per_call))
+    return Job("finding", f.id, prompt, _ExplainOut, apply)
+
+
+def flow_job(ctx: AiContext, fl: Flow) -> Job:
+    def apply(out: _FlowOut) -> int:
+        # grounded: keep the LLM text only if it cites a node on this flow or one of its findings
+        if not (out.what.strip() and set(out.cites) & (set(fl.path) | set(fl.findings))):
+            return 0
+        if not _styled(out.what, "explanation"):
+            return 1
+        fl.what, fl.what_source, fl.what_files = out.what.strip(), "llm", ctx.prompt_files(fl.path, fl.findings)
+        if 0 < len(out.title.strip()) <= 80:
+            if not _styled(out.title.strip(), "headline"):
+                return 1
+            fl.title = out.title.strip()
+        return 0
+    return Job("flow", fl.id, _flow_prompt(fl, ctx.impact, ctx.findings, ctx.snippets, ctx.per_call), _FlowOut, apply)
+
+
+def summary_job(ctx: AiContext, sb: Storyboard, board: Board | None) -> Job:
+    overview = [f"CHAPTER {c.name}: {c.narrative} (cites {c.cites})" for c in sb.chapters]
+    overview += [_finding_text(f) for f in ctx.findings[:30]]
+
+    def apply(out: _SummaryOut) -> int:
+        ok = bool(out.summary.strip()) and _styled(out.summary, "explanation")
+        if ok:
+            sb.summary = out.summary
+        order_ = ["low", "medium", "high"]       # the LLM may raise the risk, never lower it below the findings
+        sb.risk = max(sb.risk, out.risk, key=order_.index)
+        sb.review_order = [n for n in out.review_order if n in ctx.impact.nodes] or sb.review_order
+        sb.verified = any(c in ctx.known for c in out.cites)
+        sb.llm_used = True
+        if board is not None and ok:
+            board.about.intent, board.about.intent_source = out.summary.strip(), "llm"
+            board.about.intent_files = merge(*(ctx.prompt_files(c.nodes, c.findings) for c in sb.chapters),
+                                             ctx.prompt_files([], [f.id for f in ctx.findings[:30]]))
+        return 0 if ok or not out.summary.strip() else 1
+    prompt = ("Summarize the whole change for a reviewer in 3-6 sentences, give an overall risk, and a review_order of "
+              f"node ids.\n{MODES['explanation']}\n\n" + budget(overview, ctx.per_call))
+    return Job("summary", "", prompt, _SummaryOut, apply)
+
+
+def run_job(llm: LlmClient, job: Job, ledger: Ledger | None = None, rid: int | None = None,
+            user: str | None = None) -> int:
+    """Make the job's one call (through the ledger when given) and apply the reply. Returns outputs dropped for
+    style. Raises Refused over a limit, LlmError (or anything the client raises) on failure."""
+    def ask(client: LlmClient):
+        return client.complete_json(SYSTEM, job.prompt, job.schema)
+    out = ledger.call(llm, rid, user, job.purpose, job.target, ask) if ledger is not None and rid is not None else ask(llm)
+    return job.apply(out)
+
+
 def build_storyboard(impact: ImpactModel, findings: list[Finding], layers: LayerModel | None,
                      snippets: dict[str, str], llm: LlmClient | None, max_tokens: int = 64000, *,
-                     board: Board | None = None, concurrency: int = 1, max_flow_narratives: int = 6,
-                     node_files: dict[str, list[str] | None] | None = None) -> Storyboard:
-    """Skeleton storyboard, then (with an LLM) finding explanations, chapter and flow narratives on a thread pool.
+                     board: Board | None = None, concurrency: int = 1, upfront_flows: int = 3,
+                     node_files: dict[str, list[str] | None] | None = None, ledger: Ledger | None = None,
+                     rid: int | None = None) -> Storyboard:
+    """The deterministic storyboard, then (with an LLM) the up-front pass of spec 2026-10-03 §3: narratives for the
+    first `upfront_flows` flows (concurrently), then the change summary. Everything else is explained on demand.
 
-    Results are applied in a fixed order, so the output depends only on the replies; the summary call runs last.
-    Any LLM-side failure keeps the deterministic text for everything not yet applied. LLM text records the files whose
-    code or findings were in its prompt (spec §14.3), from `node_files`; without it they stay unknown."""
-    tags = {f.id: f.files for f in findings}
-
-    def prompt_files(nodes: list[str], finding_ids: list[str]) -> list[str] | None:
-        if node_files is None:
-            return None
-        return merge(*(node_files.get(n) for n in nodes), *(tags.get(i) for i in finding_ids))
+    Every call goes through `ledger` when given (as the pipeline). A refused or failed call stops the pass and leaves
+    the deterministic text for whatever wasn't written; `llm_error` says why."""
     sb = skeleton(impact, findings, layers)
     if llm is None:
         return sb
-    known = set(impact.nodes) | {f.id for f in findings}
-    per_call = max(2000, max_tokens // 2)
-    jobs: list[tuple[str, type[BaseModel], Callable]] = []
-
-    def styled(text: str, mode: str) -> bool:
-        """True when `text` keeps the house style; otherwise it is counted and the caller keeps its own text."""
-        if check_style(text, mode):
-            sb.style_dropped += 1
-            return False
-        return True
-
-    for f in findings:
-        nodes = [n for n in f.nodes if n in impact.nodes]
-        neighbours = sorted({e.src for e in impact.edges if e.dst in nodes} |
-                            {e.dst for e in impact.edges if e.src in nodes})
-        parts = ["FINDING:\n" + _finding_text(f), "GRAPH FACTS:\n" + _facts_for_nodes(impact, nodes + neighbours)]
-        parts += [f"CODE {n}:\n{snippets[n]}" for n in nodes + neighbours if n in snippets]
-
-        def explain(out: _ExplainOut, f=f, seen=nodes + neighbours):
-            f.explanation = out.explanation if styled(out.explanation, "explanation") else None
-            f.explain_files = prompt_files(seen, [f.id])
-            f.verify_steps = [step for step in out.verify_steps if styled(step, "how-to")]
-            f.hypotheses = [Hypothesis(text=h.text, cites=h.cites) for h in ground(out.hypotheses, known)
-                            if styled(h.text, "explanation")]
-        jobs.append(("Explain the risk of this finding, list concrete verification steps, and propose additional "
-                     "side-effect hypotheses (each citing ids).\n"
-                     f"Explanation and hypotheses: {MODES['explanation']} Verification steps: {MODES['how-to']}\n\n"
-                     + budget(parts, per_call), _ExplainOut, explain))
-
-    for ch in sb.chapters:
-        parts = [f"LAYER: {ch.name}",
-                 "CHANGED NODES AND EDGES:\n" + _facts_for_nodes(impact, ch.nodes),
-                 "FINDINGS:\n" + "\n\n".join(_finding_text(f) for f in findings if f.id in ch.findings)]
-        parts += [f"CODE {n}:\n{snippets[n]}" for n in ch.nodes if n in snippets]
-
-        def narrate(out: _ChapterOut, ch=ch):
-            if styled(out.narrative, "explanation"):
-                ch.narrative = out.narrative
-                ch.cites = [c for c in out.cites if c in known]
-                ch.verified = bool(ch.cites)
-            ch.cross_layer_effects = [c for c in ground(out.cross_layer_effects, known) if styled(c.text, "explanation")]
-        jobs.append(("Write the narrative for this architectural layer: what changed, why it matters, and effects on "
-                     f"layers above/below (cross_layer_effects).\n{MODES['explanation']}\n\n" + budget(parts, per_call),
-                     _ChapterOut, narrate))
-
-    for fl in (board.flows[:max_flow_narratives] if board else []):
-        def describe(out: _FlowOut, fl=fl):
-            # grounded: keep the LLM text only if it cites a node on this flow or one of its findings
-            if out.what.strip() and set(out.cites) & (set(fl.path) | set(fl.findings)) and styled(out.what, "explanation"):
-                fl.what, fl.what_source, fl.what_files = out.what.strip(), "llm", prompt_files(fl.path, fl.findings)
-                if 0 < len(out.title.strip()) <= 80 and styled(out.title.strip(), "headline"):
-                    fl.title = out.title.strip()
-        jobs.append((_flow_prompt(fl, impact, findings, snippets, per_call), _FlowOut, describe))
-
+    ctx = AiContext(impact, findings, snippets, max_tokens, node_files)
+    jobs = [flow_job(ctx, fl) for fl in (board.flows[:upfront_flows] if board else [])]
     pool = ThreadPoolExecutor(max(1, concurrency), thread_name_prefix="tortoise-llm")
-    futures = [pool.submit(llm.complete_json, SYSTEM, prompt, schema) for prompt, schema, _ in jobs]
     try:
-        for fut, (_, _, apply) in zip(futures, jobs, strict=True):
-            apply(fut.result())
-        overview = [f"CHAPTER {c.name}: {c.narrative} (cites {c.cites})" for c in sb.chapters]
-        overview += [_finding_text(f) for f in findings[:30]]
-        out = llm.complete_json(SYSTEM, "Summarize the whole change for a reviewer in 3-6 sentences, give an overall "
-                                f"risk, and a review_order of node ids.\n{MODES['explanation']}\n\n"
-                                + budget(overview, per_call), _SummaryOut)
-        summary_ok = bool(out.summary.strip()) and styled(out.summary, "explanation")
-        if summary_ok:
-            sb.summary = out.summary
-        # the LLM may raise the risk, never lower it below what the findings establish
-        order_ = ["low", "medium", "high"]
-        sb.risk = max(sb.risk, out.risk, key=order_.index)
-        order = [n for n in out.review_order if n in impact.nodes]
-        sb.review_order = order or sb.review_order
-        sb.verified = any(c in known for c in out.cites)
-        sb.llm_used = True
-        if board is not None and summary_ok:
-            board.about.intent, board.about.intent_source = out.summary.strip(), "llm"
-            board.about.intent_files = merge(*(prompt_files(c.nodes, c.findings) for c in sb.chapters),
-                                             prompt_files([], [f.id for f in findings[:30]]))
-    except Exception as e:  # any LLM-side failure leaves the deterministic storyboard intact
+        for dropped in pool.map(lambda j: run_job(llm, j, ledger, rid), jobs):
+            sb.style_dropped += dropped
+        sb.style_dropped += run_job(llm, summary_job(ctx, sb, board), ledger, rid)
+    except Refused as e:
+        sb.llm_error = f"AI budget: {e.reason}"
+    except Exception as e:  # any LLM-side failure leaves the deterministic text intact
         sb.llm_error = str(e) if isinstance(e, LlmError) else f"{type(e).__name__}: {e}"
     finally:
         pool.shutdown(wait=True, cancel_futures=True)

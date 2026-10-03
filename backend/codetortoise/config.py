@@ -67,7 +67,6 @@ class LlmConfig(BaseModel):
     max_context_tokens: int = 64000
     timeout_s: float = 120.0
     concurrency: int = 4           # parallel LLM calls (finding explanations, chapter and flow narratives)
-    max_flow_narratives: int = 6   # review board flows whose description the LLM rewrites
     upfront_flows: int = 3         # flow narratives written when a review runs (the rest on demand)
     budget: LlmBudget = Field(default_factory=LlmBudget)
 

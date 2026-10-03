@@ -26,8 +26,9 @@ from codetortoise.vcs.source import Source
 class LayersProvider:
     """Layer model cached per symbol-index generation (in memory and in the store)."""
 
-    def __init__(self, cfg: Config, index: SymbolIndex, store: Store, llm: LlmClient | None):
-        self.cfg, self.index, self.store, self.llm = cfg, index, store, llm
+    def __init__(self, cfg: Config, index: SymbolIndex, store: Store, llm: LlmClient | None,
+                 ledger: Ledger | None = None):
+        self.cfg, self.index, self.store, self.llm, self.ledger = cfg, index, store, llm, ledger
         self._lock = threading.Lock()
         self._model: LayerModel | None = None
 
@@ -48,7 +49,9 @@ class LayersProvider:
                 model = infer_layers(self.index, str(self.cfg.workspace.root), a.module_min_files, a.max_layers)
                 if self.llm is not None:
                     try:
-                        model = name_layers(model, self.llm)
+                        model = (self.ledger.call(self.llm, None, None, "layers", f"generation {self.index.generation()}",
+                                                  lambda llm: name_layers(model, llm))
+                                 if self.ledger else name_layers(model, self.llm))
                     except Exception:  # naming is cosmetic; keep the inferred L<n> names
                         pass
                 self.store.kv_put(self._key(), model)
@@ -119,5 +122,6 @@ def build_services(cfg: Config, llm: LlmClient | None = None, source: Source | N
         else:
             p4 = P4Runner(cfg.workspace.p4port or "", cfg.workspace.client, cfg.workspace.p4_bin, cwd=cfg.workspace.root)
             source = P4Source(p4)
+    ledger = Ledger(store, cfg.llm.budget)
     return Services(cfg=cfg, store=store, source=source, index=index, cdb=cdb, toolchain=tc, llm=llm,
-                    layers=LayersProvider(cfg, index, store, llm), p4=p4, ledger=Ledger(store, cfg.llm.budget))
+                    layers=LayersProvider(cfg, index, store, llm, ledger), p4=p4, ledger=ledger)
