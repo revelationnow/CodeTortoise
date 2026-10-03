@@ -5,6 +5,8 @@ import logging
 import queue
 import threading
 import traceback
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from codetortoise.board import BoardContext, build_board
@@ -227,6 +229,7 @@ def run_review(rid: int, svc: Services) -> None:
             f.files = finding_files(f, node_files, by_local)
         store.put_findings(rid, findings)
         ctx["node_files"], ctx["local_files"] = node_files, by_local
+        store.put_blob(rid, "node_files", node_files)          # on-demand AI tags its text with these
         b = tag_board(b, {f.id: f.files for f in findings})
         ctx["board"] = b
         store.put_blob(rid, "board", b)
@@ -276,6 +279,39 @@ class JobRunner:
         self._q: queue.Queue = queue.Queue()
         self._thread = threading.Thread(target=self._loop, daemon=True, name="tortoise-jobs")
         self.index_building = False
+        # AI jobs (explanations, @tortoise) run beside reviews, not behind them
+        self._ai = ThreadPoolExecutor(max(1, svc.cfg.llm.concurrency), thread_name_prefix="tortoise-ai")
+        self.ai_jobs: dict[int, list[dict]] = {}
+        self._ai_lock = threading.Lock()
+
+    def submit_ai(self, rid: int, user: str, kind: str, target: str, fn: Callable[[], None]) -> dict:
+        """Queue one AI job for review `rid`; its status ("running", "done", "failed", "refused") is kept in
+        `ai_jobs` for the review's AI view."""
+        with self._ai_lock:
+            jobs = self.ai_jobs.setdefault(rid, [])
+            job = {"id": len(jobs) + 1, "user": user, "kind": kind, "target": target, "status": "running", "error": None}
+            jobs.append(job)
+            del jobs[:-50]
+        self._dispatch_ai(job, fn)
+        return job
+
+    def _dispatch_ai(self, job: dict, fn: Callable[[], None]) -> None:
+        self._ai.submit(self._run_ai, job, fn)
+
+    @staticmethod
+    def _run_ai(job: dict, fn: Callable[[], None]) -> None:
+        from codetortoise.llm.ledger import Refused
+        from codetortoise.llm.ondemand import Unchecked
+        try:
+            fn()
+            job["status"] = "done"
+        except Refused as e:
+            job["status"], job["error"] = "refused", e.reason
+        except Unchecked as e:
+            job["status"], job["error"] = "failed", str(e)
+        except Exception as e:  # shown to whoever asked
+            job["status"], job["error"] = "failed", f"{type(e).__name__}: {e}"[:300]
+            log.warning("AI job %s failed: %s", job, e)
 
     def start(self) -> None:
         self._thread.start()
