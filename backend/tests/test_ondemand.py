@@ -133,3 +133,48 @@ def test_an_answer_that_fails_the_checks_changes_nothing_and_says_why(ai, monkey
     assert next(f for f in owner.get(f"/api/reviews/{rid}/board").json()["flows"] if f["id"] == later["id"]) == later
     assert next(f for f in owner.get(f"/api/reviews/{rid}/findings").json() if f["id"] == "F1") == f1
     assert "//fixture/driver/uart.c" not in owner.get(f"/api/reviews/{rid}/ai").json()["file_summaries"]
+
+
+def test_job_ids_stay_unique_past_the_fifty_kept(ai):
+    svc, app, owner, rid, _ = ai
+    runner = InlineRunner(svc)
+    ids = [runner.submit_ai(rid, "owner", "flow", "FL1", lambda: None)["id"] for _ in range(60)]
+    assert len(set(ids)) == 60 and [j["id"] for j in runner.ai_jobs[rid]] == ids[-50:]
+
+
+def test_no_ai_work_starts_while_the_review_is_being_rerun(ai):
+    svc, app, owner, rid, seen = ai
+    flow = owner.get(f"/api/reviews/{rid}/board").json()["flows"][-1]["id"]
+    svc.store.set_review_status(rid, "running")
+    r = owner.post(f"/api/reviews/{rid}/explain", json={"kind": "flow", "target": flow})
+    assert r.status_code == 409 and "re-run" in r.json()["detail"]
+    q = owner.post(f"/api/reviews/{rid}/comments", json={"body": "@tortoise why?", "anchor_kind": "review", "anchor": {}}).json()
+    [reply] = [c for c in owner.get(f"/api/reviews/{rid}/comments").json() if c["parent_id"] == q["id"]]
+    assert reply["body"] == "I couldn't answer: the review is being re-run. Ask again when it finishes."
+
+
+def test_a_rerun_waits_for_an_explanation_in_progress(ai):
+    import threading
+
+    from codetortoise.llm import ondemand
+    from codetortoise.pipeline import run_review
+    svc, app, owner, rid, _ = ai
+    lock = ondemand._lock(rid)
+    lock.acquire()                                       # an explanation is writing this review's results
+    t = threading.Thread(target=run_review, args=(rid, svc))
+    t.start()
+    t.join(3)
+    try:
+        assert t.is_alive()                              # the re-run waits rather than racing its writes
+    finally:
+        lock.release()
+        t.join(120)
+    assert svc.store.get_review(rid)["status"] in ("done", "degraded")
+
+
+def test_a_rerun_drops_file_summaries_of_the_old_diff(ai):
+    svc, app, owner, rid, _ = ai
+    owner.post(f"/api/reviews/{rid}/explain", json={"kind": "file", "target": "//fixture/driver/uart.c"})
+    assert owner.get(f"/api/reviews/{rid}/ai").json()["file_summaries"]
+    assert owner.post(f"/api/reviews/{rid}/rerun").status_code in (200, 202)
+    assert owner.get(f"/api/reviews/{rid}/ai").json()["file_summaries"] == {}

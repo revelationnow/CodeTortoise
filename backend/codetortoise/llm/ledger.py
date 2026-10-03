@@ -92,6 +92,11 @@ class Ledger:
         self.finish(call_id, "ok", llm.take_usage())
         return out
 
+    def fail_running(self) -> None:
+        """At startup: calls a stopped server left running count as failed (they may have cost tokens)."""
+        self.store._exec("UPDATE llm_calls SET finished_at=?, outcome='failed', error='interrupted by a restart' "
+                         "WHERE outcome='running'", (_now(),))
+
     # ---- reporting
     def workspace_calls(self) -> int:
         """Calls made for the workspace rather than a review (layer naming)."""

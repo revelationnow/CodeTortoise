@@ -8,6 +8,7 @@ single-file reads as /source) and the symbol index; nothing else. Every round is
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -63,6 +64,7 @@ class _Reader:
         self.files: set[str] = set()
         self.done: list[str] = []
         self.ids: set[str] = set()
+        self._depots: dict[str, str | None] = {}
 
     def text_of(self, depot: str | None = None, local: str | None = None) -> tuple[str, str] | None:
         """(depot, text) of a file: the change's new side for changed files, else the workspace's source."""
@@ -70,7 +72,7 @@ class _Reader:
             if (depot and f.depot == depot) or (local and f.local == local):
                 return f.depot, f.after
         if depot is None and local is not None:
-            depot = self.svc.source.depots_for([local]).get(local) if hasattr(self.svc.source, "depots_for") else None
+            depot = self._depot_of(local)
         if not depot or not depot.startswith("//"):
             return None
         try:
@@ -78,6 +80,19 @@ class _Reader:
         except Exception:  # not allowed, binary, too large, not in the workspace: no read
             return None
         return sf.depot, sf.text
+
+    def _depot_of(self, local: str) -> str | None:
+        """A workspace file's depot path (cached); None outside the workspace (system headers) or when p4 can't map it."""
+        if local not in self._depots:
+            root = str(self.svc.cfg.workspace.root.resolve()).rstrip("/") + "/"
+            depot = None
+            if str(Path(local).resolve()).startswith(root) and hasattr(self.svc.source, "depots_for"):
+                try:
+                    depot = self.svc.source.depots_for([local]).get(local)
+                except Exception:  # not mapped in the client: no read
+                    depot = None
+            self._depots[local] = depot
+        return self._depots[local]
 
     @staticmethod
     def lines(text: str, lo: int, hi: int) -> str:
@@ -219,14 +234,15 @@ def answer(svc: Services, rid: int, user: str, question: dict, reply_id: int) ->
     cap = svc.cfg.llm.budget.per_mention
     meta = {"pending": True, "round": 0, "of": cap, "read": [], "files": [], "calls": 0, "error": None}
     svc.store.set_ai_reply(reply_id, "thinking…", meta)
-    ctx, board, findings, cs = context_for(svc, rid)
-    reader = _Reader(svc, rid, ctx, cs)
-    root = question["parent_id"] or question["id"]
-    known = set(ctx.impact.nodes) | {f.id for f in findings}
-    convo = [f"QUESTION: {question['body']}", "THREAD SO FAR:\n" + _thread(svc, rid, root, question["id"]),
-             "CONTEXT:\n" + _anchor_context(svc, rid, question, ctx, board, reader)]
+    reader: _Reader | None = None
     fixed = False
-    try:
+    try:                                   # whatever fails from here on, the reply stops being pending
+        ctx, board, findings, cs = context_for(svc, rid)
+        reader = _Reader(svc, rid, ctx, cs)
+        root = question["parent_id"] or question["id"]
+        known = set(ctx.impact.nodes) | {f.id for f in findings}
+        convo = [f"QUESTION: {question['body']}", "THREAD SO FAR:\n" + _thread(svc, rid, root, question["id"]),
+                 "CONTEXT:\n" + _anchor_context(svc, rid, question, ctx, board, reader)]
         for n in range(1, cap + 1):
             meta.update(round=n)
             svc.store.set_ai_reply(reply_id, "thinking…", meta)
@@ -263,7 +279,7 @@ def answer(svc: Services, rid: int, user: str, question: dict, reply_id: int) ->
     _done(svc, reply_id, meta, reader, text, None)
 
 
-def _done(svc: Services, reply_id: int, meta: dict, reader: _Reader, body: str, error: str | None) -> None:
-    files = merge(sorted(reader.files)) if reader.files else []
-    meta.update(pending=False, read=reader.done, files=files, error=error)
+def _done(svc: Services, reply_id: int, meta: dict, reader: _Reader | None, body: str, error: str | None) -> None:
+    files = merge(sorted(reader.files)) if reader and reader.files else []
+    meta.update(pending=False, read=reader.done if reader else [], files=files, error=error)
     svc.store.set_ai_reply(reply_id, body, meta)

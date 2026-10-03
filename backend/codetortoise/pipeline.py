@@ -265,10 +265,14 @@ def run_review(rid: int, svc: Services) -> None:
         else:
             store.set_review_status(rid, "degraded", sb.risk if sb else None)
 
-    for name, fn in [("ingest", ingest), ("swarm_read", swarm_read), ("diffmap", diffmap), ("tu_select", tu_select),
-                     ("layers", layers), ("facts", facts), ("impact", impact), ("detectors", detectors),
-                     ("board", board), ("llm", llm), ("finalize", finalize)]:
-        stage(name, fn)
+    from codetortoise.llm.ondemand import _lock
+    # an explanation still writing this review's board or findings finishes first; new ones wait for the run
+    with _lock(rid):
+        store.put_blob(rid, "file_summaries", {})       # they describe the old diff
+        for name, fn in [("ingest", ingest), ("swarm_read", swarm_read), ("diffmap", diffmap), ("tu_select", tu_select),
+                         ("layers", layers), ("facts", facts), ("impact", impact), ("detectors", detectors),
+                         ("board", board), ("llm", llm), ("finalize", finalize)]:
+            stage(name, fn)
 
 
 class JobRunner:
@@ -282,6 +286,7 @@ class JobRunner:
         # AI jobs (explanations, @tortoise) run beside reviews, not behind them
         self._ai = ThreadPoolExecutor(max(1, svc.cfg.llm.concurrency), thread_name_prefix="tortoise-ai")
         self.ai_jobs: dict[int, list[dict]] = {}
+        self._ai_ids: dict[int, int] = {}
         self._ai_lock = threading.Lock()
 
     def submit_ai(self, rid: int, user: str, kind: str, target: str, fn: Callable[[], None]) -> dict:
@@ -289,7 +294,8 @@ class JobRunner:
         `ai_jobs` for the review's AI view."""
         with self._ai_lock:
             jobs = self.ai_jobs.setdefault(rid, [])
-            job = {"id": len(jobs) + 1, "user": user, "kind": kind, "target": target, "status": "running", "error": None}
+            self._ai_ids[rid] = self._ai_ids.get(rid, 0) + 1       # never reused, though only the last 50 are kept
+            job = {"id": self._ai_ids[rid], "user": user, "kind": kind, "target": target, "status": "running", "error": None}
             jobs.append(job)
             del jobs[:-50]
         self._dispatch_ai(job, fn)
