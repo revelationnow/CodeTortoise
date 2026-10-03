@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from codetortoise.board import Board
 from codetortoise.health import run_health
-from codetortoise.llm import ondemand
+from codetortoise.llm import ondemand, tortoise
 from codetortoise.pipeline import JobRunner
 from codetortoise.provenance import tag_board
 from codetortoise.services import Services
@@ -286,7 +286,28 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
             parent = store.get_comment(body.parent_id)
             if parent is None or parent["review_id"] != rid:
                 raise HTTPException(400, "bad parent_id")
-        return store.add_comment(rid, user, body.body, body.anchor_kind, body.anchor, body.parent_id)
+        c = store.add_comment(rid, user, body.body, body.anchor_kind, body.anchor, body.parent_id)
+        if tortoise.mentions(body.body) and user != tortoise.AUTHOR:
+            ask_tortoise(rid, user, c)
+        return c
+
+    def ask_tortoise(rid: int, user: str, question: dict) -> None:
+        """Post tortoise's reply in the question's thread and answer it as a job (spec 2026-10-03 §5)."""
+        root = question["parent_id"] or question["id"]
+        reply = store.add_comment(rid, tortoise.AUTHOR, "thinking…", question["anchor_kind"], question["anchor"], root)
+        base = {"pending": False, "read": [], "files": [], "calls": 0}
+        if svc.llm is None or svc.ledger is None:
+            store.set_ai_reply(reply["id"], "I can't answer: no AI is configured for CodeTortoise.",
+                               {**base, "error": "no LLM"})
+            return
+        reason = svc.ledger.check(rid, user)
+        if reason:
+            store.set_ai_reply(reply["id"], f"I couldn't answer: {reason}.", {**base, "error": reason})
+            return
+        store.set_ai_reply(reply["id"], "thinking…", {**base, "pending": True, "round": 0,
+                                                      "of": cfg.llm.budget.per_mention})
+        runner.submit_ai(rid, user, "mention", str(reply["id"]),
+                         lambda: tortoise.answer(svc, rid, user, question, reply["id"]))
 
     @app.patch("/api/comments/{cid}")
     def edit_comment(cid: int, body: CommentPatch, user: str = Depends(user_of)):
