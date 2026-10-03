@@ -1,6 +1,8 @@
 """Startup validation. Hard checks gate review creation."""
 from __future__ import annotations
 
+import os
+
 from pydantic import BaseModel
 
 from codetortoise.paths import canon
@@ -55,10 +57,14 @@ def run_health(svc: Services) -> HealthReport:
                             detail=f"{lc.version} ({'vendor' if lc.vendor else 'bundled'}) {lc.path}"))
     except (OSError, RuntimeError) as e:
         checks.append(Check(name="libclang", ok=False, hard=True, detail=str(e)))
-    if cfg.toolchain.clang:
-        err = svc.toolchain.driver_error
-        checks.append(Check(name="driver query", ok=err is None, hard=False,
-                            detail=err or f"langs: {sorted(svc.toolchain.driver)}"))
+    for g in svc.toolchain.groups():          # one compiler query per toolchain group (warning only)
+        if not (svc.toolchain.libclang and svc.toolchain.libclang.vendor):
+            sample = next((e.file for e in svc.cdb.entries if svc.toolchain.group_of(e.file) is g), None)
+            if sample:
+                svc.toolchain.args_for(sample)
+        checks.append(Check(name=f"toolchain {os.path.basename(g.compiler)}", ok=g.error is None, hard=False,
+                            detail=f"{g.files} file(s), target {g.target or 'from the command or host'}"
+                                   + (f": {g.error}" if g.error else "")))
     if svc.llm is not None:
         checks.append(Check(name="llm endpoint", ok=svc.llm.ping(), hard=False, detail=cfg.llm.base_url or ""))
     else:

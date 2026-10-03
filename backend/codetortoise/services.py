@@ -107,7 +107,7 @@ def build_services(cfg: Config, llm: LlmClient | None = None, source: Source | N
     store = Store(data / "tortoise.db")
     index = SymbolIndex(data / "symbols.db")
     cdb = load_databases(cfg.workspace.compile_commands, cfg.workspace.root, cfg.workspace.build_root)
-    tc = Toolchain(cfg.toolchain, cdb, data / "toolchain")
+    tc = Toolchain(cfg.toolchain, cdb, data / "toolchain", root=cfg.workspace.root)
     tc.strip.update(store.kv_get(f"strip_flags:{cfg.workspace.root}") or [])
     llm = llm if llm is not None else make_llm(cfg)
     p4 = None
