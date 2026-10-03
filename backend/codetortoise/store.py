@@ -186,6 +186,17 @@ class Store:
         r["ai_meta"] = json.loads(r["ai_meta"]) if r.get("ai_meta") else None
         return r
 
+    def end_pending_ai_replies(self, body: str) -> int:
+        """At startup: @tortoise replies left pending by a stopped server get `body` and stop being pending."""
+        n = 0
+        for r in self._all("SELECT id, ai_meta FROM comments WHERE ai_meta IS NOT NULL"):
+            meta = json.loads(r["ai_meta"])
+            if meta.get("pending"):
+                meta.update(pending=False, error="interrupted")
+                self.set_ai_reply(r["id"], body, meta)
+                n += 1
+        return n
+
     def set_ai_reply(self, cid: int, body: str, meta: dict) -> dict | None:
         """An @tortoise reply's text and its state (pending, round, read, files, calls, error)."""
         self._exec("UPDATE comments SET body=?, ai_meta=? WHERE id=?", (body, json.dumps(meta), cid))

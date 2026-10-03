@@ -169,3 +169,42 @@ def test_a_full_prompt_drops_the_oldest_reads_first(world):
     assert "QUESTION: @tortoise what changed?" in last and "CONTEXT:" in last and "must answer" in last
     assert f"READ file {UART} from 13" in last and f"READ file {UART} from 1 " not in last
     assert "[truncated]" not in last
+
+
+def test_a_bad_anchor_ends_the_answer_instead_of_leaving_it_pending(world):
+    script = Script({"action": "answer", "text": "uart_send can now return -2.", "cites": ["N9"]})
+    svc, app, rid = world(script)
+    bob = login(app, "bob")
+    q = _ask(bob, rid, "@tortoise what changed?", anchor={"path": UART, "side": "new", "line": "seventeen"})
+    [r] = _reply_to(bob, rid, q["id"])
+    assert r["ai_meta"]["pending"] is False and r["body"].startswith("I couldn't answer:")
+
+
+def test_a_file_outside_the_workspace_is_skipped_not_fatal(world):
+    from codetortoise.llm.ondemand import context_for
+    from codetortoise.llm.tortoise import _Reader
+    svc, app, rid = world(Script({"action": "answer", "text": "x", "cites": []}))
+    ctx, _, _, cs = context_for(svc, rid)
+    reader = _Reader(svc, rid, ctx, cs)
+    asked = []
+
+    def where(paths):                      # P4Source.depots_for raises for paths p4 can't map
+        asked.append(paths)
+        raise RuntimeError("p4 where: not under client's root")
+    svc.source.depots_for = where
+    assert reader.text_of(local="/usr/include/stdio.h") is None and asked == []        # never sent to p4
+    assert reader.text_of(local=str(svc.cfg.workspace.root / "driver" / "absent.c")) is None and len(asked) == 1
+
+
+def test_a_restart_ends_pending_answers_and_running_calls(world):
+    svc, app, rid = world(Script({"action": "answer", "text": "x", "cites": []}))
+    r = svc.store.add_comment(rid, "tortoise", "thinking…", "review", {}, None)
+    svc.store.set_ai_reply(r["id"], "thinking…", {"pending": True, "round": 2, "of": 6, "read": ["callers of uart_send"],
+                                                  "files": [], "calls": 1, "error": None})
+    svc.ledger.reserve(rid, "bob", "mention", str(r["id"]))           # a call in flight when the server stopped
+    create_app(svc, InlineRunner(svc), make_authenticator(svc))       # the server starts again
+    after = svc.store.get_comment(r["id"])
+    assert after["ai_meta"]["pending"] is False and after["body"] == (
+        "I couldn't answer: CodeTortoise restarted before the answer was finished. Ask again.")
+    assert after["ai_meta"]["read"] == ["callers of uart_send"]
+    assert [c["outcome"] for c in svc.ledger.usage(rid)["calls"] if c["purpose"] == "mention"] == ["failed"]

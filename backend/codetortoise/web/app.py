@@ -72,10 +72,17 @@ class LayerNameIn(BaseModel):
     name: str = Field(min_length=1, max_length=80)
 
 
+RERUNNING = "the review is being re-run"
+
+
 def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
     """authenticate(user, password) -> ticket str on success, None on failure."""
     app = FastAPI(title="CodeTortoise")
     store, cfg = svc.store, svc.cfg
+    # work a stopped server left unfinished: answers can't resume, so end them (spec 2026-10-03 §5)
+    store.end_pending_ai_replies("I couldn't answer: CodeTortoise restarted before the answer was finished. Ask again.")
+    if svc.ledger:
+        svc.ledger.fail_running()
     state = {"ready": run_health(svc).ready}
 
     def user_of(request: Request) -> str:
@@ -247,6 +254,8 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         review_or_404(rid)
         if svc.llm is None or svc.ledger is None:
             raise HTTPException(409, "no LLM is configured")
+        if store.get_review(rid)["status"] not in TERMINAL:
+            raise HTTPException(409, RERUNNING)
         try:
             ondemand.check_target(svc, rid, body.kind, body.target)
         except ondemand.NotFound as e:
@@ -303,6 +312,10 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         reason = svc.ledger.check(rid, user)
         if reason:
             store.set_ai_reply(reply["id"], f"I couldn't answer: {reason}.", {**base, "error": reason})
+            return
+        if store.get_review(rid)["status"] not in TERMINAL:
+            store.set_ai_reply(reply["id"], f"I couldn't answer: {RERUNNING}. Ask again when it finishes.",
+                               {**base, "error": RERUNNING})
             return
         store.set_ai_reply(reply["id"], "thinking…", {**base, "pending": True, "round": 0,
                                                       "of": cfg.llm.budget.per_mention})
