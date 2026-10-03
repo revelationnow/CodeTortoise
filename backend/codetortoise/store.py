@@ -67,6 +67,9 @@ class Store:
         with self._lock:
             self._db.execute("PRAGMA journal_mode=WAL")
             self._db.executescript(_SCHEMA)
+            cols = {r[1] for r in self._db.execute("PRAGMA table_info(comments)")}
+            if "ai_meta" not in cols:                # databases made before @tortoise
+                self._db.execute("ALTER TABLE comments ADD COLUMN ai_meta TEXT")
 
     def _exec(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         with self._lock, self._db:
@@ -180,7 +183,13 @@ class Store:
     def _comment(self, r: dict) -> dict:
         r["anchor"] = json.loads(r.pop("anchor_json"))
         r["resolved"] = bool(r["resolved"])
+        r["ai_meta"] = json.loads(r["ai_meta"]) if r.get("ai_meta") else None
         return r
+
+    def set_ai_reply(self, cid: int, body: str, meta: dict) -> dict | None:
+        """An @tortoise reply's text and its state (pending, round, read, files, calls, error)."""
+        self._exec("UPDATE comments SET body=?, ai_meta=? WHERE id=?", (body, json.dumps(meta), cid))
+        return self.get_comment(cid)
 
     def get_comment(self, cid: int) -> dict | None:
         rows = self._all("SELECT * FROM comments WHERE id=?", (cid,))
