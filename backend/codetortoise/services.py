@@ -11,6 +11,7 @@ from codetortoise.config import Config
 from codetortoise.index.symbols import SymbolIndex
 from codetortoise.layers import LayerModel, infer_layers
 from codetortoise.llm.client import LlmClient
+from codetortoise.llm.ledger import Ledger
 from codetortoise.llm.storyboard import name_layers
 from codetortoise.store import Store
 from codetortoise.swarm import SwarmClient
@@ -71,6 +72,7 @@ class Services:
     layers: LayersProvider
     p4: P4Runner | None = None
     owner_ticket: str | None = None
+    ledger: Ledger | None = None                  # every AI call goes through it (spec 2026-10-03 §2)
     swarm_override: Callable[[], SwarmClient | None] | None = field(default=None, repr=False)
 
     def build_index(self, full: bool = False) -> int:
@@ -118,4 +120,4 @@ def build_services(cfg: Config, llm: LlmClient | None = None, source: Source | N
             p4 = P4Runner(cfg.workspace.p4port or "", cfg.workspace.client, cfg.workspace.p4_bin, cwd=cfg.workspace.root)
             source = P4Source(p4)
     return Services(cfg=cfg, store=store, source=source, index=index, cdb=cdb, toolchain=tc, llm=llm,
-                    layers=LayersProvider(cfg, index, store, llm), p4=p4)
+                    layers=LayersProvider(cfg, index, store, llm), p4=p4, ledger=Ledger(store, cfg.llm.budget))

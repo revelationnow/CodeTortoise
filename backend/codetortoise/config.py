@@ -54,6 +54,12 @@ class SwarmConfig(BaseModel):
     url: str | None = None
 
 
+class LlmBudget(BaseModel):
+    per_review: int = 200          # AI calls per review: everyone and the pipeline together
+    per_person_daily: int = 100    # AI calls one person can trigger per day (UTC), across reviews
+    per_mention: int = 6           # rounds one @tortoise answer may take
+
+
 class LlmConfig(BaseModel):
     base_url: str | None = None
     api_key_env: str = "TORTOISE_LLM_KEY"
@@ -62,6 +68,8 @@ class LlmConfig(BaseModel):
     timeout_s: float = 120.0
     concurrency: int = 4           # parallel LLM calls (finding explanations, chapter and flow narratives)
     max_flow_narratives: int = 6   # review board flows whose description the LLM rewrites
+    upfront_flows: int = 3         # flow narratives written when a review runs (the rest on demand)
+    budget: LlmBudget = Field(default_factory=LlmBudget)
 
 
 class AuthConfig(BaseModel):

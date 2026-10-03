@@ -31,6 +31,12 @@ CREATE TABLE IF NOT EXISTS comments(id INTEGER PRIMARY KEY AUTOINCREMENT, review
 CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY, user TEXT, created_at TEXT, expires_at TEXT);
 CREATE TABLE IF NOT EXISTS swarm_posts(review_id INTEGER, cl INTEGER, kind TEXT, swarm_id TEXT, posted_at TEXT);
 CREATE TABLE IF NOT EXISTS kv(key TEXT PRIMARY KEY, json TEXT);
+CREATE TABLE IF NOT EXISTS llm_calls(id INTEGER PRIMARY KEY AUTOINCREMENT, review_id INTEGER, user TEXT, purpose TEXT,
+  target TEXT, started_at TEXT, finished_at TEXT, prompt_tokens INTEGER, completion_tokens INTEGER, outcome TEXT,
+  error TEXT);
+CREATE INDEX IF NOT EXISTS ix_llm_calls_review ON llm_calls(review_id);
+CREATE INDEX IF NOT EXISTS ix_llm_calls_user ON llm_calls(user, started_at);
+CREATE TABLE IF NOT EXISTS llm_budget(review_id INTEGER, budget INTEGER, set_by TEXT, set_at TEXT);
 """
 
 ANCHOR_KINDS = {"line", "function", "finding", "chapter", "review"}
