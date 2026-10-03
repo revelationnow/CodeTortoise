@@ -40,7 +40,7 @@ def test_args_for_adds_driver_info_when_libclang_is_not_vendor(tmp_path):
     tc.driver["c"] = DriverInfo(("/opt/vendor/lib/clang/17/include", "/opt/vendor/sysroot/usr/include"),
                                 (("__VENDOR__", "1"),), "/opt/vendor/lib/clang/17")
     tc._preludes["c"] = tmp_path / "prelude-c.h"
-    args = tc.args_for("/w/a.c")
+    args = tc.args_for("/w/a.c")[2:]                      # after -working-directory /w
     assert args[:1] == ["--target=arm"]
     assert ["-resource-dir", "/opt/vendor/lib/clang/17"] == args[1:3]
     assert "/opt/vendor/lib/clang/17/include" not in args  # builtin headers come via -resource-dir
