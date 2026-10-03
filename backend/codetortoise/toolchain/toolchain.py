@@ -22,7 +22,14 @@ _CXX_EXTS = {".cc", ".cpp", ".cxx", ".c++", ".hpp", ".hh", ".hxx"}
 # Macros that describe the *compiler* rather than the target. Importing the driver's values would make
 # libclang impersonate that compiler (e.g. gcc's __GNUC__ makes glibc expect _Float32/_Float64 types).
 _IDENTITY_PREFIXES = ("__GNUC", "__GNUG", "__clang", "__llvm", "__VERSION__", "__STDC", "__GCC_", "__GXX_",
-                      "__apple_build", "__OPTIMIZE", "__NO_INLINE__", "__OBJC", "__cplusplus")
+                      "__apple_build", "__OPTIMIZE", "__NO_INLINE__", "__OBJC", "__cplusplus",
+                      # language-feature and gcc-only type macros: clang sets its own from the file's own flags
+                      # (-fno-rtti, -std), and gcc 13+'s __BFLT16_* make libstdc++ use 'bf16' constants clang rejects
+                      "__cpp_", "__STDCPP_", "__BFLT16_", "__FLT16_", "__EXCEPTIONS", "__FLT128", "__SIZEOF_FLOAT128",
+                      "__SIZEOF_FLOAT80")
+
+# gcc's own header folder (intrinsics, stddef, ...): libclang has its own; mixing them breaks parses
+_GCC_INTERNAL = re.compile(r"/lib(?:64)?/gcc(?:-cross)?/[^/]+/[^/]+/include(?:-fixed)?/?$")
 
 
 def is_identity_macro(name: str) -> bool:
@@ -42,6 +49,7 @@ class Group:
     files: int = 0
     error: str | None = None
     libclang: LibclangChoice | None = None
+    sample: str | None = None        # a file of the group, for Health
     info: dict[str, DriverInfo] = field(default_factory=dict)
     preludes: dict[str, Path] = field(default_factory=dict)
 
@@ -79,6 +87,7 @@ class Toolchain:
         self._machines: dict[str, str | None] = {}
         self.data_dir = self.work_dir.parent          # where fetch-libclang puts libraries
         self.choice: LibclangChoice | None = None    # the library this process loads
+        self.samples: dict[tuple, str] = {}          # Health's sample parse per group, once per process
 
     def prepare(self) -> None:
         """Idempotent: loads this process's library (the default choice). Groups that need another library are parsed
@@ -95,7 +104,7 @@ class Toolchain:
     def _entry(self, file: str, ov: ToolchainOverride | None) -> CompileEntry | None:
         if ov is not None and ov.compile_commands is not None:
             hit = self.cdb.entry_for(file, prefer=str(ov.compile_commands))
-            if hit is not None and hit.db == str(ov.compile_commands):
+            if hit is not None and os.path.realpath(hit.db) == os.path.realpath(str(ov.compile_commands)):
                 return hit
         return self.cdb.nearest_entry(file)
 
@@ -107,10 +116,23 @@ class Toolchain:
             return os.path.normpath(os.path.join(entry.directory, name))
         return shutil.which(name) or name
 
+    def not_run(self, driver: str) -> str | None:
+        """Why `driver` must not be run (toolchain.query_compilers), or None."""
+        mode = self.cfg.query_compilers
+        if mode == "off":
+            return "compiler queries are off (toolchain.query_compilers: off)"
+        if mode == "outside_workspace" and self.root and canon(driver).startswith(self.root + "/"):
+            return (f"compiler {driver} is inside the workspace and is not run "
+                    "(set toolchain.query_compilers: all to allow it)")
+        return None
+
     def _machine(self, driver: str) -> str | None:
+        if self.not_run(driver):
+            return None
         if driver not in self._machines:
             try:
-                r = subprocess.run([driver, "-dumpmachine"], capture_output=True, text=True, timeout=30)
+                r = subprocess.run([driver, "-dumpmachine"], capture_output=True, text=True, timeout=30,
+                                   stdin=subprocess.DEVNULL)
                 self._machines[driver] = r.stdout.strip() or None if r.returncode == 0 else None
             except (OSError, subprocess.TimeoutExpired):
                 self._machines[driver] = None
@@ -134,6 +156,10 @@ class Toolchain:
     def _query(self, g: Group, lang: str) -> DriverInfo | None:
         if lang in g.info or g.error:
             return g.info.get(lang)
+        reason = self.not_run(g.compiler)
+        if reason:
+            g.error = reason
+            return None
         try:
             info = query_driver(g.compiler, list(g.flags), lang)
         except RuntimeError as e:
@@ -165,7 +191,7 @@ class Toolchain:
         if info is not None:
             builtins = [os.path.normpath(r) for r in (rd, info.resource_dir) if r]
             for d in info.include_dirs:      # built-in headers come only from the parsing library's resource dir
-                if any(os.path.normpath(d).startswith(b) for b in builtins):
+                if any(os.path.normpath(d).startswith(b) for b in builtins) or (rd and _GCC_INTERNAL.search(d)):
                     continue
                 args += ["-isystem", d]
             args += ["-include", str(g.preludes[lang]), "-Wno-macro-redefined", "-Wno-builtin-macro-redefined"]
@@ -197,8 +223,19 @@ class Toolchain:
     def groups(self) -> list[Group]:
         """Every toolchain group in the compile databases, with its file count (queries happen on first use)."""
         for g in self._groups.values():
-            g.files = 0
+            g.files, g.sample = 0, None
         for e in self.cdb.entries:
             ov = self._override(e.file)
-            self._group(e, sanitize_args(e, self.strip), ov).files += 1
+            g = self._group(e, sanitize_args(e, self.strip), ov)
+            g.files += 1
+            g.sample = g.sample or e.file
         return [g for g in self._groups.values() if g.files]
+
+    def key_of(self, g: Group) -> tuple:
+        return next(k for k, v in self._groups.items() if v is g)
+
+    def unmatched_overrides(self) -> list[str]:
+        """Overrides whose compile_commands is not one of the loaded databases (so they can never apply)."""
+        loaded = {os.path.realpath(db) for db, _ in self.cdb.databases}
+        return [f"{o.match}: {o.compile_commands} is not one of the compile databases" for o in self.cfg.overrides
+                if o.compile_commands is not None and os.path.realpath(str(o.compile_commands)) not in loaded]

@@ -70,3 +70,21 @@ def test_prelude_skips_compiler_identity_macros(tmp_path, monkeypatch):
     assert "__ARM_ARCH 7" in prelude and "__VENDOR_CHIP__ 1" in prelude and "__SIZEOF_LONG__ 4" in prelude
     for name in ("__GNUC__", "__GNUC_MINOR__", "__clang_major__", "__VERSION__", "__STDC_VERSION__", "__GCC_HAVE"):
         assert name not in prelude
+
+
+def test_gcc_only_macros_and_gcc_internal_headers_stay_out(tmp_path, monkeypatch):
+    from codetortoise.toolchain import toolchain as tcmod
+    from codetortoise.toolchain.libclang import LibclangChoice
+    info = DriverInfo(("/usr/lib/gcc/x86_64-linux-gnu/15/include", "/usr/local/include", "/usr/include"),
+                      (("__cpp_rtti", "199711L"), ("__BFLT16_MAX__", "3.0bf16"), ("__EXCEPTIONS", "1"),
+                       ("__SIZEOF_FLOAT128__", "16"), ("__x86_64__", "1")), None)
+    monkeypatch.setattr(tcmod, "query_driver", lambda *a, **k: info)
+    monkeypatch.setattr(tcmod, "find_libclang", lambda *a, **k: LibclangChoice("/l/libclang.so.21", "system", "t",
+                                                                                 "/l/clang/21"))
+    db = CompileDb([CompileEntry("/w/a.cc", "/w", ("g++", "-c", "a.cc"), compiler="g++")])
+    tc = Toolchain(ToolchainConfig(), db, tmp_path)
+    args = tc.args_for("/w/a.cc")
+    assert "/usr/lib/gcc/x86_64-linux-gnu/15/include" not in args and "/usr/include" in args
+    prelude = tc.group_of("/w/a.cc").preludes["c++"].read_text()
+    assert "__x86_64__" in prelude
+    assert not any(m in prelude for m in ("__cpp_rtti", "__BFLT16_MAX__", "__EXCEPTIONS", "__SIZEOF_FLOAT128__"))

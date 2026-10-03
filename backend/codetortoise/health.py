@@ -28,7 +28,9 @@ class HealthReport(BaseModel):
     p4_sources: dict[str, str] = {}    # where the owner, port and client came from (tortoise.yaml, P4CONFIG, environment)
 
 
-def run_health(svc: Services) -> HealthReport:
+def run_health(svc: Services, deep: bool = False) -> HealthReport:
+    """Hard checks gate review creation. `deep` (the Health page) also checks each toolchain group: its compiler is
+    queried and one of its files parsed, once per process (startup doesn't run any compiler)."""
     cfg = svc.cfg
     ws = cfg.workspace
     checks: list[Check] = []
@@ -59,21 +61,26 @@ def run_health(svc: Services) -> HealthReport:
                             detail=f"{lc.version} ({svc.toolchain.choice.reason}) {lc.path}"))
     except (OSError, RuntimeError) as e:
         checks.append(Check(name="libclang", ok=False, hard=True, detail=str(e)))
-    for g in svc.toolchain.groups():          # one sample parse per toolchain group (warning only)
-        sample = next((e.file for e in svc.cdb.entries if svc.toolchain.group_of(e.file) is g), None)
-        parsed = ""
-        if sample:
-            req = TuRequest(file=sample, args=svc.toolchain.args_for(sample), variant="after", libclang=g.libclang.path)
-            [facts] = run_extraction([req], g.libclang.path, 1)
-            how = "fell back to tree-sitter" if facts.tu.extractor == "treesitter" else f"parsed {facts.tu.confidence}"
-            parsed = f"; sample {os.path.basename(sample)} {how}" + (
-                f": {facts.tu.diagnostics[0]}" if facts.tu.confidence != "precise" and facts.tu.diagnostics else "")
-            if facts.tu.extractor == "treesitter":
-                g.error = g.error or f"sample {os.path.basename(sample)} fell back to tree-sitter"
-        lib = g.libclang.path or "bundled libclang"
-        checks.append(Check(name=f"toolchain {os.path.basename(g.compiler)}", ok=g.error is None, hard=False,
-                            detail=f"{g.files} file(s), target {g.target or 'from the command or host'}, "
-                                   f"parsed with {lib} ({g.libclang.reason})" + parsed + (f": {g.error}" if g.error else "")))
+    if deep:                                  # the Health page: toolchain groups with one sample parse each
+        for g in svc.toolchain.groups():
+            key = svc.toolchain.key_of(g)
+            if key not in svc.toolchain.samples and g.sample:
+                req = TuRequest(file=g.sample, args=svc.toolchain.args_for(g.sample), variant="after",
+                                libclang=g.libclang.path)
+                [facts] = run_extraction([req], g.libclang.path, 1)
+                how = ("fell back to tree-sitter" if facts.tu.extractor == "treesitter"
+                       else f"parsed {facts.tu.confidence}")
+                diag = f": {facts.tu.diagnostics[0]}" if facts.tu.confidence != "precise" and facts.tu.diagnostics else ""
+                svc.toolchain.samples[key] = f"sample {os.path.basename(g.sample)} {how}{diag}"
+            sample = svc.toolchain.samples.get(key, "")
+            lib = g.libclang.path or "bundled libclang"
+            checks.append(Check(name=f"toolchain {os.path.basename(g.compiler)}",
+                                ok=g.error is None and "tree-sitter" not in sample, hard=False,
+                                detail=f"{g.files} file(s), target {g.target or 'from the command or host'}, "
+                                       f"parsed with {lib} ({g.libclang.reason}); {sample}"
+                                       + (f"; {g.error}" if g.error else "")))
+    for problem in svc.toolchain.unmatched_overrides():
+        checks.append(Check(name="toolchain override", ok=False, hard=False, detail=problem))
     if svc.llm is not None:
         checks.append(Check(name="llm endpoint", ok=svc.llm.ping(), hard=False, detail=cfg.llm.base_url or ""))
     else:

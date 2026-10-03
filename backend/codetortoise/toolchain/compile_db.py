@@ -105,7 +105,9 @@ class CompileDb:
             if not (os.path.dirname(e.file) + "/").startswith(root.rstrip("/") + "/"):
                 root = os.path.commonpath([root, os.path.dirname(e.file)])
             self._dbs[e.db] = (root, by_dir)
-        self.databases = [(db, sum(len(v) for v in by_dir.values())) for db, (_, by_dir) in self._dbs.items() if db]
+        used = {db: sum(len(v) for v in by_dir.values()) for db, (_, by_dir) in self._dbs.items()}
+        # every database loaded, in precedence order, with how many of its entries are used (0 when all are shadowed)
+        self.databases = [(db, used.get(db, 0)) for db in dict.fromkeys(e.db for e in entries) if db]
 
     @classmethod
     def load(cls, path: Path) -> CompileDb:
@@ -119,7 +121,8 @@ class CompileDb:
         """The file's entry; with `prefer`, the entry from that database when it has one."""
         file = canon(file)
         if prefer is not None:
-            hit = next((e for e in self._all.get(file, []) if e.db == str(prefer)), None)
+            want = os.path.realpath(str(prefer))
+            hit = next((e for e in self._all.get(file, []) if os.path.realpath(e.db) == want), None)
             if hit is not None:
                 return hit
         return self._by_file.get(file)
