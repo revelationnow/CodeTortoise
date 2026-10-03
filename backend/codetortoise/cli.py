@@ -60,7 +60,7 @@ def cmd_serve(args) -> int:
 
 def cmd_index(args) -> int:
     svc = _services(args.config)
-    n = svc.build_index()
+    n = svc.build_index(full=args.full)
     print(f"indexed {n} files (generation {svc.index.generation()})")
     return 0
 
@@ -126,8 +126,9 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("serve", help="run the web app")
     s.add_argument("--config", required=True)
     s.set_defaults(fn=cmd_serve)
-    s = sub.add_parser("index", help="(re)build the repo-wide symbol index")
+    s = sub.add_parser("index", help="bring the symbol index up to date (only changed files are parsed again)")
     s.add_argument("--config", required=True)
+    s.add_argument("--full", action="store_true", help="parse every file again")
     s.set_defaults(fn=cmd_index)
     s = sub.add_parser("review", help="run a review headless and print findings")
     s.add_argument("--config", required=True)

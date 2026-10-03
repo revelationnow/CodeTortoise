@@ -73,10 +73,13 @@ class Services:
     owner_ticket: str | None = None
     swarm_override: Callable[[], SwarmClient | None] | None = field(default=None, repr=False)
 
-    def build_index(self) -> int:
-        """(Re)build the symbol index, resolving #includes with the compile DB's include dirs."""
+    def build_index(self, full: bool = False) -> int:
+        """Bring the symbol index up to date (incremental unless `full`), resolving #includes with the compile DB's
+        include dirs. Scope: the compile DB's files and the headers they include, or the whole workspace
+        (`analysis.index_scope`, or when the compile DB is empty)."""
+        seeds = self.cdb.files() if self.cfg.analysis.index_scope == "compile_db" and self.cdb.entries else None
         return self.index.build(self.cfg.workspace.root, workers=self.cfg.analysis.workers,
-                                include_dirs=include_dirs(self.cdb))
+                                include_dirs=include_dirs(self.cdb), seeds=seeds, full=full)
 
     def remember_stripped(self, flags: list[str]) -> None:
         """Flags libclang rejected: skipped for all later parses of this workspace (persisted)."""

@@ -62,6 +62,7 @@ class AnalysisConfig(BaseModel):
     module_min_files: int = 5
     max_layers: int = 8
     workers: int = 4
+    index_scope: Literal["compile_db", "workspace"] = "compile_db"   # files the symbol index parses
     heuristic_fanin_cap: int = 50  # names with more out-of-TU callers/refs than this are not expanded heuristically
     max_flows: int = 12            # review board: flows listed (entry -> change -> where the effect lands)
     board_max_nodes: int = 150     # review board: functions/fields drawn

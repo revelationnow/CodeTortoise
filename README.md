@@ -174,6 +174,8 @@ auth:
   mode: p4                          # sign in with Perforce credentials ("dev" accepts any name: demos only)
 analysis:
   tu_budget: 200                    # max translation units parsed per review (callers of changed code first)
+  index_scope: compile_db           # symbol index: compile_commands.json files and the headers they include
+                                    #   ("workspace" indexes every C/C++ file under root)
   workers: 4                        # parallel libclang processes
   entrypoint_patterns: ["main", "*_isr", "*_irq_handler", "*Callback", "*_callback"]
 ```
@@ -183,7 +185,7 @@ analysis:
 ```bash
 cd frontend && npm ci && npm run build && cd ..                          # once per upgrade
 export TORTOISE_LLM_KEY=...                                              # never stored or logged
-uv run --project backend codetortoise index --config tortoise.yaml       # repo-wide symbol index (tree-sitter)
+uv run --project backend codetortoise index --config tortoise.yaml       # symbol index (tree-sitter); --full to redo it all
 uv run --project backend codetortoise review --config tortoise.yaml 12345   # optional headless smoke test
 uv run --project backend codetortoise serve --config tortoise.yaml
 ```
@@ -195,6 +197,12 @@ access (the ticket is kept in memory only).
 
 Colleagues open the shared link and sign in with their own Perforce credentials. The app checks them with
 `p4 login -p` and then discards the ticket; passwords are never stored. Only the owner can start reviews.
+
+The symbol index finds callers and includers outside the files under review. By default it covers the files in
+`compile_commands.json` and the workspace headers they include, so a large workspace with a small build stays small.
+Later runs of `codetortoise index` (and the Health page's "Rebuild index") only parse files whose size or
+modification time changed; `--full` parses everything again. Results are written as they're parsed, so memory stays
+flat however large the workspace is.
 
 ### Compile database
 

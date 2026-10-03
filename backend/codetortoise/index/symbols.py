@@ -4,13 +4,13 @@ from __future__ import annotations
 import multiprocessing as mp
 import os
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass
 from pathlib import Path
 
-from codetortoise.cparse import ParsedFile, is_source, parse_source
+from codetortoise.cparse import ParsedFile, is_header, is_source, parse_source
 from codetortoise.paths import canon
 
 _SCHEMA = """
@@ -26,7 +26,13 @@ CREATE INDEX IF NOT EXISTS ix_defs_name ON sym_defs(name);
 CREATE INDEX IF NOT EXISTS ix_calls_callee ON sym_calls(callee);
 CREATE INDEX IF NOT EXISTS ix_inc_base ON sym_includes(base);
 CREATE INDEX IF NOT EXISTS ix_members_name ON sym_members(name);
+CREATE TABLE IF NOT EXISTS sym_stat(path TEXT PRIMARY KEY, mtime_ns INTEGER, size INTEGER);
+CREATE INDEX IF NOT EXISTS ix_defs_path ON sym_defs(path);
+CREATE INDEX IF NOT EXISTS ix_calls_path ON sym_calls(path);
+CREATE INDEX IF NOT EXISTS ix_includes_path ON sym_includes(path);
+CREATE INDEX IF NOT EXISTS ix_members_path ON sym_members(path);
 """
+_PER_FILE = ("sym_files", "sym_defs", "sym_calls", "sym_includes", "sym_members", "sym_stat")
 
 
 @dataclass(frozen=True)
@@ -70,6 +76,29 @@ def iter_source_files(root: Path) -> list[str]:
     return sorted(out)
 
 
+def _stat(path: str) -> tuple[int, int] | None:
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return st.st_mtime_ns, st.st_size
+
+
+def _resolve(path: str, inc: str, files: set[str], by_base: dict[str, list[str]],
+             include_dirs: list[str] | None) -> list[str]:
+    """Files an `#include` of `path` may name. Order: relative to the includer, then include dirs, then path-suffix
+    match (a unique match when include dirs are known; every candidate when they are not)."""
+    local = canon(os.path.join(os.path.dirname(path), inc))
+    if local in files:
+        return [local]
+    hit = next((c for d in include_dirs or [] if (c := canon(os.path.join(d, inc))) in files), None)
+    if hit:
+        return [hit]
+    inc_n = os.path.normpath(inc)
+    cands = [c for c in by_base.get(os.path.basename(inc), []) if c.endswith(os.sep + inc_n)]
+    return cands if include_dirs is None or len(cands) == 1 else []
+
+
 class SymbolIndex:
     def __init__(self, db_path: Path):
         self.db_path = Path(db_path)
@@ -83,22 +112,77 @@ class SymbolIndex:
         return int(row[0]) if row else 0
 
     def build(self, root: Path, workers: int = 0, include_dirs: list[str] | None = None,
-              parser: Callable[[str], tuple[str, ParsedFile | None]] = _parse_file) -> int:
-        """Full rebuild over every C/C++ source under root. Returns number of files indexed.
+              parser: Callable[[str], tuple[str, ParsedFile | None]] = _parse_file, *,
+              seeds: list[str] | None = None, full: bool = False, batch: int = 256) -> int:
+        """Bring the index up to date. Returns the number of files in it.
 
-        `include_dirs` (canonical, from the compile DB) are used to resolve `#include` targets.
+        Scope: every C/C++ file under `root`, or with `seeds` (the compile database's files) those files plus the
+        workspace headers they include, transitively. Incremental: only files whose size or modification time changed
+        are parsed again (`full` re-parses everything); files that left the scope are dropped. Results are written in
+        batches of `batch` files as they are parsed, so memory stays flat at any workspace size. `include_dirs`
+        (canonical, from the compile DB) resolve `#include` targets.
         """
-        files = iter_source_files(Path(root))
-        if workers and workers > 1:
-            results = self._parse_isolated(files, workers, parser)
+        root = Path(root)
+        db = self._db
+        if full:
+            with db:
+                for t in _PER_FILE:
+                    db.execute(f"DELETE FROM {t}")
+        stored = {p: (m, z) for p, m, z in db.execute("SELECT path, mtime_ns, size FROM sym_stat")}
+        everything = iter_source_files(root)
+        if seeds is None:
+            queue, headers = everything, None
         else:
-            results = [parser(f) for f in files]
-            self.skipped = []
+            prefix = canon(str(root)).rstrip("/") + "/"
+            queue = sorted({c for f in seeds if (c := canon(f)).startswith(prefix) and os.path.isfile(c)})
+            headers = {f for f in everything if is_header(f)}
+            by_base: dict[str, list[str]] = {}
+            for h in headers:
+                by_base.setdefault(os.path.basename(h), []).append(h)
+        self.skipped = []
+        scope: set[str] = set()
+        while queue:
+            scope.update(queue)
+            includes: dict[str, list[str]] = {}
+            stale = []
+            for f in queue:
+                st = _stat(f)
+                if st is not None and stored.get(f) == st:
+                    includes[f] = [r[0] for r in db.execute("SELECT inc FROM sym_includes WHERE path=?", (f,))]
+                else:
+                    stale.append(f)
+            pending: list[tuple[str, ParsedFile | None]] = []
+            for path, pf in self._parse_stream(stale, workers, parser):
+                includes[path] = pf.includes if pf is not None else []
+                pending.append((path, pf))
+                if len(pending) >= batch:
+                    self._write(pending)
+                    pending = []
+            self._write(pending)
+            if headers is None:
+                break
+            found = {t for f, incs in includes.items() for inc in incs
+                     for t in _resolve(f, inc, headers, by_base, include_dirs)}
+            queue = sorted(found - scope)
+        with db:
+            gone = [p for (p,) in db.execute("SELECT path FROM sym_files UNION SELECT path FROM sym_stat")
+                    if p not in scope]
+            for p in gone:
+                for t in _PER_FILE:
+                    db.execute(f"DELETE FROM {t} WHERE path=?", (p,))
+            db.execute("DELETE FROM sym_inc_resolved")
+            db.executemany("INSERT INTO sym_inc_resolved VALUES(?,?)", self._resolve_includes(include_dirs))
+            db.execute("INSERT OR REPLACE INTO sym_meta VALUES('generation', ?)", (str(self.generation() + 1),))
+            db.execute("INSERT OR REPLACE INTO sym_meta VALUES('root', ?)", (str(root),))
+        return db.execute("SELECT COUNT(*) FROM sym_files").fetchone()[0]
+
+    def _write(self, results: list[tuple[str, ParsedFile | None]]) -> None:
+        """Replace the rows of each parsed file in one transaction; a file that could not be parsed is removed."""
         db = self._db
         with db:
-            for t in ("sym_files", "sym_defs", "sym_calls", "sym_includes", "sym_members", "sym_inc_resolved"):
-                db.execute(f"DELETE FROM {t}")
             for path, pf in results:
+                for t in _PER_FILE:
+                    db.execute(f"DELETE FROM {t} WHERE path=?", (path,))
                 if pf is None:
                     continue
                 db.execute("INSERT INTO sym_files VALUES(?)", (path,))
@@ -110,32 +194,38 @@ class SymbolIndex:
                                [(path, inc, os.path.basename(inc)) for inc in pf.includes])
                 db.executemany("INSERT INTO sym_members VALUES(?,?,?,?,?)",
                                [(m.field, m.fn, path, m.line, int(m.is_write)) for m in pf.members])
-            db.executemany("INSERT INTO sym_inc_resolved VALUES(?,?)", self._resolve_includes(include_dirs))
-            db.execute("INSERT OR REPLACE INTO sym_meta VALUES('generation', ?)", (str(self.generation() + 1),))
-            db.execute("INSERT OR REPLACE INTO sym_meta VALUES('root', ?)", (str(root),))
-        return sum(1 for _, pf in results if pf is not None)
+                st = _stat(path)
+                if st is not None:
+                    db.execute("INSERT INTO sym_stat VALUES(?,?,?)", (path, *st))
 
-    def _parse_isolated(self, files: list[str], workers: int, parser) -> list[tuple[str, ParsedFile | None]]:
-        """Parse in a process pool; a native crash on one file skips only that file (recorded in `skipped`)."""
-        done: dict[str, ParsedFile | None] = {}
+    def _parse_stream(self, files: list[str], workers: int, parser) -> Iterator[tuple[str, ParsedFile | None]]:
+        """Parse results one by one, a window at a time. With workers, parsing runs in a process pool and a native
+        crash on one file skips only that file (recorded in `skipped`)."""
+        if not workers or workers <= 1:
+            for f in files:
+                yield parser(f)
+            return
         ctx = mp.get_context("forkserver" if "forkserver" in mp.get_all_start_methods() else "spawn")
-        try:
-            with ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as pool:
-                for path, pf in pool.map(parser, files, chunksize=64):
-                    done[path] = pf
-        except BrokenProcessPool:
-            pass
-        self.skipped = []
-        for f in files:
-            if f in done:
-                continue
+        window = max(1, workers) * 256
+        for i in range(0, len(files), window):
+            part = files[i:i + window]
+            done: set[str] = set()
             try:
-                with ProcessPoolExecutor(max_workers=1, mp_context=ctx) as pool:
-                    done[f] = pool.submit(parser, f).result()[1]
+                with ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as pool:
+                    for path, pf in pool.map(parser, part, chunksize=32):
+                        done.add(path)
+                        yield path, pf
             except BrokenProcessPool:
-                self.skipped.append(f)
-                done[f] = None
-        return [(f, done[f]) for f in files]
+                pass
+            for f in part:
+                if f in done:
+                    continue
+                try:
+                    with ProcessPoolExecutor(max_workers=1, mp_context=ctx) as pool:
+                        yield f, pool.submit(parser, f).result()[1]
+                except BrokenProcessPool:
+                    self.skipped.append(f)
+                    yield f, None
 
     def files(self) -> list[str]:
         return [r[0] for r in self._db.execute("SELECT path FROM sym_files ORDER BY path")]
@@ -153,27 +243,13 @@ class SymbolIndex:
             "SELECT fn, path, line, is_write FROM sym_members WHERE name=?", (field_name,))]
 
     def _resolve_includes(self, include_dirs: list[str] | None) -> list[tuple[str, str]]:
-        """(includer, target) pairs. Order: relative to the includer, then include dirs, then path-suffix match
-        (a unique match when include dirs are known; every candidate when they are not)."""
+        """(includer, target) pairs for every include of every indexed file (see `_resolve`)."""
         files = set(self.files())
         by_base: dict[str, list[str]] = {}
         for f in files:
             by_base.setdefault(os.path.basename(f), []).append(f)
-        out = []
-        for path, inc, base in self._db.execute("SELECT path, inc, base FROM sym_includes").fetchall():
-            local = canon(os.path.join(os.path.dirname(path), inc))
-            if local in files:
-                out.append((path, local))
-                continue
-            hit = next((c for d in include_dirs or [] if (c := canon(os.path.join(d, inc))) in files), None)
-            if hit:
-                out.append((path, hit))
-                continue
-            inc_n = os.path.normpath(inc)
-            cands = [c for c in by_base.get(base, []) if c.endswith(os.sep + inc_n)]
-            if include_dirs is None or len(cands) == 1:
-                out += [(path, c) for c in cands]
-        return out
+        return [(path, t) for path, inc in self._db.execute("SELECT path, inc FROM sym_includes").fetchall()
+                for t in _resolve(path, inc, files, by_base, include_dirs)]
 
     def includers_of(self, header: str) -> list[str]:
         rows = self._db.execute("SELECT path FROM sym_inc_resolved WHERE target=?", (canon(header),))
