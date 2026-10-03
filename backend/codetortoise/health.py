@@ -5,6 +5,8 @@ import os
 
 from pydantic import BaseModel
 
+from codetortoise.facts.clang_extractor import TuRequest
+from codetortoise.facts.runner import run_extraction
 from codetortoise.paths import canon
 from codetortoise.services import Services
 from codetortoise.vcs.p4runner import P4Error
@@ -57,15 +59,21 @@ def run_health(svc: Services) -> HealthReport:
                             detail=f"{lc.version} ({svc.toolchain.choice.reason}) {lc.path}"))
     except (OSError, RuntimeError) as e:
         checks.append(Check(name="libclang", ok=False, hard=True, detail=str(e)))
-    for g in svc.toolchain.groups():          # one compiler query per toolchain group (warning only)
-        if not (svc.toolchain.libclang and svc.toolchain.libclang.vendor):
-            sample = next((e.file for e in svc.cdb.entries if svc.toolchain.group_of(e.file) is g), None)
-            if sample:
-                svc.toolchain.args_for(sample)
+    for g in svc.toolchain.groups():          # one sample parse per toolchain group (warning only)
+        sample = next((e.file for e in svc.cdb.entries if svc.toolchain.group_of(e.file) is g), None)
+        parsed = ""
+        if sample:
+            req = TuRequest(file=sample, args=svc.toolchain.args_for(sample), variant="after", libclang=g.libclang.path)
+            [facts] = run_extraction([req], g.libclang.path, 1)
+            how = "fell back to tree-sitter" if facts.tu.extractor == "treesitter" else f"parsed {facts.tu.confidence}"
+            parsed = f"; sample {os.path.basename(sample)} {how}" + (
+                f": {facts.tu.diagnostics[0]}" if facts.tu.confidence != "precise" and facts.tu.diagnostics else "")
+            if facts.tu.extractor == "treesitter":
+                g.error = g.error or f"sample {os.path.basename(sample)} fell back to tree-sitter"
         lib = g.libclang.path or "bundled libclang"
         checks.append(Check(name=f"toolchain {os.path.basename(g.compiler)}", ok=g.error is None, hard=False,
                             detail=f"{g.files} file(s), target {g.target or 'from the command or host'}, "
-                                   f"parsed with {lib} ({g.libclang.reason})" + (f": {g.error}" if g.error else "")))
+                                   f"parsed with {lib} ({g.libclang.reason})" + parsed + (f": {g.error}" if g.error else "")))
     if svc.llm is not None:
         checks.append(Check(name="llm endpoint", ok=svc.llm.ping(), hard=False, detail=cfg.llm.base_url or ""))
     else:

@@ -98,6 +98,48 @@ def cmd_init(args) -> int:
     return 0
 
 
+def cmd_check_parse(args) -> int:
+    from codetortoise.facts.clang_extractor import TuRequest
+    from codetortoise.facts.runner import run_extraction
+    svc = _services(args.config)
+    tc = svc.toolchain
+    tc.prepare()
+    file = str(Path(args.file).resolve())
+    info = tc.explain(file)
+    e = info["entry"]
+    if e is None:
+        print(f"{file}: no compile entry in any database ({len(svc.cdb.databases)} loaded); "
+              "it parses with default flags only")
+    else:
+        g = info["group"]
+        how = "exact" if info["exact"] else "borrowed from the nearest file in the same database"
+        print(f"compile entry: {e.file} ({how})\n  directory: {e.directory}\n  database: {e.db}")
+        for o in info["others"]:
+            print(f"  also in: {o.db} (ignored: the first entry wins)")
+        if info["override"] is not None:
+            print(f"  override: {info['override'].match}")
+        print(f"compiler: {g.compiler}" + (f" (query failed: {g.error})" if g.error else ""))
+        print(f"target: {g.target or 'from the command or the host'}")
+        lib = g.libclang
+        rd = f", resource dir {lib.resource_dir}" if lib.resource_dir else ""
+        print(f"libclang: {lib.path or 'bundled'} ({lib.reason}){rd}")
+        print("arguments: " + " ".join(info["args"]))
+        if svc.cdb.problems:
+            print("database problems: " + "; ".join(svc.cdb.problems[:5]))
+    args_ = tc.args_for(file)
+    lib_path = tc.libclang_for(file).path
+    [facts] = run_extraction([TuRequest(file=file, args=args_, variant="after", libclang=lib_path)], lib_path, 1)
+    t = facts.tu
+    result = "tree-sitter fallback" if t.extractor == "treesitter" else t.confidence
+    print(f"result: {result} ({t.error_count} error(s))")
+    if t.stripped_flags:
+        print("stripped flags: " + " ".join(t.stripped_flags))
+    for d in t.diagnostics[:20]:
+        print(f"  {d}")
+    print("functions: " + (", ".join(f.qualname for f in facts.functions) or "none"))
+    return 0 if t.extractor == "clang" else 1
+
+
 def cmd_fetch_libclang(args) -> int:
     from codetortoise.toolchain.libclang import DEFAULT_VERSION, fetch_libclang
     cfg = load_config(Path(args.config))
@@ -155,6 +197,10 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--p4-bin", default="p4")
     s.add_argument("--no-p4", action="store_true", help="do not ask Perforce for the client's Root")
     s.set_defaults(fn=cmd_init)
+    s = sub.add_parser("check-parse", help="show how one file is parsed, and why it fails if it does")
+    s.add_argument("--config", required=True)
+    s.add_argument("file")
+    s.set_defaults(fn=cmd_check_parse)
     s = sub.add_parser("fetch-libclang", help="install a newer libclang from the official LLVM release")
     s.add_argument("--config", required=True)
     s.add_argument("--version", default=None)

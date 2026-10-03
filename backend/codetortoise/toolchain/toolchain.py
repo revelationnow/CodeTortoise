@@ -171,6 +171,19 @@ class Toolchain:
             args += ["-include", str(g.preludes[lang]), "-Wno-macro-redefined", "-Wno-builtin-macro-redefined"]
         return args
 
+    def explain(self, file: str) -> dict:
+        """What `args_for(file)` is built from, for `codetortoise check-parse`."""
+        file = canon(file)
+        ov = self._override(file)
+        entry = self._entry(file, ov)
+        if entry is None:
+            return {"entry": None}
+        args = self.args_for(file)
+        g = self.group_of(file)
+        others = [e for e in self.cdb._all.get(file, []) if e is not entry]
+        return {"entry": entry, "exact": self.cdb.entry_for(file) is not None, "others": others, "override": ov,
+                "group": g, "args": args}
+
     def libclang_for(self, file: str) -> LibclangChoice:
         g = self.group_of(file)
         return g.libclang if g else find_libclang(self.cfg, data_dir=self.data_dir)
