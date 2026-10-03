@@ -68,8 +68,8 @@ For each entry, in order:
 
 ## 5. libclang
 
-- **Bindings.** Move from the `libclang` wheel (bindings + library, stops at 18.1.1) to the `clang` bindings package
-  (21.1.x). The two install the same `clang` module, so only one can be a dependency.
+- **Bindings.** Keep the `libclang` wheel (bindings and a bundled 18.1.1 library) as the zero-setup fallback. Any
+  newer library is loaded through those bindings; §5's spike results show that works once unknown kinds are tolerated.
 - **Library, in order:** `toolchain.overrides[].libclang` for matching paths; `toolchain.libclang`; a `libclang.so*`
   next to the group's compiler (`<bin>/../lib`, `<bin>/../lib64`) when that compiler is a clang; under each
   `toolchain.search_paths` entry; one fetched by `codetortoise fetch-libclang`; a system LLVM
@@ -86,11 +86,13 @@ For each entry, in order:
   (`_CXString.from_result`, used for the version string and binary-operator spelling) were replaced by direct C calls.
   On a heavy C++20 file, bindings 21 with libclang 23 raised on 469 of 175,415 nodes (type kind 182, unknown to the
   bindings); with libclang 21 none did. libclang 23 also needed `-resource-dir` to find `stddef.h`.
-- **Therefore:** the bindings and the fetched library share a major version: `clang==21.1.*` and LLVM 21.1.8 by
-  default, bumped together when newer bindings are published. Unknown cursor and type kinds are read as "other"
-  instead of raising, for vendor or system libraries newer than the bindings. Every parse with a non-bundled library
-  passes that library's resource directory. Private binding APIs are not used.
-- **Fetch details:** the release tarball is about 1.9 GB (LLVM 21.1.8, Linux x64); `fetch-libclang` streams it,
+- **Then, with unknown kinds read as "other" and the private calls replaced:** the existing 18.1.1 bindings gave
+  identical fixture facts with libclang 21.1.8 and 23.1.2, and walked the heavy C++20 file (208,546 nodes) without an
+  error. **Therefore:** no dependency change; the bundled library stays the fallback, any newer library is loaded
+  through the same bindings, and `fetch-libclang` defaults to the newest release (LLVM 23.1.2). Unknown cursor and
+  type kinds are read as "other" instead of raising. Every parse with a non-bundled library passes that library's
+  resource directory. Private binding APIs are not used.
+- **Fetch details:** the release tarball is about 2 GB (LLVM 23.1.2, Linux x64); `fetch-libclang` streams it,
   keeping only `lib/libclang.so*` and `lib/clang/<ver>/include` (about 230 MB), and checks its SHA-256 against the
   digest GitHub publishes for the asset (25 s on the test machine). `--from` checks against digests pinned in the
   code for the default version, or a `--sha256` given on the command line.
