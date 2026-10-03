@@ -17,7 +17,7 @@ def _lib(path, version="21"):
 
 
 def test_discovery_order_and_reasons(tmp_path):
-    vendor = _lib(tmp_path / "vendor" / "lib" / "libclang.so.17")
+    vendor = _lib(tmp_path / "vendor" / "lib" / "libclang.so.19", "19")
     (tmp_path / "vendor" / "bin").mkdir()
     (tmp_path / "vendor" / "bin" / "clang").write_text("")
     search = tmp_path / "tools"
@@ -127,3 +127,22 @@ def test_files_parse_in_workers_with_a_newer_library(fx):
     facts = run_extraction(reqs, SYSTEM21, workers=2)
     assert len(facts) == len(reqs) and all(f.tu.extractor == "clang" and f.tu.confidence == "precise" for f in facts)
     assert sum(len(f.functions) for f in facts) == 13
+
+
+def test_libraries_older_than_the_bindings_and_libclang_cpp_are_never_chosen(tmp_path):
+    old = _lib(tmp_path / "usr" / "lib" / "llvm-14" / "lib" / "libclang-14.so.1", "14")
+    systems = [str(tmp_path / "usr" / "lib" / "llvm-*" / "lib")]
+    c = find_libclang(ToolchainConfig(), data_dir=tmp_path / "none", system_globs=systems)
+    assert c.kind == "bundled" and old                                  # 14 is older than the 18.1.1 bindings
+    tools = tmp_path / "vendor"
+    (tools / "bin").mkdir(parents=True)
+    (tools / "bin" / "clang").write_text("")
+    _lib(tools / "lib64" / "libclang-cpp.so.18.1", "18")
+    real = _lib(tools / "lib64" / "libclang.so.18.1", "18")
+    for _ in range(5):                                                   # same answer whatever the set order
+        c = find_libclang(ToolchainConfig(), compiler=str(tools / "bin" / "clang"), data_dir=tmp_path / "none",
+                          system_globs=[])
+        assert (c.path, c.kind) == (str(real), "toolchain")
+    explicit = _lib(tmp_path / "x" / "libclang.so.13", "13")
+    c = find_libclang(ToolchainConfig(libclang=str(explicit)), data_dir=tmp_path / "none", system_globs=[])
+    assert c.kind == "explicit" and "older than the bindings" in c.reason   # used as asked, but flagged

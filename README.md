@@ -162,6 +162,8 @@ toolchain:
   # target: armv7m-none-eabi        # optional: for files whose command names none (default: from the compiler)
   # libclang: /opt/vendor/lib/libclang.so   # optional: default is found (see Toolchains and libclang)
   search_paths: [/opt/tools]        # optional: folders to search for a newer libclang
+  query_compilers: outside_workspace   # run compilers named in compile databases to learn their includes and
+                                    #   macros, except ones inside the workspace; "all" or "off"
   strip_flags: []                   # vendor flags libclang must ignore (unknown ones are learned automatically)
   overrides:                        # optional, first match wins
     - match: "dsp/**"               # workspace-relative glob
@@ -248,7 +250,12 @@ Each file is parsed for its own toolchain. CodeTortoise asks the file's compiler
 override's `clang`) for its built-in include paths and macros, once per group of files that share a compiler, target
 and target flags. The target comes from the command (`--target`), an override, `toolchain.target`, the compiler's
 name (`arm-none-eabi-gcc` means `arm-none-eabi`), or the compiler's `-dumpmachine`. The Health page lists each group,
-parses one sample file of it, and shows the first error if that fails.
+parses one sample file of it (once per server start), and shows the first error if that fails.
+
+Querying runs the compiler program. CodeTortoise doesn't run compilers that live inside the workspace, since a compile
+database or toolchain synced from the depot could name any program there; if your toolchain is checked in, set
+`toolchain.query_compilers: all`. `off` never runs a compiler (files then parse without the toolchain's built-in
+include paths and macros). Server startup runs no compiler; the Health page and reviews do.
 
 libclang only parses, so one upstream library handles every standard target (ARM, AArch64, RISC-V, x86, MIPS,
 PowerPC). A newer library knows more recent flags. The library for a group is, in order: an override's or

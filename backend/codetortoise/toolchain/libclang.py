@@ -4,6 +4,7 @@ from __future__ import annotations
 import ctypes
 import glob as globmod
 import hashlib
+import importlib.metadata
 import io
 import os
 import platform
@@ -118,11 +119,36 @@ def _version_key(p: Path) -> tuple:
     return tuple(nums)
 
 
+def _major(p: Path) -> int | None:
+    """The library's major version, from its name (libclang.so.21, libclang-21.so.1) or its clang/<v> folder."""
+    nums = [int(n) for n in re.findall(r"\d+", p.name)]
+    if nums:
+        return nums[0]
+    rd = _resource_dir(p)
+    return int(re.findall(r"\d+", Path(rd).name)[0]) if rd and re.findall(r"\d+", Path(rd).name) else None
+
+
+def bindings_major() -> int:
+    """The bindings register every function of their version; a library older than them can't be loaded."""
+    try:
+        return int(importlib.metadata.version("libclang").split(".")[0])
+    except (importlib.metadata.PackageNotFoundError, ValueError):
+        return 0
+
+
+def _usable(p: Path) -> bool:
+    major = _major(p)
+    return major is None or major >= bindings_major()
+
+
 def _libs_in(d: Path, deep: bool = False) -> list[Path]:
+    """libclang candidates under `d`, newest first (ties by name, so the order never depends on the run).
+    libclang-cpp (the C++ library) isn't the C API; libraries older than the bindings are left out."""
     found: set[Path] = set()
     for pat in _LIB_PATTERNS:
-        found.update(p for p in (d.rglob(pat) if deep else d.glob(pat)) if p.is_file())
-    return sorted(found, key=_version_key, reverse=True)
+        found.update(p for p in (d.rglob(pat) if deep else d.glob(pat))
+                     if p.is_file() and not p.name.startswith("libclang-cpp") and _usable(p))
+    return sorted(found, key=lambda p: (_version_key(p), p.name), reverse=True)
 
 
 def _resource_dir(lib: Path) -> str | None:
@@ -138,7 +164,8 @@ def find_libclang(cfg, compiler: str | None = None, override: str | None = None,
     newest system LLVM; the one bundled with the bindings."""
     explicit = override or cfg.libclang
     if explicit:
-        return LibclangChoice(explicit, "explicit", "set in tortoise.yaml", _resource_dir(Path(explicit)))
+        note = "" if _usable(Path(explicit)) else f"; older than the bindings ({bindings_major()}), it may fail to load"
+        return LibclangChoice(explicit, "explicit", "set in tortoise.yaml" + note, _resource_dir(Path(explicit)))
     if compiler and "clang" in os.path.basename(compiler):
         bindir = Path(compiler).resolve().parent if Path(compiler).exists() else Path(compiler).parent
         for libdir in (bindir.parent / "lib", bindir.parent / "lib64"):
@@ -151,12 +178,12 @@ def find_libclang(cfg, compiler: str | None = None, override: str | None = None,
             return LibclangChoice(str(hits[0]), "search", f"newest under {sp}", _resource_dir(hits[0]))
     if data_dir is not None and (Path(data_dir) / "libclang").is_dir():
         hits = sorted((h for v in (Path(data_dir) / "libclang").iterdir() if v.is_dir() and not v.name.startswith(".")
-                       for h in _libs_in(v / "lib")), key=_version_key, reverse=True)
+                       for h in _libs_in(v / "lib")), key=lambda p: (_version_key(p), p.name), reverse=True)
         if hits:
             return LibclangChoice(str(hits[0]), "fetched", "fetched with codetortoise fetch-libclang",
                                   _resource_dir(hits[0]))
     dirs = [Path(d) for g in (SYSTEM_GLOBS if system_globs is None else system_globs) for d in globmod.glob(g)]
-    hits = sorted((h for d in dirs for h in _libs_in(d)), key=_version_key, reverse=True)
+    hits = sorted((h for d in dirs for h in _libs_in(d)), key=lambda p: (_version_key(p), p.name), reverse=True)
     if hits:
         return LibclangChoice(str(hits[0]), "system", f"system LLVM in {hits[0].parent}", _resource_dir(hits[0]))
     return LibclangChoice(None, "bundled", "bundled with the Python bindings (no newer library found)")

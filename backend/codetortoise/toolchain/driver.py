@@ -64,7 +64,7 @@ def query_driver(driver: str, target_args: list[str], lang: str, timeout: float 
     """lang: 'c' or 'c++'. Raises RuntimeError if the driver cannot be run."""
     try:
         r = subprocess.run([driver, *target_args, "-E", "-dM", "-v", "-x", lang, "/dev/null"],
-                           capture_output=True, text=True, timeout=timeout)
+                           capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
     except (OSError, subprocess.TimeoutExpired) as e:
         raise RuntimeError(f"driver query failed: {e}") from e
     if r.returncode != 0:
@@ -73,7 +73,7 @@ def query_driver(driver: str, target_args: list[str], lang: str, timeout: float 
     resource_dir = None
     try:
         rr = subprocess.run([driver, *target_args, "-print-resource-dir"], capture_output=True,
-                            text=True, timeout=timeout)
+                            text=True, timeout=timeout, stdin=subprocess.DEVNULL)
         if rr.returncode == 0 and rr.stdout.strip():
             resource_dir = rr.stdout.strip()
     except (OSError, subprocess.TimeoutExpired):

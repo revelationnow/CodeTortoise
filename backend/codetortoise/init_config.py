@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
+from codetortoise.toolchain.compile_db import _compiler_words
 from codetortoise.vcs.p4settings import p4_settings
 
 SKIP_DIRS = {"node_modules", "__pycache__", ".git", ".svn", ".tortoise"}
@@ -60,7 +61,7 @@ def _compile_dbs(root: Path) -> list[Path]:
 def _compiler(db: Path) -> str | None:
     try:
         entry = json.loads(db.read_text())[0]
-        args = entry.get("arguments") or shlex.split(entry.get("command", ""))
+        args = _compiler_words(entry.get("arguments") or shlex.split(entry.get("command", "")))   # past any wrapper
         return args[0] if args else None
     except (OSError, ValueError, IndexError, KeyError, AttributeError):
         return None
@@ -129,11 +130,14 @@ def render(s: Scan) -> str:
     if s.root_guessed:
         out.append("  # check: guessed from where the P4CONFIG file is; it must equal the client's Root (p4 client -o)\n")
     out.append(f"  root: {s.root}\n")
-    if len(s.compile_dbs) > 1:
-        top = Path(os.path.commonpath([str(d.parent) for d in s.compile_dbs]))
+    top = Path(os.path.commonpath([str(d.parent) for d in s.compile_dbs])) if len(s.compile_dbs) > 1 else None
+    if top is not None and (top == s.root or s.root in top.parents or top.parent == s.root.parent):
         out.append("  compile_commands: auto           # every compile_commands.json under build_root; the deepest wins\n")
         out.append(f"  build_root: {top}\n")
         out += [f"  #   found: {d}\n" for d in s.compile_dbs]
+    elif top is not None:                       # spread above the workspace: list them, never search that far up
+        out.append("  compile_commands:                # first listed wins for files in more than one\n")
+        out += [f"    - {d}\n" for d in s.compile_dbs]
     elif s.compile_dbs:
         out.append(f"  compile_commands: {s.compile_dbs[0]}\n")
     else:
@@ -141,7 +145,8 @@ def render(s: Scan) -> str:
                    "generate it (see the README) and put its path here\n")
     out.append("toolchain:\n")
     if s.compiler:
-        out.append(f"  clang: {s.compiler}   # the compiler from compile_commands.json, asked for its built-in includes\n")
+        out.append(f"  # clang: {s.compiler}   # only if the build's compilers aren't on this machine: "
+                   "it replaces every file's own compiler\n")
     else:
         out.append("  # clang: /path/to/your/compiler   # check: the compiler your build uses\n")
     out += ["  strip_flags: []\n",

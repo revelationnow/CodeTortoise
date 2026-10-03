@@ -32,7 +32,8 @@ def test_a_written_config_loads_with_the_p4config_values_left_to_the_file(tmp_pa
     cfg = load_config(out, env=env)
     assert (cfg.owner, cfg.workspace.p4port, cfg.workspace.client) == ("anoop", "ssl:p4:1666", "anoop-ws")
     assert cfg.workspace.root == ws and cfg.workspace.compile_commands == ws / "build" / "compile_commands.json"
-    assert cfg.toolchain.clang == "/usr/bin/gcc" and cfg.server.host == "127.0.0.1"
+    # each file's own compiler is used; the found one is only suggested, commented out
+    assert cfg.toolchain.clang is None and "  # clang: /usr/bin/gcc" in text and cfg.server.host == "127.0.0.1"
     assert cfg.llm.base_url is None and cfg.swarm.url is None                    # optional sections stay commented
 
 

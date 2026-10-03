@@ -43,6 +43,9 @@ class ToolchainConfig(BaseModel):
     overrides: list[ToolchainOverride] = Field(default_factory=list)
     libclang: str | None = None
     search_paths: list[str] = Field(default_factory=list)   # folders to search for a newer libclang
+    # run compilers named in compile databases to learn their includes and macros: not those inside the workspace
+    # (a database or toolchain synced from the depot) unless "all"; "off" never runs them
+    query_compilers: Literal["outside_workspace", "all", "off"] = "outside_workspace"
     resource_dir: str | None = None
     strip_flags: list[str] = Field(default_factory=list)
 
@@ -135,6 +138,15 @@ def load_config(path: Path, env: Mapping[str, str] | None = None) -> Config:
     elif ws.compile_commands != "auto":
         ws.compile_commands = rel(ws.compile_commands)
     ws.build_root = rel(ws.build_root) if ws.build_root is not None else None
+
+    def rel_name(v: str | None) -> str | None:       # a program or library path; a bare name stays a name
+        return str(rel(Path(v))) if v and ("/" in v or v.startswith(".")) else v
+    tc = cfg.toolchain
+    tc.libclang, tc.clang = rel_name(tc.libclang), rel_name(tc.clang)
+    tc.search_paths = [str(rel(Path(p))) for p in tc.search_paths]
+    for o in tc.overrides:
+        o.compile_commands = rel(o.compile_commands) if o.compile_commands is not None else None
+        o.libclang, o.clang = rel_name(o.libclang), rel_name(o.clang)
     if not cfg.server.data_dir.is_absolute():
         cfg.server.data_dir = (base / cfg.server.data_dir).resolve()
     srv = cfg.server

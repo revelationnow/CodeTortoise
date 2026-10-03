@@ -47,6 +47,6 @@ def test_check_parse_reports_a_file_with_no_entry_and_a_fallback(fx, tmp_path, c
 def test_health_parses_one_sample_file_per_toolchain_group(fx, tmp_path):
     from codetortoise.health import run_health
     from tests.helpers import make_services
-    checks = [c for c in run_health(make_services(fx, tmp_path)).checks if c.name.startswith("toolchain ")]
+    checks = [c for c in run_health(make_services(fx, tmp_path), deep=True).checks if c.name.startswith("toolchain ")]
     # the fixture's compile commands name a compiler that may not be installed: a warning, yet the sample parses
     assert checks and all("sample" in c.detail and "parsed precise" in c.detail for c in checks)

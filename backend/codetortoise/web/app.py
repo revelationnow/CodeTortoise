@@ -116,7 +116,7 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
     # ---- health / index -------------------------------------------------------
     @app.get("/api/health")
     def health(_: str = Depends(owner_of)):
-        rep = run_health(svc)
+        rep = run_health(svc, deep=True)
         state["ready"] = rep.ready
         return {**rep.model_dump(), "index_building": runner.index_building}
 
