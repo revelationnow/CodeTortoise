@@ -98,6 +98,19 @@ def cmd_init(args) -> int:
     return 0
 
 
+def cmd_fetch_libclang(args) -> int:
+    from codetortoise.toolchain.libclang import DEFAULT_VERSION, fetch_libclang
+    cfg = load_config(Path(args.config))
+    args.version = args.version or DEFAULT_VERSION
+    try:
+        dest = fetch_libclang(cfg.server.data_dir, version=args.version, source=args.source, sha256=args.sha256)
+    except (RuntimeError, OSError) as e:
+        print(f"fetch-libclang: {e}", file=sys.stderr)
+        return 1
+    print(f"installed libclang {args.version} in {dest}; CodeTortoise uses it unless tortoise.yaml names another")
+    return 0
+
+
 def cmd_fixture_demo(args) -> int:
     from codetortoise.fixture import build_fixture
     dest = Path(args.dir).resolve()
@@ -142,6 +155,12 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--p4-bin", default="p4")
     s.add_argument("--no-p4", action="store_true", help="do not ask Perforce for the client's Root")
     s.set_defaults(fn=cmd_init)
+    s = sub.add_parser("fetch-libclang", help="install a newer libclang from the official LLVM release")
+    s.add_argument("--config", required=True)
+    s.add_argument("--version", default=None)
+    s.add_argument("--from", dest="source", help="an LLVM-<version>-Linux-<arch>.tar.xz already downloaded")
+    s.add_argument("--sha256", help="the archive's SHA-256 (needed for versions without a pinned digest)")
+    s.set_defaults(fn=cmd_fetch_libclang)
     s = sub.add_parser("fixture-demo", help="create a demo workspace + config from the bundled fixture")
     s.add_argument("--dir", required=True)
     s.add_argument("--port", type=int, default=8765)

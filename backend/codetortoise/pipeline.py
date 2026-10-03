@@ -164,11 +164,17 @@ def run_review(rid: int, svc: Services) -> None:
         store.put_blob(rid, "layers", model)
         return f"{len(model.layers)} layer(s)"
 
+    def extract(reqs):
+        """Each library's requests run in workers that load that library (spec 2026-10-02 toolchains §5)."""
+        out = []
+        for lib in sorted({r.libclang for r in reqs}, key=lambda p: p or ""):
+            out += run_extraction([r for r in reqs if r.libclang == lib], lib, cfg.analysis.workers)
+        return out
+
     def facts():
         svc.toolchain.prepare()
-        lib = svc.toolchain.libclang.path if svc.toolchain.libclang and svc.toolchain.libclang.vendor else None
-        before = run_extraction(build_requests(ctx["sel"], ctx["cs"], svc.toolchain, "before"), lib, cfg.analysis.workers)
-        after = run_extraction(build_requests(ctx["sel"], ctx["cs"], svc.toolchain, "after"), lib, cfg.analysis.workers)
+        before = extract(build_requests(ctx["sel"], ctx["cs"], svc.toolchain, "before"))
+        after = extract(build_requests(ctx["sel"], ctx["cs"], svc.toolchain, "after"))
         note = ""
         extra = field_follow_up(ctx["dm"], after, svc.index, svc.cdb, ctx["sel"], cfg.analysis)
         if extra:
@@ -176,7 +182,7 @@ def run_review(rid: int, svc: Services) -> None:
             follow = TuSelection(selected=extra)
             for variant, out in (("before", before), ("after", after)):
                 reqs = [r for r in build_requests(follow, ctx["cs"], svc.toolchain, variant) if r.file not in parsed]
-                out += run_extraction(reqs, lib, cfg.analysis.workers)
+                out += extract(reqs)
             ctx["sel"].selected += extra
             ctx["sel"].hops.update({p: 1 for p in extra})
             store.put_blob(rid, "selection", ctx["sel"])

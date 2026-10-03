@@ -42,6 +42,7 @@ class ToolchainConfig(BaseModel):
     target: str | None = None        # target for files whose command names none (default: from the compiler)
     overrides: list[ToolchainOverride] = Field(default_factory=list)
     libclang: str | None = None
+    search_paths: list[str] = Field(default_factory=list)   # folders to search for a newer libclang
     resource_dir: str | None = None
     strip_flags: list[str] = Field(default_factory=list)
 
