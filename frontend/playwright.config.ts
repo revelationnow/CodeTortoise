@@ -4,5 +4,10 @@ export default defineConfig({
   testDir: "e2e",
   timeout: 60_000,
   use: { baseURL: "http://127.0.0.1:8799" },
-  webServer: { command: "./e2e/serve.sh", url: "http://127.0.0.1:8799/api/me", timeout: 120_000, reuseExistingServer: false },
+  webServer: [
+    { command: "./e2e/serve.sh", url: "http://127.0.0.1:8799/api/me", timeout: 120_000, reuseExistingServer: false },
+    // AI tests (e2e/ai.spec.ts, e2e/mention.spec.ts): a fake OpenAI-compatible model and a CodeTortoise that uses it
+    { command: "python3 e2e/fake_llm.py 8797", url: "http://127.0.0.1:8797/v1/models", timeout: 30_000, reuseExistingServer: false },
+    { command: "bash e2e/serve-ai.sh", url: "http://127.0.0.1:8798/api/me", timeout: 120_000, reuseExistingServer: false },
+  ],
 });

@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { api, type Comment } from "../../api";
 import ThemeSwitch from "../../components/ThemeSwitch";
+import { useAi } from "../../lib/ai";
 import ChangePanel from "../ChangePanel";
 import FileViewer from "../FileViewer";
 import { keys, loadTab, type PhoneTab, save } from "../prefs";
@@ -37,6 +38,7 @@ export default function PhoneBoard(p: Props) {
   const { reviewId, board, state, act } = p;
   const [tab, setTab] = useState<PhoneTab>(() => loadTab(reviewId) ?? (board.flows.length ? "flows" : "map"));
   const [menu, setMenu] = useState(false);
+  const ai = useAi();
   const choose = (t: PhoneTab) => { setTab(t); save(keys.tab(reviewId), t); };
   const seen = useRef(state.viewer.reveal?.seq ?? 0);
   useEffect(() => {                                    // opening any file (⤢, picker, summary) shows it in Files
@@ -54,6 +56,7 @@ export default function PhoneBoard(p: Props) {
           <NavLink to="/">All reviews</NavLink>
           <NavLink to={`/r/${reviewId}/findings`}>Findings</NavLink>
           <NavLink to={`/r/${reviewId}/cls`}>CLs &amp; Swarm</NavLink>
+          {ai?.view?.llm && <button className="link" onClick={() => ai.setUsageOpen(true)}>AI usage</button>}
           <span onClick={(e) => e.stopPropagation()}><ThemeSwitch /></span>
           <button className="link" onClick={() => api.logout().then(() => window.location.assign("/login"))}>Log out</button>
         </nav>

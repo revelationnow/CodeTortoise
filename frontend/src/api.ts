@@ -23,10 +23,24 @@ export type AnchorKind = "line" | "function" | "finding" | "chapter" | "review";
 export interface Comment {
   id: number; review_id: number; parent_id: number | null; author: string; body: string;
   anchor_kind: AnchorKind; anchor: Record<string, unknown>; resolved: boolean; created_at: string; edited_at: string | null;
+  ai_meta: AiMeta | null;
+}
+/** A tortoise reply's state (spec 2026-10-03 §5). */
+export interface AiMeta { pending: boolean; round?: number; of?: number; read: string[]; files: string[]; calls: number; error: string | null }
+export type AiKind = "flow" | "finding" | "file";
+export interface AiJob { id: number; user: string; kind: string; target: string; status: "running" | "done" | "failed" | "refused"; error: string | null }
+export interface AiCall { id: number; user: string; purpose: string; target: string | null; started_at: string; finished_at: string | null;
+  prompt_tokens: number | null; completion_tokens: number | null; outcome: "ok" | "failed" | "refused" | "running" | null; error: string | null }
+export interface FileSummary { summary: string; check: string[]; files: string[] | null; by: string; at: string }
+export interface AiView {
+  used: number; budget: number; by_person: Record<string, number>; by_purpose: Record<string, number>; calls: AiCall[];
+  llm: boolean; me_today: number; me_limit: number; per_mention: number; is_owner: boolean; jobs: AiJob[];
+  file_summaries: Record<string, FileSummary>;
 }
 export interface HealthCheck { name: string; ok: boolean; hard: boolean; detail: string }
 export interface Health { checks: HealthCheck[]; ready: boolean; index_generation: number; libclang: string | null; strip_flags: string[]; index_building: boolean;
-  p4_sources: Record<string, string> }
+  p4_sources: Record<string, string>;
+  ai: { limits?: { per_review: number; per_person_daily: number; per_mention: number }; calls_today?: number } }
 
 export type { Board, SourceText } from "./board/types";
 import type { Board, SourceText } from "./board/types";
@@ -76,5 +90,8 @@ export const api = {
   swarmCreate: (id: number, cl: number) => call<SwarmInfo>("POST", `/api/reviews/${id}/cls/${cl}/swarm/create`),
   swarmPost: (id: number, cl: number, confirm_repeat = false) =>
     call<{ comment_id: string }>("POST", `/api/reviews/${id}/cls/${cl}/swarm/post`, { confirm_repeat }),
+  ai: (id: number) => call<AiView>("GET", `/api/reviews/${id}/ai`),
+  explain: (id: number, kind: AiKind, target: string) => call<AiJob>("POST", `/api/reviews/${id}/explain`, { kind, target }),
+  raiseBudget: (id: number, budget: number) => call<{ budget: number }>("PUT", `/api/reviews/${id}/ai/budget`, { budget }),
   renameLayer: (level: number, name: string) => call("PUT", `/api/layers/${level}`, { name }),
 };

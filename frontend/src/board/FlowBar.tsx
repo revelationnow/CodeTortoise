@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import Explain from "../components/Explain";
 import type { BoardState } from "./reducer";
 import Resizer from "./Resizer";
 import type { Board } from "./types";
@@ -49,7 +50,8 @@ export default function FlowBar({ board, state, layerOf, onFlow, onStep, onStepO
         <div className={`bd-flowinfo${details ? "" : " brief"}`}>
           <div className="fnum">{state.flow + 1}</div>
           <div>
-            <div className="what">{flow.what}</div>
+            <div className="what">{flow.what_source === "llm" && <span className="ai-label">AI</span>}{flow.what}{" "}
+              <Explain kind="flow" target={flow.id} has={flow.what_source === "llm"} /></div>
             <div className="steps">
               {flow.path.map((id, i) => {
                 const n = byId.get(id);

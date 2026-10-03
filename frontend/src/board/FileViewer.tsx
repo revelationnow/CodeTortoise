@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Comment } from "../api";
+import Explain, { FileSummaryView } from "../components/Explain";
+import { useAi } from "../lib/ai";
 import { onLine } from "../lib/anchors";
 import CodeView from "./CodeView";
 import { lineDiff, plainLines } from "./codeRows";
@@ -124,6 +126,7 @@ function FileSection({ path, collapsed, focus, viewer, dispatch, sources, review
   const counts = useMemo(() => lines && change ? [lines.filter((l) => l.t === "+").length, lines.filter((l) => l.t === "-").length] : null,
                          [lines, change]);
   const cls = change ? [...new Set(change.per_cl.map((c) => c.cl))] : [];
+  const summarised = useAi()?.view?.file_summaries[path]?.summary;
   return (
     <section ref={sec} className={`fsec${collapsed ? " collapsed" : ""}`} data-path={path}>
       <div className="hd" onClick={() => dispatch({ t: "viewer.toggle", path })}>
@@ -134,6 +137,7 @@ function FileSection({ path, collapsed, focus, viewer, dispatch, sources, review
           ? `unchanged · p4 print ${src.file.depot}${src.file.rev.startsWith("#") ? src.file.rev : ""}` : ""}</span>
         {counts && <span className="cnt"><span className="p">+{counts[0]}</span><span className="m">−{counts[1]}</span></span>}
         <span className="sp" />
+        {change && <Explain kind="file" target={path} label="Summarise" has={!!summarised} />}
         {change && (
           <span className="bd-file-tools" onClick={(e) => e.stopPropagation()}>
             <select aria-label="Changelist" value={cl === null ? "all" : String(cl)}
@@ -150,6 +154,7 @@ function FileSection({ path, collapsed, focus, viewer, dispatch, sources, review
         <button className="bd-ibtn x" title="Close file" aria-label={`Close ${path}`}
                 onClick={(e) => { e.stopPropagation(); dispatch({ t: "viewer.close", path }); }}>✕</button>
       </div>
+      {!collapsed && change && <FileSummaryView path={path} />}
       {!collapsed && (lines ? (
         <CodeView reviewId={reviewId} path={path} lines={lines} mode={change && viewer.mode === "split" ? "split" : "unified"}
                   anns={anns} comments={comments} onComments={onComments} focus={focus} windowed cl={cl}
