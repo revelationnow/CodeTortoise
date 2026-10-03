@@ -39,7 +39,7 @@ def _inside(path: Path, parent: Path) -> bool:
 
 def _walk(top: Path, depth0: int) -> list[tuple[int, Path]]:
     found = []
-    for dirpath, dirnames, filenames in os.walk(top):
+    for dirpath, dirnames, filenames in os.walk(top, followlinks=True):     # depth-limited, so links are safe
         depth = depth0 + len(Path(dirpath).relative_to(top).parts)
         dirnames[:] = sorted(d for d in dirnames if not d.startswith(".") and d not in SKIP_DIRS) if depth < MAX_DEPTH else []
         if "compile_commands.json" in filenames:
@@ -53,7 +53,8 @@ def _compile_dbs(root: Path) -> list[Path]:
     for side in sorted(root.parent.iterdir()) if root.parent != root else []:
         if side != root and side.is_dir() and side.name.lower().startswith(("build", "out", "_build", "cmake-build")):
             found += [(d + 1, p) for d, p in _walk(side, 1)]
-    return [p for _, p in sorted(found)]
+    seen: set[str] = set()                      # the same database reached through a link counts once
+    return [p for _, p in sorted(found) if not (os.path.realpath(p) in seen or seen.add(os.path.realpath(p)))]
 
 
 def _compiler(db: Path) -> str | None:
@@ -128,10 +129,13 @@ def render(s: Scan) -> str:
     if s.root_guessed:
         out.append("  # check: guessed from where the P4CONFIG file is; it must equal the client's Root (p4 client -o)\n")
     out.append(f"  root: {s.root}\n")
-    if s.compile_dbs:
+    if len(s.compile_dbs) > 1:
+        top = Path(os.path.commonpath([str(d.parent) for d in s.compile_dbs]))
+        out.append("  compile_commands: auto           # every compile_commands.json under build_root; the deepest wins\n")
+        out.append(f"  build_root: {top}\n")
+        out += [f"  #   found: {d}\n" for d in s.compile_dbs]
+    elif s.compile_dbs:
         out.append(f"  compile_commands: {s.compile_dbs[0]}\n")
-        for other in s.compile_dbs[1:]:
-            out.append(f"  # compile_commands: {other}   # also found; pick the one for the build you review\n")
     else:
         out.append(f"  # compile_commands:   # check: compile_commands.json not found under {s.root}; "
                    "generate it (see the README) and put its path here\n")

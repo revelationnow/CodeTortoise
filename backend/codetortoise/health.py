@@ -40,8 +40,14 @@ def run_health(svc: Services) -> HealthReport:
                                 detail=f"client {ws.client} Root={root}" + ("" if ok else f" (config root {ws.root})")))
         except P4Error as e:
             checks.append(Check(name="p4 client", ok=False, hard=True, detail=str(e)))
-    checks.append(Check(name="compile_commands", ok=bool(svc.cdb.entries), hard=True,
-                        detail=f"{len(svc.cdb.entries)} entries in {ws.compile_commands}"))
+    dbs = svc.cdb.databases
+    detail = (f"{len(svc.cdb.entries)} files from {len(dbs)} database(s): "
+              + "; ".join(f"{p} ({n})" for p, n in dbs) if dbs else f"no compile database found ({ws.compile_commands})")
+    if svc.cdb.duplicates:
+        detail += f"; {svc.cdb.duplicates} file(s) listed again with different flags (the first entry is used)"
+    if svc.cdb.problems:
+        detail += f"; {len(svc.cdb.problems)} problem(s), e.g. {svc.cdb.problems[0]}"
+    checks.append(Check(name="compile_commands", ok=bool(svc.cdb.entries), hard=True, detail=detail))
     try:
         svc.toolchain.prepare()
         lc = svc.toolchain.libclang

@@ -14,7 +14,7 @@ from codetortoise.llm.client import LlmClient
 from codetortoise.llm.storyboard import name_layers
 from codetortoise.store import Store
 from codetortoise.swarm import SwarmClient
-from codetortoise.toolchain.compile_db import CompileDb, include_dirs
+from codetortoise.toolchain.compile_db import CompileDb, include_dirs, load_databases
 from codetortoise.toolchain.toolchain import Toolchain
 from codetortoise.vcs.gitfixture import GitFixtureSource
 from codetortoise.vcs.p4runner import P4Runner
@@ -106,7 +106,7 @@ def build_services(cfg: Config, llm: LlmClient | None = None, source: Source | N
     data.mkdir(parents=True, exist_ok=True)
     store = Store(data / "tortoise.db")
     index = SymbolIndex(data / "symbols.db")
-    cdb = CompileDb.load(cfg.workspace.compile_commands) if cfg.workspace.compile_commands.exists() else CompileDb([])
+    cdb = load_databases(cfg.workspace.compile_commands, cfg.workspace.root, cfg.workspace.build_root)
     tc = Toolchain(cfg.toolchain, cdb, data / "toolchain")
     tc.strip.update(store.kv_get(f"strip_flags:{cfg.workspace.root}") or [])
     llm = llm if llm is not None else make_llm(cfg)

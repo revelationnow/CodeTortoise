@@ -1,6 +1,7 @@
 """compile_commands.json loading and libclang argument sanitation."""
 from __future__ import annotations
 
+import glob as globmod
 import json
 import os
 import shlex
@@ -40,6 +41,7 @@ class CompileEntry:
     directory: str
     args: tuple[str, ...]            # args[0] is the compiler (wrappers and response files already resolved)
     compiler: str = ""
+    db: str = ""                     # the compile_commands.json it came from
 
 
 def _expand(args: list[str], directory: str, problems: list[str], what: str, depth: int = 0) -> list[str]:
@@ -77,25 +79,36 @@ def _abs(directory: str, p: str) -> str:
 
 
 class CompileDb:
+    """Compile entries by source file, from one or more databases listed in precedence order.
+
+    A file in several databases (or listed twice) uses its first entry; `duplicates` counts those whose other entries
+    differ. A file in no database borrows the nearest entry of the database whose files' common folder contains it,
+    never one from another database.
+    """
+
     def __init__(self, entries: list[CompileEntry], problems: list[str] | None = None):
-        self.entries = entries
         self.problems = problems or []           # e.g. response files that could not be read
-        self._by_file = {e.file: e for e in entries}
-        self._by_dir: dict[str, list[CompileEntry]] = {}
+        self._by_file: dict[str, CompileEntry] = {}
+        self.duplicates = 0
         for e in entries:
-            self._by_dir.setdefault(os.path.dirname(e.file), []).append(e)
+            first = self._by_file.setdefault(e.file, e)
+            if first is not e and first.args[1:] != e.args[1:]:
+                self.duplicates += 1
+        self.entries = list(self._by_file.values())
+        self.databases: list[tuple[str, int]] = []           # (path, entries used from it), precedence order
+        self._dbs: dict[str, tuple[str, dict[str, list[CompileEntry]]]] = {}   # db -> (files' common folder, by dir)
+        for e in self.entries:
+            root, by_dir = self._dbs.setdefault(e.db, (os.path.dirname(e.file), {}))
+            by_dir.setdefault(os.path.dirname(e.file), []).append(e)
+            if not (os.path.dirname(e.file) + "/").startswith(root.rstrip("/") + "/"):
+                root = os.path.commonpath([root, os.path.dirname(e.file)])
+            self._dbs[e.db] = (root, by_dir)
+        self.databases = [(db, sum(len(v) for v in by_dir.values())) for db, (_, by_dir) in self._dbs.items() if db]
 
     @classmethod
     def load(cls, path: Path) -> CompileDb:
-        raw = json.loads(Path(path).read_text())
-        entries, problems = [], []
-        for item in raw:
-            directory = item.get("directory", os.path.dirname(str(path)))
-            args = item.get("arguments") or shlex.split(item.get("command", ""))
-            args = _compiler_words(_expand(list(args), directory, problems, item["file"]))
-            entries.append(CompileEntry(canon(_abs(directory, item["file"])), directory, tuple(args),
-                                        compiler=args[0] if args else ""))
-        return cls(entries, problems)
+        problems: list[str] = []
+        return cls(_read(Path(path), problems), problems)
 
     def files(self) -> list[str]:
         return list(self._by_file)
@@ -104,19 +117,76 @@ class CompileDb:
         return self._by_file.get(canon(file))
 
     def nearest_entry(self, file: str) -> CompileEntry | None:
-        """Exact entry, else an entry in the same directory, else the one sharing the longest path prefix."""
+        """Exact entry, else one in the same folder, else the nearest folder up, within the file's own database."""
         file = canon(file)
         if file in self._by_file:
             return self._by_file[file]
+        owners = [(len(root), db) for db, (root, _) in self._dbs.items()
+                  if (file + "/").startswith(root.rstrip("/") + "/")]
+        if owners:
+            by_dir = self._dbs[max(owners)[1]][1]
+        elif len(self._dbs) == 1:                # one database: as before, its nearest entry anywhere
+            by_dir = next(iter(self._dbs.values()))[1]
+        else:
+            return None
         d = os.path.dirname(file)
         while True:
-            if d in self._by_dir:
-                return self._by_dir[d][0]
+            if d in by_dir:
+                return by_dir[d][0]
             parent = os.path.dirname(d)
             if parent == d:
                 break
             d = parent
-        return self.entries[0] if self.entries else None
+        return next(iter(by_dir.values()))[0] if by_dir else None
+
+
+def _read(path: Path, problems: list[str]) -> list[CompileEntry]:
+    entries = []
+    for item in json.loads(path.read_text()):
+        directory = item.get("directory", os.path.dirname(str(path)))
+        args = item.get("arguments") or shlex.split(item.get("command", ""))
+        args = _compiler_words(_expand(list(args), directory, problems, item["file"]))
+        entries.append(CompileEntry(canon(_abs(directory, item["file"])), directory, tuple(args),
+                                    compiler=args[0] if args else "", db=str(path)))
+    return entries
+
+
+SKIP_DIRS = {"node_modules", "__pycache__", ".git", ".svn", ".tortoise"}
+
+
+def find_databases(top: Path) -> list[Path]:
+    """Every compile_commands.json under `top` (hidden folders skipped), deepest first."""
+    found = []
+    for dirpath, dirnames, filenames in os.walk(top):
+        dirnames[:] = sorted(d for d in dirnames if not d.startswith(".") and d not in SKIP_DIRS)
+        if "compile_commands.json" in filenames:
+            found.append(Path(dirpath) / "compile_commands.json")
+    return sorted(found, key=lambda p: (-len(p.parts), str(p)))
+
+
+def load_databases(spec, root: Path, build_root: Path | None) -> CompileDb:
+    """`workspace.compile_commands`: one path, a list of paths or globs (first listed wins), or "auto" (every database
+    under `build_root`, deepest first; without one, under the folder of the first database `codetortoise init` would
+    find). Missing files are skipped."""
+    if spec == "auto":
+        if build_root is None:
+            from codetortoise.init_config import _compile_dbs
+            first = _compile_dbs(Path(root))
+            build_root = first[0].parent if first else None
+        paths = find_databases(Path(build_root)) if build_root is not None else []
+    else:
+        paths = []
+        for item in spec if isinstance(spec, list) else [spec]:
+            text = str(item)
+            hits = sorted(Path(p) for p in globmod.glob(text, recursive=True)) if any(c in text for c in "*?[") \
+                else [Path(text)]
+            paths += [p for p in hits if p not in paths]
+    entries: list[CompileEntry] = []
+    problems: list[str] = []
+    for p in paths:
+        if p.is_file():
+            entries += _read(p, problems)
+    return CompileDb(entries, problems)
 
 
 def include_dirs(cdb: CompileDb) -> list[str]:
