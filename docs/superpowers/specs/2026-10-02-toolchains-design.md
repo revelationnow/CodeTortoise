@@ -1,6 +1,6 @@
 # Toolchains, Compile Databases and Parse Diagnostics — Design
 
-Date: 2026-10-02. Status: draft for review. Step 1b of the production-readiness work (step 1a, the symbol index, is
+Date: 2026-10-02. Status: approved; spike done (§5). Step 1b of the production-readiness work (step 1a, the symbol index, is
 separate).
 
 ## 1. Why
@@ -81,9 +81,19 @@ For each entry, in order:
 - **One library per process.** Parsing already runs in worker processes; each worker loads the library its group
   needs, so a group that needs a vendor fork can use it while the rest use upstream. A group's requests go to
   workers started for that library.
-- **Spike before the plan:** confirm the `clang` 21 bindings with libclang 23 (and with the system LLVM 21) parse the
-  bundled fixtures with identical facts, and that unknown cursor kinds don't raise. If they do, pin the bindings to the
-  library's major version or vendor the bindings module.
+- **Spike results (2026-10-02).** On the bundled fixtures, `clang` 21.1.7 bindings gave facts identical to today's
+  (libclang 18) with both the system libclang 21.1.8 and the LLVM 23.1.2 release, once two private binding calls
+  (`_CXString.from_result`, used for the version string and binary-operator spelling) were replaced by direct C calls.
+  On a heavy C++20 file, bindings 21 with libclang 23 raised on 469 of 175,415 nodes (type kind 182, unknown to the
+  bindings); with libclang 21 none did. libclang 23 also needed `-resource-dir` to find `stddef.h`.
+- **Therefore:** the bindings and the fetched library share a major version: `clang==21.1.*` and LLVM 21.1.8 by
+  default, bumped together when newer bindings are published. Unknown cursor and type kinds are read as "other"
+  instead of raising, for vendor or system libraries newer than the bindings. Every parse with a non-bundled library
+  passes that library's resource directory. Private binding APIs are not used.
+- **Fetch details:** the release tarball is about 1.9 GB (LLVM 21.1.8, Linux x64); `fetch-libclang` streams it,
+  keeping only `lib/libclang.so*` and `lib/clang/<ver>/include` (about 230 MB), and checks its SHA-256 against the
+  digest GitHub publishes for the asset (25 s on the test machine). `--from` checks against digests pinned in the
+  code for the default version, or a `--sha256` given on the command line.
 
 ## 6. Configuration
 
