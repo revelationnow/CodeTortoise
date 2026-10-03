@@ -16,6 +16,7 @@ import clang.cindex as ci
 
 from codetortoise.facts.model import FieldAccess, GlobalAccess
 from codetortoise.paths import canon
+from codetortoise.toolchain.libclang import cx_string
 
 K = ci.CursorKind
 T = ci.TypeKind
@@ -114,10 +115,9 @@ def _c_api() -> dict:
 
     api["bin_kind"] = bind("clang_getCursorBinaryOperatorKind", [ci.Cursor], ctypes.c_int)
     api["un_kind"] = bind("clang_getCursorUnaryOperatorKind", [ci.Cursor], ctypes.c_int)
-    spell = bind("clang_getBinaryOperatorKindSpelling", [ctypes.c_int], ci._CXString)
-    if spell is not None:
-        spell.errcheck = ci._CXString.from_result
-    api["bin_spell"] = spell
+    has_spell = getattr(lib, "clang_getBinaryOperatorKindSpelling", None) is not None
+    api["bin_spell"] = ((lambda kind: cx_string("clang_getBinaryOperatorKindSpelling", kind, argtypes=[ctypes.c_int]))
+                        if has_spell else None)
     api["eval"] = bind("clang_Cursor_Evaluate", [ci.Cursor], ctypes.c_void_p)
     api["eval_kind"] = bind("clang_EvalResult_getKind", [ctypes.c_void_p], ctypes.c_int)
     api["eval_unsigned"] = bind("clang_EvalResult_isUnsignedInt", [ctypes.c_void_p], ctypes.c_uint)
