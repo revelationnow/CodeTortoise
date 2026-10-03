@@ -158,6 +158,10 @@ class AboutWhy(BaseModel):
 class AboutDrift(BaseModel):
     text: str
     files: Files = None
+    # ahead: the workspace is newer than the change's base (normal for submitted CLs; information only);
+    # behind / missing: context code may lack what the change builds on (a warning); unknown: stored before kinds
+    kind: Literal["ahead", "behind", "missing", "unknown"] = "unknown"
+    severity: Literal["warn", "info"] = "warn"
 
     @model_validator(mode="before")
     @classmethod
@@ -646,6 +650,16 @@ def _common_dir(paths: list[str]) -> str:
     return "/".join(common)
 
 
+def drift_kind(expected: str, actual: str) -> Literal["ahead", "behind", "missing", "unknown"]:
+    """Compare revisions like "#3" and "#4"; anything else in the workspace means the file isn't synced."""
+    e, a = re.fullmatch(r"#(\d+)", expected or ""), re.fullmatch(r"#(\d+)", actual or "")
+    if not a:
+        return "missing"
+    if not e:
+        return "unknown"
+    return "ahead" if int(a.group(1)) > int(e.group(1)) else "behind"
+
+
 def build_about(c: BoardContext) -> About:
     files = c.cs.files
     fn_count = len(c.dm.functions)
@@ -663,5 +677,9 @@ def build_about(c: BoardContext) -> About:
         dirs[d].append(AboutFile(path=f.depot, name=posixpath.basename(rel), action=f.action,
                                  cls=[p.cl for p in f.per_cl], add=add, rem=rem))
     tree = [AboutDir(dir=d, files=fs) for d, fs in sorted(dirs.items())]
-    drift = [AboutDrift(text=f"{d.depot} (base {d.expected}, workspace {d.actual})", files=[d.depot]) for d in c.cs.drift]
+    drift = []
+    for d in c.cs.drift:
+        kind = drift_kind(d.expected, d.actual)
+        drift.append(AboutDrift(text=f"{d.depot} (base {d.expected}, workspace {d.actual})", files=[d.depot], kind=kind,
+                                severity="info" if kind == "ahead" else "warn"))
     return About(intent=intent, why=why, cls=cls, tree=tree, drift=drift)

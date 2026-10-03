@@ -245,6 +245,20 @@ def test_about_lists_workspace_drift():
     assert build_board(_synthetic()[0]).about.drift == []
 
 
+
+def test_drift_is_a_warning_only_when_the_workspace_is_behind_or_missing_the_file():
+    from codetortoise.board import AboutDrift
+    from codetortoise.vcs.model import DriftItem
+    ctx, _ = _synthetic()
+    ctx.cs.drift = [DriftItem(depot="//d/a.c", local="/w/a.c", expected="#3", actual="#4"),      # newer: expected
+                    DriftItem(depot="//d/b.c", local="/w/b.c", expected="#7", actual="#5"),      # older: may lack things
+                    DriftItem(depot="//d/c.c", local="/w/c.c", expected="#2", actual="not synced")]
+    assert [(d.kind, d.severity) for d in build_board(ctx).about.drift] == [
+        ("ahead", "info"), ("behind", "warn"), ("missing", "warn")]
+    old = AboutDrift.model_validate("//d/a.c (base #3, workspace #4)")                          # stored before kinds
+    assert (old.kind, old.severity) == ("unknown", "warn")
+
+
 def test_flow_titles_for_every_kind():
     from codetortoise.board import flow_title
     assert flow_title("state", "peek", "set", field="R::v") == "peek sees a new writer of R::v"

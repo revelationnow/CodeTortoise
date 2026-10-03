@@ -3,6 +3,8 @@ import type { Comment } from "../api";
 import Comments from "../components/Comments";
 import type { Action } from "./reducer";
 import type { AffectedDir } from "./sideEffects";
+import { driftSummary } from "./drift";
+import { keys, loadPanelTab, type PanelTab, save } from "./prefs";
 import Resizer from "./Resizer";
 import type { About } from "./types";
 
@@ -30,6 +32,9 @@ interface Props {
 export default function ChangePanel({ open, onToggle, reviewId, comments, onComments, layers, about, sideEffects, risk, openFiles,
   dispatch, wide, width, onWidth, onWidthDone, embedded }: Props) {
   const [shut, setShut] = useState<Set<string>>(new Set());
+  const [tab, setTab] = useState<PanelTab>(() => loadPanelTab(reviewId));
+  const [openCls, setOpenCls] = useState<Set<number>>(new Set());
+  const chooseTab = (t: PanelTab) => { setTab(t); save(keys.panelTab(reviewId), t); };
   if (!open && !embedded)
     return (
       <aside className="bd-about collapsed" onClick={onToggle}>
@@ -39,6 +44,7 @@ export default function ChangePanel({ open, onToggle, reviewId, comments, onComm
       </aside>
     );
   const nFiles = about.tree.reduce((n, d) => n + d.files.length, 0);
+  const drift = driftSummary(about.drift);
   return (
     <aside className={`bd-about${embedded ? " embedded" : ""}`} style={{ ["--w" as string]: `${width}px` }}>
       {!embedded && <Resizer size={width} edge="right" min={280} max={() => window.innerWidth * 0.6} onSize={onWidth} onDone={onWidthDone} />}
@@ -49,12 +55,43 @@ export default function ChangePanel({ open, onToggle, reviewId, comments, onComm
         <p>{about.cls.map((c) => `CL ${c.cl}`).join(" · ")} · {nFiles} files · {about.intent_source === "llm"
           ? "summarised from the CL descriptions, the diff and the analysis" : "from the CL descriptions and the analysis"}</p>
       </div>
+      <div className="bd-tabs" role="tablist">
+        <button role="tab" aria-selected={tab === "summary"} className={tab === "summary" ? "on" : ""}
+                onClick={() => chooseTab("summary")}>Summary</button>
+        <button role="tab" aria-selected={tab === "cls"} className={tab === "cls" ? "on" : ""}
+                onClick={() => chooseTab("cls")}>Changelists ({about.cls.length})</button>
+      </div>
+      {tab === "cls" ? (
+        <div className="body">
+          {about.cls.map((c) => {
+            const [first, ...rest] = c.description.trim().split("\n");
+            const open = openCls.has(c.cl);
+            return (
+              <div key={c.cl} className="cl">
+                <button className="link head" aria-expanded={open}
+                        onClick={() => setOpenCls((s) => { const n = new Set(s); if (n.has(c.cl)) n.delete(c.cl); else n.add(c.cl); return n; })}>
+                  <span className="n">CL {c.cl}</span> <span className="m">· {c.user} · {c.file_count} files</span>
+                </button>
+                <div className="first">{first}</div>
+                {open && rest.join("\n").trim() && <div className="desc">{rest.join("\n").trim()}</div>}
+                {open && !rest.join("\n").trim() && <div className="desc muted">No more to the description.</div>}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
       <div className="body">
-        {about.drift.length > 0 && (
-          <div className="bd-drift">
-            ⚠ The base workspace is not at the changelists' base revision, so context code fetched from it may not match
-            what was analysed: {about.drift.map((d) => d.text).join("; ")}
-          </div>
+        {drift.warn.length > 0 && (
+          <details className="bd-drift warn">
+            <summary>⚠ {drift.warn.length} file(s): workspace older than the change's base, or not synced</summary>
+            Context code fetched from the workspace may not match what was analysed. {drift.warn.join("; ")}
+          </details>
+        )}
+        {drift.info.length > 0 && (
+          <details className="bd-drift info">
+            <summary>ⓘ {drift.info.length} file(s): workspace newer than the change (expected for submitted CLs)</summary>
+            {drift.info.join("; ")}
+          </details>
         )}
         <h3>Files in this change</h3>
         <div className="tree">
@@ -114,12 +151,8 @@ export default function ChangePanel({ open, onToggle, reviewId, comments, onComm
               <Comments reviewId={reviewId} comments={comments} kind="chapter" anchor={{ level }} onChange={onComments} compact />
             </div>
           ))}
-        <h3>Changelists</h3>
-        {about.cls.map((c) => (
-          <div key={c.cl} className="cl"><span className="n">CL {c.cl}</span> <span className="m">· {c.user} · {c.file_count} files</span>
-            <div className="desc">{c.description}</div></div>
-        ))}
       </div>
+      )}
     </aside>
   );
 }
