@@ -15,6 +15,9 @@ class InlineRunner(JobRunner):
     def submit_index(self):
         self.svc.build_index()
 
+    def _dispatch_ai(self, job, fn):
+        self._run_ai(job, fn)
+
 
 class FakeSwarm:
     def __init__(self):

@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from codetortoise.board import Board
 from codetortoise.health import run_health
+from codetortoise.llm import ondemand
 from codetortoise.pipeline import JobRunner
 from codetortoise.provenance import tag_board
 from codetortoise.services import Services
@@ -40,6 +41,15 @@ class ReviewIn(BaseModel):
 
 class FindingStateIn(BaseModel):
     state: Literal["open", "ack", "dismissed"]
+
+
+class ExplainIn(BaseModel):
+    kind: Literal["flow", "finding", "file"]
+    target: str = Field(min_length=1, max_length=2000)
+
+
+class BudgetIn(BaseModel):
+    budget: int = Field(ge=0, le=1_000_000)
 
 
 class CommentIn(BaseModel):
@@ -230,6 +240,38 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         overrides[str(level)] = body.name
         store.kv_put("layer_overrides", overrides)
         return overrides
+
+    # ---- AI on demand (spec 2026-10-03) ---------------------------------------
+    @app.post("/api/reviews/{rid}/explain", status_code=202)
+    def explain(rid: int, body: ExplainIn, user: str = Depends(user_of)):
+        review_or_404(rid)
+        if svc.llm is None or svc.ledger is None:
+            raise HTTPException(409, "no LLM is configured")
+        try:
+            ondemand.check_target(svc, rid, body.kind, body.target)
+        except ondemand.NotFound as e:
+            raise HTTPException(404, str(e)) from e
+        reason = svc.ledger.check(rid, user)
+        if reason:
+            raise HTTPException(429, reason)
+        return runner.submit_ai(rid, user, body.kind, body.target,
+                                lambda: ondemand.explain(svc, rid, user, body.kind, body.target))
+
+    @app.get("/api/reviews/{rid}/ai")
+    def ai_view(rid: int, user: str = Depends(user_of)):
+        review_or_404(rid)
+        b = cfg.llm.budget
+        u = svc.ledger.usage(rid) if svc.ledger else {"used": 0, "budget": b.per_review, "by_person": {},
+                                                      "by_purpose": {}, "calls": []}
+        return {**u, "llm": svc.llm is not None, "me_today": svc.ledger.person_today(user) if svc.ledger else 0,
+                "me_limit": b.per_person_daily, "per_mention": b.per_mention, "is_owner": user == cfg.owner,
+                "jobs": runner.ai_jobs.get(rid, []), "file_summaries": store.get_blob(rid, "file_summaries") or {}}
+
+    @app.put("/api/reviews/{rid}/ai/budget")
+    def ai_budget(rid: int, body: BudgetIn, user: str = Depends(owner_of)):
+        review_or_404(rid)
+        svc.ledger.raise_budget(rid, body.budget, user)
+        return {"budget": svc.ledger.budget(rid)}
 
     # ---- comments ----------------------------------------------------------
     @app.get("/api/reviews/{rid}/comments")

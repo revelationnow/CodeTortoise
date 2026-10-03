@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from datetime import UTC, datetime
 
 from pydantic import BaseModel
 
@@ -26,6 +27,7 @@ class HealthReport(BaseModel):
     libclang: str | None = None
     strip_flags: list[str] = []
     p4_sources: dict[str, str] = {}    # where the owner, port and client came from (tortoise.yaml, P4CONFIG, environment)
+    ai: dict = {}                      # AI call limits and today's total across reviews
 
 
 def run_health(svc: Services, deep: bool = False) -> HealthReport:
@@ -90,7 +92,10 @@ def run_health(svc: Services, deep: bool = False) -> HealthReport:
         checks.append(Check(name="swarm", ok=client is not None, hard=False,
                             detail=cfg.swarm.url if client else "owner must log in for Swarm access"))
     lc = svc.toolchain.libclang
+    day = datetime.now(UTC).date().isoformat()
+    today = svc.store._all("SELECT COUNT(*) AS n FROM llm_calls WHERE outcome != 'refused' AND started_at >= ?", (day,))
+    ai = {"limits": cfg.llm.budget.model_dump(), "calls_today": today[0]["n"] if today else 0}
     return HealthReport(checks=checks, ready=all(c.ok for c in checks if c.hard),
                         index_generation=svc.index.generation(),
                         libclang=lc.version if lc else None, strip_flags=sorted(svc.toolchain.strip),
-                        p4_sources=dict(ws.p4_sources))
+                        p4_sources=dict(ws.p4_sources), ai=ai)
