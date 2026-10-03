@@ -23,7 +23,8 @@ class WorkspaceConfig(BaseModel):
     p4port: str | None = None
     client: str | None = None
     root: Path
-    compile_commands: Path
+    compile_commands: Literal["auto"] | Path | list[Path]   # a path, a list of paths/globs, or every one under build_root
+    build_root: Path | None = None
     p4_bin: str = "p4"
     p4_sources: dict[str, str] = Field(default_factory=dict)   # where p4port, client and owner came from (set on load)
 
@@ -116,7 +117,13 @@ def load_config(path: Path, env: Mapping[str, str] | None = None) -> Config:
             raise ConfigError(f"{label} is not set: not in tortoise.yaml, {where}, and {var} is not in the environment")
         setattr(obj, attr, value)
         ws.p4_sources[attr] = p4.source(var) or ""
-    ws.compile_commands = (base / ws.compile_commands).resolve() if not ws.compile_commands.is_absolute() else ws.compile_commands
+    def rel(p: Path) -> Path:
+        return p if p.is_absolute() else (base / p).resolve()
+    if isinstance(ws.compile_commands, list):
+        ws.compile_commands = [rel(p) for p in ws.compile_commands]
+    elif ws.compile_commands != "auto":
+        ws.compile_commands = rel(ws.compile_commands)
+    ws.build_root = rel(ws.build_root) if ws.build_root is not None else None
     if not cfg.server.data_dir.is_absolute():
         cfg.server.data_dir = (base / cfg.server.data_dir).resolve()
     srv = cfg.server
