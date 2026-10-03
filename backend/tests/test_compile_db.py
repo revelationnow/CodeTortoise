@@ -7,13 +7,14 @@ def test_sanitize_drops_output_and_dep_flags_and_absolutizes_paths():
     e = CompileEntry("/w/src/a.c", "/w/build", (
         "armclang", "--target=arm-none-eabi", "-Iinc", "-I", "../x", "-isystem", "sys", "--sysroot=../sr",
         "-c", "../src/a.c", "-o", "a.o", "-MD", "-MF", "a.d", "-DFOO=1", "-mcpu=cortex-m4", "-Wall"))
-    assert sanitize_args(e) == ["--target=arm-none-eabi", "-I/w/build/inc", "-I", "/w/x", "-isystem", "/w/build/sys",
+    assert sanitize_args(e) == ["-working-directory", "/w/build",
+                                "--target=arm-none-eabi", "-I/w/build/inc", "-I", "/w/x", "-isystem", "/w/build/sys",
                                 "--sysroot=/w/sr", "-DFOO=1", "-mcpu=cortex-m4", "-Wall"]
 
 
 def test_sanitize_strip_list_matches_exact_and_key_value():
     e = CompileEntry("/w/a.c", "/w", ("cc", "-mvendor-x", "--vendor-opt=3", "-O2", "a.c"))
-    assert sanitize_args(e, {"-mvendor-x", "--vendor-opt"}) == ["-O2"]
+    assert sanitize_args(e, {"-mvendor-x", "--vendor-opt"}) == ["-working-directory", "/w", "-O2"]
 
 
 def test_load_command_strings_and_nearest_entry(tmp_path):
@@ -37,7 +38,7 @@ def test_include_dirs_are_canonicalized_through_symlinks(tmp_path):
     e = CompileEntry(str(real / "a.c"), str(tmp_path / "link"),
                      ("cc", "-Iinclude", "-isystem", str(tmp_path / "link/include"), "-c", "a.c"))
     inc = str((real / "include").resolve())
-    assert sanitize_args(e) == [f"-I{inc}", "-isystem", inc]
+    assert sanitize_args(e)[2:] == [f"-I{inc}", "-isystem", inc]
 
 
 def test_new_header_behind_symlinked_include_dir_parses(tmp_path):
@@ -69,5 +70,5 @@ def test_forced_include_resolves_like_gcc(tmp_path):
                      ("cc", "-Igen", "-include", "suite.h", "-include", "local.h", "-imacros", "cfg.h", "-c", "../a.c"))
     build = str((tmp_path / "build").resolve())
     # found in the working directory -> absolute; otherwise left for the -I search chain
-    assert sanitize_args(e) == [f"-I{build}/gen", "-include", "suite.h", "-include", f"{build}/local.h",
+    assert sanitize_args(e)[2:] == [f"-I{build}/gen", "-include", "suite.h", "-include", f"{build}/local.h",
                                 "-imacros", "cfg.h"]

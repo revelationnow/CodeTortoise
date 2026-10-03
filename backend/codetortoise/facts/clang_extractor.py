@@ -22,9 +22,9 @@ _SCOPE_KINDS = {K.NAMESPACE, K.CLASS_DECL, K.STRUCT_DECL, K.UNION_DECL, K.CLASS_
 _BAD_FLAG = re.compile(r"(?:unknown argument:?|unsupported option) '([^']+)'")
 # flags kept when a TU cannot be created at all with the full argument list
 _SAFE_WITH_VALUE = {"-I", "-isystem", "-iquote", "-idirafter", "-include", "-imacros", "-D", "-U", "-x",
-                    "--sysroot", "-isysroot", "-resource-dir"}
+                    "--sysroot", "-isysroot", "-resource-dir", "-working-directory"}
 _SAFE_PREFIXES = ("-I", "-isystem", "-iquote", "-idirafter", "-D", "-U", "-std=", "-x", "--sysroot=", "-f", "-W",
-                  "-nostdinc", "-include", "-imacros")
+                  "-nostdinc", "-include", "-imacros", "--driver-mode=")
 _CMP_OPS = {"==", "!=", "<", ">", "<=", ">="}
 
 
