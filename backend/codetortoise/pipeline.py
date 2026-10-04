@@ -20,6 +20,7 @@ from codetortoise.llm.storyboard import build_storyboard
 from codetortoise.paths import canon
 from codetortoise.provenance import finding_files, impact_node_files, local_files
 from codetortoise.services import Services
+from codetortoise.stories import build_stories
 from codetortoise.swarm import SwarmError
 from codetortoise.tu_select import TuSelection, field_follow_up, select_tus
 from codetortoise.vcs.model import ChangeSet
@@ -218,8 +219,13 @@ def run_review(rid: int, svc: Services) -> None:
     def board():
         notes: list[str] = []
         resolve = depot_resolver(svc.source, ctx["cs"], cfg.workspace.root, notes)
-        bs = build_boards(BoardContext(ctx["cs"], ctx["dm"], ctx["before"], ctx["after"], ctx["impact"], ctx["findings"],
-                                       ctx.get("layers"), cfg.analysis, resolve, root=canon(str(cfg.workspace.root))))
+        bctx = BoardContext(ctx["cs"], ctx["dm"], ctx["before"], ctx["after"], ctx["impact"], ctx["findings"],
+                            ctx.get("layers"), cfg.analysis, resolve, root=canon(str(cfg.workspace.root)))
+        bs = build_boards(bctx)
+        try:                                   # change stories (spec 2026-10-04); the boards stand without them
+            bs.stories, bs.story_details = build_stories(bctx, bs.home or None)
+        except Exception as e:
+            notes.append(f"stories failed: {type(e).__name__}: {e}")
         # file tags (spec §14.3): every graph node and finding, from one more lookup of the files not yet resolved
         findings, im = ctx["findings"], ctx["impact"]
         decl = {f"field:{a.field}": a.record_file for fx in ctx["before"] + ctx["after"] for a in fx.fields if a.record_file}

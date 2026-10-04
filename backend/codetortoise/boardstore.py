@@ -1,7 +1,8 @@
 """Where a review's boards live (spec 2026-10-03-large-change-boards §4).
 
 A review that fits on one board has the blob `board`. A split review has `overview`, one `board:C<n>` per cluster and
-`node_cluster` (node id -> cluster id). Everything that reads or rewrites boards (the pipeline's AI pass, on-demand
+`node_cluster` (node id -> cluster id). Every review run since change stories (spec 2026-10-04) also has `stories` and
+one `story:S<n>` per story. Everything that reads or rewrites boards (the pipeline's AI pass, on-demand
 explanations, the API) goes through here.
 """
 from __future__ import annotations
@@ -9,8 +10,10 @@ from __future__ import annotations
 from codetortoise.board import Board, BoardSet, Files, Overview
 from codetortoise.provenance import tag_board
 from codetortoise.store import Store
+from codetortoise.stories import StoryDetail, StorySet
 
 PREFIX = "board:"
+STORY = "story:"
 
 
 def save(store: Store, rid: int, bs: BoardSet, finding_files: dict[str, Files]) -> None:
@@ -20,7 +23,33 @@ def save(store: Store, rid: int, bs: BoardSet, finding_files: dict[str, Files]) 
     else:
         puts = {"overview": bs.overview, "node_cluster": bs.home}
         puts |= {PREFIX + cid: tag_board(b, finding_files) for cid, b in bs.clusters.items()}
-    store.replace_blobs(rid, ["board", "overview", "node_cluster"], [PREFIX], puts)
+    if bs.stories is not None:
+        puts["stories"] = bs.stories
+        for sid, d in bs.story_details.items():
+            tag_board(d.board, finding_files)
+            if d.graph is not None:
+                tag_board(d.graph, finding_files)
+            puts[STORY + sid] = d
+    store.replace_blobs(rid, ["board", "overview", "node_cluster", "stories"], [PREFIX, STORY], puts)
+
+
+def stories(store: Store, rid: int) -> StorySet | None:
+    raw = store.get_blob(rid, "stories")
+    return StorySet.model_validate(raw) if raw else None
+
+
+def story(store: Store, rid: int, sid: str) -> StoryDetail | None:
+    raw = store.get_blob(rid, STORY + sid)
+    return StoryDetail.model_validate(raw) if raw else None
+
+
+def put_story(store: Store, rid: int, d: StoryDetail) -> None:
+    """Store a story's detail and its entry in the list (an AI rewrite of its title and summary)."""
+    ss = stories(store, rid)
+    if ss is not None:
+        ss.stories = [d.story if s.id == d.story.id else s for s in ss.stories]
+        store.replace_blobs(rid, [], [], {"stories": ss, STORY + d.story.id: d})
+
 
 def overview(store: Store, rid: int) -> Overview | None:
     o = store.get_blob(rid, "overview")

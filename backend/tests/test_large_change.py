@@ -103,7 +103,7 @@ def test_the_small_fixture_has_no_overview(fx, tmp_path):
     rid = client.post("/api/reviews", json={"cls": [101, 102]}).json()["id"]
     assert client.get(f"/api/reviews/{rid}/board").status_code == 200
     assert client.get(f"/api/reviews/{rid}/overview").status_code == 404
-    assert client.get(f"/api/reviews/{rid}/locate", params={"node": "N1"}).json() == {"cluster": None}
+    assert client.get(f"/api/reviews/{rid}/locate", params={"node": "N1"}).json()["cluster"] is None
 
 
 def test_expanding_adds_callers_past_the_budget_and_counts_what_is_left(api):
@@ -133,10 +133,12 @@ def test_locate_finds_the_cluster_of_a_node_a_flow_and_a_finding(api):
     ov = owner.get(f"/api/reviews/{rid}/overview").json()
     c = ov["clusters"][1]
     loc = lambda **q: owner.get(f"/api/reviews/{rid}/locate", params=q)          # noqa: E731
-    assert loc(node=c["nodes"][0]).json() == {"cluster": c["id"]}
-    assert loc(finding=c["finding_ids"][0]).json() == {"cluster": c["id"]}
+    ss = owner.get(f"/api/reviews/{rid}/stories").json()
+    assert loc(node=c["nodes"][0]).json() == {"cluster": c["id"], "story": ss["node_story"][c["nodes"][0]]}
+    fid = c["finding_ids"][0]
+    assert loc(finding=fid).json() == {"cluster": c["id"], "story": ss["finding_story"][fid]}
     flow = owner.get(f"/api/reviews/{rid}/board", params={"cluster": c["id"]}).json()["flows"][0]["id"]
-    assert loc(flow=flow).json() == {"cluster": c["id"]}
+    assert loc(flow=flow).json() == {"cluster": c["id"], "story": ss["flow_story"][flow]}
     assert loc(node="N99999").status_code == 404
 
 
@@ -180,3 +182,16 @@ def test_the_overview_board_and_locate_need_a_signed_in_user(api):
     for path, params in ((f"/api/reviews/{rid}/overview", {}), (f"/api/reviews/{rid}/board", {"cluster": "C1"}),
                          (f"/api/reviews/{rid}/locate", {"node": "N1"})):
         assert anon.get(path, params=params).status_code == 401, path
+
+
+def test_a_large_change_is_told_in_at_most_15_stories_with_small_graphs(api):
+    svc, owner, rid = api
+    ss = owner.get(f"/api/reviews/{rid}/stories").json()
+    shown = [s for s in ss["stories"] if not s["collapsed"]]
+    collapsed_row = len(shown) < len(ss["stories"])           # "N more behaviour stories" is one entry
+    assert 1 <= len(shown) + collapsed_row <= svc.cfg.analysis.max_stories
+    for s in ss["stories"]:
+        d = owner.get(f"/api/reviews/{rid}/stories/{s['id']}").json()
+        assert d["graph"] is None or len(d["graph"]["nodes"]) <= svc.cfg.analysis.story_graph_nodes
+        assert not any(n["label"].startswith("/") or "(/" in n["label"] for n in d["board"]["nodes"])
+    assert set(ss["node_story"].values()) <= {s["id"] for s in ss["stories"]}
