@@ -1,5 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
-import { Navigate, NavLink, Route, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, Navigate, NavLink, Route, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, type AiJob, type Board as BoardModel, type Comment, type FileChange, type Finding, type Overview, type ReviewDetail } from "../api";
 import { useMe } from "../App";
 import Board from "../board/Board";
@@ -78,6 +78,7 @@ export default function Review() {
   if (!detail) return <main className="page muted">Loading…</main>;
   const r = detail.review;
   const notes = detail.stages.filter((s) => s.status === "failed" || s.status === "degraded");
+  const drift = driftSummary((board ?? overview)?.about.drift ?? []).warn;   // a split review's from its overview
 
   const head = (extra?: ReactNode) => (
     <div className="bd-head">
@@ -93,10 +94,7 @@ export default function Review() {
         <NavLink to={`/r/${id}/cls`} className={({ isActive }) => (isActive ? "on" : "")}>CLs &amp; Swarm</NavLink>
       </nav>
       {me?.is_owner && ready && <button className="link rerun" onClick={() => api.rerun(id).then(loadDetail)}>Re-run</button>}
-      {board && driftSummary(board.about.drift).warn.length > 0 && (
-        <span className="bd-pill high" title={driftSummary(board.about.drift).warn.join("\n")}>
-          ⚠ workspace drift ({driftSummary(board.about.drift).warn.length})</span>
-      )}
+      {drift.length > 0 && <span className="bd-pill high" title={drift.join("\n")}>⚠ workspace drift ({drift.length})</span>}
       {notes.length > 0 && (
         <details className="bd-notes">
           <summary>{notes.length} stage note(s)</summary>
@@ -135,7 +133,9 @@ export default function Review() {
       <Route path="c/:cid" element={overview ? (
         <ClusterRoute reviewId={id} ov={overview} files={files} comments={comments} onComments={loadComments} risk={r.risk}
                       head={head} reload={reload} />
-      ) : page(<p className="muted">{overview === null ? "This review is shown as one board." : "Loading…"}</p>)} />
+      ) : page(overview === null
+        ? <p className="muted">This review is shown as one board. <Link to={`/r/${id}`}>Open the board</Link></p>
+        : <p className="muted">Loading…</p>)} />
       <Route path="findings" element={page(
         <Findings reviewId={id} findings={findings} focus={focus} comments={comments} groups={overview?.clusters}
                   onComments={loadComments} onFindings={loadFindings} onCite={onCite} />)} />

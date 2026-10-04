@@ -397,6 +397,7 @@ details.bd-drift.info { background: var(--bd-sunken); border-left-color: var(--b
   .ov-blocks { flex-direction: column; }
   .ov-block { max-width: none; flex: none; width: 100%; box-sizing: border-box; }
   .ov-block .files-count, .ov-block .ln:nth-of-type(n+5) { display: none; }
-  .bd-crumb .pos { display: none; }
+  .bd-crumb > a, .bd-crumb .sep, .bd-crumb .bd-pill { display: none; }     /* the ☰ menu has Overview: "name ‹ C2 of 6 ›" */
+  .bd-crumb b { max-width: 34vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 .bd-about .tree .file .ctag { margin-left: 6px; font-size: 11px; color: var(--bd-muted); border: 1px solid var(--bd-line); border-radius: 99px; padding: 0 6px; }

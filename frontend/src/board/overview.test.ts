@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addExpansion, bandsOf, clusterOfFile, linkLines, linkedTo, stepCluster } from "./overview";
+import { addExpansion, bandsOf, clusterOfFile, linkLines, linkedTo, nearestCluster, stepCluster } from "./overview";
 import type { Overview } from "./types";
 
 const c = (id: string, name: string, level: number | null, over: Partial<Overview["clusters"][0]> = {}) => ({
@@ -59,5 +59,20 @@ describe("addExpansion", () => {
     expect(addExpansion([], "N12", "callers")).toEqual(["N12:callers"]);
     expect(addExpansion(["N12:callers"], "N12", "callers")).toEqual(["N12:callers", "N12:callers"]);
     expect(addExpansion(["N12:callers"], "N9", "callees")).toEqual(["N12:callers", "N9:callees"]);
+  });
+});
+
+describe("nearestCluster", () => {
+  const two: Overview = { ...ov, clusters: [ov.clusters[0], { ...ov.clusters[1], files: ["//d/drv/uart/uart.c"] }, ...ov.clusters.slice(2)] };
+  it("is the file's own cluster when its changed code is in one", () => {
+    expect(nearestCluster(two, "//d/svc/logger.c")).toBe("C1");
+  });
+  it("is the cluster with code nearest the file when it has no changed function (a header of macros)", () => {
+    expect(nearestCluster(two, "//d/drv/uart/regs.h")).toBe("C2");
+    expect(nearestCluster(two, "//d/drv/dma.h")).toBe("C2");
+    expect(nearestCluster(two, "//d/svc/logger.h")).toBe("C1");
+  });
+  it("is the riskiest cluster when nothing is nearer", () => {
+    expect(nearestCluster(two, "//e/other.h")).toBe("C1");
   });
 });

@@ -44,6 +44,7 @@ test.describe("a large change", () => {
     await block(page, "hal/regs").getByRole("button", { name: /^Open/ }).click();
     await expect(page).toHaveURL(/\/c\/C\d+$/);
     await expect(page.locator(".bd-crumb")).toContainText("Overview › hal/regs");
+    await expect(page.locator(".bd-head .bd-pill", { hasText: /^\d+ flows · \d+ findings?$/ })).toBeVisible();   // this cluster's
     expect(await page.locator(".bd-node").count()).toBeLessThanOrEqual(30);
     const here = page.url();
     await page.getByRole("button", { name: "Next cluster" }).click();
@@ -52,6 +53,18 @@ test.describe("a large change", () => {
     await expect(page).toHaveURL(here);
     await page.locator(".bd-crumb").getByRole("link", { name: "Overview" }).click();
     await expect(page.locator(".ov-block")).toHaveCount(7);
+  });
+
+  test("a bad expansion in the address says so and Reset clears it", async ({ page }) => {
+    await startLarge(page);
+    await block(page, "hal/regs").getByRole("button", { name: /^Open/ }).click();
+    await expect(page).toHaveURL(/\/c\/C\d+$/);
+    await page.goto(`${page.url()}?x=N1:sideways`);
+    const banner = page.locator(".banner.warn", { hasText: "bad expansion" });
+    await expect(banner).toBeVisible();
+    await banner.getByRole("button", { name: "Reset" }).click();
+    await expect(page.locator(".bd-crumb")).toContainText("hal/regs");
+    await expect(page).not.toHaveURL(/x=/);
   });
 
   test("a visitor opens its own cluster's board, focused on it", async ({ page }) => {
@@ -142,6 +155,9 @@ test.describe("a large change on a phone", () => {
     expect(a.width).toBeGreaterThan(300);
     await first.getByRole("button", { name: /^Open/ }).click();
     await expect(page.locator(".ph-tabs")).toBeVisible();
+    await expect(page.locator(".bd-crumb .pos")).toBeVisible();
+    await expect(page.locator(".bd-crumb .pos")).toHaveText(/^C\d+ of 7$/);
+    await expect(page.getByRole("button", { name: "Next cluster" })).toBeVisible();
     await page.getByRole("button", { name: "Review menu" }).click();
     await expect(page.locator(".ph-menu").getByRole("link", { name: "Overview" })).toBeVisible();
   });
