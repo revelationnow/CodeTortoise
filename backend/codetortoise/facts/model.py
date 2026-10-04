@@ -87,3 +87,13 @@ class Facts(BaseModel):
     calls: list[CallEdge] = Field(default_factory=list)
     fields: list[FieldAccess] = Field(default_factory=list)
     globals: list[GlobalAccess] = Field(default_factory=list)
+
+
+def relative_records(facts: list[Facts], root: str) -> None:
+    """Anonymous records are named by their place ("anonymous struct (/ws/src/a.c:3)"): make it workspace-relative
+    (spec 2026-10-04-change-stories §2.5), in place."""
+    prefix = f"({root.rstrip('/')}/"
+    for fx in facts:
+        for a in fx.fields:
+            if prefix in a.record:
+                a.record = a.record.replace(prefix, "(")

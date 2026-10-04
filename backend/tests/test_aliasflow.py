@@ -128,3 +128,33 @@ def test_writes_to_freshly_allocated_objects_are_local(tmp_path):
     roots = {(a.line, a.path, a.root_kind) for a in fields if a.mode != "read"}
     assert (7, "e.n", "local") in roots and (8, "e.sig[]", "local") in roots
     assert (10, "?.n", "unknown") in roots  # object from a getter may be shared
+
+
+ANON_C = """typedef struct { int size; } vec_t;
+struct outer { struct { int size; struct { int depth; } inner; } frame; int n; };
+static struct { int count; } stats;
+union u { struct { int lo; } half; };
+void f(vec_t *v, struct outer *o, union u *x) { v->size = 1; o->frame.size = 2; o->frame.inner.depth = 3; stats.count = 4;
+  x->half.lo = 5; }
+"""
+
+
+def test_anonymous_records_are_named_by_typedef_member_or_place(tmp_path):
+    fields, _, _ = writes(tmp_path, "anon.c", ANON_C, ["-xc"], "f")
+    records = {a.field_name: a.record for a in fields if a.mode == "write"}
+    here = str(tmp_path / "anon.c")
+    assert records["size"] in ("vec_t", "outer.frame")
+    assert {a.record for a in fields if a.field_name == "size"} == {"vec_t", "outer.frame"}
+    assert records["depth"] == "outer.frame.inner" and records["lo"] == "u.half"
+    assert records["count"] == f"anonymous struct ({here}:3)"
+    assert not any("unnamed" in a.record for a in fields)
+
+
+def test_the_facts_stage_makes_anonymous_record_places_workspace_relative():
+    from codetortoise.facts.model import Facts, FieldAccess, TuInfo, relative_records
+    acc = FieldAccess(fn="f", field="c:@S@x@FI@n", field_name="n", record="anonymous struct (/ws/src/a.c:3)", file="/ws/src/a.c",
+                      line=4, path="s.n", root_kind="global", mode="write")
+    named = acc.model_copy(update={"record": "outer.frame"})
+    fx = [Facts(tu=TuInfo(file="/ws/src/a.c", variant="after"), fields=[acc, named])]
+    relative_records(fx, "/ws/")
+    assert [a.record for a in fx[0].fields] == ["anonymous struct (src/a.c:3)", "outer.frame"]

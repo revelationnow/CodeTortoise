@@ -13,7 +13,7 @@ from codetortoise import boardstore
 from codetortoise.board import BoardContext, build_boards
 from codetortoise.detectors.base import DetectorContext, run_detectors
 from codetortoise.diffmap import map_changes
-from codetortoise.facts.model import Facts
+from codetortoise.facts.model import Facts, relative_records
 from codetortoise.facts.runner import build_requests, parse_summary, run_extraction
 from codetortoise.impact import ImpactModel, build_impact
 from codetortoise.llm.storyboard import build_storyboard
@@ -190,6 +190,7 @@ def run_review(rid: int, svc: Services) -> None:
             ctx["sel"].hops.update({p: 1 for p in extra})
             store.put_blob(rid, "selection", ctx["sel"])
             note = f"; {len(extra)} follow-up TU(s) for fields written by the change"
+        relative_records(before + after, canon(str(cfg.workspace.root)))
         ctx["before"], ctx["after"] = before, after
         store.put_blob(rid, "facts_before", before)
         store.put_blob(rid, "facts_after", after)
