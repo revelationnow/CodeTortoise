@@ -79,3 +79,20 @@ def test_swarm_posts_and_kv(store):
     assert [p["swarm_id"] for p in store.swarm_posts(1, 7)] == ["99"]
     store.kv_put("x", {"a": 1})
     assert store.kv_get("x") == {"a": 1} and store.kv_get("y") is None
+
+
+def test_an_existing_database_gains_ai_meta(tmp_path):
+    import sqlite3
+
+    from codetortoise.store import Store
+    db = tmp_path / "old.db"
+    s = Store(db)
+    rid = s.create_review("old", "owner", [101])
+    s.add_comment(rid, "bob", "a comment from before @tortoise", "review", {}, None)
+    s._db.close()
+    with sqlite3.connect(db) as raw:                          # the table as databases made before @tortoise had it
+        raw.execute("ALTER TABLE comments DROP COLUMN ai_meta")
+    s = Store(db)
+    [c] = s.list_comments(rid)
+    assert c["body"] == "a comment from before @tortoise" and c["ai_meta"] is None
+    assert s.set_ai_reply(c["id"], "x", {"pending": False})["ai_meta"] == {"pending": False}

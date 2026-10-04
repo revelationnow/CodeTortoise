@@ -6,6 +6,8 @@ from what the review stored; the result is stored with the review (the board, th
 from __future__ import annotations
 
 import difflib
+import hashlib
+import json
 import threading
 from datetime import UTC, datetime
 
@@ -34,6 +36,11 @@ class Unchecked(ValueError):
     """The AI answered, but its answer didn't cite the item's code or keep the house style; nothing is stored."""
 
 
+class Changed(ValueError):
+    """The review changed (a re-run) while the AI was answering; the answer is about the old change and isn't stored."""
+
+
+CHANGED = "the review changed while the AI was answering; nothing was changed. Ask again"
 UNCHECKED = "the AI's answer didn't pass the checks (citations or house style); nothing was changed. Try again"
 
 
@@ -89,39 +96,68 @@ def file_job(ctx: AiContext, board: Board, cs: ChangeSet, path: str, summaries: 
 
 
 def explain(svc: Services, rid: int, user: str, kind: str, target: str) -> None:
-    """Run one explanation as `user` and store it. Raises NotFound, Refused (over a limit) or the LLM's error."""
+    """Run one explanation as `user` and store it. Raises NotFound, Refused (over a limit), Unchecked, Changed or the
+    LLM's error. The AI call runs without the review's lock (other explanations go on meanwhile); the result is
+    stored under it, onto the review as it is then, and only if the change is still the one the AI saw."""
     if svc.llm is None or svc.ledger is None:
         raise RuntimeError("no LLM configured")
-    with _lock(rid):
-        ctx, board, findings, cs = context_for(svc, rid)
-        if kind == "flow":
-            fl = next((f for f in board.flows if f.id == target), None)
-            if fl is None:
-                raise NotFound(f"flow {target} not found")
-            trial = fl.model_copy(update={"what_source": "template"})
-            run_job(svc.llm, flow_job(ctx, trial), svc.ledger, rid, user)
-            if trial.what_source != "llm":
-                raise Unchecked(UNCHECKED)
-            board.flows[board.flows.index(fl)] = trial
+    ctx, board, findings, cs = context_for(svc, rid)
+    seen = _fingerprint(svc, rid)
+    if kind == "flow":
+        fl = next((f for f in board.flows if f.id == target), None)
+        if fl is None:
+            raise NotFound(f"flow {target} not found")
+        trial = fl.model_copy(update={"what_source": "template"})
+        run_job(svc.llm, flow_job(ctx, trial), svc.ledger, rid, user)
+        if trial.what_source != "llm":
+            raise Unchecked(UNCHECKED)
+        with _lock(rid):
+            _same(svc, rid, seen)
+            board = Board.model_validate(svc.store.get_blob(rid, "board") or {"about": {"intent": ""}})
+            now = next((f for f in board.flows if f.id == target and f.path == fl.path), None)
+            if now is None:
+                raise Changed(CHANGED)
+            now.what, now.what_source, now.what_files, now.title = trial.what, "llm", trial.what_files, trial.title
+            findings = svc.store.list_findings(rid)
             svc.store.put_blob(rid, "board", tag_board(board, {f.id: f.files for f in findings}))
-        elif kind == "finding":
-            f = next((f for f in findings if f.id == target), None)
-            if f is None:
-                raise NotFound(f"finding {target} not found")
-            trial = f.model_copy(update={"explanation": None})
-            run_job(svc.llm, finding_job(ctx, trial), svc.ledger, rid, user)
-            if not trial.explanation:
-                raise Unchecked(UNCHECKED)
-            findings[findings.index(f)] = trial
+    elif kind == "finding":
+        f = next((f for f in findings if f.id == target), None)
+        if f is None:
+            raise NotFound(f"finding {target} not found")
+        trial = f.model_copy(update={"explanation": None})
+        run_job(svc.llm, finding_job(ctx, trial), svc.ledger, rid, user)
+        if not trial.explanation:
+            raise Unchecked(UNCHECKED)
+        with _lock(rid):
+            _same(svc, rid, seen)
+            findings = svc.store.list_findings(rid)                     # as they are now (states may have changed)
+            now = next((x for x in findings if x.id == target and x.kind == f.kind and x.title == f.title), None)
+            if now is None:
+                raise Changed(CHANGED)
+            for k in ("explanation", "verify_steps", "hypotheses", "explain_files"):
+                setattr(now, k, getattr(trial, k))
             svc.store.put_findings(rid, findings)
-        elif kind == "file":
-            summaries, fresh = svc.store.get_blob(rid, "file_summaries") or {}, {}
-            run_job(svc.llm, file_job(ctx, board, cs, target, fresh, user), svc.ledger, rid, user)
-            if not fresh.get(target, {}).get("summary"):
-                raise Unchecked(UNCHECKED)
+    elif kind == "file":
+        fresh: dict = {}
+        run_job(svc.llm, file_job(ctx, board, cs, target, fresh, user), svc.ledger, rid, user)
+        if not fresh.get(target, {}).get("summary"):
+            raise Unchecked(UNCHECKED)
+        with _lock(rid):
+            _same(svc, rid, seen)
+            summaries = svc.store.get_blob(rid, "file_summaries") or {}
             svc.store.put_blob(rid, "file_summaries", {**summaries, **fresh})
-        else:
-            raise NotFound(f"unknown kind {kind}")
+    else:
+        raise NotFound(f"unknown kind {kind}")
+
+
+def _fingerprint(svc: Services, rid: int) -> str:
+    """What the AI was shown: the review's change set (a re-run on a new shelve changes it)."""
+    return hashlib.sha256(json.dumps(svc.store.get_blob(rid, "changeset"), sort_keys=True).encode()).hexdigest()
+
+
+def _same(svc: Services, rid: int, seen: str) -> None:
+    if _fingerprint(svc, rid) != seen:
+        raise Changed(CHANGED)
 
 
 def check_target(svc: Services, rid: int, kind: str, target: str) -> None:

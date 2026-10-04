@@ -104,8 +104,10 @@ def test_the_ai_view_reports_limits_and_calls(ai):
     svc.cfg.llm.budget = LlmBudget(per_review=200, per_person_daily=100, per_mention=6)
     u = owner.get(f"/api/reviews/{rid}/ai").json()
     assert (u["budget"], u["me_limit"], u["per_mention"], u["llm"]) == (200, 100, 6, True)
-    assert [c["purpose"] for c in u["calls"]] == ["flow", "summary"]
-    assert all(c["prompt_tokens"] == 1000 for c in u["calls"])
+    assert "calls" not in u                                            # polled often: the list is fetched apart
+    calls = owner.get(f"/api/reviews/{rid}/ai/calls").json()
+    assert [c["purpose"] for c in calls] == ["flow", "summary"]
+    assert all(c["prompt_tokens"] == 1000 for c in calls)
     h = owner.get("/api/health").json()                               # + layer naming, once per index
     assert h["ai"]["calls_today"] == 3 and h["ai"]["limits"] == {"per_review": 200, "per_person_daily": 100,
                                                                  "per_mention": 6}
@@ -178,3 +180,82 @@ def test_a_rerun_drops_file_summaries_of_the_old_diff(ai):
     assert owner.get(f"/api/reviews/{rid}/ai").json()["file_summaries"]
     assert owner.post(f"/api/reviews/{rid}/rerun").status_code in (200, 202)
     assert owner.get(f"/api/reviews/{rid}/ai").json()["file_summaries"] == {}
+
+
+def _blocking_first_flow(monkeypatch):
+    """The first flow narrative waits until released; every other answer is immediate."""
+    import threading
+    release, waiting, good = threading.Event(), threading.Event(), _reply
+    state = {"first": True}
+
+    def reply(user):
+        if "Describe this call flow" in user and state["first"]:
+            state["first"] = False
+            waiting.set()
+            release.wait(30)
+        return good(user)
+    monkeypatch.setitem(globals(), "_reply", reply)
+    return waiting, release
+
+
+def test_an_explanation_waiting_on_the_ai_does_not_hold_up_others_on_the_review(ai, monkeypatch):
+    import threading
+
+    from codetortoise.llm import ondemand
+    svc, app, owner, rid, _ = ai
+    a, b = [f["id"] for f in owner.get(f"/api/reviews/{rid}/board").json()["flows"][-2:]]
+    waiting, release = _blocking_first_flow(monkeypatch)
+    slow = threading.Thread(target=ondemand.explain, args=(svc, rid, "bob", "flow", a))
+    slow.start()
+    assert waiting.wait(10)
+    fast = threading.Thread(target=ondemand.explain, args=(svc, rid, "carol", "finding", "F1"))
+    fast.start()
+    fast.join(10)
+    try:
+        assert not fast.is_alive()                     # it didn't wait for the slow call
+    finally:
+        release.set()
+        slow.join(30)
+    flows = {f["id"]: f for f in owner.get(f"/api/reviews/{rid}/board").json()["flows"]}
+    f1 = next(f for f in owner.get(f"/api/reviews/{rid}/findings").json() if f["id"] == "F1")
+    assert flows[a]["what_source"] == "llm" and f1["explanation"]          # both results kept: neither overwrote the other
+    assert flows[b]["what_source"] == "template"
+
+
+def test_an_answer_for_a_review_that_changed_meanwhile_is_dropped(ai, monkeypatch):
+    import threading
+
+    from codetortoise.llm import ondemand
+    svc, app, owner, rid, _ = ai
+    a = owner.get(f"/api/reviews/{rid}/board").json()["flows"][-1]["id"]
+    waiting, release = _blocking_first_flow(monkeypatch)
+    errors = []
+
+    def run():
+        try:
+            ondemand.explain(svc, rid, "bob", "flow", a)
+        except Exception as e:
+            errors.append(e)
+    t = threading.Thread(target=run)
+    t.start()
+    assert waiting.wait(10)
+    cs = svc.store.get_blob(rid, "changeset")                   # a re-run on a new shelve replaced the change
+    cs["files"][0]["after"] += "\n/* reshelved */\n"
+    svc.store.put_blob(rid, "changeset", cs)
+    release.set()
+    t.join(30)
+    assert errors and "changed while" in str(errors[0])
+    assert next(f for f in owner.get(f"/api/reviews/{rid}/board").json()["flows"] if f["id"] == a)["what_source"] == "template"
+
+
+def test_asking_for_an_item_already_being_explained_joins_that_job(ai):
+    svc, app, owner, rid, _ = ai
+    runner = InlineRunner(svc)
+    app2 = create_app(svc, runner, make_authenticator(svc))
+    bob = login(app2, "bob")
+    flow = owner.get(f"/api/reviews/{rid}/board").json()["flows"][-1]["id"]
+    running = {"id": 7, "user": "carol", "kind": "flow", "target": flow, "status": "running", "error": None}
+    runner.ai_jobs[rid] = [running]
+    before = svc.ledger.used(rid)
+    r = bob.post(f"/api/reviews/{rid}/explain", json={"kind": "flow", "target": flow})
+    assert r.status_code == 202 and r.json()["id"] == 7 and svc.ledger.used(rid) == before   # no second call

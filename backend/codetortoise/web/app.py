@@ -260,6 +260,10 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
             ondemand.check_target(svc, rid, body.kind, body.target)
         except ondemand.NotFound as e:
             raise HTTPException(404, str(e)) from e
+        same = next((j for j in runner.ai_jobs.get(rid, []) if j["status"] == "running" and j["kind"] == body.kind
+                     and j["target"] == body.target), None)
+        if same:                                       # someone is already asking: share that answer, pay once
+            return same
         reason = svc.ledger.check(rid, user)
         if reason:
             raise HTTPException(429, reason)
@@ -272,9 +276,15 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         b = cfg.llm.budget
         u = svc.ledger.usage(rid) if svc.ledger else {"used": 0, "budget": b.per_review, "by_person": {},
                                                       "by_purpose": {}, "calls": []}
+        u.pop("calls", None)                           # polled while work is pending; the list is /ai/calls
         return {**u, "llm": svc.llm is not None, "me_today": svc.ledger.person_today(user) if svc.ledger else 0,
                 "me_limit": b.per_person_daily, "per_mention": b.per_mention, "is_owner": user == cfg.owner,
                 "jobs": runner.ai_jobs.get(rid, []), "file_summaries": store.get_blob(rid, "file_summaries") or {}}
+
+    @app.get("/api/reviews/{rid}/ai/calls")
+    def ai_calls(rid: int, _: str = Depends(user_of)):
+        review_or_404(rid)
+        return svc.ledger.usage(rid)["calls"] if svc.ledger else []
 
     @app.put("/api/reviews/{rid}/ai/budget")
     def ai_budget(rid: int, body: BudgetIn, user: str = Depends(owner_of)):
