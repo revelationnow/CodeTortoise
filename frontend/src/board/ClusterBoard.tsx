@@ -48,10 +48,11 @@ export default function ClusterBoard({ reviewId, ov, cid, files, comments, onCom
   const go = (to: string) => navigate(`/r/${reviewId}/c/${to}`);
   const nav = (
     <span className="bd-crumb">
-      <Link to={`/r/${reviewId}`}>Overview</Link> › <b>{info?.name ?? cid}</b>
+      <Link to={`/r/${reviewId}`}>Overview</Link><span className="sep"> › </span><b>{info?.name ?? cid}</b>
       <button className="bd-ibtn" aria-label="Previous cluster" onClick={() => go(stepCluster(ov, cid, -1))}>‹</button>
       <span className="pos">{cid} of {ov.clusters.length}</span>
       <button className="bd-ibtn" aria-label="Next cluster" onClick={() => go(stepCluster(ov, cid, 1))}>›</button>
+      {info && <span className="bd-pill ghost">{info.flows} flows · {info.findings} finding{info.findings === 1 ? "" : "s"}</span>}
     </span>
   );
   const cluster = {
@@ -63,7 +64,8 @@ export default function ClusterBoard({ reviewId, ov, cid, files, comments, onCom
   if (error)
     return (
       <main className="page">
-        <div className="banner warn">{error} <Link to={`/r/${reviewId}`}>Back to the overview</Link></div>
+        <div className="banner warn">{error} {expansion.onReset && <button className="link" onClick={expansion.onReset}>Reset</button>}
+          {" "}<Link to={`/r/${reviewId}`}>Back to the overview</Link></div>
       </main>
     );
   if (!board) return <main className="page muted">Loading {info?.name ?? cid}…</main>;

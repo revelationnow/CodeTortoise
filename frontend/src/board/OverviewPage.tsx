@@ -2,7 +2,7 @@ import { type ReactNode, useState } from "react";
 import type { Comment } from "../api";
 import "./board.css";
 import ChangePanel from "./ChangePanel";
-import { bandsOf, clusterOfFile, linkedTo, linkLines } from "./overview";
+import { bandsOf, clusterOfFile, linkedTo, linkLines, nearestCluster } from "./overview";
 import { keys, loadAboutOpen, loadWidth, save } from "./prefs";
 import type { Action } from "./reducer";
 import type { Overview } from "./types";
@@ -26,9 +26,9 @@ export default function OverviewPage({ reviewId, ov, comments, onComments, risk,
   const [aboutW, setAboutW] = useState(() => loadWidth(keys.aboutW, 360));
   const lit = sel ? linkedTo(ov, sel) : new Set<string>();
   const t = ov.totals;
-  const dispatch = (a: Action) => {                       // the panel's file tree opens the file's cluster board
+  const dispatch = (a: Action) => {                       // the panel's file tree opens the file's (or nearest) cluster board
     if (a.t !== "viewer.open") return;
-    const c = clusterOfFile(ov, a.path);
+    const c = nearestCluster(ov, a.path);
     if (c) onOpen(c, a.path);
   };
   return (

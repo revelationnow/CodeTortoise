@@ -214,3 +214,12 @@ test("a single board gets +N callees too, and Reset takes them away", async ({ p
   await page.getByRole("button", { name: `${before + 1} nodes · Reset` }).click();
   await expect(page.locator(".bd-node")).toHaveCount(before);
 });
+
+test("a cluster address on a review shown as one board links to that board", async ({ page }) => {
+  await startReview(page);
+  const board = page.url().replace(/[?#].*$/, "");
+  await page.goto(`${board}/c/C1`);
+  await expect(page.getByText("This review is shown as one board.")).toBeVisible();
+  await page.getByRole("link", { name: "Open the board" }).click();
+  await expect(page.getByRole("tablist", { name: "Call flows" })).toBeVisible();
+});

@@ -45,3 +45,19 @@ export function clusterOfFile(ov: Overview, path: string): string | null {
 export function addExpansion(list: string[], id: string, way: "callers" | "callees"): string[] {
   return [...list, `${id}:${way}`];
 }
+
+/** The cluster to open for a file of the change: its own, or (a file with no changed function, such as a header of
+ * macros) the one whose code shares the most directory with it, the riskiest on a tie. */
+export function nearestCluster(ov: Overview, path: string): string | null {
+  const own = clusterOfFile(ov, path);
+  if (own || !ov.clusters.length) return own;
+  const dir = (p: string) => p.split("/").slice(0, -1);
+  const shared = (a: string[], b: string[]) => { let i = 0; while (i < a.length && i < b.length && a[i] === b[i]) i++; return i; };
+  const mine = dir(path);
+  let best = ov.clusters[0].id, most = -1;
+  for (const c of ov.clusters) {
+    const n = Math.max(-1, ...c.files.map((f) => shared(mine, dir(f))));
+    if (n > most) { best = c.id; most = n; }
+  }
+  return best;
+}
