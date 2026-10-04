@@ -78,3 +78,26 @@ def test_put_story_rewrites_the_story_and_its_entry_in_the_list(tmp_path):
     boardstore.put_story(store, rid, d)
     assert [s.title for s in boardstore.stories(store, rid).stories] == ["t1", "better"]
     assert boardstore.story(store, rid, "S2").story.text_source == "llm"
+
+
+def test_a_story_shows_the_flow_narratives_of_the_boards_holding_its_flows(tmp_path):
+    from codetortoise.board import Flow
+    from codetortoise.stories import Story, StoryDetail, StorySet
+
+    def flow(what: str, source: str) -> Flow:
+        return Flow(id="FL1", path=["N1", "N2"], tag="state", lands="N2", severity="warn", text="a ⟶ b", title="t",
+                    what=what, effect="e", check="c", what_source=source)
+    store = Store(tmp_path / "s.db")
+    rid = store.create_review("t", "owner", [1])
+    st = Story(id="S1", kind="behaviour", title="t", summary="s", flows=["FL1"])
+    copy = Board(about=About(intent="i"), flows=[flow("template text", "template")])
+    bs = BoardSet(board=Board(about=About(intent="i"), flows=[flow("template text", "template")]),
+                  stories=StorySet(summary="x", stories=[st]))
+    bs.story_details = {"S1": StoryDetail(story=st, board=copy, graph=copy.model_copy(deep=True))}
+    boardstore.save(store, rid, bs, {})
+    b = boardstore.board(store, rid)
+    b.flows[0].what, b.flows[0].what_source, b.flows[0].title = "the AI's narrative", "llm", "AI title"   # explained later
+    boardstore.put(store, rid, None, b)
+    d = boardstore.story(store, rid, "S1")
+    for fl in (d.board.flows[0], d.graph.flows[0]):
+        assert (fl.what, fl.what_source, fl.title) == ("the AI's narrative", "llm", "AI title")

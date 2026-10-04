@@ -165,6 +165,21 @@ def test_a_function_defined_twice_in_one_file_is_read_at_the_definition_that_cha
     assert m.nodes == ["N1", "N2"] and [s.line for s in det[m.id].sites] == [4, 9]
 
 
+def test_overloads_in_one_file_each_count_only_their_own_sites():
+    c = _world([_mech("put", "src/p.cpp"), _mech("put2", "src/p.cpp")])
+    for fx in (c.before[0], c.after[0]):                      # put(long) beside put(int): one name, two definitions
+        for f in fx.functions:
+            if f.name == "put2":
+                f.qualname, f.name, f.usr = "put", "put", "c:@F@put#l"
+    c.impact.nodes["N2"].key = "c:@F@put#l"
+    for d in c.dm.functions:
+        if d.name == "put2":
+            d.qualname, d.name = "put", "put"
+    ss, det = build_stories(c)
+    (m,) = _by_kind(ss, "mechanical")
+    assert m.counts["sites"] == 2 and [s.line for s in det[m.id].sites] == [4, 9]
+
+
 def test_the_summary_says_mostly_mechanical_when_repeated_edits_are_half_the_changed_lines():
     ss, _ = build_stories(_world([_mech("free_a", "src/a.c"), _mech("free_b", "src/b.c"),
                                   ("f", "src/c.c", ["y = 1;"], ["y = 2;"])]))
@@ -352,6 +367,26 @@ def test_every_changed_function_flow_and_finding_is_in_exactly_one_story():
     assert len(flows) == len(set(flows)) and set(flows) == set(ss.flow_story)
     found = [f for s in ss.stories for f in s.findings]
     assert sorted(found) == ["F1", "F2", "F3", "F4", "F5"]
+
+
+def test_test_code_that_causes_a_flow_is_in_its_behaviour_story_only():
+    c = _world([_edit("test_set", "tests/t.c"), _same("peek", "src/b.c"), _edit("test_other", "tests/t.c")],
+               fields=[("test_set", "R", "v", "write", "added"), ("peek", "R", "v", "read", "unchanged")])
+    ss, _ = build_stories(c)
+    homes = [n for s in ss.stories for n in s.nodes]
+    assert sorted(homes) == sorted(c.impact.changed) and len(homes) == len(set(homes))
+    assert [(s.kind, s.nodes) for s in ss.stories] == [("behaviour", ["N1"]), ("tests", ["N3"])]
+
+
+def test_a_finding_on_the_flows_of_two_stories_is_in_the_riskier_one_only():
+    from codetortoise.detectors.base import Finding
+    c = _world([_edit("set_v", "src/a.c"), _edit("set_w", "src/a.c"), _same("peek", "src/b.c")],
+               fields=[("set_v", "R", "v", "write", "added"), ("set_w", "R", "w", "write", "added"),
+                       ("peek", "R", "v", "read", "unchanged"), ("peek", "R", "w", "read", "unchanged")])
+    c.findings = [Finding(id="F1", kind="field_mutation", severity="high", title="t", summary="s", nodes=["N1", "N2"])]
+    ss, _ = build_stories(c)
+    assert [s.kind for s in ss.stories] == ["behaviour", "behaviour"]
+    assert [f for s in ss.stories for f in s.findings] == ["F1"] and ss.finding_story["F1"] == ss.stories[0].id
 
 
 def test_other_changes_spread_over_the_workspace_are_named_by_their_main_directories():

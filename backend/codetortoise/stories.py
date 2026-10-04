@@ -210,10 +210,14 @@ def build_stories(c: BoardContext, home: dict[str, str] | None = None) -> tuple[
             seeds[key].members.append(cause)
     for d in seeds.values():
         d.findings = sorted({f for fl in d.flows for f in fl.findings})
+    taken: set[str] = set()                                   # a finding on two seeds' flows goes with the riskier
+    for d in sorted(seeds.values(), key=lambda d: d.rank(sev)):
+        d.findings = [f for f in d.findings if f not in taken]
+        taken |= set(d.findings)
 
     # 3. join the rest of the changed code to the nearest seed; "Other changes" for what no seed reaches
-    tests = [n for n in changed if is_test(n) and n not in mech_of]
     seeded = {d.cause for d in seeds.values() if d.cause}
+    tests = [n for n in changed if is_test(n) and n not in mech_of and n not in seeded]   # test code causing a flow: its story
     rest = [n for n in changed if n not in mech_of and n not in seeded and n not in tests]
     walk = set(rest) | seeded
     adj: dict[str, set[str]] = defaultdict(set)
@@ -369,6 +373,8 @@ def _spans(x: _Ctx, nid: str) -> list[tuple]:
     out = [(texts[d.file], d.before_lines, d.after_lines) for d in x.c.dm.functions
            if d.qualname == fa.qualname and d.file in (fa.file, fb.file) and d.before_lines and d.after_lines
            and d.file in texts]
+    own = [o for o in out if o[2][0] <= fa.start_line <= o[2][1]]     # overloads share a name: each reads its own span
+    out = own or out
     if not out and fa.file in texts:
         out = [(texts[fa.file], (fb.start_line, fb.end_line), (fa.start_line, fa.end_line))]
     return out
