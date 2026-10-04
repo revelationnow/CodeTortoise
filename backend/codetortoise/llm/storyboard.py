@@ -287,6 +287,7 @@ def story_job(ctx: AiContext, d: StoryDetail) -> Job:
         if not (0 < len(title) <= 80 and _styled(title, "headline") and _styled(summary, "explanation")):
             return 1
         st.title, st.summary, st.text_source = title, summary, "llm"
+        st.text_files = ctx.prompt_files(nodes, st.findings)
         return 0
     prompt = ("Retell this change story for a reviewer: a title of at most 10 words saying what changed and who is "
               "affected, and a summary of 1-2 sentences. Cite the node and finding ids you rely on.\n"

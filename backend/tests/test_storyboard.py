@@ -304,3 +304,20 @@ def test_a_story_answer_that_cites_nothing_of_the_story_keeps_the_template():
         return _respond(lambda u: {"what": "w", "cites": []})(system, user)
     build_storyboard(im, findings, layers, {}, fake_llm(respond), board=_board(0), stories=details, upfront_stories=3)
     assert details[0].story.text_source == "template" and details[0].story.title == "template 1"
+
+
+def test_a_retold_story_records_the_files_behind_its_prompt():
+    im, findings, layers = model()
+    findings[0].files = ["//w/d/uart.c"]
+    node_files = {"N1": ["//w/hal/regs.c"], "N2": ["//w/d/uart.c"], "N3": ["//w/svc/logger.c"]}
+    details = _story_details(2)
+
+    def respond(system, user):
+        if "Retell this change story" in user:
+            return {"title": "logger_flush drops -2", "summary": "uart_send can now return -2 and logger_flush drops it.",
+                    "cites": ["N3"]}
+        return _respond(lambda u: {"what": "w", "cites": []})(system, user)
+    build_storyboard(im, findings, layers, {}, fake_llm(respond), board=_board(0), stories=details, upfront_stories=1,
+                     node_files=node_files)
+    assert details[0].story.text_files == ["//w/d/uart.c", "//w/svc/logger.c"]     # its code, its flow's and F1's
+    assert details[1].story.text_source == "template" and details[1].story.text_files is None

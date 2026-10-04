@@ -152,7 +152,7 @@ def explain(svc: Services, rid: int, user: str, kind: str, target: str) -> None:
         if d is None:
             raise NotFound(f"story {target} not found")
         trial = d.model_copy(deep=True)
-        trial.story.text_source = "template"
+        trial.story.text_source, trial.story.text_files = "template", None
         run_job(svc.llm, story_job(ctx, trial), svc.ledger, rid, user)
         if trial.story.text_source != "llm":
             raise Unchecked(UNCHECKED)
@@ -162,6 +162,7 @@ def explain(svc: Services, rid: int, user: str, kind: str, target: str) -> None:
             if now is None or now.story.nodes != d.story.nodes or now.story.flows != d.story.flows:
                 raise Changed(CHANGED)
             now.story.title, now.story.summary, now.story.text_source = trial.story.title, trial.story.summary, "llm"
+            now.story.text_files = trial.story.text_files
             boardstore.put_story(svc.store, rid, now)
     elif kind == "file":
         fresh: dict = {}

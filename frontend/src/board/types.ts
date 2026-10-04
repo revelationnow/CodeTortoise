@@ -58,6 +58,8 @@ export interface SourceText { path: string; depot: string; rev: string; text: st
 export type StoryKind = "behaviour" | "other" | "mechanical" | "tests";
 export interface Story {
   id: string; kind: StoryKind; title: string; summary: string; text_source: "template" | "llm"; risk: string | null;
+  /** AI text: the files whose code was in its prompt (null: unknown). */
+  text_files?: string[] | null;
   counts: Partial<Record<"flows" | "findings" | "functions" | "files" | "sites" | "test_sites", number>>;
   nodes: string[]; flows: string[]; findings: string[]; board: string | null;
   sub: [string, string] | null; subs: [string, string][]; collapsed: boolean;
