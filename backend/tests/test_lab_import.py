@@ -140,7 +140,63 @@ def test_import_into_a_throwaway_p4d_with_catch_up_and_a_shelve(project, tmp_pat
         again = run("--repo", str(src), "--base", base, "--depot", "//depot/proj", "--workspace", str(tmp_path / "ws2"),
                     "--client", "proj-ws2", "--port", port, env=env)
         assert again.returncode != 0 and "already has files" in again.stderr
+        same = run("--repo", str(src), "--base", base, "--depot", "//depot/other", "--workspace", str(tmp_path / "ws3"),
+                   "--client", "proj-ws", "--port", port, env=env)                # an existing client is left alone
+        assert same.returncode != 0 and "client proj-ws already exists" in same.stderr
+        assert p4("-ztag", "-F", "%Root%", "client", "-o", "proj-ws").strip() == str(ws)
     finally:
         pid = root / "p4d.pid"
         if pid.exists():
             os.kill(int(pid.read_text()), signal.SIGTERM)
+
+
+def load_script():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("p4_import", SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod                       # its dataclasses look the module up
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_submodules_are_not_imported_as_files(tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    git(src, "init", "-q", "-b", "main")
+    git(src, "config", "user.email", "lab@example.com")
+    git(src, "config", "user.name", "lab")
+    write(src, "a.c", "int a;\n")
+    base = commit(src, "base")
+    write(src, "b.c", "int b;\n")
+    git(src, "add", "b.c")
+    git(src, "update-index", "--add", "--cacheinfo", f"160000,{base},deps/sub")      # a submodule (gitlink)
+    git(src, "commit", "-q", "-m", "add b and a submodule")
+    end = git(src, "rev-parse", "HEAD")
+    assert "160000 commit" in git(src, "ls-tree", "-r", end)
+    m = load_script()
+    g = m.Git(str(src), None)
+    assert [c.path for c in g.diff(base, end)] == ["b.c"]
+    assert [c.path for c in g.files(end)] == ["a.c", "b.c"]
+
+
+def test_a_started_p4d_whose_setup_fails_still_says_how_to_stop_it(tmp_path, monkeypatch, capsys):
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    mark = tmp_path / "up"
+    (bin_ / "p4d").write_text(f"#!/bin/sh\ntouch {mark}\nexec sleep 60\n")
+    (bin_ / "p4").write_text(f'#!/bin/sh\ncase "$*" in *" info") [ -e {mark} ] && exit 0; exit 1;;\n'
+                             '*passwd*) echo "Password invalid." >&2; exit 1;; esac\nexit 0\n')
+    for f in bin_.iterdir():
+        f.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_}:{os.environ['PATH']}")
+    root = tmp_path / "root"
+    m = load_script()
+    try:
+        with pytest.raises(SystemExit):
+            m.ensure_server("127.0.0.1:1", str(root), "pw")
+        pid = (root / "p4d.pid").read_text().strip()
+        out = capsys.readouterr()
+        assert "Password invalid" in out.err and f"kill {pid}" in out.out + out.err
+    finally:
+        if (root / "p4d.pid").exists():
+            os.kill(int((root / "p4d.pid").read_text()), signal.SIGTERM)
