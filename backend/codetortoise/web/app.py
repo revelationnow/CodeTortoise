@@ -48,7 +48,7 @@ class FindingStateIn(BaseModel):
 
 
 class ExplainIn(BaseModel):
-    kind: Literal["flow", "finding", "file"]
+    kind: Literal["flow", "finding", "file", "story"]
     target: str = Field(min_length=1, max_length=2000)
 
 

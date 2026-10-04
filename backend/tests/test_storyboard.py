@@ -263,3 +263,44 @@ def test_a_flow_title_that_breaks_the_headline_rules_keeps_the_template_title():
                    "cites": ["N3"]})), board=board)
     assert board.flows[0].what == "logger_flush drops -2." and board.flows[0].title == "template title"
     assert sb.style_dropped == 1
+
+
+def _story_details(n=2):
+    from codetortoise.stories import Story, StoryDetail
+    out = []
+    for i in range(1, n + 1):
+        st = Story(id=f"S{i}", kind="behaviour", title=f"template {i}", summary="template summary", nodes=["N3"],
+                   flows=["FL1"], findings=["F1"])
+        out.append(StoryDetail(story=st, board=_board(1)))
+    return out
+
+
+def test_the_upfront_pass_retells_the_top_stories_only():
+    im, findings, layers = model()
+    details = _story_details(3)
+    asked = []
+
+    def respond(system, user):
+        asked.append(user)
+        if "Retell this change story" in user:
+            return {"title": "logger_flush drops -2", "summary": "uart_send can now return -2 and logger_flush drops it.",
+                    "cites": ["N3"]}
+        return _respond(lambda u: {"what": "w", "cites": []})(system, user)
+    build_storyboard(im, findings, layers, {}, fake_llm(respond), board=_board(0), stories=details, upfront_stories=2)
+    assert [d.story.text_source for d in details] == ["llm", "llm", "template"]
+    assert details[0].story.title == "logger_flush drops -2"
+    assert details[0].story.summary == "uart_send can now return -2 and logger_flush drops it."
+    prompt = next(u for u in asked if "Retell this change story" in u)
+    assert "template 1" in prompt and "logger_flush → uart_send" in prompt and "F1" in prompt
+
+
+def test_a_story_answer_that_cites_nothing_of_the_story_keeps_the_template():
+    im, findings, layers = model()
+    details = _story_details(1)
+
+    def respond(system, user):
+        if "Retell this change story" in user:
+            return {"title": "made up", "summary": "Something else entirely.", "cites": ["N99"]}
+        return _respond(lambda u: {"what": "w", "cites": []})(system, user)
+    build_storyboard(im, findings, layers, {}, fake_llm(respond), board=_board(0), stories=details, upfront_stories=3)
+    assert details[0].story.text_source == "template" and details[0].story.title == "template 1"

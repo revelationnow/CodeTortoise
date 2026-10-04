@@ -158,10 +158,12 @@ def test_llm_text_stored_by_a_review_records_its_prompt_files(fx, tmp_path):
     assert board["about"]["intent_source"] == "llm" and board["about"]["intent_files"] is None
     llm_flows = [f for f in board["flows"] if f["what_source"] == "llm"]
     assert llm_flows and all(f["what_files"] and set(f["files"]) <= set(f["what_files"]) for f in llm_flows)
-    # the up-front pass: the summary and the top 3 flows; findings are explained on demand (spec 2026-10-03 §3)
+    # the up-front pass: the summary, the top 3 flows and the top behaviour stories (the fixture has 2); findings are
+    # explained on demand (spec 2026-10-03 §3, 2026-10-04 §4)
     assert len(llm_flows) == 3 and all(f.explanation is None for f in svc.store.list_findings(rid))
     usage = svc.ledger.usage(rid)
-    assert usage["used"] == 4 and usage["by_purpose"] == {"flow": 3, "summary": 1} and usage["by_person"] == {"pipeline": 4}
+    assert usage["used"] == 6 and usage["by_purpose"] == {"flow": 3, "story": 2, "summary": 1}
+    assert usage["by_person"] == {"pipeline": 6}
 
 
 def test_the_llm_stage_reports_text_dropped_for_breaking_the_style(fx, tmp_path):

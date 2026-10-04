@@ -19,6 +19,9 @@ def _reply(user: str) -> dict:
                 "hypotheses": [{"text": "uart_errors may count twice.", "cites": ["N9"]}]}
     if "Describe this call flow" in user:
         return {"what": "main reaches uart_send through logger_flush.", "title": "flush drops -2", "cites": CITES}
+    if "Retell this change story" in user:
+        return {"title": "hal_write's new signature reaches uart_init", "summary": "uart_init calls hal_write.",
+                "cites": CITES}
     if "Summarise this file" in user:
         return {"summary": "uart.c now counts errors through an alias.", "check": ["Check uart_errors readers."],
                 "cites": ["N9"]}
@@ -40,6 +43,7 @@ def ai(fx, tmp_path):
     svc = make_services(fx, tmp_path, llm=llm)
     svc.cfg.llm.base_url = "http://llm/v1"
     svc.cfg.llm.upfront_flows = 1                                      # the fixture has 3 flows: leave 2 for later
+    svc.cfg.llm.upfront_stories = 1                                    # and 2 stories: leave 1
     app = create_app(svc, InlineRunner(svc), make_authenticator(svc))
     owner = login(app, "owner")
     rid = owner.post("/api/reviews", json={"cls": [101, 102]}).json()["id"]
@@ -74,15 +78,28 @@ def test_explaining_a_finding_and_summarising_a_file(ai):
     assert "uart_send" in prompt and "+" in prompt                    # the diff and the functions' facts
 
 
+def test_explaining_a_story_retells_its_title_and_summary_for_everyone(ai):
+    svc, app, owner, rid, seen = ai
+    ss = owner.get(f"/api/reviews/{rid}/stories").json()
+    assert [s["text_source"] for s in ss["stories"]] == ["llm", "template"]     # the up-front pass did the first
+    bob = login(app, "bob")
+    assert bob.post(f"/api/reviews/{rid}/explain", json={"kind": "story", "target": "S2"}).status_code == 202
+    s2 = owner.get(f"/api/reviews/{rid}/stories").json()["stories"][1]
+    assert s2["title"] == "hal_write's new signature reaches uart_init" and s2["text_source"] == "llm"
+    assert owner.get(f"/api/reviews/{rid}/stories/S2").json()["story"]["summary"] == "uart_init calls hal_write."
+    r = owner.post(f"/api/reviews/{rid}/explain", json={"kind": "story", "target": "S9"})
+    assert r.status_code == 404 and "S9" in r.json()["detail"]
+
+
 def test_explain_is_refused_over_the_budget_and_the_owner_raises_it(ai):
     svc, app, owner, rid, _ = ai
     bob = login(app, "bob")
     used = owner.get(f"/api/reviews/{rid}/ai").json()["used"]
-    assert used == 2                                                   # the up-front pass: 1 flow + the summary
+    assert used == 3                                                   # the up-front pass: 1 flow, 1 story, the summary
     assert bob.put(f"/api/reviews/{rid}/ai/budget", json={"budget": 10}).status_code == 403
     assert owner.put(f"/api/reviews/{rid}/ai/budget", json={"budget": used}).json()["budget"] == used
     r = bob.post(f"/api/reviews/{rid}/explain", json={"kind": "finding", "target": "F1"})
-    assert r.status_code == 429 and "this review has used its 2 AI calls" in r.json()["detail"]
+    assert r.status_code == 429 and "this review has used its 3 AI calls" in r.json()["detail"]
     owner.put(f"/api/reviews/{rid}/ai/budget", json={"budget": used + 5})
     assert bob.post(f"/api/reviews/{rid}/explain", json={"kind": "finding", "target": "F1"}).status_code == 202
 
@@ -106,10 +123,10 @@ def test_the_ai_view_reports_limits_and_calls(ai):
     assert (u["budget"], u["me_limit"], u["per_mention"], u["llm"]) == (200, 100, 6, True)
     assert "calls" not in u                                            # polled often: the list is fetched apart
     calls = owner.get(f"/api/reviews/{rid}/ai/calls").json()
-    assert [c["purpose"] for c in calls] == ["flow", "summary"]
+    assert [c["purpose"] for c in calls] == ["flow", "story", "summary"]
     assert all(c["prompt_tokens"] == 1000 for c in calls)
     h = owner.get("/api/health").json()                               # + layer naming, once per index
-    assert h["ai"]["calls_today"] == 3 and h["ai"]["limits"] == {"per_review": 200, "per_person_daily": 100,
+    assert h["ai"]["calls_today"] == 4 and h["ai"]["limits"] == {"per_review": 200, "per_person_daily": 100,
                                                                  "per_mention": 6}
 
 

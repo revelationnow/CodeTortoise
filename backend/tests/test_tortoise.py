@@ -24,7 +24,8 @@ class Script:
         user = json.loads(req.content)["messages"][1]["content"]
         if "Give each level" in user:                                                  # layer naming
             return self._reply({"layers": []})
-        if "Summarize the whole change" in user or "Describe this call flow" in user:   # the up-front pass
+        if any(k in user for k in ("Summarize the whole change", "Describe this call flow",
+                                   "Retell this change story")):                       # the up-front pass
             return self._reply({"summary": "s", "risk": "high", "cites": []} if "Summarize" in user
                                else {"what": "w", "cites": []})
         self.prompts.append(user)

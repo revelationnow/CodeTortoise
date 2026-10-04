@@ -9,6 +9,7 @@ llm:
   base_url: http://127.0.0.1:8797/v1
   model: fake
   upfront_flows: 1
+  upfront_stories: 0
 YAML
 export TORTOISE_LLM_KEY=fake
 exec $CMD serve --config "$DIR/tortoise.yaml"
