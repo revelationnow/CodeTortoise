@@ -2,8 +2,8 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError, type Comment, type FileChange } from "../api";
 import Board from "./Board";
-import { stepCluster } from "./overview";
-import { keys, loadExpand, save } from "./prefs";
+import { addExpansion, stepCluster } from "./overview";
+import { type BoardKey, keys, loadExpand, save } from "./prefs";
 import type { Board as BoardModel, Overview } from "./types";
 
 interface Props {
@@ -23,10 +23,9 @@ interface Props {
  * linking to their clusters, "+N callers" expansions kept in the page address (and remembered per cluster). */
 export default function ClusterBoard({ reviewId, ov, cid, files, comments, onComments, risk, head, reload }: Props) {
   const navigate = useNavigate();
-  const [params, setParams] = useSearchParams();
+  const [params] = useSearchParams();
   const prefKey = `${reviewId}.${cid}`;
-  const fromUrl = params.get("x");
-  const expand = useMemo(() => (fromUrl !== null ? fromUrl.split(",").filter(Boolean) : loadExpand(prefKey)), [fromUrl, prefKey]);
+  const { expand, expansion } = useExpansion(prefKey);
   const [board, setBoard] = useState<BoardModel | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -35,13 +34,15 @@ export default function ClusterBoard({ reviewId, ov, cid, files, comments, onCom
       .catch((e) => { if (live) setError(e instanceof ApiError && e.status === 404 ? e.message : String(e.message ?? e)); });
     return () => { live = false; };
   }, [reviewId, cid, expand, reload]);
-  const setExpand = useCallback((next: string[]) => {
-    save(keys.expand(prefKey), next);
-    const p = new URLSearchParams(params);
-    p.delete("node");
-    if (next.length) p.set("x", next.join(",")); else p.delete("x");
-    setParams(p, { replace: true });
-  }, [params, prefKey, setParams]);
+  const focus = params.get("node");
+  useEffect(() => {                                       // a node this board doesn't show: open the board that does
+    if (!board || !focus || board.nodes.some((n) => n.id === focus)) return;
+    let live = true;
+    api.locate(reviewId, { node: focus }).then(({ cluster }) => {
+      if (live && cluster && cluster !== cid) navigate(`/r/${reviewId}/c/${cluster}?node=${encodeURIComponent(focus)}`, { replace: true });
+    }).catch(() => {});
+    return () => { live = false; };
+  }, [board, focus, reviewId, cid, navigate]);
   const info = ov.clusters.find((c) => c.id === cid);
   const name = useCallback((id: string) => ov.clusters.find((c) => c.id === id)?.name ?? id, [ov]);
   const go = (to: string) => navigate(`/r/${reviewId}/c/${to}`);
@@ -69,9 +70,27 @@ export default function ClusterBoard({ reviewId, ov, cid, files, comments, onCom
   return (
     <main className="review board">
       <Board key={cid} reviewId={reviewId} board={board} files={files} comments={comments} onComments={onComments} risk={risk}
-             focus={params.get("node")} openPath={params.get("file")} head={head} cluster={cluster}
-             expansion={{ onExpand: (id, way) => setExpand([...expand.filter((x) => x !== `${id}:${way}`), `${id}:${way}`]),
-                          onReset: expand.length ? () => setExpand([]) : null }} />
+             focus={focus} openPath={params.get("file")} head={head} cluster={cluster}
+             expansion={expansion} />
     </main>
   );
+}
+
+/** "+N callers / callees" expansions of a board, kept in the page address (`?x=`) and remembered under `prefKey`. */
+export function useExpansion(prefKey: BoardKey) {
+  const [params, setParams] = useSearchParams();
+  const fromUrl = params.get("x");
+  const expand = useMemo(() => (fromUrl !== null ? fromUrl.split(",").filter(Boolean) : loadExpand(prefKey)), [fromUrl, prefKey]);
+  const setExpand = useCallback((next: string[]) => {
+    save(keys.expand(prefKey), next);
+    const p = new URLSearchParams(params);
+    p.delete("node");
+    if (next.length) p.set("x", next.join(",")); else p.delete("x");
+    setParams(p, { replace: true });
+  }, [params, prefKey, setParams]);
+  const expansion = useMemo(() => ({
+    onExpand: (id: string, way: "callers" | "callees") => setExpand(addExpansion(expand, id, way)),
+    onReset: expand.length ? () => setExpand([]) : null,
+  }), [expand, setExpand]);
+  return { expand, expansion };
 }

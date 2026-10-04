@@ -225,8 +225,11 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
 
     def expanded(rid: int, b: Board, expand: str) -> Board:
         """`expand` is "N12:callers,N9:callees": up to `analysis.expand_step` neighbours each, in order."""
+        parts = expand.split(",")
+        if len(parts) > 50:
+            raise HTTPException(400, f"{len(parts)} expansions is too many (50 at most): press Reset and start again")
         asks = []
-        for part in expand.split(",")[:20]:
+        for part in parts:
             nid, _, way = part.strip().partition(":")
             if way not in ("callers", "callees") or not nid:
                 raise HTTPException(400, f"bad expansion {part!r}: use <node>:callers or <node>:callees")

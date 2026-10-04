@@ -38,6 +38,7 @@ export default function OverviewPage({ reviewId, ov, comments, onComments, risk,
         <ChangePanel open={about} onToggle={() => { save(keys.about, !about); setAbout(!about); }} reviewId={reviewId}
                      comments={comments} onComments={onComments} layers={ov.layers} about={ov.about} sideEffects={[]} risk={risk}
                      openFiles={[]} dispatch={dispatch} wide={window.innerWidth > 1100} width={aboutW} onWidth={setAboutW}
+                     fileTag={(p) => { const c = clusterOfFile(ov, p); return c ? ov.clusters.find((x) => x.id === c)?.name ?? c : null; }}
                      onWidthDone={(w) => save(keys.aboutW, w)} />
         <div className="ov-bands" aria-label="Clusters">
           <p className="ov-lead">This change is split into {t.clusters} parts of connected code, riskiest first. Select one to see what

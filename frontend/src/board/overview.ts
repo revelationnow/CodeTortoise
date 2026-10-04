@@ -40,3 +40,8 @@ export function stepCluster(ov: Overview, id: string, dir: 1 | -1): string {
 export function clusterOfFile(ov: Overview, path: string): string | null {
   return ov.clusters.find((c) => c.files.includes(path))?.id ?? null;
 }
+
+/** The page address's expansions after one more "+N callers / callees": asking again adds the next neighbours. */
+export function addExpansion(list: string[], id: string, way: "callers" | "callees"): string[] {
+  return [...list, `${id}:${way}`];
+}
