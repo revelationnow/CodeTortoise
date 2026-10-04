@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bandsOf, clusterOfFile, linkLines, linkedTo, stepCluster } from "./overview";
+import { addExpansion, bandsOf, clusterOfFile, linkLines, linkedTo, stepCluster } from "./overview";
 import type { Overview } from "./types";
 
 const c = (id: string, name: string, level: number | null, over: Partial<Overview["clusters"][0]> = {}) => ({
@@ -51,5 +51,13 @@ describe("clusterOfFile", () => {
   it("finds the cluster whose changed code is in a file", () => {
     expect(clusterOfFile(ov, "//d/svc/logger.c")).toBe("C1");
     expect(clusterOfFile(ov, "//d/none.c")).toBeNull();
+  });
+});
+
+describe("addExpansion", () => {
+  it("asks again for the same node: each ask adds the next neighbours", () => {
+    expect(addExpansion([], "N12", "callers")).toEqual(["N12:callers"]);
+    expect(addExpansion(["N12:callers"], "N12", "callers")).toEqual(["N12:callers", "N12:callers"]);
+    expect(addExpansion(["N12:callers"], "N9", "callees")).toEqual(["N12:callers", "N9:callees"]);
   });
 });

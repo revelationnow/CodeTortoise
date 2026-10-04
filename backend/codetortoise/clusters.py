@@ -174,12 +174,23 @@ def cluster_change(im: ImpactModel, flows: list[_FlowLike], findings: list[Findi
                 clusters.remove(small)
                 merged = True
 
-    # 4. too many clusters: merge the smallest that share the most directory, past the budget if need be
+    # 4. too many clusters: merge the smallest that share the most directory, past the budget if need be; with too few
+    #    of those, join a function's flow groups back into one cluster
     over = 0
     while len(clusters) > max_clusters:
         cands = sorted([c for c in clusters if c.part is None], key=size)
         if len(cands) < 2:
-            break
+            split_fns = Counter(c.of for c in clusters if c.part is not None)
+            if not split_fns:
+                break
+            f, n = split_fns.most_common(1)[0]
+            parts = [c for c in clusters if c.part is not None and c.of == f]
+            at = clusters.index(parts[0])
+            clusters[at:at + 1] = [Cluster(members=[f], test=parts[0].test)]
+            for c in parts[1:]:
+                clusters.remove(c)
+            over += n - 1
+            continue
         a = cands[0]
         b = max(cands[1:], key=lambda c: (len(_shared(home_dir(a), home_dir(c))), -size(c)))
         b.members += a.members
@@ -218,15 +229,20 @@ def cluster_change(im: ImpactModel, flows: list[_FlowLike], findings: list[Findi
     for i, c in enumerate(clusters, 1):
         c.id = f"C{i}"
     home = {n: rename[k] for n, k in home.items()}
-    # nodes without a cluster of their own live where their directory's changed code lives
+    # nodes without a cluster of their own live on a board that shows them: the one with most changed code in their
+    # directory, else the first (riskiest)
     by_dir: dict[str, Counter] = defaultdict(Counter)
     for c in clusters:
         for m in c.members:
             by_dir[posixpath.dirname(file_of(m))][c.id] += 1
+    shown: dict[str, list[str]] = defaultdict(list)
     for c in clusters:
         for n in c.required:
-            if n not in home and file_of(n) and by_dir.get(posixpath.dirname(file_of(n))):
-                home[n] = by_dir[posixpath.dirname(file_of(n))].most_common(1)[0][0]
+            if n not in home:
+                shown[n].append(c.id)
+    for n, ids in shown.items():
+        near = by_dir.get(posixpath.dirname(file_of(n)), Counter()) if file_of(n) else Counter()
+        home[n] = max(ids, key=lambda cid: (near[cid], -ids.index(cid)))
     return Clustering(clusters=clusters, home=home, merged_over_limit=over)
 
 

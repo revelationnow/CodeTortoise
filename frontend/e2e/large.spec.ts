@@ -35,6 +35,8 @@ test.describe("a large change", () => {
     await expect(uart).toHaveClass(/sel/);
     await expect(block(page, "hal/regs")).toHaveClass(/lit/);
     await expect(block(page, "app/telemetry")).not.toHaveClass(/lit/);
+    // each file in the change's tree names its cluster
+    await expect(page.locator(".bd-about .tree .file", { hasText: "regs_a.c" }).locator(".ctag")).toHaveText("hal/regs");
   });
 
   test("a cluster's board: breadcrumb, ‹ › and back to the overview", async ({ page }) => {
@@ -78,6 +80,18 @@ test.describe("a large change", () => {
     await expect(page).toHaveURL(/x=N\d+(%3A|:)callers/);
     const reset = page.getByRole("button", { name: /nodes · Reset/ });
     await expect(reset).toHaveText(`${before + Math.min(n, 10)} nodes · Reset`);
+    const nodes = page.locator(".bd-node:has(.bd-go)");
+    for (let i = 0; i < 3; i++) await tap(nodes.nth(i).locator(".lbl"));        // three or more open code cards
+    await expect.poll(() => page.locator(".bd-card").count()).toBeGreaterThanOrEqual(3);
+    const r = (await reset.boundingBox())!;
+    const onTop = await page.evaluate(({ x, y }) => {                           // the newest card dragged over the toolbar
+      const cards = [...document.querySelectorAll<HTMLElement>(".bd-card")];
+      const top = cards.reduce((a, b) => (Number(getComputedStyle(b).zIndex) > Number(getComputedStyle(a).zIndex) ? b : a));
+      const stage = top.offsetParent!.getBoundingClientRect();
+      Object.assign(top.style, { left: `${x - stage.left - 20}px`, top: `${y - stage.top - 20}px`, transform: "none" });
+      return document.elementFromPoint(x, y)?.closest("button")?.textContent ?? null;
+    }, { x: r.x + r.width / 2, y: r.y + r.height / 2 });
+    expect(onTop).toMatch(/nodes · Reset/);
     await reset.click();
     await expect(page.locator(".bd-node")).toHaveCount(before);
     await expect(reset).toHaveCount(0);
@@ -91,6 +105,20 @@ test.describe("a large change", () => {
     await page.goto(`/r/${rid}?node=${regs.nodes[0]}`);
     await expect(page).toHaveURL(new RegExp(`/c/${regs.id}\\?node=${regs.nodes[0]}`));
     await expect(page.locator(".bd-crumb")).toContainText("hal/regs");
+  });
+
+  test("a node asked for on a board that doesn't show it opens the board that does", async ({ page }) => {
+    await startLarge(page);
+    const rid = page.url().match(/\/r\/(\d+)/)![1];
+    const ov = await (await page.request.get(`/api/reviews/${rid}/overview`)).json();
+    const regs = ov.clusters.find((c: { name: string }) => c.name === "hal/regs");
+    const shown = new Set((await (await page.request.get(`/api/reviews/${rid}/board?cluster=${regs.id}`)).json())
+      .nodes.map((n: { id: string }) => n.id));
+    const other = ov.clusters.find((c: { id: string; nodes: string[] }) => c.id !== regs.id && c.nodes.some((n) => !shown.has(n)));
+    const node = other.nodes.find((n: string) => !shown.has(n));
+    await page.goto(`/r/${rid}/c/${regs.id}?node=${node}`);
+    await expect(page).toHaveURL(new RegExp(`/c/${other.id}\\?node=${node}$`));
+    await expect(page.locator(".bd-crumb")).toContainText(other.name);
   });
 
   test("findings are grouped by cluster", async ({ page }) => {

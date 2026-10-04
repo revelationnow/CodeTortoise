@@ -201,3 +201,16 @@ test("the change panel lists files with side effects and opens them at the affec
   await expect(viewer.locator('.fsec[data-path="//fixture/service/logger.c"]')).toBeVisible();
   await expect(viewer.locator(".bd-ln.focus")).toContainText("uart_send(lg->uart");
 });
+
+test("a single board gets +N callees too, and Reset takes them away", async ({ page }) => {
+  await startReview(page);
+  const before = await page.locator(".bd-node").count();
+  const more = page.locator(".bd-node", { hasText: /^main/ }).locator("[data-act='callees']");
+  await expect(more).toHaveText("+1 callees");
+  await more.dispatchEvent("pointerdown", { bubbles: true, pointerId: 1, button: 0 });   // small badge: press and release
+  await more.dispatchEvent("pointerup", { bubbles: true, pointerId: 1, button: 0 });
+  await expect(page.locator(".bd-node")).toHaveCount(before + 1);
+  await expect(page).toHaveURL(/x=N\d+(%3A|:)callees/);
+  await page.getByRole("button", { name: `${before + 1} nodes · Reset` }).click();
+  await expect(page.locator(".bd-node")).toHaveCount(before);
+});

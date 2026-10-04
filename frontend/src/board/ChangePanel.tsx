@@ -30,11 +30,13 @@ interface Props {
   prefKey?: BoardKey;
   /** A cluster's board: back to the whole change's overview. */
   onWhole?: () => void;
+  /** The overview: the cluster each file belongs to. */
+  fileTag?: (path: string) => string | null;
 }
 
 /** "What's this change?" (spec §3.6): files tree first, then intent, why it's risky, changelists. Pushes the board. */
 export default function ChangePanel({ open, onToggle, reviewId, comments, onComments, layers, about, sideEffects, risk, openFiles,
-  dispatch, wide, width, onWidth, onWidthDone, embedded, prefKey = reviewId, onWhole }: Props) {
+  dispatch, wide, width, onWidth, onWidthDone, embedded, prefKey = reviewId, onWhole, fileTag }: Props) {
   const [shut, setShut] = useState<Set<string>>(new Set());
   const [tab, setTab] = useState<PanelTab>(() => loadPanelTab(prefKey));
   const [openCls, setOpenCls] = useState<Set<number>>(new Set());
@@ -109,6 +111,7 @@ export default function ChangePanel({ open, onToggle, reviewId, comments, onComm
                 <div key={f.path} className={`file${openFiles.includes(f.path) ? " on" : ""}`}
                      onClick={() => dispatch({ t: "viewer.open", path: f.path, wide })}>
                   📄 {f.name}<span className="act">{f.action}</span>
+                  {fileTag?.(f.path) && <span className="ctag">{fileTag(f.path)}</span>}
                   {f.cls.length > 0 && <span className="clb">CL {f.cls.join(", ")}</span>}
                   <span className="cnt"><span className="p">+{f.add}</span><span className="m">−{f.rem}</span></span>
                 </div>

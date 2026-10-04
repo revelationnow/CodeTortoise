@@ -3,7 +3,7 @@ import { Navigate, NavLink, Route, Routes, useNavigate, useParams, useSearchPara
 import { api, ApiError, type AiJob, type Board as BoardModel, type Comment, type FileChange, type Finding, type Overview, type ReviewDetail } from "../api";
 import { useMe } from "../App";
 import Board from "../board/Board";
-import ClusterBoard from "../board/ClusterBoard";
+import ClusterBoard, { useExpansion } from "../board/ClusterBoard";
 import OverviewPage from "../board/OverviewPage";
 import { driftSummary } from "../board/drift";
 import AiPill from "../components/AiPill";
@@ -123,10 +123,8 @@ export default function Review() {
           </main>
         )
       ) : board ? (
-        <main className="review board">
-          <Board reviewId={id} board={board} files={files} comments={comments} onComments={loadComments} risk={r.risk}
-                 focus={params.get("node")} head={head} />
-        </main>
+        <SingleBoard reviewId={id} board={board} files={files} comments={comments} onComments={loadComments} risk={r.risk}
+                     focus={params.get("node")} head={head} />
       ) : page(board === undefined || overview === undefined ? <p className="muted">Loading…</p> : (
         <div className="banner warn">
           No review board for this review (see the stage notes above; reviews made before the board existed have none).
@@ -159,6 +157,27 @@ function Locate({ reviewId, node }: { reviewId: number; node: string }) {
     }).catch(() => setMissing(true));
   }, [reviewId, node, navigate]);
   return <main className="page muted">{missing ? `${node} isn't on any board of this review.` : `Finding ${node}…`}</main>;
+}
+
+/** A review shown as one board; "+N callers" fetches it again with the expansions (spec §3). */
+function SingleBoard({ board, ...p }: Omit<Parameters<typeof Board>[0], "expansion">) {
+  const { expand, expansion } = useExpansion(p.reviewId);
+  const [grown, setGrown] = useState<BoardModel | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    setError(null);
+    if (!expand.length) { setGrown(null); return; }
+    api.board(p.reviewId, undefined, expand).then((b) => { if (live) setGrown(b); })
+      .catch((e) => { if (live) setError(String(e.message ?? e)); });
+    return () => { live = false; };
+  }, [p.reviewId, expand, board]);
+  return (
+    <main className="review board">
+      {error && <div className="banner warn">{error} <button className="link" onClick={() => expansion.onReset?.()}>Reset</button></div>}
+      <Board {...p} board={expand.length && grown ? grown : board} expansion={expansion} />
+    </main>
+  );
 }
 
 function ClusterRoute(p: Omit<Parameters<typeof ClusterBoard>[0], "cid">) {

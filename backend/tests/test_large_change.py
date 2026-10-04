@@ -121,6 +121,11 @@ def test_expanding_adds_callers_past_the_budget_and_counts_what_is_left(api):
     assert all(any(e["src"] == n["id"] and e["dst"] == node["id"] for e in after["edges"]) for n in new)
     bad = owner.get(f"/api/reviews/{rid}/board", params={"cluster": cid, "expand": "N1:sideways"})
     assert bad.status_code == 400
+    twice = ",".join([f"{node['id']}:callers"] * 2)                                    # asking again adds the next ones
+    again = owner.get(f"/api/reviews/{rid}/board", params={"cluster": cid, "expand": twice}).json()
+    assert len(again["nodes"]) - len(before["nodes"]) == min(node["more_callers"], 2 * svc.cfg.analysis.expand_step)
+    many = owner.get(f"/api/reviews/{rid}/board", params={"cluster": cid, "expand": ",".join([f"{node['id']}:callers"] * 51)})
+    assert many.status_code == 400 and "Reset" in many.json()["detail"]                 # never dropped silently
 
 
 def test_locate_finds_the_cluster_of_a_node_a_flow_and_a_finding(api):

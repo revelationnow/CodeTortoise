@@ -186,16 +186,21 @@ def test_a_cluster_spanning_top_directories_is_named_by_them():
     assert [c.name for c in g.run().clusters] == ["deps/reftable + src/libgit2"]
 
 
-def test_unchanged_nodes_on_a_flow_live_with_their_directory():
+def test_unchanged_nodes_live_on_a_board_that_shows_them_preferring_their_directory():
     g = G()
     a = g.fn("uart_send", "drv/uart.c")
-    s = g.fn("logger_put", "svc/logger.c")
+    s_ = g.fn("logger_put", "svc/logger.c")
+    t = g.fn("stats_add", "svc/stats.c")
     land = g.fn("logger_flush", "svc/logger.c", changed=False)
+    only = g.fn("dma_kick", "svc/dma.c", changed=False)
     g.flow(a, land)
+    g.flow(t, land)
+    g.flow(a, only)
     res = g.run()
     by_member = {m: c.id for c in res.clusters for m in c.members}
-    assert res.home[land] == by_member[s]                    # a visitor on drv's board, at home with svc's code
-    assert land in next(c for c in res.clusters if a in c.members).required
+    assert res.home[land] == by_member[t] != by_member[s_]  # both boards show it: the one in its directory (svc)
+    assert res.home[only] == by_member[a]                    # only drv's board shows it: it lives there, not a visitor
+
 
 
 def test_parts_in_different_directories_never_share_a_board():
@@ -215,3 +220,15 @@ def test_one_function_touching_too_many_fields_is_one_cluster_not_a_part():
     g.flow(f, g.fn("caller", "src/regexp.c", changed=False))
     (c,) = g.run().clusters
     assert c.part is None and c.members == [f] and c.name == "deps" and len(c.flows) == 1
+
+
+def test_the_cluster_limit_holds_when_functions_are_split_by_their_flows():
+    g = G()
+    fns = [g.fn(f"f{i}", f"d{i}/x.c") for i in range(40)]
+    for i, f in enumerate(fns):                               # each needs two boards for its 20 flows: 80 parts
+        for j in range(20):
+            g.flow(f, g.fn(f"c{i}_{j}", f"d{i}/c.c", changed=False), g.fn(f"t{i}_{j}", f"d{i}/t.c", changed=False))
+    res = g.run(max_clusters=60)
+    assert len(res.clusters) <= 60 and res.merged_over_limit > 0
+    assert sorted(fid for c in res.clusters for fid in c.flows) == sorted(fl.id for fl in g.flows)
+    assert sorted(m for c in res.clusters for m in c.members) == sorted(fns)
