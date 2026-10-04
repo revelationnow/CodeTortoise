@@ -7,7 +7,8 @@ backend/.pytest_cache/
 # runtime data
 .tortoise/
 # frontend
-frontend/node_modules/
+frontend/node_modules
+*.tsbuildinfo
 frontend/test-results/
 frontend/playwright-report/
 # built SPA (produced by `npm run build` in frontend/)
