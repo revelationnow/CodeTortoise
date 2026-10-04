@@ -155,8 +155,9 @@ def cmd_fetch_libclang(args) -> int:
 
 def cmd_fixture_demo(args) -> int:
     from codetortoise.fixture import build_fixture
+    from codetortoise.fixture_large import build_large_fixture
     dest = Path(args.dir).resolve()
-    fx = build_fixture(dest)
+    fx = build_large_fixture(dest) if args.large else build_fixture(dest)
     cfg = {
         "owner": "demo",
         "server": {"host": "127.0.0.1", "port": args.port, "public_url": f"http://127.0.0.1:{args.port}",
@@ -212,6 +213,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--port", type=int, default=8765)
     s.add_argument("--llm-base-url")
     s.add_argument("--llm-model", default="gpt-4o-mini")
+    s.add_argument("--large", action="store_true", help="a generated project whose CLs 201+202 need several boards")
     s.set_defaults(fn=cmd_fixture_demo)
     args = p.parse_args(argv)
     try:

@@ -64,3 +64,105 @@ def test_nodes_with_neighbours_off_the_board_say_how_many(large):
     svc, rid = large
     boards = boardstore.boards(svc.store, rid)
     assert any(n.more_callers > 0 for b in boards.values() for n in b.nodes)
+
+
+@pytest.fixture(scope="module")
+def api(tmp_path_factory):
+    from test_web import InlineRunner, login
+
+    from codetortoise.web.app import create_app, make_authenticator
+    d = tmp_path_factory.mktemp("largeapi")
+    fx = build_large_fixture(d)
+    svc = make_services(fx, d / "data")
+    svc.build_index()
+    app = create_app(svc, InlineRunner(svc), make_authenticator(svc))
+    owner = login(app, "owner")
+    rid = owner.post("/api/reviews", json={"cls": fx.cls}).json()["id"]
+    return svc, owner, rid
+
+
+def test_the_api_serves_the_overview_and_each_cluster_board(api):
+    svc, owner, rid = api
+    ov = owner.get(f"/api/reviews/{rid}/overview").json()
+    assert ov["totals"]["clusters"] == len(ov["clusters"]) == 7 and ov["links"]
+    c1 = ov["clusters"][0]["id"]
+    b = owner.get(f"/api/reviews/{rid}/board", params={"cluster": c1}).json()
+    assert b["cluster"]["id"] == c1 and len(b["nodes"]) <= 30 and all(n["files"] for n in b["nodes"] if n["path"])
+    r = owner.get(f"/api/reviews/{rid}/board")                           # split: there is no single board
+    assert r.status_code == 404 and "overview" in r.json()["detail"]
+    r = owner.get(f"/api/reviews/{rid}/board", params={"cluster": "C99"})
+    assert r.status_code == 404 and r.json()["detail"] == "That cluster no longer exists after the re-run."
+
+
+def test_the_small_fixture_has_no_overview(fx, tmp_path):
+    from test_web import InlineRunner, login
+
+    from codetortoise.web.app import create_app, make_authenticator
+    svc = make_services(fx, tmp_path)
+    client = login(create_app(svc, InlineRunner(svc), make_authenticator(svc)), "owner")
+    rid = client.post("/api/reviews", json={"cls": [101, 102]}).json()["id"]
+    assert client.get(f"/api/reviews/{rid}/board").status_code == 200
+    assert client.get(f"/api/reviews/{rid}/overview").status_code == 404
+    assert client.get(f"/api/reviews/{rid}/locate", params={"node": "N1"}).json() == {"cluster": None}
+
+
+def test_expanding_adds_callers_past_the_budget_and_counts_what_is_left(api):
+    svc, owner, rid = api
+    ov = owner.get(f"/api/reviews/{rid}/overview").json()
+    boards = {c["id"]: owner.get(f"/api/reviews/{rid}/board", params={"cluster": c["id"]}).json() for c in ov["clusters"]}
+    cid, node = next((cid, n) for cid, b in boards.items() for n in b["nodes"] if n["more_callers"] > 0)
+    before = boards[cid]
+    after = owner.get(f"/api/reviews/{rid}/board", params={"cluster": cid, "expand": f"{node['id']}:callers"}).json()
+    added = len(after["nodes"]) - len(before["nodes"])
+    assert added == min(node["more_callers"], svc.cfg.analysis.expand_step) and added > 0
+    grown = next(n for n in after["nodes"] if n["id"] == node["id"])
+    assert grown["more_callers"] == node["more_callers"] - added
+    new = [n for n in after["nodes"] if n["id"] not in {m["id"] for m in before["nodes"]}]
+    assert all(any(e["src"] == n["id"] and e["dst"] == node["id"] for e in after["edges"]) for n in new)
+    bad = owner.get(f"/api/reviews/{rid}/board", params={"cluster": cid, "expand": "N1:sideways"})
+    assert bad.status_code == 400
+
+
+def test_locate_finds_the_cluster_of_a_node_a_flow_and_a_finding(api):
+    svc, owner, rid = api
+    ov = owner.get(f"/api/reviews/{rid}/overview").json()
+    c = ov["clusters"][1]
+    loc = lambda **q: owner.get(f"/api/reviews/{rid}/locate", params=q)          # noqa: E731
+    assert loc(node=c["nodes"][0]).json() == {"cluster": c["id"]}
+    assert loc(finding=c["finding_ids"][0]).json() == {"cluster": c["id"]}
+    flow = owner.get(f"/api/reviews/{rid}/board", params={"cluster": c["id"]}).json()["flows"][0]["id"]
+    assert loc(flow=flow).json() == {"cluster": c["id"]}
+    assert loc(node="N99999").status_code == 404
+
+
+def test_explaining_a_flow_updates_the_cluster_board_that_holds_it(tmp_path_factory):
+    import json
+
+    import httpx
+    from test_web import InlineRunner, login
+
+    from codetortoise.llm.client import LlmClient
+    from codetortoise.web.app import create_app, make_authenticator
+
+    def handler(req):
+        if req.method == "GET":
+            return httpx.Response(200, json={"data": []})
+        user = json.loads(req.content)["messages"][1]["content"]
+        out = ({"what": "regs_a1 now returns -2 and its caller drops it.", "cites": [f"N{i}" for i in range(1, 400)]}
+               if "Describe this call flow" in user else {"summary": "s", "risk": "high", "cites": []})
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(out)}}]})
+    d = tmp_path_factory.mktemp("largeai")
+    fx = build_large_fixture(d)
+    llm = LlmClient("http://llm/v1", "k", "m", transport=httpx.MockTransport(handler), sleep=lambda s: None)
+    svc = make_services(fx, d / "data", llm=llm)
+    svc.cfg.llm.upfront_flows = 0
+    svc.build_index()
+    owner = login(create_app(svc, InlineRunner(svc), make_authenticator(svc)), "owner")
+    rid = owner.post("/api/reviews", json={"cls": fx.cls}).json()["id"]
+    c3 = owner.get(f"/api/reviews/{rid}/overview").json()["clusters"][2]["id"]
+    fl = owner.get(f"/api/reviews/{rid}/board", params={"cluster": c3}).json()["flows"][0]
+    assert fl["what_source"] == "template"
+    assert owner.post(f"/api/reviews/{rid}/explain", json={"kind": "flow", "target": fl["id"]}).status_code == 202
+    after = next(f for f in owner.get(f"/api/reviews/{rid}/board", params={"cluster": c3}).json()["flows"]
+                 if f["id"] == fl["id"])
+    assert after["what_source"] == "llm" and after["what"].startswith("regs_a1 now returns -2")
