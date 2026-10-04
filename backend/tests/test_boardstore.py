@@ -45,3 +45,36 @@ def test_a_save_that_fails_part_way_keeps_the_earlier_boards(tmp_path):
     bs = boardstore.boards(store, rid)
     assert set(bs) == {"C1", "C2"} and {b.about.intent for b in bs.values()} == {"old"}
     assert boardstore.overview(store, rid).about.intent == "old"
+
+
+def _with_stories(n: int) -> BoardSet:
+    from codetortoise.stories import Story, StoryDetail, StorySet
+    bs = BoardSet(board=Board(about=About(intent="i")))
+    sts = [Story(id=f"S{i}", kind="other", title=f"t{i}", summary="s") for i in range(1, n + 1)]
+    bs.stories = StorySet(summary="x", stories=sts)
+    b = Board(about=About(intent="i"))
+    bs.story_details = {s.id: StoryDetail(story=s, board=b, graph=b) for s in sts}
+    return bs
+
+
+def test_stories_are_saved_with_the_boards_and_a_rerun_leaves_no_stale_story(tmp_path):
+    store = Store(tmp_path / "s.db")
+    rid = store.create_review("t", "owner", [1])
+    boardstore.save(store, rid, _with_stories(3), {})
+    assert [s.id for s in boardstore.stories(store, rid).stories] == ["S1", "S2", "S3"]
+    assert boardstore.story(store, rid, "S3").story.title == "t3"
+    boardstore.save(store, rid, _with_stories(2), {})
+    assert boardstore.story(store, rid, "S3") is None and store.blob_keys(rid, boardstore.STORY) == ["story:S1", "story:S2"]
+    boardstore.save(store, rid, BoardSet(board=Board(about=About(intent="i"))), {})     # stories failed this run
+    assert boardstore.stories(store, rid) is None and store.blob_keys(rid, boardstore.STORY) == []
+
+
+def test_put_story_rewrites_the_story_and_its_entry_in_the_list(tmp_path):
+    store = Store(tmp_path / "s.db")
+    rid = store.create_review("t", "owner", [1])
+    boardstore.save(store, rid, _with_stories(2), {})
+    d = boardstore.story(store, rid, "S2")
+    d.story.title, d.story.text_source = "better", "llm"
+    boardstore.put_story(store, rid, d)
+    assert [s.title for s in boardstore.stories(store, rid).stories] == ["t1", "better"]
+    assert boardstore.story(store, rid, "S2").story.text_source == "llm"

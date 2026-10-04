@@ -95,3 +95,27 @@ headless without an LLM, every board has at most 30 nodes:
 | 17 (shelved) | #7261 sha256 | 179 | 85 | 15 clusters |
 
 Each review takes 30–80 s. Facts are "degraded" on the older CLs: the workspace and its compile commands are at head.
+
+### Change stories
+
+A review opens on its change stories (spec `docs/superpowers/specs/2026-10-04-change-stories-design.md`): at most 15
+per review, each story graph at most 12 nodes. The second and third changes below come from a second import, kept small
+so its workspace and compile commands sit right after them (`--root` starts a `p4d` on a new port, here 1668):
+
+```bash
+lab/p4-import.py --repo $LAB/upstream --base 5ead0bdfb^1 --commits 5ead0bdfb d3b3049a6 --exclude tests/resources \
+    --port 127.0.0.1:1668 --root $LAB/big2-p4root --depot //depot/libgit2-big --workspace $LAB/big2-ws \
+    --client big2-ws --out $LAB/big2-cls.tsv
+WS=$LAB/big2-ws BUILD=$LAB/big2-build lab/build.sh
+```
+
+`$LAB/tortoise-big2.yaml` is `tortoise-big.yaml` with `p4port: 127.0.0.1:1668`, `client: big2-ws`, its own `root`,
+`compile_commands`, `data_dir` and port. Reviewed headless without an LLM:
+
+| Change | Stories | What the list shows |
+|---|---|---|
+| #6896 vector (libgit2-big CL 2) | 4 | 1 behaviour story (what `git_vector_free` → `git_vector_dispose` changes: `filesystem_iterator_clear` and 4 more see new values), Other changes in `src/util` (4 functions), and two repeated edits: `git_vector_free` → `git_vector_dispose` at 152 sites in 52 files (47 in tests), `git_vector_free_deep` → `git_vector_dispose_deep` at 28 sites in 19 files. The summary: 180 of 187 changed lines are 2 repeated edits |
+| #6897 hashmap (big2 CL 2) | 14 | 8 behaviour stories (the first joins 53 functions), 4 Other stories (56 functions), 1 repeated edit (`git__mwindow_mutex` → `git_mwindow__mutex`, 23 sites) and Tests (37 test functions) |
+| #7278 pcre → pcre2 (big2 CL 4) | 15 | 247 changed functions with no flow, in 15 Other stories under `deps/pcre`, `deps/pcre2` and `src/util`: a vendored library swapped, which the stories don't yet tell as one |
+
+No story title or summary shows an absolute path.

@@ -223,6 +223,38 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         named(out.get("layers", []))
         return out
 
+    NO_STORIES = "this review has no stories: re-run it"
+
+    @app.get("/api/reviews/{rid}/stories")
+    def stories(rid: int, _: str = Depends(user_of)):
+        """The review told as stories (spec 2026-10-04-change-stories §2); 404 for a review run before them."""
+        review_or_404(rid)
+        ss = boardstore.stories(store, rid)
+        if ss is None:
+            raise HTTPException(404, NO_STORIES)
+        return ss.model_dump()
+
+    @app.get("/api/reviews/{rid}/stories/{sid}")
+    def story(rid: int, sid: str, expand: str | None = None, _: str = Depends(user_of)):
+        """One story: its board (every node it mentions) and its graph, grown by `expand` as boards are."""
+        review_or_404(rid)
+        d = boardstore.story(store, rid, sid)
+        if d is None:
+            if boardstore.stories(store, rid) is None:
+                raise HTTPException(404, NO_STORIES)
+            raise HTTPException(404, "That story no longer exists after the re-run.")
+        tags = {f.id: f.files for f in store.list_findings(rid)}
+        d.board = tag_board(d.board, tags)
+        if d.graph is not None:
+            d.graph = tag_board(d.graph, tags)
+            if expand:
+                d.graph = tag_board(expanded(rid, d.graph, expand), tags)
+        out = d.model_dump()
+        named(out["board"].get("layers", []))
+        if out["graph"]:
+            named(out["graph"].get("layers", []))
+        return out
+
     def expanded(rid: int, b: Board, expand: str) -> Board:
         """`expand` is "N12:callers,N9:callees": up to `analysis.expand_step` neighbours each, in order."""
         parts = expand.split(",")
@@ -254,26 +286,33 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
     @app.get("/api/reviews/{rid}/locate")
     def locate(rid: int, node: str | None = None, flow: str | None = None, finding: str | None = None,
                _: str = Depends(user_of)):
-        """The cluster to open for a node, flow or finding; null for a review shown as one board."""
+        """The cluster to open for a node, flow or finding (null for a review shown as one board), and its story."""
         review_or_404(rid)
+        ss = boardstore.stories(store, rid)
+        sid = None
+        if ss is not None:
+            sid = (ss.flow_story.get(flow) if flow else ss.finding_story.get(finding) if finding
+                   else ss.node_story.get(node) if node else None)
         ov = boardstore.overview(store, rid)
         if ov is None:
-            return {"cluster": None}
+            return {"cluster": None, "story": sid}
         if flow:
             held = boardstore.with_flow(store, rid, flow)
             if held:
-                return {"cluster": held[0]}
+                return {"cluster": held[0], "story": sid}
         elif finding:
             c = next((c for c in ov.clusters if finding in c.finding_ids), None)
             if c:
-                return {"cluster": c.id}
+                return {"cluster": c.id, "story": sid}
         elif node:
             home = (store.get_blob(rid, "node_cluster") or {}).get(node)
             if home:
-                return {"cluster": home}
+                return {"cluster": home, "story": sid}
             for cid, b in boardstore.boards(store, rid).items():
                 if any(n.id == node for n in b.nodes):
-                    return {"cluster": cid}
+                    return {"cluster": cid, "story": sid}
+        if sid:
+            return {"cluster": None, "story": sid}
         raise HTTPException(404, "not on any board of this review")
 
     @app.get("/api/reviews/{rid}/source")

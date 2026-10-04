@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from helpers import make_services
 
+from codetortoise import boardstore
 from codetortoise.pipeline import JobRunner, run_review
 from codetortoise.web.app import create_app, make_authenticator
 
@@ -287,3 +288,39 @@ def test_session_cookie_is_secure_only_when_https_is_configured(fx, tmp_path):
     tls = TestClient(create_app(svc, InlineRunner(svc), make_authenticator(svc)))
     r = tls.post("/api/login", json={"user": "anoop", "password": "x"})
     assert "secure" in r.headers["set-cookie"].lower()
+
+
+def test_story_endpoints_serve_the_list_and_each_story(env):
+    svc, app, _ = env
+    owner, rid = _review(app)
+    assert TestClient(app).get(f"/api/reviews/{rid}/stories").status_code == 401
+    assert TestClient(app).get(f"/api/reviews/{rid}/stories/S1").status_code == 401
+    ss = owner.get(f"/api/reviews/{rid}/stories").json()
+    assert ss["summary"] == "2 behaviour stories." and [s["id"] for s in ss["stories"]] == ["S1", "S2"]
+    s1 = owner.get(f"/api/reviews/{rid}/stories/S1").json()
+    assert s1["story"]["title"].startswith("`uart_send` now writes `Uart::errors`")
+    assert len(s1["graph"]["nodes"]) <= 12 and s1["board"]["flows"]
+    assert all(n["path"] is None or n["path"].startswith("//") for n in s1["graph"]["nodes"])
+    send = next(n["id"] for n in s1["graph"]["nodes"] if n["label"] == "uart_send")
+    grown = owner.get(f"/api/reviews/{rid}/stories/S1", params={"expand": f"{send}:callers"}).json()
+    assert len(grown["graph"]["nodes"]) >= len(s1["graph"]["nodes"])
+    r = owner.get(f"/api/reviews/{rid}/stories/S9")
+    assert r.status_code == 404 and r.json()["detail"] == "That story no longer exists after the re-run."
+    svc.store.replace_blobs(rid, ["stories"], [boardstore.STORY], {})     # a review run before stories
+    for url in (f"/api/reviews/{rid}/stories", f"/api/reviews/{rid}/stories/S1"):
+        r = owner.get(url)
+        assert r.status_code == 404 and r.json()["detail"] == "this review has no stories: re-run it"
+
+
+def test_locate_names_the_story_of_a_node_flow_or_finding(env):
+    svc, app, _ = env
+    owner, rid = _review(app)
+    ss = owner.get(f"/api/reviews/{rid}/stories").json()
+    s1 = owner.get(f"/api/reviews/{rid}/stories/S1").json()
+    send = next(n["id"] for n in s1["board"]["nodes"] if n["label"] == "uart_send")
+    assert owner.get(f"/api/reviews/{rid}/locate", params={"node": send}).json() == {"cluster": None, "story": "S1"}
+    fl = ss["stories"][1]["flows"][0]
+    assert owner.get(f"/api/reviews/{rid}/locate", params={"flow": fl}).json() == {"cluster": None, "story": "S2"}
+    fid = ss["stories"][0]["findings"][0]
+    assert owner.get(f"/api/reviews/{rid}/locate", params={"finding": fid}).json()["story"] == "S1"
+    assert owner.get(f"/api/reviews/{rid}/locate", params={"node": "N999"}).json() == {"cluster": None, "story": None}
