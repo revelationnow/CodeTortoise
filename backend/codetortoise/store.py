@@ -143,6 +143,14 @@ class Store:
     def put_blob(self, rid: int, key: str, obj: Any) -> None:
         self._exec("INSERT OR REPLACE INTO blobs(review_id, key, json) VALUES(?,?,?)", (rid, key, _dump(obj)))
 
+    def delete_blobs(self, rid: int, prefix: str) -> None:
+        """Remove the review's blobs whose key starts with `prefix` (a re-run's old cluster boards)."""
+        self._exec("DELETE FROM blobs WHERE review_id=? AND substr(key, 1, ?)=?", (rid, len(prefix), prefix))
+
+    def blob_keys(self, rid: int, prefix: str) -> list[str]:
+        return [r["key"] for r in self._all("SELECT key FROM blobs WHERE review_id=? AND substr(key, 1, ?)=? ORDER BY key",
+                                            (rid, len(prefix), prefix))]
+
     def get_blob(self, rid: int, key: str) -> Any:
         rows = self._all("SELECT json FROM blobs WHERE review_id=? AND key=?", (rid, key))
         return json.loads(rows[0]["json"]) if rows else None

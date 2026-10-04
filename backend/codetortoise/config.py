@@ -86,9 +86,12 @@ class AnalysisConfig(BaseModel):
     workers: int = 4
     index_scope: Literal["compile_db", "workspace"] = "compile_db"   # files the symbol index parses
     heuristic_fanin_cap: int = 50  # names with more out-of-TU callers/refs than this are not expanded heuristically
-    max_flows: int = 12            # review board: flows listed (entry -> change -> where the effect lands)
-    board_max_nodes: int = 150     # review board: functions/fields drawn
-    board_blast_nodes: int = 60    # review board: top blast-radius functions included
+    max_flows: int = 12            # accepted and ignored: a board's node budget bounds its flows
+    board_max_nodes: int = 30      # nodes a board draws before the reader expands it; larger changes are split
+    board_blast_nodes: int = 60    # accepted and ignored (neighbours fill a board's budget)
+    cluster_min_changed: int = 3   # clusters with fewer changed functions merge with one in the same directory
+    overview_max_clusters: int = 60  # more clusters than this: the smallest merge further
+    expand_step: int = 10          # "+N callers / callees": neighbours added per expansion
     entrypoint_patterns: list[str] = Field(
         default_factory=lambda: ["main", "*_isr", "*_irq_handler", "*Callback", "*_callback"])
 

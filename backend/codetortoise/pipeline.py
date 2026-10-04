@@ -9,7 +9,8 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from codetortoise.board import BoardContext, build_board
+from codetortoise import boardstore
+from codetortoise.board import BoardContext, build_boards
 from codetortoise.detectors.base import DetectorContext, run_detectors
 from codetortoise.diffmap import map_changes
 from codetortoise.facts.model import Facts
@@ -17,7 +18,7 @@ from codetortoise.facts.runner import build_requests, parse_summary, run_extract
 from codetortoise.impact import ImpactModel, build_impact
 from codetortoise.llm.storyboard import build_storyboard
 from codetortoise.paths import canon
-from codetortoise.provenance import finding_files, impact_node_files, local_files, tag_board
+from codetortoise.provenance import finding_files, impact_node_files, local_files
 from codetortoise.services import Services
 from codetortoise.swarm import SwarmError
 from codetortoise.tu_select import TuSelection, field_follow_up, select_tus
@@ -216,8 +217,8 @@ def run_review(rid: int, svc: Services) -> None:
     def board():
         notes: list[str] = []
         resolve = depot_resolver(svc.source, ctx["cs"], cfg.workspace.root, notes)
-        b = build_board(BoardContext(ctx["cs"], ctx["dm"], ctx["before"], ctx["after"], ctx["impact"], ctx["findings"],
-                                     ctx.get("layers"), cfg.analysis, resolve, root=canon(str(cfg.workspace.root))))
+        bs = build_boards(BoardContext(ctx["cs"], ctx["dm"], ctx["before"], ctx["after"], ctx["impact"], ctx["findings"],
+                                       ctx.get("layers"), cfg.analysis, resolve, root=canon(str(cfg.workspace.root))))
         # file tags (spec §14.3): every graph node and finding, from one more lookup of the files not yet resolved
         findings, im = ctx["findings"], ctx["impact"]
         decl = {f"field:{a.field}": a.record_file for fx in ctx["before"] + ctx["after"] for a in fx.fields if a.record_file}
@@ -230,24 +231,30 @@ def run_review(rid: int, svc: Services) -> None:
         store.put_findings(rid, findings)
         ctx["node_files"], ctx["local_files"] = node_files, by_local
         store.put_blob(rid, "node_files", node_files)          # on-demand AI tags its text with these
-        b = tag_board(b, {f.id: f.files for f in findings})
-        ctx["board"] = b
-        store.put_blob(rid, "board", b)
+        boardstore.save(store, rid, bs, {f.id: f.files for f in findings})
+        ctx["boards"] = bs
+        if bs.note:
+            notes.append(bs.note)
         if notes:
             raise Degraded("; ".join(notes))
-        return f"{len(b.nodes)} node(s), {len(b.flows)} flow(s), {len(b.impacts)} annotation(s)"
+        if bs.board is not None:
+            b = bs.board
+            return f"{len(b.nodes)} node(s), {len(b.flows)} flow(s), {len(b.impacts)} annotation(s)"
+        return (f"{len(bs.clusters)} cluster board(s), up to {max(len(b.nodes) for b in bs.clusters.values())} node(s) "
+                f"each, {sum(len(b.flows) for b in bs.clusters.values())} flow(s)")
 
     def llm():
         findings = store.list_findings(rid)
         snippets = collect_snippets(ctx["impact"], ctx["cs"], ctx["after"])
-        b = ctx.get("board")
+        bs = ctx.get("boards")
+        b = None if bs is None else bs.board or boardstore.merge(list(bs.clusters.values()), bs.overview.about)
         sb = build_storyboard(ctx["impact"], findings, ctx.get("layers"), snippets, svc.llm, cfg.llm.max_context_tokens,
                               board=b, concurrency=cfg.llm.concurrency, upfront_flows=cfg.llm.upfront_flows,
                               node_files=ctx.get("node_files"), ledger=svc.ledger, rid=rid)
         store.put_findings(rid, findings)
         store.put_blob(rid, "storyboard", sb)
-        if b is not None:
-            store.put_blob(rid, "board", tag_board(b, {f.id: f.files for f in findings}))
+        if bs is not None:                     # the AI pass rewrote flows and the summary on the stored boards' objects
+            boardstore.save(store, rid, bs, {f.id: f.files for f in findings})
         ctx["storyboard"] = sb
         if svc.llm is None:
             raise Degraded("no LLM configured; deterministic storyboard only")

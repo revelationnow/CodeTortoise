@@ -1,6 +1,6 @@
 import pytest
 
-from codetortoise.board import BoardContext, _common_dir, _crossings, _tree_prefix, barycentre_layout, build_board
+from codetortoise.board import BoardContext, _common_dir, _crossings, _tree_prefix, barycentre_layout, build_board, build_boards
 from codetortoise.config import AnalysisConfig
 from codetortoise.detectors.base import DetectorContext, run_detectors
 from codetortoise.diffmap import DiffMap
@@ -273,3 +273,28 @@ def test_flows_stored_without_a_title_get_one_from_their_text():
     assert Flow(path=["N1", "N3"], text="main → logger_flush → uart_send ⟶ -2 ignored", **common).title == "-2 ignored"
     assert Flow(path=["N1", "N3"], text="main → uart_send → Uart::errors → uart_errors", **common).title == \
         "affects uart_errors"
+
+
+def test_fields_whose_access_did_not_change_fill_spare_room_but_never_split_the_review():
+    ctx, _ = _synthetic()
+    for i in range(40):                                       # set() also reads 40 fields, as it did before the change
+        nid = f"N{10 + i}"
+        ctx.impact.nodes[nid] = Node(id=nid, key=f"field:c:@S@R@FI@f{i}", kind="field", label=f"R::f{i}", layer=1)
+        ctx.impact.edges.append(Edge(id=f"E{100 + i}", src="N1", dst=nid, kind="reads"))
+    bs = build_boards(ctx)
+    assert bs.overview is None and len(bs.board.nodes) <= 30
+    assert any(n.label.startswith("R::f") for n in bs.board.nodes)
+
+
+def test_a_board_leaves_out_fields_past_the_budget_but_never_changed_code_or_flows():
+    ctx, _ = _synthetic()
+    for i in range(40):                                       # set() newly writes 40 more fields
+        nid = f"N{10 + i}"
+        ctx.impact.nodes[nid] = Node(id=nid, key=f"field:c:@S@R@FI@f{i}", kind="field", label=f"R::f{i}", layer=1)
+        ctx.impact.edges.append(Edge(id=f"E{100 + i}", src="N1", dst=nid, kind="writes", status="added"))
+    bs = build_boards(ctx)
+    boards = [bs.board] if bs.board else list(bs.clusters.values())
+    assert all(len(b.nodes) <= 30 for b in boards)
+    (b,) = boards
+    flow_nodes = {n for f in b.flows for n in f.path}
+    assert "N1" in {n.id for n in b.nodes} and flow_nodes <= {n.id for n in b.nodes} and b.hidden_nodes >= 11
