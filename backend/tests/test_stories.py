@@ -342,6 +342,17 @@ def test_sites_outside_functions_count_with_the_edit():
     assert macro.after == "#define FREE(v) git_vector_dispose(&v)" and macro.line == 1 and macro.path == "//d/w/src/v.h"
 
 
+def test_sites_outside_functions_are_test_code_by_the_same_rule_as_functions():
+    c = _world([_mech("free_a", "src/a.c"), _mech("free_b", "src/b.c")])
+    for rel in ("src/testbed/v.h", "src/vec_test.h"):           # not a test directory; a test file name
+        c.cs.files.append(FileChange(depot=f"//d/w/{rel}", local=f"{W}/{rel}", action="edit",
+                                     before="#define F(v) git_vector_free(&v)\n", after="#define F(v) git_vector_dispose(&v)\n"))
+    ss, det = build_stories(c)
+    (m,) = _by_kind(ss, "mechanical")
+    assert m.counts["test_sites"] == 1
+    assert [s.path for s in det[m.id].sites if s.test] == ["//d/w/src/vec_test.h"]
+
+
 def test_code_as_near_to_two_seeds_joins_the_riskier():
     from codetortoise.detectors.base import Finding
     c = _world([_edit("w1", "src/a.c"), _same("r1", "src/b.c"), _edit("w2", "src/c.c"), _same("r2", "src/d.c"),
