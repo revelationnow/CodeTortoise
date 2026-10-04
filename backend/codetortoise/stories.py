@@ -29,6 +29,7 @@ from codetortoise.board import (
     build_about,
     build_flows,
     build_impacts,
+    is_test_path,
 )
 from codetortoise.clusters import _shared, altered_access, cluster_change
 from codetortoise.detectors.base import SEVERITY_RANK
@@ -380,6 +381,12 @@ def _spans(x: _Ctx, nid: str) -> list[tuple]:
     return out
 
 
+def _test_file(x: _Ctx, local: str) -> bool:
+    """Test code by its workspace-relative path, as functions are (`is_test_path`)."""
+    root = x.c.root.rstrip("/") + "/"
+    return is_test_path(local[len(root):] if x.c.root and local.startswith(root) else local)
+
+
 def _mentioned(d: _Draft) -> list[str]:
     out = dict.fromkeys(d.members)
     for fl in d.flows:
@@ -417,7 +424,7 @@ def _story(x: _Ctx, d: _Draft, sid: str, sev: dict[str, str], home: dict[str, st
     board = (home or {}).get(key) if key else None
     if d.kind == "mechanical":
         n_sites = len(d.sites)
-        tests = sum(1 for s, loc, nid in d.sites if (is_test(nid) if nid else "/test" in loc))
+        tests = sum(1 for s, loc, nid in d.sites if (is_test(nid) if nid else _test_file(x, loc)))
         counts.update(sites=n_sites, test_sites=tests)
         in_tests = f" ({tests} in tests)" if tests else ""
         if d.sub is None:
@@ -575,7 +582,7 @@ def _detail(x: _Ctx, d: _Draft, st: Story, impacts: list[Impact], depots: dict[s
             other = node_story.get(nid) if nid and nid not in mech_of else None
             detail.sites.append(StorySite(
                 path=depots.get(local), line=s.after_line, function=x.label(nid) if nid else None, node=nid,
-                before=s.before, after=s.after, test=is_test(nid) if nid else "/test" in local,
+                before=s.before, after=s.after, test=is_test(nid) if nid else _test_file(x, local),
                 effect=effect_of.get(nid) if nid else None, other_edits=other))
         partial = sorted({nid for s, _, nid in d.sites if nid and nid not in mech_of and s.sub in own})
         detail.also_in = [StoryRef(node=n, label=x.label(n), story=node_story.get(n)) for n in partial]
