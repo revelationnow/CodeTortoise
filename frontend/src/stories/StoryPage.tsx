@@ -9,7 +9,7 @@ import Explain from "../components/Explain";
 import { MechanicalStory, TestsStory } from "./StoryBodies";
 import { Ticks } from "./StoryList";
 import StorySteps from "./StorySteps";
-import { countLine, stepStory, wholeGraph } from "./stories";
+import { countLine, graphFocus, stepStory, wholeGraph } from "./stories";
 import "./stories.css";
 
 interface Props {
@@ -100,7 +100,7 @@ export default function StoryPage({ reviewId, stories, sid, files, comments, onC
     return (
       <main className="review board">
         <Board key={sid} reviewId={reviewId} board={detail.graph} files={files} comments={comments} onComments={onComments}
-               risk={risk} focus={tab === "graph" ? focus : null} head={head} expansion={expansion}
+               risk={risk} focus={tab === "graph" ? graphFocus(detail.graph, focus) : null} head={head} expansion={expansion}
                story={{ prefKey, nav, steps: <div className="st-phone">{header}{steps}</div>, showSteps: moreTick,
                         onMore: () => { setMoreTick((k) => k + 1); setTab("steps"); },
                         list: stories.stories.map((s) => ({ id: s.id, title: s.title })) }} />
