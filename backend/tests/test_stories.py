@@ -190,6 +190,14 @@ def test_the_summary_says_mostly_mechanical_when_repeated_edits_are_half_the_cha
     assert ss.summary == "No changed functions." and ss.stories == []
 
 
+def test_the_summary_counts_the_lines_of_added_and_deleted_files_too():
+    c = _world([_mech("free_a", "src/a.c"), _mech("free_b", "src/b.c")])
+    c.cs.files += [FileChange(depot="//d/w/src/n.h", local=f"{W}/src/n.h", action="add", before="", after="int n;\n"),
+                   FileChange(depot="//d/w/src/o.h", local=f"{W}/src/o.h", action="delete", before="int o;\n", after="")]
+    ss, _ = build_stories(c)
+    assert ss.summary == "Mostly mechanical: 2 of 4 changed lines are one edit (`git_vector_free` → `git_vector_dispose`)."
+
+
 # ---- 2. behaviour, joining, other changes
 def test_a_flow_causing_function_is_a_behaviour_story_titled_from_its_flows():
     ctx, _ = _synthetic(callers=("api",))

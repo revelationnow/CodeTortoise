@@ -349,7 +349,7 @@ def build_stories(c: BoardContext, home: dict[str, str] | None = None) -> tuple[
                 effect_of.setdefault(fl.cause, ids[id(d)])
 
     stories, details = [], {}
-    changed_lines = sum(_count(f.before, f.after)[0] for f in c.cs.files if f.action == "edit")
+    changed_lines = sum(max(_count(f.before, f.after)) for f in c.cs.files)   # added and deleted files too
     for d in ordered:
         sid = ids[id(d)]
         st = _story(x, d, sid, sev, home, depots, is_test, effect_of)
