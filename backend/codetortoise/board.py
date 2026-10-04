@@ -909,8 +909,13 @@ def expand_board(b: Board, im: ImpactModel, asks: list[tuple[str, str]], *, step
                                        range=ranges.get(node.key), home=h if out.cluster and h and h != out.cluster.id
                                        else None))
             on.add(n)
-    out.edges = [BoardEdge(src=e.src, dst=e.dst, kind=e.kind, status=e.status, confidence=e.confidence)
-                 for e in im.edges if e.src in on and e.dst in on]
+    to = {f.id: n.id for n in out.nodes for f in n.fields}         # a story graph's folded field -> its struct node
+    out.edges, seen = [], set()
+    for e in im.edges:
+        src, dst = to.get(e.src, e.src), to.get(e.dst, e.dst)
+        if src in on and dst in on and src != dst and (src, dst, e.kind) not in seen:
+            seen.add((src, dst, e.kind))
+            out.edges.append(BoardEdge(src=src, dst=dst, kind=e.kind, status=e.status, confidence=e.confidence))
     xs = barycentre_layout({n.id: n.layer if n.layer is not None else -1 for n in out.nodes},
                            [(e.src, e.dst) for e in out.edges])
     for n in out.nodes:

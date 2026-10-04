@@ -338,3 +338,27 @@ def test_a_board_requires_the_fields_its_own_changed_code_altered_not_a_visitors
                 effect="e", check="c", cause="N1")
     req = _required(_Ctx(ctx), ["N1"], [flow])
     assert req == ["N1", "N3", "N2"]                      # set, the visitor on its flow, set's own altered field
+
+
+def test_expanding_a_story_graph_keeps_the_edges_to_fields_folded_into_a_struct():
+    from codetortoise.board import About, Board, BoardNode, StructField, expand_board
+    im = ImpactModel(changed=["N1"], nodes={
+        "N1": Node(id="N1", key="c:@F@f", kind="function", label="f", layer=1),
+        "N2": Node(id="N2", key="field:c:@S@R@FI@a", kind="field", label="R::a", layer=1),
+        "N3": Node(id="N3", key="field:c:@S@R@FI@b", kind="field", label="R::b", layer=1),
+        "N4": Node(id="N4", key="c:@F@g", kind="function", label="g", layer=2),
+        "N5": Node(id="N5", key="c:@F@h", kind="function", label="h", layer=1)},
+        edges=[Edge(id="E1", src="N1", dst="N3", kind="writes", status="added"),
+               Edge(id="E2", src="N5", dst="N2", kind="writes", status="unchanged"),
+               Edge(id="E3", src="N4", dst="N1", kind="call", status="unchanged"),
+               Edge(id="E4", src="N4", dst="N3", kind="writes", status="unchanged")])
+    b = Board(nodes=[BoardNode(id="N1", key="c:@F@f", label="f", layer=1),
+                     BoardNode(id="N5", key="c:@F@h", label="h", layer=1),
+                     BoardNode(id="N2", key="field:c:@S@R@FI@a", label="R", kind="struct", layer=1,
+                               fields=[StructField(id="N2", label="a"), StructField(id="N3", label="b")])],
+              about=About(intent="i"))
+    grown = expand_board(b, im, [("N1", "callers")], step=10, ranges={}, depot_of={},
+                         layer_name=lambda lv: f"L{lv}", root="/w")
+    edges = {(e.src, e.dst, e.kind) for e in grown.edges}
+    assert edges == {("N1", "N2", "writes"), ("N5", "N2", "writes"), ("N4", "N1", "call"), ("N4", "N2", "writes")}
+    assert [n.id for n in grown.nodes if n.kind == "field"] == []          # b stays inside R, not a node of its own
