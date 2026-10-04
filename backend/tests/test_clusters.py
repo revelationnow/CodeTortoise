@@ -232,3 +232,19 @@ def test_the_cluster_limit_holds_when_functions_are_split_by_their_flows():
     assert len(res.clusters) <= 60 and res.merged_over_limit > 0
     assert sorted(fid for c in res.clusters for fid in c.flows) == sorted(fl.id for fl in g.flows)
     assert sorted(m for c in res.clusters for m in c.members) == sorted(fns)
+
+
+def test_past_the_cluster_limit_tests_merge_with_tests_first():
+    g = G()
+    t1, f1 = g.fn("test_uart", "drv/test_uart.c"), g.fn("uart_send", "drv/uart.c")
+    f2, t2 = g.fn("svc_run", "svc/x.c"), g.fn("test_lib", "lib/test_lib.c")
+    res = g.run(max_clusters=3)
+    assert members(res) == sorted([sorted([t1, t2]), [f1], [f2]])
+    assert next(c for c in res.clusters if t1 in c.members).test
+
+
+def test_a_cluster_merged_past_the_limit_with_code_is_not_a_test_cluster():
+    g = G()
+    f1, t1 = g.fn("uart_send", "drv/uart.c"), g.fn("test_uart", "drv/test_uart.c")
+    (c,) = g.run(max_clusters=1).clusters
+    assert sorted(c.members) == sorted([f1, t1]) and not c.test

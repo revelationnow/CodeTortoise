@@ -174,8 +174,8 @@ def cluster_change(im: ImpactModel, flows: list[_FlowLike], findings: list[Findi
                 clusters.remove(small)
                 merged = True
 
-    # 4. too many clusters: merge the smallest that share the most directory, past the budget if need be; with too few
-    #    of those, join a function's flow groups back into one cluster
+    # 4. too many clusters: merge the smallest into one of its kind (test or not) that shares the most directory, past
+    #    the budget if need be; with too few of those, join a function's flow groups back into one cluster
     over = 0
     while len(clusters) > max_clusters:
         cands = sorted([c for c in clusters if c.part is None], key=size)
@@ -191,9 +191,10 @@ def cluster_change(im: ImpactModel, flows: list[_FlowLike], findings: list[Findi
                 clusters.remove(c)
             over += n - 1
             continue
-        a = cands[0]
-        b = max(cands[1:], key=lambda c: (len(_shared(home_dir(a), home_dir(c))), -size(c)))
+        a = cands[0]                                         # tests with tests, code with code, while it can
+        b = max(cands[1:], key=lambda c: (c.test == a.test, len(_shared(home_dir(a), home_dir(c))), -size(c)))
         b.members += a.members
+        b.test = b.test and a.test
         clusters.remove(a)
         over += 1
 
