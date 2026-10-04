@@ -3,7 +3,7 @@ import type { AiJob, AiView } from "../api";
 import { aiAvailability, callTitle, finished, jobFor } from "./aiState";
 
 const view = (over: Partial<AiView> = {}): AiView => ({
-  used: 57, budget: 200, by_person: {}, by_purpose: {}, calls: [], llm: true, me_today: 3, me_limit: 100,
+  used: 57, budget: 200, by_person: {}, by_purpose: {}, llm: true, me_today: 3, me_limit: 100,
   per_mention: 6, is_owner: false, jobs: [], file_summaries: {}, ...over,
 });
 

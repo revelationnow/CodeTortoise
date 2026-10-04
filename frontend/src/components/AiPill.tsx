@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api } from "../api";
+import { api, type AiCall } from "../api";
 import { useAi } from "../lib/ai";
 
 /** The review header's AI pill and its usage view; the owner can raise the review's budget (spec 2026-10-03 §6). */
@@ -24,6 +24,7 @@ function Usage({ onClose }: { onClose: () => void }) {
   const v = ai.view!;
   const [total, setTotal] = useState(String(v.budget + 100));
   const [error, setError] = useState<string | null>(null);
+  const [calls, setCalls] = useState<AiCall[] | null>(null);              // loaded when the list is opened
   useEffect(() => {
     const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", esc);
@@ -47,12 +48,15 @@ function Usage({ onClose }: { onClose: () => void }) {
           {error && <span className="ai-err">{error}</span>}
         </form>
       )}
-      <details>
-        <summary>All calls ({v.calls.length})</summary>
+      <details onToggle={(e) => {
+        if ((e.currentTarget as HTMLDetailsElement).open) api.aiCalls(ai.reviewId).then(setCalls).catch(() => setCalls([]));
+      }}>
+        <summary>All calls</summary>
+        {calls === null && <p className="muted small">Loading…</p>}
         <table className="ai-calls">
           <thead><tr><th>Time</th><th>Who</th><th>What</th><th>Tokens</th><th>Outcome</th></tr></thead>
           <tbody>
-            {[...v.calls].reverse().map((c) => (
+            {[...(calls ?? [])].reverse().map((c) => (
               <tr key={c.id} className={c.outcome ?? ""}>
                 <td>{c.started_at.replace("T", " ").slice(5, 16)}</td><td>{c.user}</td>
                 <td>{c.purpose}{c.target ? ` ${c.target}` : ""}</td>

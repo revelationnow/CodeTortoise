@@ -33,7 +33,7 @@ export interface AiCall { id: number; user: string; purpose: string; target: str
   prompt_tokens: number | null; completion_tokens: number | null; outcome: "ok" | "failed" | "refused" | "running" | null; error: string | null }
 export interface FileSummary { summary: string; check: string[]; files: string[] | null; by: string; at: string }
 export interface AiView {
-  used: number; budget: number; by_person: Record<string, number>; by_purpose: Record<string, number>; calls: AiCall[];
+  used: number; budget: number; by_person: Record<string, number>; by_purpose: Record<string, number>;
   llm: boolean; me_today: number; me_limit: number; per_mention: number; is_owner: boolean; jobs: AiJob[];
   file_summaries: Record<string, FileSummary>;
 }
@@ -91,6 +91,7 @@ export const api = {
   swarmPost: (id: number, cl: number, confirm_repeat = false) =>
     call<{ comment_id: string }>("POST", `/api/reviews/${id}/cls/${cl}/swarm/post`, { confirm_repeat }),
   ai: (id: number) => call<AiView>("GET", `/api/reviews/${id}/ai`),
+  aiCalls: (id: number) => call<AiCall[]>("GET", `/api/reviews/${id}/ai/calls`),
   explain: (id: number, kind: AiKind, target: string) => call<AiJob>("POST", `/api/reviews/${id}/explain`, { kind, target }),
   raiseBudget: (id: number, budget: number) => call<{ budget: number }>("PUT", `/api/reviews/${id}/ai/budget`, { budget }),
   renameLayer: (level: number, name: string) => call("PUT", `/api/layers/${level}`, { name }),

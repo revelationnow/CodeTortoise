@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { api, ApiError, type AiJob, type AiKind, type AiView } from "../api";
 import { finished } from "./aiState";
+import { pollLoop } from "./poll";
 
 /** The review's AI state for every ✦ button, the @ menu, tortoise replies and the AI pill (spec 2026-10-03 §6). */
 export interface Ai {
@@ -23,7 +24,7 @@ const POLL_MS = 1500;
 
 /** Loads /ai, and while a job runs or a tortoise reply is pending polls it (and the comments) until they finish. */
 export function useAiState(reviewId: number, enabled: boolean, people: string[], pendingReplies: boolean,
-                           onFinished: (jobs: AiJob[]) => void, onComments: () => void): Ai {
+                           onFinished: (jobs: AiJob[]) => void, onComments: () => Promise<unknown>): Ai {
   const [view, setView] = useState<AiView | null>(null);
   const [asked, setAsked] = useState<Ai["asked"]>({});
   const [usageOpen, setUsageOpen] = useState(false);
@@ -40,8 +41,7 @@ export function useAiState(reviewId: number, enabled: boolean, people: string[],
   const running = !!view?.jobs.some((j) => j.status === "running");
   useEffect(() => {
     if (!enabled || !(running || pendingReplies)) return;
-    const t = window.setInterval(() => { refresh(); if (pendingReplies) onComments(); }, POLL_MS);
-    return () => window.clearInterval(t);
+    return pollLoop(() => Promise.all([refresh(), pendingReplies ? onComments() : null]), POLL_MS);
   }, [enabled, running, pendingReplies, refresh, onComments]);
   const explain = useCallback(async (kind: AiKind, target: string) => {
     const key = `${kind}:${target}`;

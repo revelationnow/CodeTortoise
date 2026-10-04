@@ -45,7 +45,7 @@ calls bound cost; token counts are recorded for the usage view, not enforced.
   call don't count separately.
 - **Raising a review's budget.** Only the owner, by any amount, recorded in a table `llm_budget(review_id, budget,
   set_by, set_at)` (the latest row wins).
-- **No LLM configured:** no buttons, `@tortoise` disabled, nothing recorded.
+- **No LLM configured:** no buttons, `@tortoise` greyed out in the @ menu, nothing recorded. A mention typed by hand gets the reply "I can't answer: no AI is configured for CodeTortoise." so the asker knows why nothing happened.
 
 ## 3. Up-front pass
 
