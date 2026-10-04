@@ -70,6 +70,28 @@ class AP:
         return (self.root_kind, self.root, self.steps)
 
 
+_RECORDS = (K.STRUCT_DECL, K.UNION_DECL, K.CLASS_DECL)
+
+
+def record_name(rec: ci.Cursor | None) -> str:
+    """A field's record as people name it (spec 2026-10-04-change-stories §2.5): its name; an anonymous record by the
+    named record and member holding it ("filesystem_iterator_frame.entries"); else "anonymous struct (<file>:<line>)"
+    (the facts stage makes the file workspace-relative). libclang names a typedef'd anonymous struct by its typedef."""
+    if rec is None:
+        return ""
+    if not rec.is_anonymous():
+        return rec.spelling
+    outer = rec.semantic_parent
+    if outer is not None and outer.kind in _RECORDS:
+        member = next((m for m in outer.get_children() if m.kind == K.FIELD_DECL
+                       and m.type.get_canonical().get_declaration() == rec), None)
+        if member is not None:
+            return f"{record_name(outer)}.{member.spelling}"
+    what = "union" if rec.kind == K.UNION_DECL else "struct"
+    loc = rec.location
+    return f"anonymous {what} ({canon(loc.file.name) if loc.file else '?'}:{loc.line})"
+
+
 def _strip(c: ci.Cursor) -> tuple[ci.Cursor, bool]:
     may = False
     while True:
@@ -272,7 +294,7 @@ class FunctionAnalyzer:
         elif s.kind == K.MEMBER_REF_EXPR and s.referenced is not None and s.referenced.kind == K.FIELD_DECL:
             f = s.referenced
             self._field_file(f)
-            step = (f.get_usr(), f.spelling, f.semantic_parent.spelling if f.semantic_parent else "")
+            step = (f.get_usr(), f.spelling, record_name(f.semantic_parent))
             kids = [k for k in s.get_children() if k.kind.is_expression()]
             if not kids:
                 bases = {AP("this", "this")}
@@ -414,7 +436,7 @@ class FunctionAnalyzer:
                     f = s.referenced
                     fields.append(FieldAccess(
                         fn=self.fn_usr, field=f.get_usr(), field_name=f.spelling,
-                        record=f.semantic_parent.spelling if f.semantic_parent else "",
+                        record=record_name(f.semantic_parent),
                         record_file=self._field_file(f),
                         decl_line=f.location.line, path="?." + f.spelling, root_kind="unknown", mode=mode,
                         via=[extra_via] if extra_via else [], file=file, line=line, confidence="may"))
@@ -456,7 +478,7 @@ class FunctionAnalyzer:
                 root = next(iter(sorted(a.root_kind for a in aps)), "unknown")
                 fields.append(FieldAccess(
                     fn=self.fn_usr, field=f.get_usr(), field_name=f.spelling,
-                    record=f.semantic_parent.spelling if f.semantic_parent else "",
+                    record=record_name(f.semantic_parent),
                     record_file=self._field_file(f),
                     decl_line=f.location.line, path=path, root_kind=root, mode="read", file=file, line=c.location.line,
                     confidence="precise" if aps else "may"))
