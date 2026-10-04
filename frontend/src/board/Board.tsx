@@ -28,7 +28,28 @@ interface Props {
   focus?: string | null;
   /** Renders the review header (extra content to place in it, if any). */
   head: (extra: ReactNode) => ReactNode;
+  /** A cluster's board in a split review (spec 2026-10-03-large-change-boards §5): */
+  cluster?: {
+    /** Saved layout, moves and tabs are per cluster ("12.C3"). */
+    prefKey: string;
+    /** Breadcrumb and ‹ ›, shown in the header. */
+    nav: ReactNode;
+    /** Back to the overview ("Whole change" in the change panel). */
+    onWhole: () => void;
+    /** A visitor's link: open the board of the cluster it belongs to, focused on it. */
+    onHome: (cluster: string, id: string) => void;
+    homeName: (cluster: string) => string;
+    /** Every cluster, for the phone menu. */
+    list: { id: string; name: string }[];
+  };
+  /** A file to open in the viewer on arrival (the overview's file tree). */
+  openPath?: string | null;
+  /** "+N callers / +N callees"; with `onReset` when the reader has expanded the board. */
+  expansion?: { onExpand: (id: string, way: "callers" | "callees") => void; onReset: (() => void) | null };
 }
+
+/** Nodes a board draws before the reader expands it (backend `analysis.board_max_nodes`). */
+export const BUDGET = 30;
 
 const wideScreen = () => window.innerWidth > 1100;
 const PHONE = "(max-width: 640px)";
@@ -45,9 +66,12 @@ function usePhone() {
 }
 
 /** The review board (spec §2–§4): flow bar, lensed canvas with cards, file viewer and change panel. */
-export default function Board({ reviewId, board, files, comments, onComments, risk, focus, head }: Props) {
+export default function Board({ reviewId, board, files, comments, onComments, risk, focus, head: reviewHead, cluster, expansion,
+  openPath }: Props) {
+  const prefKey = cluster?.prefKey ?? reviewId;
+  const head = useCallback((extra: ReactNode) => reviewHead(<>{cluster?.nav}{extra}</>), [reviewHead, cluster?.nav]);
   const [state, dispatch] = useReducer(reduce, undefined, () => {
-    const s = { ...initialState(loadLens(), loadMovedAll(reviewId), loadLayout(reviewId) ?? (preferDepth(board) ? "depth" : "layers")),
+    const s = { ...initialState(loadLens(), loadMovedAll(prefKey), loadLayout(prefKey) ?? (preferDepth(board) ? "depth" : "layers")),
                 about: loadAboutOpen() ?? wideScreen() };        // change panel: remembered, else open on wide screens
     return board.flows.length ? s : { ...s, mode: "graph" as const };
   });
@@ -65,7 +89,7 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
   const [sheet, setSheet] = useState<string | null>(null);
   const anim = useRef(0);
 
-  useEffect(() => save(keys.moved(reviewId), state.moved), [reviewId, state.moved]);
+  useEffect(() => save(keys.moved(prefKey), state.moved), [prefKey, state.moved]);
   useEffect(() => save(keys.lens, state.view.lens), [state.view.lens]);
   useEffect(() => { const t = window.setTimeout(() => setHint(false), 7000); return () => window.clearTimeout(t); }, []);
   const interact = useCallback(() => setHint(false), []);
@@ -140,6 +164,12 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
     act({ t: "card.open", id: focus });
     panTo([focus]);
   }, [focus, vp.W, nodes, act, panTo]);
+  const opened = useRef<string | null>(null);         // the overview's file tree: open that file once
+  useEffect(() => {
+    if (!openPath || openPath === opened.current) return;
+    opened.current = openPath;
+    act({ t: "viewer.open", path: openPath, line: null, wide: wideScreen() });
+  }, [openPath, act]);
   const [showMap, setShowMap] = useState(0);           // phone: a citation shows the Map with the function's code sheet
   const sheetFor = useRef<string | null>(null);
   useEffect(() => {                                   // the effect above centres it once the Map has its size
@@ -151,7 +181,7 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
   const selectFlow = useCallback((i: number) => { act({ t: "flow", i }); panTo(board.flows[i].path); }, [act, panTo, board]);
   const setLayout = (layout: "layers" | "depth") => {
     if (layout === state.layout) return;
-    save(keys.layout(reviewId), layout);
+    save(keys.layout(prefKey), layout);
     act({ t: "layout", layout });
   };
   const relaid = useRef(state.layout);                // re-centre once the other layout's positions exist
@@ -191,14 +221,15 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
   const cardCount = Object.keys(state.cards).length;
   const canvas = vp.W > 0 && <>
     <Canvas board={board} lens={lens} pos={pos} vp={vp} bands={bands} state={state} dispatch={act}
-            panBy={panBy} onOpenFile={openFile} onInteract={interact}
+            panBy={panBy} onOpenFile={openFile} onInteract={interact} onExpand={expansion?.onExpand}
+            onHome={cluster?.onHome} homeName={cluster?.homeName}
             touch={phone ? { onPinchStart, onPinch, onTap: setSheet } : undefined} />
     {!phone && <CardLayer reviewId={reviewId} board={board} pos={pos} vp={vp} state={state} dispatch={act} sources={sources}
                           comments={comments} onComments={onComments} onOpenFile={openFile} narrow={narrow} />}
   </>;
   if (phone)
     return (
-      <PhoneBoard reviewId={reviewId} board={board} state={state} act={act} sources={sources} comments={comments}
+      <PhoneBoard reviewId={reviewId} board={board} state={state} act={act} sources={sources} comments={comments} clusters={cluster?.list}
                   onComments={onComments} risk={risk} sideEffects={sideEffects} head={head} onOpenFile={openFile}
                   showMap={showMap}
                   map={
@@ -216,7 +247,8 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
                onStep={(id) => act({ t: "card.toggle", id })} onStepOpen={openFile}
                height={flowH} onHeight={setFlowH} onHeightDone={(h) => { setFlowH(h); save(keys.flowH, h); }} />
       <div className={`bd-main${state.about ? " with-about" : ""}`}>
-        <ChangePanel open={state.about} onToggle={toggleAbout} reviewId={reviewId} comments={comments} onComments={onComments}
+        <ChangePanel open={state.about} onToggle={toggleAbout} reviewId={reviewId} prefKey={prefKey} onWhole={cluster?.onWhole}
+                     comments={comments} onComments={onComments}
                      layers={board.layers} about={board.about} sideEffects={sideEffects} risk={risk} openFiles={state.viewer.files} dispatch={act}
                      wide={wideScreen()} width={aboutW} onWidth={setAboutW} onWidthDone={(w) => save(keys.aboutW, w)} />
         <div className="bd-stage" ref={setStage}>
@@ -243,6 +275,10 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
                 ))}
               </span>
               {cardCount >= 2 && <button className="bd-ibtn float" onClick={() => act({ t: "card.closeAll" })}>Close all cards</button>}
+              {expansion?.onReset && (
+                <button className="bd-ibtn float over" title="Back to the board as built (you added callers or callees)"
+                        onClick={expansion.onReset}>{board.nodes.length} nodes · Reset</button>
+              )}
             </div>
             <div className="bd-legend">
               <span className="sw chg" />changed<span className="sw flow" />selected flow<span className="sw field" />field<span className="sw fx" />side effect

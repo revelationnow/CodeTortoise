@@ -16,13 +16,17 @@ export function save(key: string, value: unknown): void {
   }
 }
 
+/** Whose saved state: a review's board, or one cluster's board in a split review ("12.C3"). */
+export type BoardKey = number | string;
+
 export const keys = {
-  moved: (reviewId: number) => `ct.board.${reviewId}.moved`,
-  layout: (reviewId: number) => `ct.board.${reviewId}.layout`,
+  moved: (reviewId: BoardKey) => `ct.board.${reviewId}.moved`,
+  layout: (reviewId: BoardKey) => `ct.board.${reviewId}.layout`,
   about: "ct.panel.about",
   flowH: "ct.panel.flowH",
-  tab: (reviewId: number) => `ct.board.${reviewId}.tab`,
-  panelTab: (reviewId: number) => `ct.board.${reviewId}.panelTab`,
+  tab: (reviewId: BoardKey) => `ct.board.${reviewId}.tab`,
+  panelTab: (reviewId: BoardKey) => `ct.board.${reviewId}.panelTab`,
+  expand: (reviewId: BoardKey) => `ct.board.${reviewId}.expand`,
   viewerView: "ct.viewer.view",
   viewerW: "ct.panel.viewerW",
   aboutW: "ct.panel.aboutW",
@@ -36,7 +40,7 @@ export function loadLens(): 0 | 2 | 4 {
   return v === 0 || v === 2 || v === 4 ? v : 2;
 }
 
-export function loadLayout(reviewId: number): "layers" | "depth" | null {
+export function loadLayout(reviewId: BoardKey): "layers" | "depth" | null {
   const v = load<unknown>(keys.layout(reviewId), null);
   return v === "layers" || v === "depth" ? v : null;
 }
@@ -46,7 +50,7 @@ const finite = (x: unknown) => typeof x === "number" && Number.isFinite(x);
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 
 /** 2-D moves per layout; also reads the first board's x-only `{id: x}` shape (those were layer-band moves). */
-export function loadMovedAll(reviewId: number): { layers: Moved; depth: Moved } {
+export function loadMovedAll(reviewId: BoardKey): { layers: Moved; depth: Moved } {
   const empty = { layers: {}, depth: {} };
   const v = load<unknown>(keys.moved(reviewId), empty);
   if (!isObj(v)) return empty;
@@ -78,17 +82,23 @@ export function loadSize(key: string, min: number, max: number): number | null {
 }
 
 export type PhoneTab = "flows" | "map" | "files" | "summary";
-export function loadTab(reviewId: number): PhoneTab | null {
+export function loadTab(reviewId: BoardKey): PhoneTab | null {
   const v = load<unknown>(keys.tab(reviewId), null);
   return v === "flows" || v === "map" || v === "files" || v === "summary" ? v : null;
 }
 
 export type PanelTab = "summary" | "cls";
-export function loadPanelTab(reviewId: number): PanelTab {
+export function loadPanelTab(reviewId: BoardKey): PanelTab {
   return load<unknown>(keys.panelTab(reviewId), null) === "cls" ? "cls" : "summary";
 }
 
 export type ViewerView = "changes" | "full";
 export function loadViewerView(): ViewerView {
   return load<unknown>(keys.viewerView, null) === "full" ? "full" : "changes";
+}
+
+/** A cluster board's expansions ("N12:callers"), as this reader left them. */
+export function loadExpand(key: BoardKey): string[] {
+  const v = load<unknown>(keys.expand(key), []);
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && /^N\d+:(callers|callees)$/.test(x)) : [];
 }

@@ -15,6 +15,12 @@ interface Props {
   panBy: (dx: number, dy: number) => void;
   onOpenFile: (id: string) => void;
   onInteract: () => void;
+  /** "+N callers / +N callees" on nodes with more off the board (spec 2026-10-03-large-change-boards §3). */
+  onExpand?: (id: string, way: "callers" | "callees") => void;
+  /** A visitor's link to the board of the cluster it belongs to. */
+  onHome?: (cluster: string, id: string) => void;
+  /** A cluster id's name, for the visitor link. */
+  homeName?: (cluster: string) => string;
   /** Phone Map (spec §13.4): two-finger pinch, tap opens the code sheet, long-press before a node moves. */
   touch?: {
     onPinchStart: (mid: { x: number; y: number }) => void;
@@ -28,9 +34,10 @@ const LONG_PRESS = 450;
 const KIND = { modified: "Δ modified", added: "Δ added", removed: "Δ removed", signature: "Δ signature" } as const;
 
 /** Layer bands, edges and nodes, all drawn through the lens; pans on drag, moves a node sideways when dragged by it. */
-export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, panBy, onOpenFile, onInteract, touch }: Props) {
+export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, panBy, onOpenFile, onInteract, touch, onExpand,
+  onHome, homeName }: Props) {
   const root = useRef<HTMLDivElement>(null);
-  const down = useRef<{ x: number; y: number; px: number; py: number; id: number; node: string | null; go: boolean;
+  const down = useRef<{ x: number; y: number; px: number; py: number; id: number; node: string | null; go: boolean; act: string | null;
                         dragging: boolean; ox: number; oy: number; armed: boolean; timer: number } | null>(null);
   const pts = useRef(new Map<number, { x: number; y: number }>());     // touch: active pointers
   const pinch = useRef<{ d: number } | null>(null);
@@ -96,7 +103,8 @@ export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, p
         const t = e.target as HTMLElement, n = t.closest<HTMLElement>(".bd-node"), r = root.current!.getBoundingClientRect();
         const at = n?.dataset.id ? pos.get(n.dataset.id) : undefined;     // keep the grab point under the pointer
         const d = { x: e.clientX, y: e.clientY, px: state.view.panX, py: state.view.panY, id: e.pointerId,
-                    node: n?.dataset.id ?? null, go: !!t.closest(".bd-go"), dragging: false,
+                    node: n?.dataset.id ?? null, go: !!t.closest(".bd-go"), act: t.closest<HTMLElement>("[data-act]")?.dataset.act ?? null,
+                    dragging: false,
                     ox: at ? at.x - (e.clientX - r.left) : 0, oy: at ? at.y - (e.clientY - r.top) : 0,
                     armed: !touch, timer: 0 };
         if (touch && d.node)                                 // touch: a node moves only after a long press
@@ -140,6 +148,12 @@ export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, p
         end();
         if (!d || d.dragging || !d.node) return;
         const n = byId.get(d.node);
+        if (d.act) {                                         // a badge or a visitor's home link, not the card
+          onInteract();
+          if (d.act === "home" && n?.home) onHome?.(n.home, d.node);
+          else if (d.act === "callers" || d.act === "callees") onExpand?.(d.node, d.act);
+          return;
+        }
         if (!n?.path || !n.range) return;
         onInteract();
         if (d.go) onOpenFile(d.node);
@@ -185,7 +199,7 @@ export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, p
         const p = pos.get(n.id);
         if (!p) return null;
         const card = state.cards[n.id], on = onPath.has(n.id);
-        const cls = ["bd-node", n.change ? "chg" : "", n.kind === "field" ? "field" : "", on ? "onflow" : "",
+        const cls = ["bd-node", n.change ? "chg" : "", n.kind === "field" ? "field" : "", on ? "onflow" : "", n.home ? "visitor" : "",
           !graph && !on && !n.change && !card ? "dim" : "", state.moved[state.layout][n.id] !== undefined ? "moved" : "",
           card ? "has-card" : "", n.id === front ? "front" : "", grab === n.id ? "grab" : ""].filter(Boolean).join(" ");
         const fx = badge.get(n.id);
@@ -199,6 +213,14 @@ export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, p
             {!n.change && n.warn > 0 && <span className="warn-dot">{n.warn}</span>}
             {n.path && n.range && <button className="bd-go" title="Open full file" aria-label={`Open ${n.label} in the file viewer`}>⤢</button>}
             {fx && landings.has(n.id) && <div className="fxbadge">⚠ {fx}</div>}
+            {n.home && onHome && <span className="bd-home" data-act="home" role="button" title={`Open ${n.home}'s board`}>
+              · {homeName?.(n.home) ?? n.home} ›</span>}
+            {onExpand && (!!n.more_callers || !!n.more_callees) && (
+              <span className="bd-more-nb">
+                {!!n.more_callers && <span data-act="callers" role="button" aria-label={`Add ${n.label}'s callers`}>+{n.more_callers} callers</span>}
+                {!!n.more_callees && <span data-act="callees" role="button" aria-label={`Add ${n.label}'s callees`}>+{n.more_callees} callees</span>}
+              </span>
+            )}
           </div>
         );
       })}

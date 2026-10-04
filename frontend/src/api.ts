@@ -42,8 +42,8 @@ export interface Health { checks: HealthCheck[]; ready: boolean; index_generatio
   p4_sources: Record<string, string>;
   ai: { limits?: { per_review: number; per_person_daily: number; per_mention: number }; calls_today?: number } }
 
-export type { Board, SourceText } from "./board/types";
-import type { Board, SourceText } from "./board/types";
+export type { Board, Overview, SourceText } from "./board/types";
+import type { Board, Overview, SourceText } from "./board/types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -74,7 +74,15 @@ export const api = {
   createReview: (cls: number[], title?: string) => call<ReviewRow>("POST", "/api/reviews", { cls, title }),
   review: (id: number) => call<ReviewDetail>("GET", `/api/reviews/${id}`),
   rerun: (id: number) => call("POST", `/api/reviews/${id}/rerun`),
-  board: (id: number) => call<Board>("GET", `/api/reviews/${id}/board`),
+  board: (id: number, cluster?: string | null, expand?: string[]) => {
+    const q = new URLSearchParams();
+    if (cluster) q.set("cluster", cluster);
+    if (expand?.length) q.set("expand", expand.join(","));
+    return call<Board>("GET", `/api/reviews/${id}/board${q.size ? `?${q}` : ""}`);
+  },
+  overview: (id: number) => call<Overview>("GET", `/api/reviews/${id}/overview`),
+  locate: (id: number, q: { node?: string; flow?: string; finding?: string }) =>
+    call<{ cluster: string | null }>("GET", `/api/reviews/${id}/locate?${new URLSearchParams(q)}`),
   source: (id: number, path: string, side: "before" | "after" = "after") =>
     call<SourceText>("GET", `/api/reviews/${id}/source?${new URLSearchParams({ path, side })}`),
   findings: (id: number) => call<Finding[]>("GET", `/api/reviews/${id}/findings`),

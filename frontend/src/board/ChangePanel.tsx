@@ -4,7 +4,7 @@ import Comments from "../components/Comments";
 import type { Action } from "./reducer";
 import type { AffectedDir } from "./sideEffects";
 import { driftSummary } from "./drift";
-import { keys, loadPanelTab, type PanelTab, save } from "./prefs";
+import { type BoardKey, keys, loadPanelTab, type PanelTab, save } from "./prefs";
 import Resizer from "./Resizer";
 import type { About } from "./types";
 
@@ -26,15 +26,19 @@ interface Props {
   onWidthDone: (w: number) => void;
   /** Phone Summary tab: always open, fills its tab, no toggle or resize grip. */
   embedded?: boolean;
+  /** Whose saved tab (a cluster's board has its own); defaults to the review. */
+  prefKey?: BoardKey;
+  /** A cluster's board: back to the whole change's overview. */
+  onWhole?: () => void;
 }
 
 /** "What's this change?" (spec §3.6): files tree first, then intent, why it's risky, changelists. Pushes the board. */
 export default function ChangePanel({ open, onToggle, reviewId, comments, onComments, layers, about, sideEffects, risk, openFiles,
-  dispatch, wide, width, onWidth, onWidthDone, embedded }: Props) {
+  dispatch, wide, width, onWidth, onWidthDone, embedded, prefKey = reviewId, onWhole }: Props) {
   const [shut, setShut] = useState<Set<string>>(new Set());
-  const [tab, setTab] = useState<PanelTab>(() => loadPanelTab(reviewId));
+  const [tab, setTab] = useState<PanelTab>(() => loadPanelTab(prefKey));
   const [openCls, setOpenCls] = useState<Set<number>>(new Set());
-  const chooseTab = (t: PanelTab) => { setTab(t); save(keys.panelTab(reviewId), t); };
+  const chooseTab = (t: PanelTab) => { setTab(t); save(keys.panelTab(prefKey), t); };
   if (!open && !embedded)
     return (
       <aside className="bd-about collapsed" onClick={onToggle}>
@@ -52,6 +56,7 @@ export default function ChangePanel({ open, onToggle, reviewId, comments, onComm
         {!embedded && <button className="bd-ibtn toggle" title="Collapse" aria-label="Collapse change summary" onClick={onToggle}>‹</button>}
         {risk && <span className={`bd-pill ${risk}`}>{risk.toUpperCase()} RISK</span>}
         <h2>What this change is trying to do</h2>
+        {onWhole && <button className="link small bd-whole" onClick={onWhole}>Whole change ›</button>}
         <p>{about.cls.map((c) => `CL ${c.cl}`).join(" · ")} · {nFiles} files · {about.intent_source === "llm"
           ? "summarised from the CL descriptions, the diff and the analysis" : "from the CL descriptions and the analysis"}</p>
       </div>
