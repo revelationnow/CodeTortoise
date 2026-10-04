@@ -10,7 +10,7 @@ import fnmatch
 import posixpath
 import re
 from collections import defaultdict, deque
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from dataclasses import field as dfield
 from typing import Literal
@@ -39,6 +39,16 @@ def is_test_path(rel: str) -> bool:
     """Test code by its workspace-relative path: a tests/test/testing/unittest(s)/fuzz(ers) directory, or a
     test_*.c / *_test.cc / *_unittest.cpp style file name."""
     return bool(_TEST_DIR.search(rel) or _TEST_FILE.search(rel))
+
+
+def unchanged_test(im: ImpactModel, root: str, nid: str, changed: Collection[str]) -> bool:
+    """Unchanged test code (by its path under the workspace `root`): left out of flows, blast radius and "+N callers".
+    Changed test code counts like any other code."""
+    f = im.nodes[nid].file
+    if nid in changed or not f:
+        return False
+    r = root.rstrip("/") + "/"
+    return is_test_path(f[len(r):] if root and f.startswith(r) else f)
 
 
 class NodeChange(BaseModel):
@@ -321,11 +331,7 @@ class _Ctx:
 
     def is_test(self, nid: str) -> bool:
         """Test code is never a flow entry or landing, and is not shown as blast radius."""
-        node = self.im.nodes[nid]
-        if nid in self.changed or not node.file:
-            return False
-        root = self.c.root.rstrip("/") + "/"
-        return is_test_path(node.file[len(root):] if self.c.root and node.file.startswith(root) else node.file)
+        return unchanged_test(self.im, self.c.root, nid, self.changed)
 
     def label(self, nid: str) -> str:
         return self.im.nodes[nid].label
@@ -824,12 +830,16 @@ def _overview(x: _Ctx, res, about: About, depots: dict[str, str], flows: list[Fl
 
 def expand_board(b: Board, im: ImpactModel, asks: list[tuple[str, str]], *, step: int,
                  ranges: dict[str, list[int]], depot_of: dict[str, Files], layer_name: Callable[[int], str],
-                 is_test: Callable[[str], bool], home: dict[str, str] | None = None) -> Board:
+                 root: str, home: dict[str, str] | None = None) -> Board:
     """`b` with up to `step` more callers or callees of each asked node ("+N callers"), most affected first, laid out
     again. Asks are applied in order, so a node added by one can be expanded by the next. The board may pass its
     node budget: the reader asked for it."""
     out = b.model_copy(deep=True)
     on = {n.id for n in out.nodes}
+    changed = set(im.changed)
+
+    def is_test(nid: str) -> bool:
+        return unchanged_test(im, root, nid, changed)
     score = {x.node: x.score for x in im.blast}
     callers: dict[str, set[str]] = defaultdict(set)
     callees: dict[str, set[str]] = defaultdict(set)

@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from codetortoise import boardstore
-from codetortoise.board import Board, expand_board, is_test_path
+from codetortoise.board import Board, expand_board
 from codetortoise.facts.model import Facts
 from codetortoise.health import run_health
 from codetortoise.impact import ImpactModel
@@ -247,11 +247,8 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
             layer = lm.layer(lv) if lm else None
             return layer.name.split(": ", 1)[-1] if layer else f"L{lv}"
 
-        def is_test(nid: str) -> bool:
-            f = im.nodes[nid].file or ""
-            return bool(f) and is_test_path(f[len(root):] if f.startswith(root) else f)
         return expand_board(b, im, asks, step=cfg.analysis.expand_step, ranges=ranges,
-                            depot_of=store.get_blob(rid, "node_files") or {}, layer_name=layer_name, is_test=is_test,
+                            depot_of=store.get_blob(rid, "node_files") or {}, layer_name=layer_name, root=root,
                             home=store.get_blob(rid, "node_cluster") or {})
 
     @app.get("/api/reviews/{rid}/locate")
