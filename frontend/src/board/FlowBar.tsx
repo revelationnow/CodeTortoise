@@ -56,7 +56,7 @@ export default function FlowBar({ board, state, layerOf, onFlow, onStep, onStepO
               {flow.path.map((id, i) => {
                 const n = byId.get(id);
                 if (!n) return null;
-                const kind = n.change ? "chg" : n.kind === "field" ? "field" : id === flow.lands || id === flow.fx_at ? "fx" : "";
+                const kind = n.change ? "chg" : n.kind === "field" || n.kind === "struct" ? "field" : id === flow.lands || id === flow.fx_at ? "fx" : "";
                 const open = state.cards[id] && !state.cards[id].collapsed;
                 const code = !!(n.path && n.range);
                 return (

@@ -112,7 +112,7 @@ function Card({ node, rect, at, z, front, register, state, dispatch, narrow, onO
            onDoubleClick={(e) => { if (!(e.target as HTMLElement).closest("button")) dispatch({ t: "card.unpin", id }); }}>
         <b>{node.label}</b>
         <span className="file">{node.path?.split("/").slice(-2).join("/")}</span>
-        <span className={`bd-badge ${changed ? "chg" : "ctx"}`}>{changed ? "Δ changed" : node.kind === "field" ? "field" : "context"}</span>
+        <span className={`bd-badge ${changed ? "chg" : "ctx"}`}>{changed ? "Δ changed" : node.kind === "field" || node.kind === "struct" ? "field" : "context"}</span>
         <span className="sp" />
         <button className="bd-ibtn restore" title="Expand card" onClick={(e) => { e.stopPropagation(); dispatch({ t: "card.expand", id }); }}>⤢</button>
         <button className="bd-ibtn expand" title="Open full file" onClick={(e) => { e.stopPropagation(); onOpenFile(id); }}>⤢ Full file</button>
@@ -130,7 +130,7 @@ export type BodyProps = Pick<Props, "reviewId" | "board" | "sources" | "comments
 export function CardBody({ node, reviewId, board, sources, comments, onComments }: BodyProps) {
   const src = useEnsureSource(node.path, sources);
   const [lo, hi] = node.range ?? [0, 0];
-  const pad = node.kind === "field" ? 4 : 0;
+  const pad = node.kind === "field" || node.kind === "struct" ? 4 : 0;
   const lines = useMemo(() => {
     if (isChange(src)) return sliceRange(lineDiff(src.before, src.after), lo - pad, hi + pad);
     if (src && "status" in src && src.status === "ok") return sliceRange(plainLines(src.file.text), lo - pad, hi + pad);

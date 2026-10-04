@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type Comment, type Finding } from "../api";
-import type { ClusterInfo } from "../board/types";
 import { useMe } from "../App";
 import { SeverityBadge } from "./Badges";
 import CiteText, { CiteList } from "./CiteText";
@@ -15,8 +14,9 @@ interface Props {
   onComments: () => void;
   onFindings: () => void;
   onCite: (id: string) => void;
-  /** A split review's clusters: findings are grouped under them (spec 2026-10-03-large-change-boards §5). */
-  groups?: ClusterInfo[];
+  /** Findings are grouped under a review's stories (spec 2026-10-04-change-stories §5), else a split review's clusters
+   * (spec 2026-10-03-large-change-boards §5). */
+  groups?: { id: string; name: string; finding_ids: string[] }[];
 }
 
 export default function Findings({ reviewId, findings, focus, comments, onComments, onFindings, onCite, groups }: Props) {

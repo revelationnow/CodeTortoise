@@ -27,7 +27,7 @@ export interface Comment {
 }
 /** A tortoise reply's state (spec 2026-10-03 §5). */
 export interface AiMeta { pending: boolean; round?: number; of?: number; read: string[]; files: string[]; calls: number; error: string | null }
-export type AiKind = "flow" | "finding" | "file";
+export type AiKind = "flow" | "finding" | "file" | "story";
 export interface AiJob { id: number; user: string; kind: string; target: string; status: "running" | "done" | "failed" | "refused"; error: string | null }
 export interface AiCall { id: number; user: string; purpose: string; target: string | null; started_at: string; finished_at: string | null;
   prompt_tokens: number | null; completion_tokens: number | null; outcome: "ok" | "failed" | "refused" | "running" | null; error: string | null }
@@ -42,8 +42,8 @@ export interface Health { checks: HealthCheck[]; ready: boolean; index_generatio
   p4_sources: Record<string, string>;
   ai: { limits?: { per_review: number; per_person_daily: number; per_mention: number }; calls_today?: number } }
 
-export type { Board, Overview, SourceText } from "./board/types";
-import type { Board, Overview, SourceText } from "./board/types";
+export type { Board, Overview, SourceText, StoryDetail, StorySet } from "./board/types";
+import type { Board, Overview, SourceText, StoryDetail, StorySet } from "./board/types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -81,8 +81,11 @@ export const api = {
     return call<Board>("GET", `/api/reviews/${id}/board${q.size ? `?${q}` : ""}`);
   },
   overview: (id: number) => call<Overview>("GET", `/api/reviews/${id}/overview`),
+  stories: (id: number) => call<StorySet>("GET", `/api/reviews/${id}/stories`),
+  story: (id: number, sid: string, expand?: string[]) =>
+    call<StoryDetail>("GET", `/api/reviews/${id}/stories/${sid}${expand?.length ? `?${new URLSearchParams({ expand: expand.join(",") })}` : ""}`),
   locate: (id: number, q: { node?: string; flow?: string; finding?: string }) =>
-    call<{ cluster: string | null }>("GET", `/api/reviews/${id}/locate?${new URLSearchParams(q)}`),
+    call<{ cluster: string | null; story?: string | null }>("GET", `/api/reviews/${id}/locate?${new URLSearchParams(q)}`),
   source: (id: number, path: string, side: "before" | "after" = "after") =>
     call<SourceText>("GET", `/api/reviews/${id}/source?${new URLSearchParams({ path, side })}`),
   findings: (id: number) => call<Finding[]>("GET", `/api/reviews/${id}/findings`),

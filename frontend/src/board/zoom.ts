@@ -19,6 +19,16 @@ export function zoomLens(lens: Lens, z: number, vp: Viewport): Lens {
   };
 }
 
+const FIT_W = 260, FIT_H = 120;                  // room around the outermost node centres for labels and badges
+
+/** The zoom at which every node fits the canvas (a story's graph opens whole); 1 when it already fits. */
+export function fitZoom(nodes: { x: number; y: number }[], vp: Viewport): number {
+  if (!nodes.length) return 1;
+  const xs = nodes.map((n) => n.x), ys = nodes.map((n) => n.y);
+  const w = Math.max(...xs) - Math.min(...xs) + FIT_W, h = Math.max(...ys) - Math.min(...ys) + FIT_H;
+  return Math.max(ZOOM_MIN, Math.min(1, vp.W / w, vp.H / h));
+}
+
 /** The zoom after one pinch update: fingers d0 → d1 apart, clamped to [ZOOM_MIN, ZOOM_MAX]. */
 export const pinchZoom = (z0: number, d0: number, d1: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z0 * (d1 / Math.max(1, d0))));
 

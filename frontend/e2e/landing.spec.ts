@@ -12,7 +12,7 @@ test.describe("desktop", () => {
     await page.getByLabel("Changelists (shelved or submitted)").fill("102");
     await page.getByLabel("Title (optional)").fill(title);
     await page.getByRole("button", { name: "Start review" }).click();
-    await expect(page.locator(".bd-node").first()).toBeVisible({ timeout: 60_000 });
+    await expect(page.locator(".st-entry").first()).toBeVisible({ timeout: 60_000 });      // a review opens on its stories
     await page.getByRole("link", { name: "Reviews" }).first().click();
 
     const rows = page.locator(".rv-list .rv-row");

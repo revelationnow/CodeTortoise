@@ -82,6 +82,6 @@ test("the old files page opens the board", async ({ page }) => {
   const id = page.url().match(/\/r\/(\d+)/)![1];
   await expect(page.getByRole("link", { name: /^Files/ })).toHaveCount(0);
   await page.goto(`/r/${id}/files`);
-  await expect(page).toHaveURL(new RegExp(`/r/${id}$`));
+  await expect(page).toHaveURL(new RegExp(`/r/${id}/board$`));
   await expect(page.locator(".bd-node").first()).toBeVisible();
 });

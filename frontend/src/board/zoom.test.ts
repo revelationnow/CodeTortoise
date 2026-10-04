@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { makeLens } from "./lens";
-import { pinchZoom, zoomLens } from "./zoom";
+import { fitZoom, pinchZoom, zoomLens } from "./zoom";
 
 const vp = { W: 400, H: 700 };
 const lens = makeLens({ panX: 200, panY: 0, lens: 0 }, vp, [-500, 500]);
@@ -44,5 +44,18 @@ describe("pinch keeps the point under the fingers", () => {
     const next = pinchView(view, 1.5, { x: 0, y: 350 }, { x: 260, y: 380 }, vp, xs);
     const p = zoomLens(makeLens(next, vp, xs), 1.5, vp).project(0, 350);
     expect([Math.round(p.x), Math.round(p.y)]).toEqual([260, 380]);
+  });
+});
+
+describe("fitZoom", () => {
+  const nodes = (pts: [number, number][]) => pts.map(([x, y], i) => ({ id: `N${i}`, x, y }));
+  it("shrinks a graph wider or taller than the canvas until it fits, never below ZOOM_MIN", () => {
+    expect(fitZoom(nodes([[0, 0], [1000, 0]]), { W: 700, H: 800 })).toBeCloseTo(700 / 1260);
+    expect(fitZoom(nodes([[0, 0], [0, 840]]), { W: 1200, H: 500 })).toBeCloseTo(500 / 960);
+    expect(fitZoom(nodes([[0, 0], [9000, 0]]), { W: 400, H: 800 })).toBe(0.5);
+  });
+  it("never enlarges a graph that already fits", () => {
+    expect(fitZoom(nodes([[0, 0], [100, 210]]), { W: 1200, H: 800 })).toBe(1);
+    expect(fitZoom([], { W: 1200, H: 800 })).toBe(1);
   });
 });

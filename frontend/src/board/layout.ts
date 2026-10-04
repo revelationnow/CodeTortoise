@@ -21,7 +21,7 @@ export const worldY = (row: number) => row * BAND + BAND / 2;
  * nearest caller; functions reachable only through cycles start from the changed functions (then any unplaced
  * node); a field sits one row below its deepest writer (or reader when nothing writes it). */
 export function callDepth(board: Board): Map<string, number> {
-  const fns = board.nodes.filter((n) => n.kind === "function");
+  const fns = board.nodes.filter((n) => n.kind === "function" || n.kind === "more");
   const calls = board.edges.filter((e) => e.kind === "call" || e.kind === "virtual");
   const isFn = new Set(fns.map((n) => n.id)), callers = new Map<string, number>();
   for (const e of calls) callers.set(e.dst, (callers.get(e.dst) ?? 0) + 1);
@@ -41,7 +41,7 @@ export function callDepth(board: Board): Map<string, number> {
   walk(fns.filter((n) => !callers.get(n.id)).map((n) => n.id));
   walk(fns.filter((n) => n.change).map((n) => n.id));
   for (const n of fns) walk([n.id]);
-  for (const f of board.nodes.filter((n) => n.kind === "field")) {
+  for (const f of board.nodes.filter((n) => n.kind === "field" || n.kind === "struct")) {
     const by = (kind: string) => board.edges.filter((e) => e.dst === f.id && e.kind === kind && depth.has(e.src))
       .map((e) => depth.get(e.src)!);
     const users = by("writes").length ? by("writes") : by("reads");

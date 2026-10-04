@@ -1,12 +1,16 @@
 /** Review board model, as served by GET /api/reviews/{id}/board (backend codetortoise/board.py). */
 export interface NodeChange { kind: "modified" | "signature" | "added" | "removed"; add: number; rem: number }
 export interface BoardNode {
-  id: string; key: string; label: string; kind: "function" | "field"; layer: number | null;
+  id: string; key: string; label: string; kind: "function" | "field" | "struct" | "more"; layer: number | null;
   path: string | null; local: string | null; range: [number, number] | null; change: NodeChange | null; x: number; warn: number;
   /** A visitor: the cluster this node belongs to (spec 2026-10-03-large-change-boards §3). */
   home?: string | null;
   /** Callers / callees not on the board, for "+N callers" (absent on boards stored before clusters). */
   more_callers?: number; more_callees?: number;
+  /** A story graph's node (spec 2026-10-04-change-stories §3.1): what changed in it, in a few words. */
+  note?: string | null;
+  /** A story graph's struct node: the fields its story touches. */
+  fields?: { id: string; label: string }[];
 }
 export interface BoardEdge {
   src: string; dst: string; kind: "call" | "virtual" | "writes" | "reads"; status: string; confidence: string;
@@ -47,3 +51,25 @@ export interface Overview {
   merged_over_limit: number;
 }
 export interface SourceText { path: string; depot: string; rev: string; text: string; changed: boolean }
+
+/** Change stories (spec 2026-10-04-change-stories), as served by GET /api/reviews/{id}/stories[/{sid}]. */
+export type StoryKind = "behaviour" | "other" | "mechanical" | "tests";
+export interface Story {
+  id: string; kind: StoryKind; title: string; summary: string; text_source: "template" | "llm"; risk: string | null;
+  counts: Partial<Record<"flows" | "findings" | "functions" | "files" | "sites" | "test_sites", number>>;
+  nodes: string[]; flows: string[]; findings: string[]; board: string | null;
+  sub: [string, string] | null; subs: [string, string][]; collapsed: boolean;
+}
+export interface StoryRef { node: string; label: string; story: string | null }
+export interface StoryFunction { node: string; label: string; note: string; on_flow: boolean; also: string[]; calls: StoryRef[] }
+export interface StorySite {
+  path: string | null; line: number; function: string | null; node: string | null; before: string; after: string;
+  test: boolean; effect: string | null; other_edits: string | null;
+}
+export interface StoryDetail {
+  story: Story; board: Board; graph: Board | null; functions: StoryFunction[]; sites: StorySite[]; also_in: StoryRef[];
+}
+export interface StorySet {
+  summary: string; stories: Story[];
+  node_story: Record<string, string>; flow_story: Record<string, string>; finding_story: Record<string, string>;
+}

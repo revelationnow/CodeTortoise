@@ -14,7 +14,7 @@ import { type Action, initialState, reduce } from "./reducer";
 import type { Board as BoardModel } from "./types";
 import PhoneBoard from "./phone/PhoneBoard";
 import PhoneMap from "./phone/PhoneMap";
-import { pinchView, pinchZoom, zoomLens } from "./zoom";
+import { fitZoom, pinchView, pinchZoom, zoomLens } from "./zoom";
 import { useSources } from "./useSources";
 
 interface Props {
@@ -42,6 +42,20 @@ interface Props {
     /** Every cluster, for the phone menu. */
     list: { id: string; name: string }[];
   };
+  /** A story's graph (spec 2026-10-04-change-stories §3.1): no lens, quiet field lines, notes on nodes. */
+  story?: {
+    prefKey: string;
+    /** Story title, ‹ › and tabs, shown in the header. */
+    nav: ReactNode;
+    /** "+N more changed functions": the story's list of them. */
+    onMore: () => void;
+    /** Phone: the Steps tab's content (desktop shows steps on the story page). */
+    steps: ReactNode;
+    /** Phone menu: every story. */
+    list: { id: string; title: string }[];
+    /** Bumped to show the phone's Steps tab ("+N more changed functions"). */
+    showSteps: number;
+  };
   /** A file to open in the viewer on arrival (the overview's file tree). */
   openPath?: string | null;
   /** "+N callers / +N callees"; with `onReset` when the reader has expanded the board. */
@@ -55,7 +69,7 @@ const wideScreen = () => window.innerWidth > 1100;
 const PHONE = "(max-width: 640px)";
 
 /** True while the window is phone-sized (spec §13); follows rotation and resizing. */
-function usePhone() {
+export function usePhone() {
   const [phone, setPhone] = useState(() => window.matchMedia(PHONE).matches);
   useEffect(() => {
     const mq = window.matchMedia(PHONE), on = () => setPhone(mq.matches);
@@ -67,12 +81,15 @@ function usePhone() {
 
 /** The review board (spec §2–§4): flow bar, lensed canvas with cards, file viewer and change panel. */
 export default function Board({ reviewId, board, files, comments, onComments, risk, focus, head: reviewHead, cluster, expansion,
-  openPath }: Props) {
-  const prefKey = cluster?.prefKey ?? reviewId;
-  const head = useCallback((extra: ReactNode) => reviewHead(<>{cluster?.nav}{extra}</>), [reviewHead, cluster?.nav]);
+  openPath, story }: Props) {
+  const prefKey = cluster?.prefKey ?? story?.prefKey ?? reviewId;
+  const nav = cluster?.nav ?? story?.nav;
+  const head = useCallback((extra: ReactNode) => reviewHead(<>{nav}{extra}</>), [reviewHead, nav]);
   const [state, dispatch] = useReducer(reduce, undefined, () => {
-    const s = { ...initialState(loadLens(), loadMovedAll(prefKey), loadLayout(prefKey) ?? (preferDepth(board) ? "depth" : "layers")),
-                about: loadAboutOpen() ?? wideScreen() };        // change panel: remembered, else open on wide screens
+    const lensAt = story ? 0 : loadLens();                // a story graph is small enough to show at full size
+    const s = { ...initialState(lensAt, loadMovedAll(prefKey), loadLayout(prefKey) ?? (preferDepth(board) ? "depth" : "layers")),
+                about: story ? false : loadAboutOpen() ?? wideScreen() };   // change panel: remembered, else open on wide screens
+                                                                             // (a story graph opens with the room for itself)
     return board.flows.length ? s : { ...s, mode: "graph" as const };
   });
   const stateRef = useRef(state);
@@ -85,12 +102,13 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
   const [hint, setHint] = useState(true);
   const [stage, setStage] = useState<HTMLDivElement | null>(null);   // the canvas element; on phones it mounts with the Map tab
   const phone = usePhone();
-  const [zoom, setZoom] = useState(1);                // phone Map only (spec §13.4)
+  const [zoom, setZoom] = useState(1);                // phone Map, and a story's graph fitted to the canvas (spec §13.4)
   const [sheet, setSheet] = useState<string | null>(null);
   const anim = useRef(0);
 
   useEffect(() => save(keys.moved(prefKey), state.moved), [prefKey, state.moved]);
-  useEffect(() => save(keys.lens, state.view.lens), [state.view.lens]);
+  const quiet = !!story;
+  useEffect(() => { if (!quiet) save(keys.lens, state.view.lens); }, [quiet, state.view.lens]);
   useEffect(() => { const t = window.setTimeout(() => setHint(false), 7000); return () => window.clearTimeout(t); }, []);
   const interact = useCallback(() => setHint(false), []);
 
@@ -98,7 +116,7 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
   const bands = useMemo(() => bandsFor(board, state.layout), [board, state.layout]);
   const world = useMemo(() => worldNodes(board, state.layout, state.moved[state.layout]), [board, state.layout, state.moved]);
   const baseLens = useMemo(() => makeLens(state.view, vp, [...world.values()].map((n) => n.x)), [state.view, vp, world]);
-  const lens = useMemo(() => (phone ? zoomLens(baseLens, zoom, vp) : baseLens), [phone, baseLens, zoom, vp]);
+  const lens = useMemo(() => (phone || story ? zoomLens(baseLens, zoom, vp) : baseLens), [phone, story, baseLens, zoom, vp]);
   const pos = useMemo(() => new Map([...world.values()].map((n) => [n.id, lens.project(n.x, n.y)])), [world, lens]);
 
   const vpRef = useRef(vp);
@@ -138,9 +156,10 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
       if (first && W) {
         first = false;
         const s = stateRef.current, f = board.flows[s.flow];
-        const ids = s.mode === "flows" && f ? f.path : board.nodes.map((n) => n.id);
+        const ids = s.mode === "flows" && f && !story ? f.path : board.nodes.map((n) => n.id);
         const t = centrePan(ids, worldRef.current, W, H);
         if (t) dispatch({ t: "pan", ...t });
+        if (story) { setZoom(fitZoom([...worldRef.current.values()], { W, H })); return; }   // a story's graph opens whole
         const firstChanged = (f?.path ?? []).find((id) => board.nodes.find((n) => n.id === id)?.change)
           ?? board.nodes.find((n) => n.change && n.path && n.range)?.id;
         if (firstChanged && window.innerWidth > 640) dispatch({ t: "card.open", id: firstChanged });
@@ -148,7 +167,7 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, [stage, board, panBy]);
+  }, [stage, board, panBy, story]);
 
   const act = useCallback((a: Action) => { setHint(false); dispatch(a); }, []);
   const toggleAbout = () => { save(keys.about, !state.about); act({ t: "about.toggle" }); };
@@ -222,7 +241,7 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
   const canvas = vp.W > 0 && <>
     <Canvas board={board} lens={lens} pos={pos} vp={vp} bands={bands} state={state} dispatch={act}
             panBy={panBy} onOpenFile={openFile} onInteract={interact} onExpand={expansion?.onExpand}
-            onHome={cluster?.onHome} homeName={cluster?.homeName}
+            onHome={cluster?.onHome} homeName={cluster?.homeName} quiet={quiet} onMore={story?.onMore}
             touch={phone ? { onPinchStart, onPinch, onTap: setSheet } : undefined} />
     {!phone && <CardLayer reviewId={reviewId} board={board} pos={pos} vp={vp} state={state} dispatch={act} sources={sources}
                           comments={comments} onComments={onComments} onOpenFile={openFile} narrow={narrow} />}
@@ -230,6 +249,7 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
   if (phone)
     return (
       <PhoneBoard reviewId={reviewId} board={board} state={state} act={act} sources={sources} comments={comments} clusters={cluster?.list}
+                  steps={story?.steps} stories={story?.list} showSteps={story?.showSteps}
                   onComments={onComments} risk={risk} sideEffects={sideEffects} head={head} onOpenFile={openFile}
                   showMap={showMap}
                   map={
@@ -266,14 +286,16 @@ export default function Board({ reviewId, board, files, comments, onComments, ri
               </span>
               {Object.keys(state.moved[state.layout]).length > 0 &&
                 <button className="bd-ibtn float" onClick={() => act({ t: "layout.reset" })}>Reset layout</button>}
-              <span className="lbl">Lens</span>
-              <span className="bd-seg">
-                {([0, 2, 4] as const).map((m) => (
-                  <button key={m} className={`bd-ibtn${state.view.lens === m ? " on" : ""}`} onClick={() => act({ t: "lens", lens: m })}>
-                    {m ? `${m}×` : "Off"}
-                  </button>
-                ))}
-              </span>
+              {!quiet && <>
+                <span className="lbl">Lens</span>
+                <span className="bd-seg">
+                  {([0, 2, 4] as const).map((m) => (
+                    <button key={m} className={`bd-ibtn${state.view.lens === m ? " on" : ""}`} onClick={() => act({ t: "lens", lens: m })}>
+                      {m ? `${m}×` : "Off"}
+                    </button>
+                  ))}
+                </span>
+              </>}
               {cardCount >= 2 && <button className="bd-ibtn float" onClick={() => act({ t: "card.closeAll" })}>Close all cards</button>}
               {expansion?.onReset && (
                 <button className="bd-ibtn float over" title="Back to the board as built (you added callers or callees)"

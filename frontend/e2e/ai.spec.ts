@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { login, startReview } from "./helpers";
+import { login, startReview, startStories } from "./helpers";
 
 const AI = "http://127.0.0.1:8798";      // e2e/serve-ai.sh: CodeTortoise with the fake model in e2e/fake_llm.py
 
@@ -19,6 +19,19 @@ test.describe("with an AI", () => {
                                                       { timeout: 30_000 });
     await expect(info.locator(".what .ai-label")).toBeVisible();
     await expect(ask).toHaveText("✦ Explain again");
+  });
+
+  test("✦ Explain retells a story's title and summary, on the story and in the list", async ({ page }) => {
+    await startStories(page);
+    await page.locator(".st-entry").first().click();
+    const head = page.locator(".st-head");
+    await expect(head.locator(".ai-label")).toHaveCount(0);                  // this server's up-front pass skips stories
+    await head.getByRole("button", { name: "✦ Explain" }).click();
+    await expect(head.locator("h2")).toContainText("uart_send's new error count reaches uart_errors", { timeout: 30_000 });
+    await expect(head.locator(".ai-label")).toBeVisible();
+    await expect(head.getByRole("button", { name: /Explain/ })).toHaveText("✦ Explain again");
+    await page.getByRole("link", { name: "Stories", exact: true }).first().click();
+    await expect(page.locator(".st-entry").first()).toContainText("uart_send's new error count reaches uart_errors");
   });
 
   test("the owner raises the budget from the AI pill; a reviewer sees the usage without the control", async ({ page, browser }) => {
