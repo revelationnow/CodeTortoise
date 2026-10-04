@@ -307,13 +307,13 @@ class JobRunner:
     @staticmethod
     def _run_ai(job: dict, fn: Callable[[], None]) -> None:
         from codetortoise.llm.ledger import Refused
-        from codetortoise.llm.ondemand import Unchecked
+        from codetortoise.llm.ondemand import Changed, Unchecked
         try:
             fn()
             job["status"] = "done"
         except Refused as e:
             job["status"], job["error"] = "refused", e.reason
-        except Unchecked as e:
+        except (Unchecked, Changed) as e:
             job["status"], job["error"] = "failed", str(e)
         except Exception as e:  # shown to whoever asked
             job["status"], job["error"] = "failed", f"{type(e).__name__}: {e}"[:300]

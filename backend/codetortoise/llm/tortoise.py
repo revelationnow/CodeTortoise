@@ -56,6 +56,10 @@ def mentions(body: str) -> bool:
     return bool(MENTION.search(body or ""))
 
 
+class _Miss(str):
+    """A read that found nothing or wasn't allowed: told to the model, not listed as read."""
+
+
 class _Reader:
     """The reads @tortoise may make, inside the review and the workspace. Each returns text and records the files."""
 
@@ -115,11 +119,11 @@ class _Reader:
             return f"{hit} {n.label}:\n" + _facts_for_nodes(im, [hit]) + "\n" + code
         defs = self.svc.index.defs(name)
         if not defs:
-            return f"no function named {name}"
+            return _Miss(f"no function named {name}")
         d = defs[0]
         got = self.text_of(local=d.path)
         if not got:
-            return f"{name} is defined in {d.path}, which can't be read"
+            return _Miss(f"{name} is defined in {d.path}, which can't be read")
         self.files.add(got[0])
         return f"{name} ({got[0]}:{d.line}):\n" + self.lines(got[1], d.line, d.line + 40)
 
@@ -131,7 +135,7 @@ class _Reader:
                 continue
             self.files.add(got[0])
             out.append(f"{c.caller or '?'} ({got[0]}:{c.line}):\n" + self.lines(got[1], c.line - 3, c.line + 3))
-        return "\n\n".join(out) or f"no callers of {name} in the symbol index"
+        return "\n\n".join(out) or _Miss(f"no callers of {name} in the symbol index")
 
     def declaration(self, name: str) -> str:
         im = self.ctx.impact
@@ -152,7 +156,7 @@ class _Reader:
     def file(self, path: str, lo: int, hi: int) -> str:
         got = self.text_of(depot=path)
         if not got:
-            return f"{path}: not allowed (only files in this change or this workspace, by depot path)"
+            return _Miss(f"{path}: not allowed (only files in this change or this workspace, by depot path)")
         self.files.add(got[0])
         hi = min(hi or lo + 199, lo + 199)
         return f"{got[0]} lines {lo}-{hi}:\n" + self.lines(got[1], lo, hi)
@@ -162,7 +166,7 @@ class _Reader:
         defs = [f"defined: {d.path}:{d.line}" for d in idx.defs(name)[:20]]
         calls = [f"called: {c.path}:{c.line} in {c.caller}" for c in idx.callers_of(name)[:20]]
         uses = [f"{'written' if m.is_write else 'read'}: {m.path}:{m.line} in {m.fn}" for m in idx.member_refs(name)[:10]]
-        return "\n".join(defs + calls + uses) or f"{name} is not in the symbol index"
+        return "\n".join(defs + calls + uses) or _Miss(f"{name} is not in the symbol index")
 
     def run(self, r: _Read) -> str:
         label = {"function": f"{r.name}", "callers": f"callers of {r.name}", "declaration": f"declaration of {r.name}",
@@ -170,7 +174,7 @@ class _Reader:
         text = (self.function(r.name) if r.kind == "function" else self.callers(r.name) if r.kind == "callers"
                 else self.declaration(r.name) if r.kind == "declaration" else self.file(r.path, r.from_, r.to)
                 if r.kind == "file" else self.search(r.name))
-        if "not allowed" not in text:
+        if not isinstance(text, _Miss):              # listed under "read:" only when something was read
             self.done.append(label)
         return text
 
@@ -213,20 +217,32 @@ def _anchor_context(svc: Services, rid: int, comment: dict, ctx: AiContext, boar
 
 
 def _fit(convo: list[str], max_tokens: int) -> str:
-    """The prompt so far within ~max_tokens: the question, thread and context first, then the newest reads that fit."""
-    head, reads, room = convo[:3], convo[3:], max_tokens * 4 - sum(len(p) for p in convo[:3])
-    kept: list[str] = []
+    """The prompt so far within ~max_tokens: the question, thread and context first, then the newest reads that fit.
+    The newest read is always kept (shortened if it must be): it is what the model asked for last."""
+    limit, reads = max_tokens * 4, convo[3:]
+    mark = "\n...[truncated]"
+    keep_new = min(len(reads[-1]), limit // 4) if reads else 0
+    head = budget(convo[:3], max(0, limit - keep_new - 64) // 4)   # 64: separators and budget's own mark
+    room, kept = limit - len(head), []
     for r in reversed(reads):
-        if len(r) > room:
+        if len(r) + 2 <= room:
+            kept.insert(0, r)
+            room -= len(r) + 2
+        elif not kept:
+            kept.insert(0, r[:max(0, room - 2 - len(mark))] + mark)
             break
-        kept.insert(0, r)
-        room -= len(r)
-    return budget(head, max_tokens) + "".join("\n\n" + r for r in kept)
+        else:
+            break
+    return head + "".join("\n\n" + r for r in kept)
 
 
 def _thread(svc: Services, rid: int, root_id: int, upto: int) -> str:
     rows = [c for c in svc.store.list_comments(rid) if (c["id"] == root_id or c["parent_id"] == root_id) and c["id"] <= upto]
     return "\n".join(f"{c['author']}: {c['body']}" for c in rows if not (c["ai_meta"] or {}).get("pending"))
+
+
+class _Gone(Exception):
+    pass
 
 
 def answer(svc: Services, rid: int, user: str, question: dict, reply_id: int) -> None:
@@ -244,6 +260,8 @@ def answer(svc: Services, rid: int, user: str, question: dict, reply_id: int) ->
         convo = [f"QUESTION: {question['body']}", "THREAD SO FAR:\n" + _thread(svc, rid, root, question["id"]),
                  "CONTEXT:\n" + _anchor_context(svc, rid, question, ctx, board, reader)]
         for n in range(1, cap + 1):
+            if svc.store.get_comment(question["id"]) is None or svc.store.get_comment(reply_id) is None:
+                raise _Gone()                      # the question (or the reply) was deleted: stop spending calls
             meta.update(round=n)
             svc.store.set_ai_reply(reply_id, "thinking…", meta)
             last = n == cap
@@ -270,6 +288,10 @@ def answer(svc: Services, rid: int, user: str, question: dict, reply_id: int) ->
             raise ValueError("the answer failed the checks: " + "; ".join(problems or ["empty"]))
         else:
             raise ValueError("no answer within the rounds allowed")
+    except _Gone:
+        if svc.store.get_comment(reply_id) is not None:
+            _done(svc, reply_id, meta, reader, "I stopped: the question was deleted.", "question deleted")
+        return
     except Refused as e:
         _done(svc, reply_id, meta, reader, f"I couldn't answer: {e.reason}.", e.reason)
         return

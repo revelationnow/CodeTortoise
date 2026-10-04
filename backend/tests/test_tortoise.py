@@ -208,3 +208,53 @@ def test_a_restart_ends_pending_answers_and_running_calls(world):
         "I couldn't answer: CodeTortoise restarted before the answer was finished. Ask again.")
     assert after["ai_meta"]["read"] == ["callers of uart_send"]
     assert [c["outcome"] for c in svc.ledger.usage(rid)["calls"] if c["purpose"] == "mention"] == ["failed"]
+
+
+def test_deleting_the_question_stops_the_answer(world):
+    holder = {}
+
+    def step(u):                                  # the asker deletes the question while the first round runs
+        holder["svc"].store.delete_comment(holder["q"])
+        return {"action": "read", "read": {"kind": "callers", "name": "uart_send"}}
+    script = Script(step)
+    svc, app, rid = world(script)
+    holder["svc"] = svc
+    bob = login(app, "bob")
+    orig = svc.store.add_comment
+
+    def remember(*a, **k):                        # learn the question's id as it is posted
+        c = orig(*a, **k)
+        holder.setdefault("q", c["id"])
+        return c
+    svc.store.add_comment = remember
+    _ask(bob, rid, "@tortoise who calls uart_send?")
+    assert svc.ledger.usage(rid)["by_purpose"].get("mention") == 1        # no rounds after the delete
+
+
+def test_the_read_list_says_what_was_actually_read(world):
+    from codetortoise.llm.ondemand import context_for
+    from codetortoise.llm.tortoise import _Read, _Reader
+    svc, app, rid = world(Script({"action": "answer", "text": "x", "cites": []}))
+    ctx, _, _, cs = context_for(svc, rid)
+    reader = _Reader(svc, rid, ctx, cs)
+    reader.run(_Read(kind="function", name="no_such_function"))                    # nothing found: not listed
+    reader.text_of = lambda depot=None, local=None: (UART, "/* writes are not allowed here */\\n")
+    reader.run(_Read(kind="file", path=UART, **{"from": 1, "to": 5}))                 # read, though it says "not allowed"
+    assert reader.done == [f"{UART} 1–5"]
+
+
+def test_an_oversized_newest_read_is_shortened_not_dropped():
+    from codetortoise.llm.tortoise import _fit
+    head = ["QUESTION: q", "THREAD SO FAR:\nbob: q", "CONTEXT:\nctx"]
+    old, new = "READ file a ->\n" + "a" * 1000, "READ file b ->\n" + "b" * 20000
+    out = _fit(head + [old, new], 2000)                        # 8000 characters
+    assert "QUESTION: q" in out and "READ file b" in out and "[truncated]" in out and len(out) <= 8000
+    assert "READ file a" not in out                             # the older read goes first
+
+
+def test_a_thread_longer_than_the_prompt_still_keeps_the_newest_read():
+    from codetortoise.llm.tortoise import _fit
+    head = ["QUESTION: q", "THREAD SO FAR:\n" + "x" * 20000, "CONTEXT:\nctx"]
+    out = _fit(head + ["READ callers uart_send ->\nuart_send(lg->uart"], 2000)
+    assert out.startswith("QUESTION: q") and "uart_send(lg->uart" in out and len(out) <= 8000
+
