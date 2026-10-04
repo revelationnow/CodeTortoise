@@ -28,6 +28,7 @@ from pathlib import Path
 C_EXT = {".c", ".h", ".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx", ".inl"}
 TEST_DIRS = {"test", "tests", "testing", "unittest", "unittests"}
 BATCH = 2000
+GITLINK = "160000"
 
 
 def die(msg: str) -> None:
@@ -75,6 +76,10 @@ class Git:
             if not meta:
                 continue
             old_mode, new_mode, _, _, status = meta.lstrip(":").split()
+            if GITLINK in (old_mode, new_mode):                         # a submodule: not a file of this project
+                if old_mode in (GITLINK, "000000") and new_mode in (GITLINK, "000000"):
+                    continue
+                status = "A" if old_mode == GITLINK else "D"             # a submodule replaced by a file, or back
             changes.append(Change(path, status[0], old_mode, new_mode))
         return changes
 
@@ -162,13 +167,13 @@ def ensure_server(port: str, root: str | None, password: str) -> int | None:
     proc = subprocess.Popen(["p4d", "-r", str(r), "-p", port, "-L", str(r / "log"), "-J", str(r / "journal")],
                             stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
     (r / "p4d.pid").write_text(str(proc.pid))
+    print(f"started p4d (pid {proc.pid}) at {port} under {r}; stop it with: kill {proc.pid}")
     for _ in range(100):
         if subprocess.run(["p4", "-p", port, "info"], capture_output=True).returncode == 0:
             for cmd, given in ((["passwd"], f"{password}\n{password}\n"), (["login"], f"{password}\n")):
                 out = subprocess.run(["p4", "-p", port, *cmd], input=given, capture_output=True, text=True)
                 if out.returncode:
                     die(f"p4 {cmd[0]} on the new server: {(out.stderr or out.stdout).strip()}")
-            print(f"started p4d (pid {proc.pid}) at {port} under {r}; stop it with: kill {proc.pid}")
             return proc.pid
         if proc.poll() is not None:
             die(f"p4d exited ({proc.returncode}); see {r / 'p4d.out'}")
@@ -184,6 +189,8 @@ def setup(p4: P4, depot: str, ws: Path) -> None:
     if ws.exists() and any(ws.iterdir()):
         die(f"workspace {ws} is not empty")
     ws.mkdir(parents=True, exist_ok=True)
+    if p4("clients", "-e", p4.client, check=False).strip():
+        die(f"client {p4.client} already exists; choose a new --client")
     name = depot.split("/")[2]
     if f"Depot {name} " not in p4("depots"):
         p4("depot", "-i", input=p4("depot", "-o", name))
