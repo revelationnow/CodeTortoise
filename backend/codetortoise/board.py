@@ -12,10 +12,12 @@ import re
 from collections import defaultdict, deque
 from collections.abc import Callable
 from dataclasses import dataclass
+from dataclasses import field as dfield
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from codetortoise.clusters import altered_access, cluster_change
 from codetortoise.config import AnalysisConfig
 from codetortoise.detectors.base import SEVERITY_RANK, Finding
 from codetortoise.diffmap import DiffMap
@@ -58,6 +60,9 @@ class BoardNode(BaseModel):
     x: float = 0.0
     warn: int = 0
     files: Files = None
+    home: str | None = None          # a visitor: the cluster this node belongs to (spec 2026-10-03-large §3)
+    more_callers: int = 0            # callers / callees not on the board, for "+N callers" (expansion)
+    more_callees: int = 0
 
 
 class BoardEdge(BaseModel):
@@ -99,6 +104,7 @@ class Flow(BaseModel):
     effect: str
     check: str
     what_source: Literal["template", "llm"] = "template"
+    cause: str | None = None         # the changed node the flow comes from (its cluster's)
     files: Files = None
     what_files: Files = None         # files behind `what`/`title`: the flow's own for template text, the prompt's for LLM text
 
@@ -182,6 +188,11 @@ class About(BaseModel):
     drift: list[AboutDrift] = Field(default_factory=list)   # base workspace differs from the CL base: context code may not match
 
 
+class ClusterRef(BaseModel):
+    id: str
+    name: str
+
+
 class Board(BaseModel):
     nodes: list[BoardNode] = Field(default_factory=list)
     edges: list[BoardEdge] = Field(default_factory=list)
@@ -190,6 +201,47 @@ class Board(BaseModel):
     layers: list[BoardLayer] = Field(default_factory=list)
     about: About
     hidden_nodes: int = 0
+    cluster: ClusterRef | None = None   # a cluster's board in a split review
+
+
+class ClusterInfo(BaseModel):
+    id: str
+    name: str
+    level: int | None = None
+    also: list[int] = Field(default_factory=list)
+    risk: str | None = None
+    test: bool = False
+    files: list[str] = Field(default_factory=list)    # depot paths of its changed code
+    changed: int = 0                                  # changed functions
+    flows: int = 0
+    findings: int = 0
+    nodes: list[str] = Field(default_factory=list)    # its changed nodes
+
+
+class ClusterLink(BaseModel):
+    src: str
+    dst: str
+    calls: int = 0                                    # calls from src's changed code into dst's
+    fields: int = 0                                   # fields src's changed code writes and dst's reads or writes
+
+
+class Overview(BaseModel):
+    about: About
+    clusters: list[ClusterInfo] = Field(default_factory=list)
+    links: list[ClusterLink] = Field(default_factory=list)
+    layers: list[BoardLayer] = Field(default_factory=list)
+    totals: dict[str, int] = Field(default_factory=dict)
+    merged_over_limit: int = 0
+
+
+@dataclass
+class BoardSet:
+    """What the board stage stores: one board, or an overview and one board per cluster."""
+    board: Board | None = None
+    overview: Overview | None = None
+    clusters: dict[str, Board] = dfield(default_factory=dict)
+    home: dict[str, str] = dfield(default_factory=dict)     # node id -> cluster id
+    note: str | None = None                                # why the review fell back to one board
 
 
 @dataclass
@@ -256,6 +308,15 @@ class _Ctx:
         for f in c.findings:
             for n in f.nodes:
                 self.finding_by[(f.kind, n)].append(f.id)
+        self.record_file = {f"field:{a.field}": a.record_file for a in self.fields_before + self.fields_after
+                            if a.record_file}
+        self.decl_line = {f"field:{a.field}": a.decl_line for a in self.fields_before + self.fields_after if a.decl_line}
+        self.callers: dict[str, set[str]] = defaultdict(set)
+        self.callees: dict[str, set[str]] = defaultdict(set)
+        for e in c.impact.edges:
+            if e.kind in ("call", "virtual"):
+                self.callers[e.dst].add(e.src)
+                self.callees[e.src].add(e.dst)
 
     def is_test(self, nid: str) -> bool:
         """Test code is never a flow entry or landing, and is not shown as blast radius."""
@@ -267,6 +328,37 @@ class _Ctx:
 
     def label(self, nid: str) -> str:
         return self.im.nodes[nid].label
+
+    def is_test_path(self, nid: str) -> bool:
+        """Test code by path, changed or not (clusters keep changed test code apart)."""
+        f = self.im.nodes[nid].file
+        if not f:
+            return False
+        root = self.c.root.rstrip("/") + "/"
+        return is_test_path(f[len(root):] if self.c.root and f.startswith(root) else f)
+
+    def module_of(self, path: str) -> str:
+        return self.c.layers.module_of(path) if self.c.layers and path else posixpath.dirname(path)
+
+    def local(self, nid: str) -> str | None:
+        """The node's file: a field's record header, a function's file (after side first)."""
+        n = self.im.nodes[nid]
+        if n.kind == "field":
+            return self.record_file.get(n.key) or None
+        fn = self.fa.get(n.key) or self.fb.get(n.key)
+        return fn.file if fn else n.file
+
+    def layer(self, nid: str) -> int:
+        """Its layer band: fields sit in their record's module's layer, else their writer's; -1 for none."""
+        n = self.im.nodes[nid]
+        lv = n.layer
+        if n.kind == "field":
+            rf = self.record_file.get(n.key)
+            lv = self.c.layers.level_of(rf) if (self.c.layers and rf) else None
+            if lv is None:
+                lv = next((self.im.nodes[e.src].layer for e in self.im.edges if e.dst == nid and e.kind == "writes"
+                           and self.im.nodes[e.src].layer is not None), None)
+        return lv if lv is not None else -1
 
     def finding(self, kind: str, nid: str) -> str | None:
         ids = self.finding_by.get((kind, nid))
@@ -488,9 +580,8 @@ def build_flows(x: _Ctx, impacts: list[Impact]) -> list[Flow]:
         sev = sev_of.get(imp.finding or "", "medium")
         flows.append(Flow(id="", path=path, tag=tag, lands=land, fx_at=fx_at, severity=sev,
                           findings=[imp.finding] if imp.finding else [], text=text, title=title, what=what, effect=effect,
-                          check=check))
+                          check=check, cause=cause))
     flows.sort(key=lambda f: (-SEVERITY_RANK.get(f.severity, 0), 0 if f.tag == "state" else 1, len(f.path), f.text))
-    flows = flows[: x.c.cfg.max_flows]
     for i, f in enumerate(flows):
         f.id = f"FL{i + 1}"
     return flows
@@ -543,73 +634,68 @@ def barycentre_layout(layer_of: dict[str, int], edges: list[tuple[str, str]], sw
     return xs
 
 
-def build_board(c: BoardContext) -> Board:
-    x = _Ctx(c)
-    impacts = build_impacts(x)
-    flows = build_flows(x, impacts)
-    im = c.impact
-    # node selection: changed, flow nodes, fields around changed functions, then top blast items; capped
-    chosen: list[str] = []
-
-    def take(nid):
-        if nid in im.nodes and nid not in chosen:
-            chosen.append(nid)
-    for n in im.changed:
-        take(n)
+def _required(x: _Ctx, members: list[str], flows: list[Flow], fields: bool = True) -> list[str]:
+    """Nodes a board must show, in this order: its changed code, every node on its flows, and the fields whose access
+    its changed code added or removed (left out past the budget when one function touches too many)."""
+    out: dict[str, None] = dict.fromkeys(n for n in members if n in x.im.nodes)
     for f in flows:
-        for n in f.path:
-            take(n)
-    for e in im.edges:
-        if e.kind in ("writes", "reads") and e.src in x.changed:
-            take(e.dst)
+        out.update(dict.fromkeys(n for n in f.path if n in x.im.nodes))
+    for e in x.im.edges if fields else ():
+        if altered_access(e) and e.src in out and e.src in x.changed and e.dst in x.im.nodes:
+            out.setdefault(e.dst)
+    return list(out)
+
+
+def _neighbours(x: _Ctx, impacts: list[Impact], scope: set[str]) -> list[str]:
+    """Unchanged code worth showing beside `scope`'s changes, most relevant first: what its impacts annotate, the fields
+    it touches, then the most affected code (blast radius) reached from it."""
+    out: dict[str, None] = {}
     for i in impacts:
-        if not x.is_test(i.node):
-            take(i.node)
-    for b in [b for b in im.blast if not x.is_test(b.node)][: c.cfg.board_blast_nodes]:
-        take(b.node)
-    hidden = max(0, len(chosen) - c.cfg.board_max_nodes)
-    chosen = chosen[: c.cfg.board_max_nodes]
+        if i.cause in scope and i.node in x.im.nodes and not x.is_test(i.node):
+            out.setdefault(i.node)
+    for e in x.im.edges:                                  # fields the changed code touches as it did before
+        if e.kind in ("writes", "reads") and e.src in scope and e.src in x.changed and e.dst in x.im.nodes:
+            out.setdefault(e.dst)
+    for b in x.im.blast:
+        if b.path and b.path[-1] in scope and not x.is_test(b.node):
+            out.setdefault(b.node)
+    return list(out)
+
+
+def _choose(x: _Ctx, required: list[str], neighbours: list[str], core: int = 0) -> tuple[list[str], int]:
+    """The required nodes, then neighbours up to the board's budget; how many nodes were left out. The first `core`
+    required nodes (changed code and flows) always stay; the fields after them only while they fit."""
+    budget = x.c.cfg.board_max_nodes
+    chosen = required[:max(budget, core)]
+    rest = [n for n in neighbours if n not in set(required)]
+    room = max(0, budget - len(chosen))
+    return chosen + rest[:room], len(required) - len(chosen) + max(0, len(rest) - room)
+
+
+def _render(x: _Ctx, impacts: list[Impact], flows: list[Flow], chosen: list[str], depots: dict[str, str], *,
+            hidden: int, about: About, cluster: ClusterRef | None = None, home: dict[str, str] | None = None) -> Board:
+    """Lay out and describe the chosen nodes as a board."""
+    c, im = x.c, x.im
     sel = set(chosen)
-    # layers: fields sit in the layer of their record's module, else their writer's layer
-    # after-side facts win: the node shows the new file
-    record_file = {f"field:{a.field}": a.record_file for a in x.fields_before + x.fields_after if a.record_file}
-    decl_line = {f"field:{a.field}": a.decl_line for a in x.fields_before + x.fields_after if a.decl_line}
-    layer_of: dict[str, int] = {}
-    for nid in chosen:
-        n = im.nodes[nid]
-        lv = n.layer
-        if n.kind == "field":
-            rf = record_file.get(n.key)
-            lv = c.layers.level_of(rf) if (c.layers and rf) else None
-            if lv is None:
-                lv = next((im.nodes[e.src].layer for e in im.edges if e.dst == nid and e.kind == "writes"
-                           and im.nodes[e.src].layer is not None), None)
-        layer_of[nid] = lv if lv is not None else -1
+    layer_of = {nid: x.layer(nid) for nid in chosen}
     edges = [e for e in im.edges if e.src in sel and e.dst in sel]
     xs = barycentre_layout(layer_of, [(e.src, e.dst) for e in edges])
-    # per-node details
     warn = defaultdict(int)
     for i in impacts:
         if i.severity == "warn":
             warn[i.node] += 1
     kind_of = {"body_modified": "modified", "signature_changed": "signature", "added": "added", "removed": "removed"}
     texts = {f.local: f for f in c.cs.files}
-    shown = [i for i in impacts if i.node in sel]
-    locals_of: dict[str, str | None] = {}
-    for nid in chosen:
-        n = im.nodes[nid]
-        fn = x.fa.get(n.key) or x.fb.get(n.key)
-        locals_of[nid] = (record_file.get(n.key) or None) if n.kind == "field" else (fn.file if fn else n.file)
-    depots = c.depots_for(sorted({p for p in [*locals_of.values(), *(i.path for i in shown)] if p}))
+    shown = [i.model_copy() for i in impacts if i.node in sel]
     for i in shown:
         i.path = depots.get(i.path) if i.path else None
     nodes = []
     for nid in chosen:
         n = im.nodes[nid]
         fn = x.fa.get(n.key) or x.fb.get(n.key)
-        local, rng, change = locals_of[nid], None, None
+        local, rng, change = x.local(nid), None, None
         if n.kind == "field":
-            dl = decl_line.get(n.key)
+            dl = x.decl_line.get(n.key)
             rng = [dl, dl] if dl else None
         elif fn is not None:
             rng = [fn.start_line, fn.end_line]
@@ -620,15 +706,114 @@ def build_board(c: BoardContext) -> Board:
             if fc is not None:
                 add, rem = _count(fc.before, fc.after, fn.start_line, fn.end_line)
             change = NodeChange(kind=kind_of.get(ch.kind if ch else "", "modified"), add=add, rem=rem)
+        callers = {s_ for s_ in x.callers.get(nid, ()) if s_ not in sel and not x.is_test(s_)}
+        callees = {d for d in x.callees.get(nid, ()) if d not in sel and not x.is_test(d)}
+        h = (home or {}).get(nid)
         nodes.append(BoardNode(id=nid, key=n.key, label=n.label, kind=n.kind, layer=layer_of[nid],
                                path=depots.get(local) if local else None, local=local, range=rng, change=change,
-                               x=xs.get(nid, 0.0), warn=warn[nid]))
+                               x=xs.get(nid, 0.0), warn=warn[nid], home=h if cluster and h and h != cluster.id else None,
+                               more_callers=len(callers), more_callees=len(callees)))
     levels = sorted({lv for lv in layer_of.values()}, reverse=True)
     layers = [BoardLayer(level=lv, name=(_layer_name(x, lv) if lv >= 0 else "other")) for lv in levels]
     return Board(nodes=nodes, edges=[BoardEdge(src=e.src, dst=e.dst, kind=e.kind, status=e.status, confidence=e.confidence)
                                      for e in edges],
-                 flows=flows, impacts=shown, layers=layers,
-                 about=build_about(c), hidden_nodes=hidden)
+                 flows=flows, impacts=shown, layers=layers, about=about, hidden_nodes=hidden, cluster=cluster)
+
+
+def build_board(c: BoardContext) -> Board:
+    """One board for the whole change, within the node budget: required nodes first (changed code, flows, fields),
+    then neighbours. Large changes use `build_boards`, which splits them; this is also its fallback."""
+    x = _Ctx(c)
+    impacts = build_impacts(x)
+    flows = build_flows(x, impacts)
+    req = _required(x, list(x.im.changed), flows)
+    chosen, hidden = _choose(x, req, _neighbours(x, impacts, set(x.changed)), core=len(req))   # trimmed below
+    if len(chosen) > c.cfg.board_max_nodes:                 # the fallback: the most important nodes only
+        hidden += len(chosen) - c.cfg.board_max_nodes
+        chosen = chosen[: c.cfg.board_max_nodes]
+        sel = set(chosen)
+        flows = [f for f in flows if set(f.path) <= sel]
+    sel = set(chosen)
+    depots = c.depots_for(sorted({p for p in [*(x.local(n) for n in chosen), *(i.path for i in impacts if i.node in sel)]
+                                  if p}))
+    return _render(x, impacts, flows, chosen, depots, hidden=hidden, about=build_about(c))
+
+
+def build_boards(c: BoardContext) -> BoardSet:
+    """The change's board, or (when it would need more than `board_max_nodes` nodes) an overview and one board per
+    cluster (spec 2026-10-03-large-change-boards). Every changed node and flow is on exactly one board."""
+    x = _Ctx(c)
+    impacts = build_impacts(x)
+    flows = build_flows(x, impacts)
+    if len(_required(x, list(x.im.changed), flows)) <= c.cfg.board_max_nodes:
+        return BoardSet(board=build_board(c))
+    try:
+        res = cluster_change(x.im, flows, c.findings, is_test=x.is_test_path, module_of=x.module_of,
+                             max_nodes=c.cfg.board_max_nodes, min_changed=c.cfg.cluster_min_changed,
+                             max_clusters=c.cfg.overview_max_clusters)
+    except Exception as e:  # never lose the review over clustering: one board of the most important nodes
+        return BoardSet(board=build_board(c), note=f"shown as one board (clustering failed: {type(e).__name__}: {e})")
+    by_id = {f.id: f for f in flows}
+    picks = {}
+    for cl in res.clusters:
+        cf = [by_id[i] for i in cl.flows]
+        mem = cl.members or ([cl.of] if cl.of else [])
+        req, core = _required(x, mem, cf), len(_required(x, mem, cf, fields=False))
+        picks[cl.id] = (cf, *_choose(x, req, _neighbours(x, impacts, set(cl.members)), core))
+    shown = {n for _, chosen, _ in picks.values() for n in chosen}
+    locals_ = {x.local(n) for n in shown} | {i.path for i in impacts if i.node in shown}
+    locals_ |= {x.local(m) for cl in res.clusters for m in cl.members}
+    depots = c.depots_for(sorted(p for p in locals_ if p))
+    about = build_about(c)
+    boards = {}
+    for cl in res.clusters:
+        cf, chosen, hidden = picks[cl.id]
+        files = {depots.get(x.local(m)) for m in (cl.members or [cl.of]) if x.local(m)} - {None}   # its own code
+        mine = set(cl.findings)
+        part = about.model_copy(deep=True)
+        part.tree = [AboutDir(dir=d.dir, files=[f for f in d.files if f.path in files]) for d in part.tree]
+        part.tree = [d for d in part.tree if d.files]
+        part.why = [w for w in part.why if w.finding in mine] or [AboutWhy(severity=f.severity, text=f.title, finding=f.id)
+                                                                   for f in c.findings if f.id in mine][:4]
+        part.drift = [d for d in part.drift if set(d.files or []) & files]
+        boards[cl.id] = _render(x, impacts, cf, chosen, depots, hidden=hidden, about=part,
+                                cluster=ClusterRef(id=cl.id, name=cl.name), home=res.home)
+    return BoardSet(overview=_overview(x, res, about, depots, flows), clusters=boards, home=res.home)
+
+
+def _overview(x: _Ctx, res, about: About, depots: dict[str, str], flows: list[Flow]) -> Overview:
+    infos = []
+    for cl in res.clusters:
+        infos.append(ClusterInfo(
+            id=cl.id, name=cl.name, level=cl.level, also=cl.also, risk=cl.risk, test=cl.test,
+            files=sorted({depots[x.local(m)] for m in cl.members if x.local(m) in depots}),
+            changed=sum(1 for m in cl.members if x.im.nodes[m].kind == "function"), flows=len(cl.flows),
+            findings=len(cl.findings), nodes=list(cl.members)))
+    owner = {m: cl.id for cl in res.clusters for m in cl.members}
+    calls: dict[tuple[str, str], int] = defaultdict(int)
+    for e in x.im.edges:
+        a, b = owner.get(e.src), owner.get(e.dst)
+        if e.kind in ("call", "virtual") and a and b and a != b:
+            calls[(a, b)] += 1
+    writes: dict[str, set[str]] = defaultdict(set)
+    touches: dict[str, set[str]] = defaultdict(set)
+    for e in x.im.edges:
+        cid = owner.get(e.src)
+        if cid and e.kind in ("writes", "reads"):
+            touches[cid].add(e.dst)
+            if e.kind == "writes":
+                writes[cid].add(e.dst)
+    shared = {(a, b): len(writes[a] & touches[b]) for a in writes for b in touches if a != b}
+    links = [ClusterLink(src=a, dst=b, calls=calls.get((a, b), 0), fields=shared.get((a, b), 0))
+             for a, b in sorted(set(calls) | {k for k, v in shared.items() if v})]
+    levels = sorted({cl.level if cl.level is not None else -1 for cl in res.clusters}
+                    | {lv for cl in res.clusters for lv in cl.also}, reverse=True)
+    layers = [BoardLayer(level=lv, name=(_layer_name(x, lv) if lv >= 0 else "other")) for lv in levels]
+    totals = {"files": len(about.tree and [f for d in about.tree for f in d.files]), "clusters": len(res.clusters),
+              "flows": len(flows), "findings": len(x.c.findings),
+              "changed": sum(1 for n in x.im.changed if n in x.im.nodes and x.im.nodes[n].kind == "function")}
+    return Overview(about=about, clusters=infos, links=links, layers=layers, totals=totals,
+                    merged_over_limit=res.merged_over_limit)
 
 
 def _tree_prefix(depots: list[str]) -> str:
