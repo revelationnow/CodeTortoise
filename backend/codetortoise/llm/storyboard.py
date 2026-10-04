@@ -16,6 +16,7 @@ from codetortoise.llm.client import LlmClient, LlmError
 from codetortoise.llm.ledger import Ledger, Refused
 from codetortoise.llm.style import MODES, STYLE, check_style
 from codetortoise.provenance import merge
+from codetortoise.stories import StoryDetail
 
 SYSTEM = ("You are a senior C/C++ code reviewer. You are given facts extracted by static analysis "
           "for a set of changes. Use ONLY these facts. Refer to functions/fields by their node id (e.g. N3) "
@@ -67,6 +68,12 @@ class _SummaryOut(BaseModel):
 class _FlowOut(BaseModel):
     what: str
     title: str = ""
+    cites: list[str] = Field(default_factory=list)
+
+
+class _StoryOut(BaseModel):
+    title: str = ""
+    summary: str = ""
     cites: list[str] = Field(default_factory=list)
 
 
@@ -259,6 +266,34 @@ def flow_job(ctx: AiContext, fl: Flow) -> Job:
     return Job("flow", fl.id, _flow_prompt(fl, ctx.impact, ctx.findings, ctx.snippets, ctx.per_call), _FlowOut, apply)
 
 
+def story_job(ctx: AiContext, d: StoryDetail) -> Job:
+    """A change story's title and summary (spec 2026-10-04-change-stories §4), from its flows, functions and findings.
+    Kept only when it cites the story's code or findings and keeps the house style."""
+    st, impact = d.story, ctx.impact
+    flows = [fl for fl in d.board.flows if fl.id in st.flows] or d.board.flows
+    mentioned = list(dict.fromkeys(st.nodes + [n for fl in flows for n in fl.path]))
+    nodes = [n for n in mentioned if n in impact.nodes]
+    notes = "\n".join(f"{f.node} {f.label}: {f.note}" for f in d.functions)
+    parts = [f"STORY {st.id} ({st.kind}): {st.title}\ndraft summary: {st.summary}\nchanged functions:\n{notes or 'none'}",
+             "FLOWS:\n" + "\n".join(f"{fl.id} {fl.text}: {fl.what}" for fl in flows),
+             "FINDINGS:\n" + "\n\n".join(_finding_text(f) for f in ctx.findings if f.id in st.findings),
+             "GRAPH FACTS:\n" + _facts_for_nodes(impact, nodes)]
+    parts += [f"CODE {n}:\n{ctx.snippets[n]}" for n in nodes if n in ctx.snippets]
+
+    def apply(out: _StoryOut) -> int:
+        title, summary = out.title.strip(), out.summary.strip()
+        if not (title and summary and set(out.cites) & (set(mentioned) | set(st.findings))):
+            return 0
+        if not (0 < len(title) <= 80 and _styled(title, "headline") and _styled(summary, "explanation")):
+            return 1
+        st.title, st.summary, st.text_source = title, summary, "llm"
+        return 0
+    prompt = ("Retell this change story for a reviewer: a title of at most 10 words saying what changed and who is "
+              "affected, and a summary of 1-2 sentences. Cite the node and finding ids you rely on.\n"
+              f"Title: {MODES['headline']} Summary: {MODES['explanation']}\n\n" + budget(parts, ctx.per_call))
+    return Job("story", st.id, prompt, _StoryOut, apply)
+
+
 def summary_job(ctx: AiContext, sb: Storyboard, board: Board | None) -> Job:
     overview = [f"CHAPTER {c.name}: {c.narrative} (cites {c.cites})" for c in sb.chapters]
     overview += [_finding_text(f) for f in ctx.findings[:30]]
@@ -296,9 +331,11 @@ def build_storyboard(impact: ImpactModel, findings: list[Finding], layers: Layer
                      snippets: dict[str, str], llm: LlmClient | None, max_tokens: int = 64000, *,
                      board: Board | None = None, concurrency: int = 1, upfront_flows: int = 3,
                      node_files: dict[str, list[str] | None] | None = None, ledger: Ledger | None = None,
-                     rid: int | None = None) -> Storyboard:
+                     rid: int | None = None, stories: list[StoryDetail] | None = None,
+                     upfront_stories: int = 3) -> Storyboard:
     """The deterministic storyboard, then (with an LLM) the up-front pass of spec 2026-10-03 §3: narratives for the
-    first `upfront_flows` flows (concurrently), then the change summary. Everything else is explained on demand.
+    first `upfront_flows` flows and titles for the first `upfront_stories` stories given (concurrently), then the
+    change summary. Everything else is explained on demand.
 
     Every call goes through `ledger` when given (as the pipeline). A refused or failed call stops the pass and leaves
     the deterministic text for whatever wasn't written; `llm_error` says why."""
@@ -307,6 +344,7 @@ def build_storyboard(impact: ImpactModel, findings: list[Finding], layers: Layer
         return sb
     ctx = AiContext(impact, findings, snippets, max_tokens, node_files)
     jobs = [flow_job(ctx, fl) for fl in (board.flows[:upfront_flows] if board else [])]
+    jobs += [story_job(ctx, d) for d in (stories or [])[:upfront_stories]]
     pool = ThreadPoolExecutor(max(1, concurrency), thread_name_prefix="tortoise-llm")
     try:
         for dropped in pool.map(lambda j: run_job(llm, j, ledger, rid), jobs):

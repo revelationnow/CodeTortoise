@@ -15,6 +15,9 @@ def answer(system: str, user: str) -> dict:
     if "Describe this call flow" in user:
         return {"what": "The new -2 from uart_send reaches logger_flush, which drops it.", "title": "Flush drops the new error",
                 "cites": CITES}
+    if "Retell this change story" in user:
+        return {"title": "uart_send's new error count reaches uart_errors",
+                "summary": "uart_send now counts errors in Uart::errors, which uart_errors reports.", "cites": CITES}
     if "Explain the risk" in user:
         return {"explanation": "uart_send can now return -2, and logger_flush drops it.",
                 "verify_steps": ["Check how logger_flush handles -2."], "hypotheses": []}

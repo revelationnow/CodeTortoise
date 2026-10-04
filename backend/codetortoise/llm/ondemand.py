@@ -1,4 +1,4 @@
-"""On-demand AI (spec 2026-10-03 §4): explain one flow, finding or file when someone asks, once, for everyone.
+"""On-demand AI (spec 2026-10-03 §4): explain one flow, finding, file or story when someone asks, once, for everyone.
 
 Each explanation is one job (storyboard.Job) run through the ledger as the person who asked. Its context is rebuilt
 from what the review stored; the result is stored with the review (the board, the findings, the file summaries).
@@ -18,13 +18,22 @@ from codetortoise.board import Board
 from codetortoise.detectors.base import Finding
 from codetortoise.facts.model import Facts
 from codetortoise.impact import ImpactModel
-from codetortoise.llm.storyboard import AiContext, Job, _facts_for_nodes, budget, finding_job, flow_job, run_job
+from codetortoise.llm.storyboard import (
+    AiContext,
+    Job,
+    _facts_for_nodes,
+    budget,
+    finding_job,
+    flow_job,
+    run_job,
+    story_job,
+)
 from codetortoise.llm.style import MODES, check_style
 from codetortoise.provenance import merge, tag_board
 from codetortoise.services import Services
 from codetortoise.vcs.model import ChangeSet
 
-KINDS = ("flow", "finding", "file")
+KINDS = ("flow", "finding", "file", "story")
 _locks: dict[int, threading.Lock] = {}
 _locks_guard = threading.Lock()
 
@@ -138,6 +147,22 @@ def explain(svc: Services, rid: int, user: str, kind: str, target: str) -> None:
             for k in ("explanation", "verify_steps", "hypotheses", "explain_files"):
                 setattr(now, k, getattr(trial, k))
             svc.store.put_findings(rid, findings)
+    elif kind == "story":
+        d = boardstore.story(svc.store, rid, target)
+        if d is None:
+            raise NotFound(f"story {target} not found")
+        trial = d.model_copy(deep=True)
+        trial.story.text_source = "template"
+        run_job(svc.llm, story_job(ctx, trial), svc.ledger, rid, user)
+        if trial.story.text_source != "llm":
+            raise Unchecked(UNCHECKED)
+        with _lock(rid):
+            _same(svc, rid, seen)
+            now = boardstore.story(svc.store, rid, target)                # as stored now
+            if now is None or now.story.nodes != d.story.nodes or now.story.flows != d.story.flows:
+                raise Changed(CHANGED)
+            now.story.title, now.story.summary, now.story.text_source = trial.story.title, trial.story.summary, "llm"
+            boardstore.put_story(svc.store, rid, now)
     elif kind == "file":
         fresh: dict = {}
         run_job(svc.llm, file_job(ctx, board, cs, target, fresh, user), svc.ledger, rid, user)
@@ -169,6 +194,9 @@ def check_target(svc: Services, rid: int, kind: str, target: str) -> None:
     elif kind == "finding":
         if not any(f.id == target for f in svc.store.list_findings(rid)):
             raise NotFound(f"finding {target} not found")
+    elif kind == "story":
+        if boardstore.story(svc.store, rid, target) is None:
+            raise NotFound(f"story {target} not found")
     elif kind == "file":
         cs = svc.store.get_blob(rid, "changeset") or {}
         if not any(f.get("depot") == target for f in cs.get("files", [])):
