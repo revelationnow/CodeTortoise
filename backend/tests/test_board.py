@@ -325,3 +325,16 @@ def test_expanding_treats_changed_test_code_as_a_caller_like_the_board_badge_doe
     same = expand_board(b, ctx.impact, [("N9", "callers")], step=10, ranges={}, depot_of={},
                         layer_name=lambda lv: f"L{lv}", root="/w")
     assert next(n for n in same.nodes if n.id == "N1").more_callers == 3      # peek, api and the changed test
+
+
+def test_a_board_requires_the_fields_its_own_changed_code_altered_not_a_visitors():
+    from codetortoise.board import Flow, _Ctx, _required
+    ctx, _ = _synthetic()
+    ctx.impact.changed.append("N3")                       # peek changed too, and newly writes R::w; it visits set's board
+    ctx.impact.nodes["N9"] = Node(id="N9", key="field:c:@S@R@FI@w", kind="field", label="R::w", layer=1)
+    ctx.impact.edges.append(Edge(id="E9", src="N3", dst="N9", kind="writes", status="added"))
+    ctx.impact.edges[0] = ctx.impact.edges[0].model_copy(update={"status": "added"})   # set newly writes R::v
+    flow = Flow(id="FL1", path=["N3", "N1"], tag="contract", lands="N3", severity="medium", text="t", what="w",
+                effect="e", check="c", cause="N1")
+    req = _required(_Ctx(ctx), ["N1"], [flow])
+    assert req == ["N1", "N3", "N2"]                      # set, the visitor on its flow, set's own altered field

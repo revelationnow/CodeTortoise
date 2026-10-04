@@ -643,12 +643,14 @@ def barycentre_layout(layer_of: dict[str, int], edges: list[tuple[str, str]], sw
 
 def _required(x: _Ctx, members: list[str], flows: list[Flow], fields: bool = True) -> list[str]:
     """Nodes a board must show, in this order: its changed code, every node on its flows, and the fields whose access
-    its changed code added or removed (left out past the budget when one function touches too many)."""
+    its changed code added or removed (left out past the budget when one function touches too many). A visitor's
+    fields are on its own board."""
     out: dict[str, None] = dict.fromkeys(n for n in members if n in x.im.nodes)
+    own = {n for n in out if n in x.changed}
     for f in flows:
         out.update(dict.fromkeys(n for n in f.path if n in x.im.nodes))
     for e in x.im.edges if fields else ():
-        if altered_access(e) and e.src in out and e.src in x.changed and e.dst in x.im.nodes:
+        if altered_access(e) and e.src in own and e.dst in x.im.nodes:
             out.setdefault(e.dst)
     return list(out)
 
