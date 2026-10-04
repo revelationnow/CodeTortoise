@@ -13,7 +13,7 @@ from collections import defaultdict, deque
 from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from dataclasses import field as dfield
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -57,11 +57,16 @@ class NodeChange(BaseModel):
     rem: int = 0
 
 
+class StructField(BaseModel):
+    id: str
+    label: str
+
+
 class BoardNode(BaseModel):
     id: str
     key: str
     label: str
-    kind: Literal["function", "field"] = "function"
+    kind: Literal["function", "field", "struct", "more"] = "function"
     layer: int | None = None
     path: str | None = None          # depot path of the defining file
     local: str | None = None
@@ -73,6 +78,8 @@ class BoardNode(BaseModel):
     home: str | None = None          # a visitor: the cluster this node belongs to (spec 2026-10-03-large §3)
     more_callers: int = 0            # callers / callees not on the board, for "+N callers" (expansion)
     more_callees: int = 0
+    note: str | None = None          # a story graph: what changed here, in a few words (spec 2026-10-04 §3.1)
+    fields: list[StructField] = Field(default_factory=list)   # a struct node: the fields it stands for
 
 
 class BoardEdge(BaseModel):
@@ -253,6 +260,8 @@ class BoardSet:
     clusters: dict[str, Board] = dfield(default_factory=dict)
     home: dict[str, str] = dfield(default_factory=dict)     # node id -> cluster id
     note: str | None = None                                # why the review fell back to one board
+    stories: Any = None                                    # stories.StorySet (spec 2026-10-04), when built
+    story_details: dict[str, Any] = dfield(default_factory=dict)   # story id -> stories.StoryDetail
 
 
 @dataclass
@@ -783,16 +792,21 @@ def _split(c: BoardContext, x: _Ctx, impacts: list[Impact], flows: list[Flow]) -
     for cl in res.clusters:
         cf, chosen, hidden = picks[cl.id]
         files = {depots.get(x.local(m)) for m in (cl.members or [cl.of]) if x.local(m)} - {None}   # its own code
-        mine = set(cl.findings)
-        part = about.model_copy(deep=True)
-        part.tree = [AboutDir(dir=d.dir, files=[f for f in d.files if f.path in files]) for d in part.tree]
-        part.tree = [d for d in part.tree if d.files]
-        part.why = [w for w in part.why if w.finding in mine] or [AboutWhy(severity=f.severity, text=f.title, finding=f.id)
-                                                                   for f in c.findings if f.id in mine][:4]
-        part.drift = [d for d in part.drift if set(d.files or []) & files]
+        part = about_for(about, files, set(cl.findings), c.findings)
         boards[cl.id] = _render(x, impacts, cf, chosen, depots, hidden=hidden, about=part,
                                 cluster=ClusterRef(id=cl.id, name=cl.name), home=res.home)
     return BoardSet(overview=_overview(x, res, about, depots, flows), clusters=boards, home=res.home)
+
+
+def about_for(about: About, files: set[str], mine: set[str], findings: list[Finding]) -> About:
+    """The change summary narrowed to part of the change: its files (depot paths) and its findings."""
+    part = about.model_copy(deep=True)
+    part.tree = [AboutDir(dir=d.dir, files=[f for f in d.files if f.path in files]) for d in part.tree]
+    part.tree = [d for d in part.tree if d.files]
+    part.why = [w for w in part.why if w.finding in mine] or [AboutWhy(severity=f.severity, text=f.title, finding=f.id)
+                                                               for f in findings if f.id in mine][:4]
+    part.drift = [d for d in part.drift if set(d.files or []) & files]
+    return part
 
 
 def _overview(x: _Ctx, res, about: About, depots: dict[str, str], flows: list[Flow]) -> Overview:

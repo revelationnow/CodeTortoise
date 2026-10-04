@@ -92,6 +92,8 @@ class AnalysisConfig(BaseModel):
     cluster_min_changed: int = 3   # clusters with fewer changed functions merge with one in the same directory
     overview_max_clusters: int = 60  # more clusters than this: the smallest merge further
     expand_step: int = 10          # "+N callers / callees": neighbours added per expansion
+    max_stories: int = 15          # entries on a review's story list (spec 2026-10-04 §2.4)
+    story_graph_nodes: int = 12    # nodes a story's graph shows before the reader expands it
     entrypoint_patterns: list[str] = Field(
         default_factory=lambda: ["main", "*_isr", "*_irq_handler", "*Callback", "*_callback"])
 
