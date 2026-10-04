@@ -39,8 +39,18 @@ def stories(store: Store, rid: int) -> StorySet | None:
 
 
 def story(store: Store, rid: int, sid: str) -> StoryDetail | None:
+    """A story, its flows told as the boards holding them tell them now (the AI narrates flows on the boards)."""
     raw = store.get_blob(rid, STORY + sid)
-    return StoryDetail.model_validate(raw) if raw else None
+    if not raw:
+        return None
+    d = StoryDetail.model_validate(raw)
+    live = {f.id: f for b in boards(store, rid).values() for f in b.flows}
+    for b in (d.board, d.graph):
+        for fl in b.flows if b is not None else []:
+            if fl.id in live:
+                src = live[fl.id]
+                fl.what, fl.what_source, fl.what_files, fl.title = src.what, src.what_source, src.what_files, src.title
+    return d
 
 
 def put_story(store: Store, rid: int, d: StoryDetail) -> None:

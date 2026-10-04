@@ -68,8 +68,8 @@ export default function Review() {
                          [detail, comments]);
   const onAiDone = useCallback((jobs: AiJob[]) => {   // an explanation finished: show it
     if (jobs.some((j) => j.kind === "flow")) {
-      if (overview) setReload((k) => k + 1);
-      else api.board(id).then(setBoard).catch(() => {});
+      setReload((k) => k + 1);                         // cluster boards and story pages fetch again
+      if (!overview) api.board(id).then(setBoard).catch(() => {});
     }
     if (jobs.some((j) => j.kind === "finding")) loadFindings();
     if (jobs.some((j) => j.kind === "story")) { loadStories(); setReload((k) => k + 1); }
