@@ -312,3 +312,16 @@ def test_a_split_review_that_fails_to_render_falls_back_to_one_board(monkeypatch
     bs = build_boards(ctx)
     assert bs.overview is None and bs.board is not None and bs.board.nodes
     assert bs.note == "shown as one board (clustering failed: RuntimeError: overview broke)"
+
+
+def test_expanding_treats_changed_test_code_as_a_caller_like_the_board_badge_does():
+    from codetortoise.board import About, Board, BoardNode, expand_board
+    ctx, _ = _synthetic(callers=("test_set", "api"))
+    ctx.impact.changed.append("N4")                       # test_set changed too: it lives on the tests board
+    b = Board(nodes=[BoardNode(id="N1", key="c:@F@set", label="set", layer=1, local="/w/a.c")], about=About(intent="i"))
+    grown = expand_board(b, ctx.impact, [("N1", "callers")], step=10, ranges={}, depot_of={},
+                         layer_name=lambda lv: f"L{lv}", root="/w")
+    assert {"N4", "N5"} <= {n.id for n in grown.nodes}    # the changed test caller is added like any caller
+    same = expand_board(b, ctx.impact, [("N9", "callers")], step=10, ranges={}, depot_of={},
+                        layer_name=lambda lv: f"L{lv}", root="/w")
+    assert next(n for n in same.nodes if n.id == "N1").more_callers == 3      # peek, api and the changed test
