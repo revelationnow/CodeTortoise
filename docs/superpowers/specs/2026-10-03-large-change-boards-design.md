@@ -18,20 +18,24 @@ Goals (agreed 2026-10-03):
 ## 2. Clusters
 
 **When.** The board stage first works out what one board for the whole change would have to show: every changed
-function and field, the fields changed functions read or write, and every node on every flow. If that is 30 nodes or
+function and field, the fields whose access the change added or removed, and every node on every flow. If that is 30 nodes or
 fewer, the review keeps one board, as today. Otherwise it is split.
 
 **Grouping** (changed code only; the impact graph's unchanged nodes never join clusters):
-1. **Join** two changed functions when one calls the other, or both read or write the same field. Unchanged functions
-   they share (a logger everyone calls) don't join them.
+1. **Join** two changed functions when one calls the other, or both have an access the change added or removed to the
+   same field. Unchanged functions they share (a logger everyone calls) and fields they use as before don't join them.
 2. **Tests.** Changed test code (`is_test`) forms its own cluster(s).
-3. **Split** a cluster whose required nodes (its changed functions, the fields they touch, every node on its flows,
-   visitors included) exceed 30: by module (the layer model's modules), then by directory, then by file. A single
-   file or function still too big is split by its flows into groups of at most 30 nodes, named "… (1 of 2)".
-4. **Merge** clusters with fewer than 3 changed functions into a cluster in the same directory, when the result stays
-   within 30 required nodes.
+3. **Split** a cluster whose required nodes (its changed functions, the fields whose access they changed, every node
+   on its flows, visitors included) exceed 30: by module (the layer model's modules), then by directory, then by file.
+   Parts under the same directory share a board while they fit (two top directories of the change never do). A single
+   file still too big is cut into runs of functions in source order; a single function still too big is split by its
+   flows into groups of at most 30 nodes, named "… (1 of 2)". Fields don't count for that last split: a board whose
+   changed code and flows leave no room shows the fields that fit and counts the rest as hidden.
+4. **Merge** clusters with fewer than 3 changed functions into the cluster in the nearest directory below the change's
+   common prefix (the same directory first, then its parent's, …), when the result stays within 30 required nodes.
 5. **Name.** The deepest directory the cluster's files share, relative to the change's common prefix
-   (`driver/uart`); clusters with the same name get their main function appended (`driver/uart · uart_send`); split
+   (`driver/uart`); a cluster spanning several top directories is named by each one's (`deps/reftable +
+   src/libgit2`); clusters with the same name get their main function appended (`driver/uart · uart_send`); split
    groups get "(1 of 2)".
 6. **Order and ids.** Riskiest first: highest finding severity, then number of flows, then changed functions, then
    name. Ids `C1`, `C2`, … in that order.
@@ -53,11 +57,11 @@ listed as "also in …".
 ## 3. Boards
 
 Each cluster gets a board in today's shape, built by the existing board code restricted to the cluster:
-- **Required nodes** (always shown): the cluster's changed functions and fields, the fields they touch, every node on
-  its flows. Nodes on its flows that belong to another cluster are **visitors**: drawn dashed, with their home
+- **Required nodes** (always shown): the cluster's changed functions and fields, the fields whose access they added or
+  removed, every node on its flows. Nodes on its flows that belong to another cluster are **visitors**: drawn dashed, with their home
   cluster and a link to it; their code cards work as usual.
-- **Neighbours** fill the room left up to 30: callers and callees of changed code and the most affected nodes, ranked
-  by blast radius as today.
+- **Neighbours** fill the room left up to 30: what its impacts annotate, the fields its changed code uses as before,
+  then callers, callees and the most affected nodes, ranked by blast radius as today.
 - **Badges.** A node with callers or callees not on the board shows "+N callers" / "+N callees". Expanding adds up to
   10 at a time (most affected first) and may take the board past 30 nodes; the board then shows "N nodes · Reset".
   Expansions belong to the viewer (page address and browser storage); Reset clears them.
@@ -137,7 +141,8 @@ cluster in today's phone layout; the ☰ menu gains "Overview" and the cluster l
 manual testing at size:
 - Arguments: a git URL (or local clone), a base commit, the commits to import as exact changelists (default: every
   first-parent commit touching at least 30 C/C++ files outside tests in the range), a depot path, paths to leave out.
-- Starts a local `p4d` under a given root if none is running at the given port; creates the depot path and a client.
+- Starts a local `p4d` under a given root if none is running at the given port (setting the first user's password, as
+  `lab/setup.sh` does); creates the depot path and a client. It refuses a depot path that already has files.
 - Imports the base snapshot, then for each chosen commit: one **catch-up** changelist with everything between the
   previous point and the commit's first parent ("catch-up to <sha>"), then the commit itself as one changelist titled
   with its subject and short sha. Adds, deletes, renames, binary files and executable bits are handled; `p4`
@@ -145,15 +150,17 @@ manual testing at size:
 - Optionally shelves chosen commits as pending changelists on top of head (`--shelve`), for shelved-review testing.
 - Writes `cls.tsv`: changelist, kind (catch-up or commit), sha, subject, C files, directories.
 
-For libgit2 (base just before 2024-10-01), the default picks the large merges, including #6896 vector (48 files,
-6 directories), #6897 hashmap (57), #6975 sha256 simplification (41), #6994 cmake (39), #7117 reftables (52),
-#7278 pcre2 (63) and #7261 sha256 (47). They go under a new depot path (`//depot/libgit2-big/...`), leaving the
+For libgit2 (base `1de5a32dd^1`, just before #6896 on 2024-10-01), the default picks the large merges: #6896 vector
+(48 files, 6 directories), #6897 hashmap (57), a merge of main into the ssh branch (102), #6975 sha256 simplification
+(41), #6994 cmake (39), #7117 reftables (52), #7278 pcre2 (68), #7292 docs update (69) and #7261 sha256 (47). They go under a new depot path (`//depot/libgit2-big/...`), leaving the
 current lab untouched. A lab README section says how to build compile commands for it and review the CLs.
 
 ## 8. Testing
 
-- **Unit** (synthetic impact graphs): joining by calls and shared fields, not by common helpers; tests apart;
-  splitting over 30 by module, directory, file, then flow groups; merging small clusters within 30; the 60-cluster
+- **Unit** (synthetic impact graphs): joining by calls and by fields whose access changed, not by common helpers or
+  fields used as before; tests apart; splitting over 30 by module, directory, file, then flow groups; parts under one
+  directory sharing a board, top directories never; merging small clusters into the nearest directory within 30; a
+  function touching too many fields; a board leaving out fields past 30, never changed code or flow nodes; the 60-cluster
   limit; names, order, ids, placement, links; every changed function and flow on exactly one board; required nodes
   never cut; neighbours fill to 30; badge counts.
 - **Pipeline:** today's fixture stays one board (regression). A generated large fixture produces an overview and
@@ -168,7 +175,11 @@ current lab untouched. A lab README section says how to build compile commands f
   `p4d` when `p4d` is available (skipped otherwise), and checks the changelists, the catch-up, `cls.tsv` and a
   shelve.
 
+- **Real code** (by hand, §7): every libgit2-big changelist reviews to boards of at most 30 nodes. Measured while
+  writing the plan: #6896 (139 changed functions) went from 38 clusters under the first rules to 8.
+
 ## 9. Out of scope
 
-Choosing clusters by hand, saving expansions for everyone, cluster-level AI summaries (on-demand ✦ per cluster could
+Choosing clusters by hand, saving expansions for everyone, one node per struct instead of one per field (would take
+reftables' 45 clusters to about 25; a later step), cluster-level AI summaries (on-demand ✦ per cluster could
 come later), and changing how impacts and flows are computed.
