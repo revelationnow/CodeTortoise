@@ -198,6 +198,18 @@ def test_the_summary_counts_the_lines_of_added_and_deleted_files_too():
     assert ss.summary == "Mostly mechanical: 2 of 4 changed lines are one edit (`git_vector_free` → `git_vector_dispose`)."
 
 
+def test_the_flows_of_a_repeated_edit_are_one_story_whose_functions_stay_with_the_edit():
+    c = _world([_mech("free_a", "src/a.c"), _mech("free_b", "src/b.c"), _same("peek", "src/c.c")],
+               fields=[("free_a", "R", "v", "write", "added"), ("peek", "R", "v", "read", "unchanged")])
+    ss, det = build_stories(c)
+    (b,) = _by_kind(ss, "behaviour")
+    (m,) = _by_kind(ss, "mechanical")
+    assert b.title.startswith("What `git_vector_free` → `git_vector_dispose` changes: `peek`")
+    assert b.nodes == [] and "functions" not in {k for k, v in b.counts.items() if v}     # their home is the edit's story
+    assert m.nodes == ["N1", "N2"] and ss.node_story["N1"] == m.id and b.flows
+    assert next(s for s in det[m.id].sites if s.node == "N1").effect == b.id
+
+
 # ---- 2. behaviour, joining, other changes
 def test_a_flow_causing_function_is_a_behaviour_story_titled_from_its_flows():
     ctx, _ = _synthetic(callers=("api",))

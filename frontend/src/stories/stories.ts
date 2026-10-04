@@ -57,8 +57,10 @@ export function groupSites(sites: StorySite[], hideTests: boolean): SiteDir[] {
 /** Sites past which files start closed (a very large repeated edit lists files with a count, spec §6). */
 export const OPEN_SITES = 200;
 
-/** Where "Whole graph ›" goes: the board holding the story's first node, focused on it. */
-export function wholeGraph(reviewId: number, s: Story): string {
-  const node = s.nodes[0] ? `?node=${encodeURIComponent(s.nodes[0])}` : "";
+/** Where "Whole graph ›" goes: the board holding the story's first node, focused on it; a story without code of its
+ * own (a repeated edit's flows) focuses on `cause`, its first flow's. */
+export function wholeGraph(reviewId: number, s: Story, cause?: string | null): string {
+  const at = s.nodes[0] ?? cause;
+  const node = at ? `?node=${encodeURIComponent(at)}` : "";
   return s.board ? `/r/${reviewId}/c/${s.board}${node}` : `/r/${reviewId}/board${node}`;
 }

@@ -75,7 +75,7 @@ export default function StoryPage({ reviewId, stories, sid, files, comments, onC
           <button role="tab" aria-selected={tab === "graph"} className={`bd-ibtn${tab === "graph" ? " on" : ""}`} onClick={() => setTab("graph")}>Graph</button>
         </span>
       )}
-      {st && st.kind !== "mechanical" && <Link className="st-whole" to={wholeGraph(reviewId, st)}>Whole graph ›</Link>}
+      {st && st.kind !== "mechanical" && <Link className="st-whole" to={wholeGraph(reviewId, st, detail?.board.flows[0]?.cause)}>Whole graph ›</Link>}
     </span>
   );
   if (error)

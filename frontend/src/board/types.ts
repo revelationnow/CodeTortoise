@@ -24,6 +24,8 @@ export interface BoardFlow {
   id: string; path: string[]; tag: "state" | "contract"; lands: string; fx_at: string | null; severity: string;
   findings: string[]; text: string; title: string; what: string; effect: string; check: string;
   what_source: "template" | "llm";
+  /** The changed node the flow comes from. */
+  cause?: string | null;
 }
 export interface AboutFile { path: string; name: string; action: string; cls: number[]; add: number; rem: number }
 export interface About {

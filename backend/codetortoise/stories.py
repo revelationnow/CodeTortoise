@@ -418,8 +418,10 @@ def _labels(x: _Ctx, ids: list[str], most: int = 2) -> str:
 
 def _story(x: _Ctx, d: _Draft, sid: str, sev: dict[str, str], home: dict[str, str] | None, depots: dict[str, str],
            is_test, effect_of) -> Story:
-    files = {depots.get(x.local(n)) or x.local(n) for n in d.members} | {depots.get(loc) or loc for _, loc, _ in d.sites}
-    counts = {"flows": len(d.flows), "findings": len(d.findings), "functions": len(d.members), "files": len(files - {None, ""})}
+    # a repeated edit's flows: the functions causing them are at home in the edit's story, not this one
+    own = [] if d.kind == "behaviour" and d.sub is not None else d.members
+    files = {depots.get(x.local(n)) or x.local(n) for n in own} | {depots.get(loc) or loc for _, loc, _ in d.sites}
+    counts = {"flows": len(d.flows), "findings": len(d.findings), "functions": len(own), "files": len(files - {None, ""})}
     key = d.cause or (d.members[0] if d.members else None)
     board = (home or {}).get(key) if key else None
     if d.kind == "mechanical":
@@ -446,7 +448,7 @@ def _story(x: _Ctx, d: _Draft, sid: str, sev: dict[str, str], home: dict[str, st
         summary = _other_summary(x, d.members)
     else:
         title, summary = _behaviour_text(x, d)
-    return Story(id=sid, kind=d.kind, title=title, summary=summary, risk=d.risk(sev), counts=counts, nodes=d.members,
+    return Story(id=sid, kind=d.kind, title=title, summary=summary, risk=d.risk(sev), counts=counts, nodes=own,
                  flows=[fl.id for fl in d.flows], findings=d.findings, board=board, collapsed=d.collapsed)
 
 
