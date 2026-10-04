@@ -215,6 +215,7 @@ class ClusterInfo(BaseModel):
     changed: int = 0                                  # changed functions
     flows: int = 0
     findings: int = 0
+    finding_ids: list[str] = Field(default_factory=list)
     nodes: list[str] = Field(default_factory=list)    # its changed nodes
 
 
@@ -788,7 +789,7 @@ def _overview(x: _Ctx, res, about: About, depots: dict[str, str], flows: list[Fl
             id=cl.id, name=cl.name, level=cl.level, also=cl.also, risk=cl.risk, test=cl.test,
             files=sorted({depots[x.local(m)] for m in cl.members if x.local(m) in depots}),
             changed=sum(1 for m in cl.members if x.im.nodes[m].kind == "function"), flows=len(cl.flows),
-            findings=len(cl.findings), nodes=list(cl.members)))
+            findings=len(cl.findings), finding_ids=list(cl.findings), nodes=list(cl.members)))
     owner = {m: cl.id for cl in res.clusters for m in cl.members}
     calls: dict[tuple[str, str], int] = defaultdict(int)
     for e in x.im.edges:
@@ -814,6 +815,50 @@ def _overview(x: _Ctx, res, about: About, depots: dict[str, str], flows: list[Fl
               "changed": sum(1 for n in x.im.changed if n in x.im.nodes and x.im.nodes[n].kind == "function")}
     return Overview(about=about, clusters=infos, links=links, layers=layers, totals=totals,
                     merged_over_limit=res.merged_over_limit)
+
+
+def expand_board(b: Board, im: ImpactModel, asks: list[tuple[str, str]], *, step: int,
+                 ranges: dict[str, list[int]], depot_of: dict[str, Files], layer_name: Callable[[int], str],
+                 is_test: Callable[[str], bool], home: dict[str, str] | None = None) -> Board:
+    """`b` with up to `step` more callers or callees of each asked node ("+N callers"), most affected first, laid out
+    again. Asks are applied in order, so a node added by one can be expanded by the next. The board may pass its
+    node budget: the reader asked for it."""
+    out = b.model_copy(deep=True)
+    on = {n.id for n in out.nodes}
+    score = {x.node: x.score for x in im.blast}
+    callers: dict[str, set[str]] = defaultdict(set)
+    callees: dict[str, set[str]] = defaultdict(set)
+    for e in im.edges:
+        if e.kind in ("call", "virtual"):
+            callers[e.dst].add(e.src)
+            callees[e.src].add(e.dst)
+    for nid, way in asks:
+        if nid not in on:
+            continue
+        cands = [n for n in (callers if way == "callers" else callees)[nid] - on if n in im.nodes and not is_test(n)]
+        for n in sorted(cands, key=lambda n: (-score.get(n, 0.0), int(n[1:]) if n[1:].isdigit() else 0))[:step]:
+            node = im.nodes[n]
+            h = (home or {}).get(n)
+            files = depot_of.get(n) or []
+            out.nodes.append(BoardNode(id=n, key=node.key, label=node.label, kind=node.kind,
+                                       layer=node.layer if node.layer is not None else -1,
+                                       path=files[0] if node.file and files else None, local=node.file,
+                                       range=ranges.get(node.key), home=h if out.cluster and h and h != out.cluster.id
+                                       else None))
+            on.add(n)
+    out.edges = [BoardEdge(src=e.src, dst=e.dst, kind=e.kind, status=e.status, confidence=e.confidence)
+                 for e in im.edges if e.src in on and e.dst in on]
+    xs = barycentre_layout({n.id: n.layer if n.layer is not None else -1 for n in out.nodes},
+                           [(e.src, e.dst) for e in out.edges])
+    for n in out.nodes:
+        n.x = xs.get(n.id, n.x)
+        n.more_callers = len({s_ for s_ in callers.get(n.id, ()) if s_ not in on and not is_test(s_)})
+        n.more_callees = len({d for d in callees.get(n.id, ()) if d not in on and not is_test(d)})
+    have = {lv.level for lv in out.layers}
+    for lv in sorted({n.layer for n in out.nodes if n.layer is not None} - have):
+        out.layers.append(BoardLayer(level=lv, name=layer_name(lv) if lv >= 0 else "other"))
+    out.layers.sort(key=lambda lv: -lv.level)
+    return out
 
 
 def _tree_prefix(depots: list[str]) -> str:

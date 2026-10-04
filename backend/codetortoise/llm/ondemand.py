@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
+from codetortoise import boardstore
 from codetortoise.board import Board
 from codetortoise.detectors.base import Finding
 from codetortoise.facts.model import Facts
@@ -63,7 +64,7 @@ def context_for(svc: Services, rid: int) -> tuple[AiContext, Board, list[Finding
     cs = ChangeSet.model_validate(store.get_blob(rid, "changeset") or {"cls": [], "files": []})
     after = [Facts.model_validate(f) for f in store.get_blob(rid, "facts_after") or []]
     findings = store.list_findings(rid)
-    board = Board.model_validate(store.get_blob(rid, "board") or {"about": {"intent": ""}})
+    board = boardstore.combined(store, rid) or Board(about={"intent": ""})    # a split review: all its boards
     snippets = collect_snippets(impact, cs, after) if impact.nodes else {}
     ctx = AiContext(impact, findings, snippets, svc.cfg.llm.max_context_tokens, store.get_blob(rid, "node_files"))
     return ctx, board, findings, cs
@@ -113,13 +114,13 @@ def explain(svc: Services, rid: int, user: str, kind: str, target: str) -> None:
             raise Unchecked(UNCHECKED)
         with _lock(rid):
             _same(svc, rid, seen)
-            board = Board.model_validate(svc.store.get_blob(rid, "board") or {"about": {"intent": ""}})
-            now = next((f for f in board.flows if f.id == target and f.path == fl.path), None)
+            held = boardstore.with_flow(svc.store, rid, target)          # the board holding the flow, as it is now
+            now = next((f for f in held[1].flows if f.id == target and f.path == fl.path), None) if held else None
             if now is None:
                 raise Changed(CHANGED)
             now.what, now.what_source, now.what_files, now.title = trial.what, "llm", trial.what_files, trial.title
             findings = svc.store.list_findings(rid)
-            svc.store.put_blob(rid, "board", tag_board(board, {f.id: f.files for f in findings}))
+            boardstore.put(svc.store, rid, held[0], tag_board(held[1], {f.id: f.files for f in findings}))
     elif kind == "finding":
         f = next((f for f in findings if f.id == target), None)
         if f is None:
@@ -163,8 +164,7 @@ def _same(svc: Services, rid: int, seen: str) -> None:
 def check_target(svc: Services, rid: int, kind: str, target: str) -> None:
     """Fail fast (NotFound) before queueing an explanation of something that doesn't exist."""
     if kind == "flow":
-        board = svc.store.get_blob(rid, "board") or {}
-        if not any(f.get("id") == target for f in board.get("flows", [])):
+        if boardstore.with_flow(svc.store, rid, target) is None:
             raise NotFound(f"flow {target} not found")
     elif kind == "finding":
         if not any(f.id == target for f in svc.store.list_findings(rid)):

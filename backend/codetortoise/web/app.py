@@ -10,9 +10,13 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from codetortoise.board import Board
+from codetortoise import boardstore
+from codetortoise.board import Board, expand_board, is_test_path
+from codetortoise.facts.model import Facts
 from codetortoise.health import run_health
+from codetortoise.impact import ImpactModel
 from codetortoise.llm import ondemand, tortoise
+from codetortoise.paths import canon
 from codetortoise.pipeline import JobRunner
 from codetortoise.provenance import tag_board
 from codetortoise.services import Services
@@ -183,19 +187,94 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
 
         return StreamingResponse(gen(), media_type="text/event-stream")
 
-    @app.get("/api/reviews/{rid}/board")
-    def board(rid: int, _: str = Depends(user_of)):
-        review_or_404(rid)
-        b = store.get_blob(rid, "board")
-        if b is None:
-            raise HTTPException(404, "board not built yet")
-        # boards stored by an older version get current defaults and file tags (spec §14.3)
-        b = tag_board(Board.model_validate(b), {f.id: f.files for f in store.list_findings(rid)}).model_dump()
+    def named(layers: list[dict]) -> None:
         overrides = store.kv_get("layer_overrides") or {}
-        for layer in b.get("layers", []):
+        for layer in layers:
             if str(layer["level"]) in overrides:
                 layer["name"] = overrides[str(layer["level"])]
-        return b
+
+    @app.get("/api/reviews/{rid}/overview")
+    def overview(rid: int, _: str = Depends(user_of)):
+        """A split review's overview (spec 2026-10-03-large-change-boards §4); 404 for a review shown as one board."""
+        review_or_404(rid)
+        ov = boardstore.overview(store, rid)
+        if ov is None:
+            raise HTTPException(404, "this review is shown as one board")
+        out = ov.model_dump()
+        named(out["layers"])
+        return out
+
+    @app.get("/api/reviews/{rid}/board")
+    def board(rid: int, cluster: str | None = None, expand: str | None = None, _: str = Depends(user_of)):
+        review_or_404(rid)
+        b = boardstore.board(store, rid, cluster)
+        if b is None:
+            if cluster:
+                raise HTTPException(404, "That cluster no longer exists after the re-run.")
+            if boardstore.overview(store, rid) is not None:
+                raise HTTPException(404, "this review is split into clusters: see its overview")
+            raise HTTPException(404, "board not built yet")
+        # boards stored by an older version get current defaults and file tags (spec §14.3)
+        tags = {f.id: f.files for f in store.list_findings(rid)}
+        b = tag_board(b, tags)
+        if expand:
+            b = tag_board(expanded(rid, b, expand), tags)
+        out = b.model_dump()
+        named(out.get("layers", []))
+        return out
+
+    def expanded(rid: int, b: Board, expand: str) -> Board:
+        """`expand` is "N12:callers,N9:callees": up to `analysis.expand_step` neighbours each, in order."""
+        asks = []
+        for part in expand.split(",")[:20]:
+            nid, _, way = part.strip().partition(":")
+            if way not in ("callers", "callees") or not nid:
+                raise HTTPException(400, f"bad expansion {part!r}: use <node>:callers or <node>:callees")
+            asks.append((nid, way))
+        im = ImpactModel.model_validate(store.get_blob(rid, "impact") or {})
+        ranges: dict[str, list[int]] = {}
+        for fx in store.get_blob(rid, "facts_after") or []:
+            facts = Facts.model_validate(fx)
+            ranges.update({f.usr: [f.start_line, f.end_line] for f in facts.functions})
+            ranges.update({f"field:{a.field}": [a.decl_line, a.decl_line] for a in facts.fields if a.decl_line})
+        lm = svc.layers.get()
+        root = canon(str(cfg.workspace.root)).rstrip("/") + "/"
+
+        def layer_name(lv: int) -> str:
+            layer = lm.layer(lv) if lm else None
+            return layer.name.split(": ", 1)[-1] if layer else f"L{lv}"
+
+        def is_test(nid: str) -> bool:
+            f = im.nodes[nid].file or ""
+            return bool(f) and is_test_path(f[len(root):] if f.startswith(root) else f)
+        return expand_board(b, im, asks, step=cfg.analysis.expand_step, ranges=ranges,
+                            depot_of=store.get_blob(rid, "node_files") or {}, layer_name=layer_name, is_test=is_test,
+                            home=store.get_blob(rid, "node_cluster") or {})
+
+    @app.get("/api/reviews/{rid}/locate")
+    def locate(rid: int, node: str | None = None, flow: str | None = None, finding: str | None = None,
+               _: str = Depends(user_of)):
+        """The cluster to open for a node, flow or finding; null for a review shown as one board."""
+        review_or_404(rid)
+        ov = boardstore.overview(store, rid)
+        if ov is None:
+            return {"cluster": None}
+        if flow:
+            held = boardstore.with_flow(store, rid, flow)
+            if held:
+                return {"cluster": held[0]}
+        elif finding:
+            c = next((c for c in ov.clusters if finding in c.finding_ids), None)
+            if c:
+                return {"cluster": c.id}
+        elif node:
+            home = (store.get_blob(rid, "node_cluster") or {}).get(node)
+            if home:
+                return {"cluster": home}
+            for cid, b in boardstore.boards(store, rid).items():
+                if any(n.id == node for n in b.nodes):
+                    return {"cluster": cid}
+        raise HTTPException(404, "not on any board of this review")
 
     @app.get("/api/reviews/{rid}/source")
     def source(rid: int, path: str, side: Literal["before", "after"] = "after", _: str = Depends(user_of)):
