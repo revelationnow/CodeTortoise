@@ -45,5 +45,7 @@ describe("stories", () => {
   it("opens the whole graph on the board holding the story's first node", () => {
     expect(wholeGraph(3, story("S1", "behaviour", { nodes: ["N9"] }))).toBe("/r/3/board?node=N9");
     expect(wholeGraph(3, story("S1", "behaviour", { nodes: ["N9"], board: "C2" }))).toBe("/r/3/c/C2?node=N9");
+    expect(wholeGraph(3, story("S1", "behaviour"), "N4")).toBe("/r/3/board?node=N4");     // a repeated edit's flows
+    expect(wholeGraph(3, story("S1", "behaviour", { nodes: ["N9"] }), "N4")).toBe("/r/3/board?node=N9");
   });
 });
