@@ -24,6 +24,10 @@ test.describe("with an AI", () => {
     await expect(menu.getByRole("option")).toHaveText([/@tortoise.*up to 6 AI calls/, /@demo/]);
     await box.press("Escape");                                            // Esc closes it
     await expect(menu).toBeHidden();
+    await box.press("Backspace");                                         // a new @ opens it again
+    await box.pressSequentially("@");
+    await expect(menu).toBeVisible();
+    await box.press("Escape");
     await box.pressSequentially(" @t");                                   // typing narrows it; Enter inserts
     await expect(menu.getByRole("option")).toHaveCount(1);
     await box.press("Enter");

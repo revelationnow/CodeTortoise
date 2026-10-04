@@ -138,7 +138,12 @@ function MentionBox({ value, onChange, rows, placeholder, autoFocus }:
     <span className="mention-box">
       <textarea ref={box} rows={rows} value={value} placeholder={placeholder} autoFocus={autoFocus}
                 aria-autocomplete="list" aria-expanded={open}
-                onChange={(e) => { onChange(e.target.value); track(e.target); setActive(0); }}
+                onChange={(e) => {
+                  onChange(e.target.value);
+                  track(e.target);
+                  setActive(0);
+                  if (!mentionQuery(e.target.value, e.target.selectionStart ?? e.target.value.length)) setClosedAt(null);
+                }}
                 onSelect={(e) => track(e.currentTarget)}
                 onKeyDown={(e) => {
                   if (!open) return;
