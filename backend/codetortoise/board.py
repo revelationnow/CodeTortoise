@@ -262,6 +262,7 @@ class BoardSet:
     note: str | None = None                                # why the review fell back to one board
     stories: Any = None                                    # stories.StorySet (spec 2026-10-04), when built
     story_details: dict[str, Any] = dfield(default_factory=dict)   # story id -> stories.StoryDetail
+    analysis: Any = None                                   # the Analysis the boards were built from (not stored)
 
 
 @dataclass
@@ -738,12 +739,26 @@ def _render(x: _Ctx, impacts: list[Impact], flows: list[Flow], chosen: list[str]
                  flows=flows, impacts=shown, layers=layers, about=about, hidden_nodes=hidden, cluster=cluster)
 
 
-def build_board(c: BoardContext) -> Board:
-    """One board for the whole change, within the node budget: required nodes first (changed code, flows, fields),
-    then neighbours. Large changes use `build_boards`, which splits them; this is also its fallback."""
+@dataclass
+class Analysis:
+    """What every board of a change, and its stories, are built from: computed once per review."""
+    x: _Ctx
+    impacts: list[Impact]
+    flows: list[Flow]
+    about: About
+
+
+def analyse(c: BoardContext) -> Analysis:
     x = _Ctx(c)
     impacts = build_impacts(x)
-    flows = build_flows(x, impacts)
+    return Analysis(x, impacts, build_flows(x, impacts), build_about(c))
+
+
+def build_board(c: BoardContext, a: Analysis | None = None) -> Board:
+    """One board for the whole change, within the node budget: required nodes first (changed code, flows, fields),
+    then neighbours. Large changes use `build_boards`, which splits them; this is also its fallback."""
+    a = a or analyse(c)
+    x, impacts, flows = a.x, a.impacts, a.flows
     req = _required(x, list(x.im.changed), flows)
     chosen, hidden = _choose(x, req, _neighbours(x, impacts, set(x.changed)), core=len(req))   # trimmed below
     if len(chosen) > c.cfg.board_max_nodes:                 # the fallback: the most important nodes only
@@ -754,25 +769,26 @@ def build_board(c: BoardContext) -> Board:
     sel = set(chosen)
     depots = c.depots_for(sorted({p for p in [*(x.local(n) for n in chosen), *(i.path for i in impacts if i.node in sel)]
                                   if p}))
-    return _render(x, impacts, flows, chosen, depots, hidden=hidden, about=build_about(c))
+    return _render(x, impacts, flows, chosen, depots, hidden=hidden, about=a.about)
 
 
 def build_boards(c: BoardContext) -> BoardSet:
     """The change's board, or (when it would need more than `board_max_nodes` nodes) an overview and one board per
     cluster (spec 2026-10-03-large-change-boards). Every changed node and flow is on exactly one board."""
-    x = _Ctx(c)
-    impacts = build_impacts(x)
-    flows = build_flows(x, impacts)
-    if len(_required(x, list(x.im.changed), flows)) <= c.cfg.board_max_nodes:
-        return BoardSet(board=build_board(c))
+    a = analyse(c)
+    if len(_required(a.x, list(a.x.im.changed), a.flows)) <= c.cfg.board_max_nodes:
+        return BoardSet(board=build_board(c, a), analysis=a)
     try:
-        return _split(c, x, impacts, flows)
+        bs = _split(c, a)
     except Exception as e:  # never lose the review over clustering: one board of the most important nodes
-        return BoardSet(board=build_board(c), note=f"shown as one board (clustering failed: {type(e).__name__}: {e})")
+        bs = BoardSet(board=build_board(c, a), note=f"shown as one board (clustering failed: {type(e).__name__}: {e})")
+    bs.analysis = a
+    return bs
 
 
-def _split(c: BoardContext, x: _Ctx, impacts: list[Impact], flows: list[Flow]) -> BoardSet:
+def _split(c: BoardContext, a: Analysis) -> BoardSet:
     """An overview and one board per cluster."""
+    x, impacts, flows = a.x, a.impacts, a.flows
     res = cluster_change(x.im, flows, c.findings, is_test=x.is_test_path, module_of=x.module_of,
                          max_nodes=c.cfg.board_max_nodes, min_changed=c.cfg.cluster_min_changed,
                          max_clusters=c.cfg.overview_max_clusters)
@@ -787,7 +803,7 @@ def _split(c: BoardContext, x: _Ctx, impacts: list[Impact], flows: list[Flow]) -
     locals_ = {x.local(n) for n in shown} | {i.path for i in impacts if i.node in shown}
     locals_ |= {x.local(m) for cl in res.clusters for m in cl.members}
     depots = c.depots_for(sorted(p for p in locals_ if p))
-    about = build_about(c)
+    about = a.about
     boards = {}
     for cl in res.clusters:
         cf, chosen, hidden = picks[cl.id]

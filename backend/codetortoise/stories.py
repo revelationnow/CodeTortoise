@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from codetortoise.board import (
     About,
+    Analysis,
     Board,
     BoardContext,
     BoardNode,
@@ -26,9 +27,7 @@ from codetortoise.board import (
     _neighbours,
     _render,
     about_for,
-    build_about,
-    build_flows,
-    build_impacts,
+    analyse,
     is_test_path,
 )
 from codetortoise.clusters import _shared, altered_access, cluster_change
@@ -135,11 +134,16 @@ class _Draft:
         return RISK.get(top)
 
 
-def build_stories(c: BoardContext, home: dict[str, str] | None = None) -> tuple[StorySet, dict[str, StoryDetail]]:
-    """The review's stories and each story's detail. `home` maps nodes to the cluster boards holding them."""
-    x = _Ctx(c)
-    impacts = build_impacts(x)
-    flows = build_flows(x, impacts)
+def build_stories(c: BoardContext, home: dict[str, str] | None = None,
+                  analysis: Analysis | None = None) -> tuple[StorySet, dict[str, StoryDetail]]:
+    """The review's stories and each story's detail. `home` maps nodes to the cluster boards holding them; `analysis`
+    is the boards' (`BoardSet.analysis`), so stories and boards tell the same flows. Stories work on copies: the AI
+    pass later rewrites the boards' flows and summary in place."""
+    a = analysis or analyse(c)
+    x = a.x
+    impacts = [i.model_copy(deep=True) for i in a.impacts]
+    flows = [f.model_copy(deep=True) for f in a.flows]
+    about = a.about.model_copy(deep=True)
     im, cfg = x.im, c.cfg
     sev = {f.id: f.severity for f in c.findings}
     changed = [n for n in im.changed if n in im.nodes]
@@ -331,7 +335,6 @@ def build_stories(c: BoardContext, home: dict[str, str] | None = None) -> tuple[
         all_locals |= ({x.local(n) for n in _mentioned(d)} | {i.path for i in impacts if i.node in _mentioned(d)}
                        | {loc for _, loc, _ in d.sites})                # a repeated edit's sites outside functions too
     depots = c.depots_for(sorted(p for p in all_locals if p))
-    about = build_about(c)
     node_story: dict[str, str] = {}
     for d in ordered:
         for n in d.members:
