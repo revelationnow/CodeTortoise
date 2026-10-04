@@ -8,6 +8,7 @@ async function startLarge(page: Page) {
   await login(page);
   await page.getByLabel("Changelists (shelved or submitted)").fill("201 202");
   await page.getByRole("button", { name: "Start review" }).click();
+  await page.getByRole("link", { name: "Boards ›" }).click({ timeout: 60_000 });
   await expect(page.locator(".ov-block").first()).toBeVisible({ timeout: 60_000 });
 }
 
@@ -110,12 +111,15 @@ test.describe("a large change", () => {
     await expect(reset).toHaveCount(0);
   });
 
-  test("a citation opens the cluster that holds the node", async ({ page }) => {
+  test("a citation opens the story holding the node; on the boards, the cluster holding it", async ({ page }) => {
     await startLarge(page);
     const rid = page.url().match(/\/r\/(\d+)/)![1];
     const ov = await (await page.request.get(`/api/reviews/${rid}/overview`)).json();
     const regs = ov.clusters.find((c: { name: string }) => c.name === "hal/regs");
+    const ss = await (await page.request.get(`/api/reviews/${rid}/stories`)).json();
     await page.goto(`/r/${rid}?node=${regs.nodes[0]}`);
+    await expect(page).toHaveURL(new RegExp(`/s/${ss.node_story[regs.nodes[0]]}\\?node=${regs.nodes[0]}$`));
+    await page.goto(`/r/${rid}/overview?node=${regs.nodes[0]}`);
     await expect(page).toHaveURL(new RegExp(`/c/${regs.id}\\?node=${regs.nodes[0]}`));
     await expect(page.locator(".bd-crumb")).toContainText("hal/regs");
   });
@@ -134,12 +138,14 @@ test.describe("a large change", () => {
     await expect(page.locator(".bd-crumb")).toContainText(other.name);
   });
 
-  test("findings are grouped by cluster", async ({ page }) => {
+  test("findings are grouped by story", async ({ page }) => {
     await startLarge(page);
     await page.getByRole("link", { name: /Findings/ }).click();
-    await expect(page.getByRole("region", { name: "Findings in hal/regs" })).toBeVisible();
+    const first = page.locator(".fg").first();
+    await expect(first.locator(".fg-id")).toHaveText(/^S\d+$/);
+    const sid = (await first.locator(".fg-id").textContent())!;
     const of = page.getByLabel("Findings of");
-    await of.selectOption({ label: (await of.locator("option", { hasText: "hal/regs" }).textContent())! });
+    await of.selectOption({ label: (await of.locator("option", { hasText: new RegExp(`^${sid} · `) }).textContent())! });
     await expect(page.locator(".fg")).toHaveCount(1);
   });
 });

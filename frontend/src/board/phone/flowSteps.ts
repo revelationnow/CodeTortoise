@@ -15,7 +15,7 @@ export function flowSteps(board: Board, flow: BoardFlow): Step[] {
       return { ...base, kind: "landing", marker: "!", reason: firstAnn(n.id, true)?.text ?? flow.effect };
     if (n.change)
       return { ...base, kind: "chg", marker: "Δ", reason: `Δ ${n.change.kind} +${n.change.add} −${n.change.rem}` };
-    if (n.kind === "field") {
+    if (n.kind === "field" || n.kind === "struct") {
       const a = firstAnn(n.id);
       return { ...base, kind: "field", marker: "f", reason: a ? `field · ${a.text}` : "field" };
     }

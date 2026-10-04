@@ -130,7 +130,7 @@ test("a cited function opens on the phone map with its code", async ({ page }) =
   const rid = page.url().match(/\/r\/(\d+)/)![1];
   const board = await (await page.request.get(`/api/reviews/${rid}/board`)).json();
   const target = board.nodes.find((n: { label: string }) => n.label === "uart_errors");
-  await page.goto(`/r/${rid}?node=${target.id}`);
+  await page.goto(`/r/${rid}/board?node=${target.id}`);
   await expect(tab(page, "Map")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".ph-sheet .ph-sheet-head")).toContainText("uart_errors");
   const inside = async () => {                                                     // once the eased pan has settled

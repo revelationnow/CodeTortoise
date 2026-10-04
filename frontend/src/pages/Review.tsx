@@ -1,6 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { Link, Navigate, NavLink, Route, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, ApiError, type AiJob, type Board as BoardModel, type Comment, type FileChange, type Finding, type Overview, type ReviewDetail } from "../api";
+import { api, ApiError, type AiJob, type Board as BoardModel, type Comment, type FileChange, type Finding, type Overview, type ReviewDetail,
+  type StorySet } from "../api";
 import { useMe } from "../App";
 import Board from "../board/Board";
 import ClusterBoard, { useExpansion } from "../board/ClusterBoard";
@@ -11,6 +12,8 @@ import ClsPanel from "../components/ClsPanel";
 import Findings from "../components/Findings";
 import Stages from "../components/Stages";
 import { AiProvider, useAiState } from "../lib/ai";
+import StoryList from "../stories/StoryList";
+import StoryPage from "../stories/StoryPage";
 
 const TERMINAL = new Set(["done", "degraded", "failed"]);
 
@@ -22,6 +25,7 @@ export default function Review() {
   const [detail, setDetail] = useState<ReviewDetail | null>(null);
   const [board, setBoard] = useState<BoardModel | null | undefined>(undefined);   // null: no board for this review
   const [overview, setOverview] = useState<Overview | null | undefined>(undefined);  // a split review's (null: one board)
+  const [stories, setStories] = useState<StorySet | null | undefined>(undefined);    // null: a review run before stories
   const [reload, setReload] = useState(0);              // cluster boards fetch again after an AI explanation
   const [findings, setFindings] = useState<Finding[]>([]);
   const [files, setFiles] = useState<FileChange[]>([]);
@@ -32,14 +36,16 @@ export default function Review() {
   const loadDetail = useCallback(() => api.review(id).then(setDetail).catch((e) => setError(String(e.message ?? e))), [id]);
   const loadComments = useCallback(() => api.comments(id).then(setComments), [id]);
   const loadFindings = useCallback(() => api.findings(id).then(setFindings), [id]);
+  const loadStories = useCallback(() => api.stories(id).then(setStories)
+    .catch((e) => { if (e instanceof ApiError && e.status === 404) setStories(null); else throw e; }), [id]);
   const loadResults = useCallback(() => Promise.all([
     api.overview(id).then((ov) => { setOverview(ov); setBoard(null); }).catch((e) => {
       if (!(e instanceof ApiError && e.status === 404)) throw e;
       setOverview(null);
       return api.board(id).then(setBoard).catch((e2) => { if (e2 instanceof ApiError && e2.status === 404) setBoard(null); else throw e2; });
     }),
-    loadFindings(), api.files(id).then(setFiles), loadComments(),
-  ]).catch((e) => setError(String(e.message ?? e))), [id, loadFindings, loadComments]);
+    loadStories(), loadFindings(), api.files(id).then(setFiles), loadComments(),
+  ]).catch((e) => setError(String(e.message ?? e))), [id, loadFindings, loadComments, loadStories]);
 
   useEffect(() => { loadDetail(); }, [loadDetail]);
 
@@ -66,7 +72,8 @@ export default function Review() {
       else api.board(id).then(setBoard).catch(() => {});
     }
     if (jobs.some((j) => j.kind === "finding")) loadFindings();
-  }, [id, loadFindings, overview]);
+    if (jobs.some((j) => j.kind === "story")) { loadStories(); setReload((k) => k + 1); }
+  }, [id, loadFindings, loadStories, overview]);
   const ai = useAiState(id, ready, people, comments.some((c) => c.ai_meta?.pending), onAiDone, loadComments);
 
   const onCite = useCallback((cite: string) => {
@@ -89,7 +96,10 @@ export default function Review() {
       {board && <span className="bd-pill ghost">{board.flows.length} flows · {findings.length} findings</span>}
       {ready && <AiPill />}
       <nav aria-label="Review sections">
-        <NavLink end to={`/r/${id}`} className={({ isActive }) => (isActive ? "on" : "")}>Board</NavLink>
+        {stories ? <>
+          <NavLink end to={`/r/${id}`} className={({ isActive }) => (isActive ? "on" : "")}>Stories</NavLink>
+          <NavLink to={`/r/${id}/${overview ? "overview" : "board"}`} className={({ isActive }) => (isActive ? "on" : "")}>Boards</NavLink>
+        </> : <NavLink end to={`/r/${id}`} className={({ isActive }) => (isActive ? "on" : "")}>Board</NavLink>}
         <NavLink to={`/r/${id}/findings`} className={({ isActive }) => (isActive ? "on" : "")}>Findings ({findings.length})</NavLink>
         <NavLink to={`/r/${id}/cls`} className={({ isActive }) => (isActive ? "on" : "")}>CLs &amp; Swarm</NavLink>
       </nav>
@@ -110,10 +120,7 @@ export default function Review() {
 
   if (!ready)
     return page(<><Stages stages={detail.stages} /><p className="muted">Analysis in progress…</p></>);
-  return (
-    <AiProvider value={ai}>
-    <Routes>
-      <Route index element={overview ? (
+  const boardsEl = overview ? (
         params.get("node") ? <Locate reviewId={id} node={params.get("node")!} /> : (
           <main className="review board">
             <OverviewPage reviewId={id} ov={overview} comments={comments} onComments={loadComments} risk={r.risk} head={head}
@@ -129,17 +136,33 @@ export default function Review() {
           {me?.is_owner ? " Re-run it to build one." : " The owner can re-run it to build one."} Findings and CLs are still available.
           {me?.is_owner && <> <button onClick={() => api.rerun(id).then(loadDetail)}>Re-run</button></>}
         </div>
-      ))} />
+      ));
+  return (
+    <AiProvider value={ai}>
+    <Routes>
+      <Route index element={stories ? (params.get("node") ? <StoryLocate reviewId={id} node={params.get("node")!} stories={stories} /> : (
+        <StoryList reviewId={id} stories={stories} intent={(board ?? overview)?.about.intent ?? null} head={head} />
+      )) : stories === undefined ? page(<p className="muted">Loading…</p>) : boardsEl} />
+      <Route path="board" element={boardsEl} />
+      <Route path="overview" element={boardsEl} />
+      <Route path="s/:sid" element={stories ? (
+        <StoryRoute reviewId={id} stories={stories} files={files} comments={comments} onComments={loadComments} risk={r.risk}
+                    head={head} findings={findings} onCite={onCite} reload={reload} />
+      ) : page(stories === null
+        ? <p className="muted">This review has no stories: re-run it. <Link to={`/r/${id}`}>Open the board</Link></p>
+        : <p className="muted">Loading…</p>)} />
       <Route path="c/:cid" element={overview ? (
         <ClusterRoute reviewId={id} ov={overview} files={files} comments={comments} onComments={loadComments} risk={r.risk}
                       head={head} reload={reload} />
       ) : page(overview === null
-        ? <p className="muted">This review is shown as one board. <Link to={`/r/${id}`}>Open the board</Link></p>
+        ? <p className="muted">This review is shown as one board. <Link to={`/r/${id}/board`}>Open the board</Link></p>
         : <p className="muted">Loading…</p>)} />
       <Route path="findings" element={page(
-        <Findings reviewId={id} findings={findings} focus={focus} comments={comments} groups={overview?.clusters}
+        <Findings reviewId={id} findings={findings} focus={focus} comments={comments}
+                  groups={stories ? stories.stories.map((st) => ({ id: st.id, name: st.title.replace(/`/g, ""), finding_ids: st.findings }))
+                    : overview?.clusters}
                   onComments={loadComments} onFindings={loadFindings} onCite={onCite} />)} />
-      <Route path="files" element={<Navigate to={`/r/${id}`} replace />} />
+      <Route path="files" element={<Navigate to={`/r/${id}/board`} replace />} />
       <Route path="cls" element={page(<ClsPanel reviewId={id} cls={detail.cls} onChange={loadDetail} />)} />
     </Routes>
     </AiProvider>
@@ -157,6 +180,18 @@ function Locate({ reviewId, node }: { reviewId: number; node: string }) {
     }).catch(() => setMissing(true));
   }, [reviewId, node, navigate]);
   return <main className="page muted">{missing ? `${node} isn't on any board of this review.` : `Finding ${node}…`}</main>;
+}
+
+/** `/r/:id?node=N12` on a review with stories: open the story holding the node (spec 2026-10-04-change-stories §5). */
+function StoryLocate({ reviewId, node, stories }: { reviewId: number; node: string; stories: StorySet }) {
+  const sid = stories.node_story[node];
+  if (sid) return <Navigate replace to={`/r/${reviewId}/s/${sid}?node=${encodeURIComponent(node)}`} />;
+  return <Navigate replace to={`/r/${reviewId}/board?node=${encodeURIComponent(node)}`} />;
+}
+
+function StoryRoute(p: Omit<Parameters<typeof StoryPage>[0], "sid">) {
+  const sid = useParams().sid!;
+  return <StoryPage key={sid} {...p} sid={sid} />;
 }
 
 /** A review shown as one board; "+N callers" fetches it again with the expansions (spec §3). */

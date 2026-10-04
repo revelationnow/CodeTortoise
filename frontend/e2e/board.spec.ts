@@ -101,7 +101,7 @@ test("a cited node opens once; closing it sticks when the canvas resizes", async
   const rid = page.url().match(/\/r\/(\d+)/)![1];
   const board = await (await page.request.get(`/api/reviews/${rid}/board`)).json();
   const target = board.nodes.find((n: { label: string }) => n.label === "uart_errors");
-  await page.goto(`/r/${rid}?node=${target.id}`);
+  await page.goto(`/r/${rid}/board?node=${target.id}`);
   // by the card's title: other cards' notes can mention uart_errors once their code loads
   const card = page.locator(".bd-card").filter({ has: page.locator(".hd b", { hasText: /^uart_errors$/ }) });
   await expect(card).toBeVisible();
@@ -217,8 +217,8 @@ test("a single board gets +N callees too, and Reset takes them away", async ({ p
 
 test("a cluster address on a review shown as one board links to that board", async ({ page }) => {
   await startReview(page);
-  const board = page.url().replace(/[?#].*$/, "");
-  await page.goto(`${board}/c/C1`);
+  const rid = page.url().match(/\/r\/(\d+)/)![1];
+  await page.goto(`/r/${rid}/c/C1`);
   await expect(page.getByText("This review is shown as one board.")).toBeVisible();
   await page.getByRole("link", { name: "Open the board" }).click();
   await expect(page.getByRole("tablist", { name: "Call flows" })).toBeVisible();

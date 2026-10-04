@@ -21,6 +21,10 @@ interface Props {
   onHome?: (cluster: string, id: string) => void;
   /** A cluster id's name, for the visitor link. */
   homeName?: (cluster: string) => string;
+  /** A story graph (spec 2026-10-04-change-stories §3.1): field lines and calls off the selected flow show only for
+   * the selected node; "+N more changed functions" calls `onMore`. */
+  quiet?: boolean;
+  onMore?: () => void;
   /** Phone Map (spec §13.4): two-finger pinch, tap opens the code sheet, long-press before a node moves. */
   touch?: {
     onPinchStart: (mid: { x: number; y: number }) => void;
@@ -35,7 +39,7 @@ const KIND = { modified: "Δ modified", added: "Δ added", removed: "Δ removed"
 
 /** Layer bands, edges and nodes, all drawn through the lens; pans on drag, moves a node sideways when dragged by it. */
 export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, panBy, onOpenFile, onInteract, touch, onExpand,
-  onHome, homeName }: Props) {
+  onHome, homeName, quiet, onMore }: Props) {
   const root = useRef<HTMLDivElement>(null);
   const down = useRef<{ x: number; y: number; px: number; py: number; id: number; node: string | null; go: boolean; act: string | null;
                         dragging: boolean; ox: number; oy: number; armed: boolean; timer: number } | null>(null);
@@ -148,6 +152,7 @@ export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, p
         end();
         if (!d || d.dragging || !d.node) return;
         const n = byId.get(d.node);
+        if (n?.kind === "more") { onInteract(); onMore?.(); return; }
         if (d.act) {                                         // a badge or a visitor's home link, not the card
           onInteract();
           if (d.act === "home" && n?.home) onHome?.(n.home, d.node);
@@ -190,6 +195,7 @@ export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, p
           const data = e.kind === "writes" || e.kind === "reads";
           const fx = e.kind === "reads" && landings.has(e.src) && (graph || onPath.has(e.dst));
           const inFlow = pairs.has(`${e.src}>${e.dst}`) || pairs.has(`${e.dst}>${e.src}`);
+          if (quiet && !inFlow && e.src !== front && e.dst !== front && (data || !graph)) return null;
           const my = (p1.y + p2.y) / 2;
           return <path key={i} d={`M${p1.x} ${p1.y} C ${p1.x} ${my}, ${p2.x} ${my}, ${p2.x} ${p2.y}`}
             className={`bd-edge${fx ? " fx" : data ? " data" : ""}${inFlow ? " flow" : ""}${!inFlow && !data && !graph ? " dim" : ""}`} />;
@@ -199,7 +205,8 @@ export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, p
         const p = pos.get(n.id);
         if (!p) return null;
         const card = state.cards[n.id], on = onPath.has(n.id);
-        const cls = ["bd-node", n.change ? "chg" : "", n.kind === "field" ? "field" : "", on ? "onflow" : "", n.home ? "visitor" : "",
+        const cls = ["bd-node", n.change ? "chg" : "", n.kind === "field" || n.kind === "struct" ? "field" : "", n.kind === "more" ? "more" : "",
+          n.note ? "noted" : "", on ? "onflow" : "", n.home ? "visitor" : "",
           !graph && !on && !n.change && !card ? "dim" : "", state.moved[state.layout][n.id] !== undefined ? "moved" : "",
           card ? "has-card" : "", n.id === front ? "front" : "", grab === n.id ? "grab" : ""].filter(Boolean).join(" ");
         const fx = badge.get(n.id);
@@ -209,10 +216,12 @@ export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, p
                         ["--hit" as string]: `${40 / Math.max(p.s, 0.1)}px` }}>
             {n.change && <span className="kind">{KIND[n.change.kind]}</span>}
             <span className="lbl">{n.label}</span>
+            {n.note && <span className="note">{n.note.replace(/`/g, "")}</span>}
+            {!!n.fields?.length && <span className="fields">{n.fields.map((f) => <span key={f.id}>.{f.label}</span>)}</span>}
             {n.change && <span className="stat"><b className="p">+{n.change.add}</b><b className="m">−{n.change.rem}</b></span>}
             {!n.change && n.warn > 0 && <span className="warn-dot">{n.warn}</span>}
             {n.path && n.range && <button className="bd-go" title="Open full file" aria-label={`Open ${n.label} in the file viewer`}>⤢</button>}
-            {fx && landings.has(n.id) && <div className="fxbadge">⚠ {fx}</div>}
+            {fx && landings.has(n.id) && !n.note && <div className="fxbadge">⚠ {fx}</div>}
             {n.home && onHome && <span className="bd-home" data-act="home" role="button" title={`Open ${n.home}'s board`}>
               · {homeName?.(n.home) ?? n.home} ›</span>}
             {onExpand && (!!n.more_callers || !!n.more_callees) && (

@@ -401,3 +401,11 @@ details.bd-drift.info { background: var(--bd-sunken); border-left-color: var(--b
   .bd-crumb b { max-width: 34vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 .bd-about .tree .file .ctag { margin-left: 6px; font-size: 11px; color: var(--bd-muted); border: 1px solid var(--bd-line); border-radius: 99px; padding: 0 6px; }
+
+/* story graphs (spec 2026-10-04-change-stories §3.1): a note under the name, a struct's fields, "+N more" */
+.bd-node .note { display: block; max-width: 260px; overflow: hidden; text-overflow: ellipsis; margin-top: 3px;
+  font: 500 10.5px/1.25 var(--bd-sans); font-style: normal; opacity: .85; }
+.bd-node.chg .note { color: #4a2c00; }
+.bd-node .fields { display: flex; flex-direction: column; margin-top: 4px; font-size: 11px; font-style: normal; opacity: .9; }
+.bd-node.more { border-style: dashed; background: transparent; color: var(--bd-muted); font: 600 12px var(--bd-sans); }
+.bd-node.more:hover { color: var(--bd-ink); }
