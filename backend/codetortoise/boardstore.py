@@ -14,18 +14,13 @@ PREFIX = "board:"
 
 
 def save(store: Store, rid: int, bs: BoardSet, finding_files: dict[str, Files]) -> None:
-    """Store a board stage's result, replacing whatever an earlier run stored."""
-    store.delete_blobs(rid, PREFIX)
-    for key in ("board", "overview", "node_cluster"):
-        store.delete_blobs(rid, key)
+    """Store a board stage's result, replacing whatever an earlier run stored: all of it or, on an error, none of it."""
     if bs.board is not None:
-        store.put_blob(rid, "board", tag_board(bs.board, finding_files))
-        return
-    store.put_blob(rid, "overview", bs.overview)
-    store.put_blob(rid, "node_cluster", bs.home)
-    for cid, b in bs.clusters.items():
-        store.put_blob(rid, PREFIX + cid, tag_board(b, finding_files))
-
+        puts = {"board": tag_board(bs.board, finding_files)}
+    else:
+        puts = {"overview": bs.overview, "node_cluster": bs.home}
+        puts |= {PREFIX + cid: tag_board(b, finding_files) for cid, b in bs.clusters.items()}
+    store.replace_blobs(rid, ["board", "overview", "node_cluster"], [PREFIX], puts)
 
 def overview(store: Store, rid: int) -> Overview | None:
     o = store.get_blob(rid, "overview")
