@@ -1,5 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type Comment, type Finding } from "../api";
+import type { ClusterInfo } from "../board/types";
 import { useMe } from "../App";
 import { SeverityBadge } from "./Badges";
 import CiteText, { CiteList } from "./CiteText";
@@ -14,15 +15,39 @@ interface Props {
   onComments: () => void;
   onFindings: () => void;
   onCite: (id: string) => void;
+  /** A split review's clusters: findings are grouped under them (spec 2026-10-03-large-change-boards §5). */
+  groups?: ClusterInfo[];
 }
 
-export default function Findings({ reviewId, findings, focus, comments, onComments, onFindings, onCite }: Props) {
+export default function Findings({ reviewId, findings, focus, comments, onComments, onFindings, onCite, groups }: Props) {
   const me = useMe();
   const refs = useRef(new Map<string, HTMLElement>());
+  const [only, setOnly] = useState<string>("all");
   useEffect(() => {
     if (focus) refs.current.get(focus)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [focus]);
   if (!findings.length) return <p className="muted">No findings.</p>;
+  if (groups) {
+    const homed = new Set(groups.flatMap((g) => g.finding_ids));
+    const sections = [...groups.map((g) => ({ id: g.id, name: g.name, fs: findings.filter((f) => g.finding_ids.includes(f.id)) })),
+                      { id: "rest", name: "The whole change", fs: findings.filter((f) => !homed.has(f.id)) }]
+      .filter((s) => s.fs.length && (only === "all" || only === s.id));
+    return (
+      <div className="findings grouped">
+        <label className="fg-filter">Show <select value={only} onChange={(e) => setOnly(e.target.value)} aria-label="Findings of">
+          <option value="all">every part</option>
+          {groups.filter((g) => g.finding_ids.length).map((g) => <option key={g.id} value={g.id}>{g.id} · {g.name}</option>)}
+        </select></label>
+        {sections.map((s) => (
+          <section key={s.id} className="fg" aria-label={`Findings in ${s.name}`}>
+            <h2>{s.id !== "rest" && <span className="fg-id">{s.id}</span>} {s.name} <span className="muted small">{s.fs.length}</span></h2>
+            <Findings reviewId={reviewId} findings={s.fs} focus={focus} comments={comments} onComments={onComments}
+                      onFindings={onFindings} onCite={onCite} />
+          </section>
+        ))}
+      </div>
+    );
+  }
   return (
     <div className="findings">
       {findings.map((f) => (

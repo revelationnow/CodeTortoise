@@ -29,6 +29,8 @@ interface Props {
   map: ReactNode;
   /** Bumped by Board to show the Map (a cited function opens there). */
   showMap: number;
+  /** A split review's clusters: the menu lists the overview and each cluster's board. */
+  clusters?: { id: string; name: string }[];
 }
 
 const TABS: [PhoneTab, string, string][] = [["flows", "☰", "Flows"], ["map", "◎", "Map"], ["files", "▤", "Files"], ["summary", "✦", "Summary"]];
@@ -56,6 +58,8 @@ export default function PhoneBoard(p: Props) {
           <NavLink to="/">All reviews</NavLink>
           <NavLink to={`/r/${reviewId}/findings`}>Findings</NavLink>
           <NavLink to={`/r/${reviewId}/cls`}>CLs &amp; Swarm</NavLink>
+          {p.clusters && <NavLink end to={`/r/${reviewId}`}>Overview</NavLink>}
+          {p.clusters?.map((c) => <NavLink key={c.id} to={`/r/${reviewId}/c/${c.id}`}>{c.id} · {c.name}</NavLink>)}
           {ai?.view?.llm && <button className="link" onClick={() => ai.setUsageOpen(true)}>AI usage</button>}
           <span onClick={(e) => e.stopPropagation()}><ThemeSwitch /></span>
           <button className="link" onClick={() => api.logout().then(() => window.location.assign("/login"))}>Log out</button>

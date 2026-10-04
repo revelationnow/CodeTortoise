@@ -1,8 +1,10 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, ApiError, type AiJob, type Board as BoardModel, type Comment, type FileChange, type Finding, type ReviewDetail } from "../api";
+import { api, ApiError, type AiJob, type Board as BoardModel, type Comment, type FileChange, type Finding, type Overview, type ReviewDetail } from "../api";
 import { useMe } from "../App";
 import Board from "../board/Board";
+import ClusterBoard from "../board/ClusterBoard";
+import OverviewPage from "../board/OverviewPage";
 import { driftSummary } from "../board/drift";
 import AiPill from "../components/AiPill";
 import ClsPanel from "../components/ClsPanel";
@@ -19,6 +21,8 @@ export default function Review() {
   const [params] = useSearchParams();
   const [detail, setDetail] = useState<ReviewDetail | null>(null);
   const [board, setBoard] = useState<BoardModel | null | undefined>(undefined);   // null: no board for this review
+  const [overview, setOverview] = useState<Overview | null | undefined>(undefined);  // a split review's (null: one board)
+  const [reload, setReload] = useState(0);              // cluster boards fetch again after an AI explanation
   const [findings, setFindings] = useState<Finding[]>([]);
   const [files, setFiles] = useState<FileChange[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
@@ -29,7 +33,11 @@ export default function Review() {
   const loadComments = useCallback(() => api.comments(id).then(setComments), [id]);
   const loadFindings = useCallback(() => api.findings(id).then(setFindings), [id]);
   const loadResults = useCallback(() => Promise.all([
-    api.board(id).then(setBoard).catch((e) => { if (e instanceof ApiError && e.status === 404) setBoard(null); else throw e; }),
+    api.overview(id).then((ov) => { setOverview(ov); setBoard(null); }).catch((e) => {
+      if (!(e instanceof ApiError && e.status === 404)) throw e;
+      setOverview(null);
+      return api.board(id).then(setBoard).catch((e2) => { if (e2 instanceof ApiError && e2.status === 404) setBoard(null); else throw e2; });
+    }),
     loadFindings(), api.files(id).then(setFiles), loadComments(),
   ]).catch((e) => setError(String(e.message ?? e))), [id, loadFindings, loadComments]);
 
@@ -53,9 +61,12 @@ export default function Review() {
   const people = useMemo(() => [...new Set([detail?.review.created_by ?? "", ...comments.map((c) => c.author)])].filter(Boolean),
                          [detail, comments]);
   const onAiDone = useCallback((jobs: AiJob[]) => {   // an explanation finished: show it
-    if (jobs.some((j) => j.kind === "flow")) api.board(id).then(setBoard).catch(() => {});
+    if (jobs.some((j) => j.kind === "flow")) {
+      if (overview) setReload((k) => k + 1);
+      else api.board(id).then(setBoard).catch(() => {});
+    }
     if (jobs.some((j) => j.kind === "finding")) loadFindings();
-  }, [id, loadFindings]);
+  }, [id, loadFindings, overview]);
   const ai = useAiState(id, ready, people, comments.some((c) => c.ai_meta?.pending), onAiDone, loadComments);
 
   const onCite = useCallback((cite: string) => {
@@ -104,24 +115,53 @@ export default function Review() {
   return (
     <AiProvider value={ai}>
     <Routes>
-      <Route index element={board ? (
+      <Route index element={overview ? (
+        params.get("node") ? <Locate reviewId={id} node={params.get("node")!} /> : (
+          <main className="review board">
+            <OverviewPage reviewId={id} ov={overview} comments={comments} onComments={loadComments} risk={r.risk} head={head}
+                          onOpen={(c, file) => navigate(`/r/${id}/c/${c}${file ? `?file=${encodeURIComponent(file)}` : ""}`)} />
+          </main>
+        )
+      ) : board ? (
         <main className="review board">
           <Board reviewId={id} board={board} files={files} comments={comments} onComments={loadComments} risk={r.risk}
                  focus={params.get("node")} head={head} />
         </main>
-      ) : page(board === undefined ? <p className="muted">Loading…</p> : (
+      ) : page(board === undefined || overview === undefined ? <p className="muted">Loading…</p> : (
         <div className="banner warn">
           No review board for this review (see the stage notes above; reviews made before the board existed have none).
           {me?.is_owner ? " Re-run it to build one." : " The owner can re-run it to build one."} Findings and CLs are still available.
           {me?.is_owner && <> <button onClick={() => api.rerun(id).then(loadDetail)}>Re-run</button></>}
         </div>
       ))} />
+      <Route path="c/:cid" element={overview ? (
+        <ClusterRoute reviewId={id} ov={overview} files={files} comments={comments} onComments={loadComments} risk={r.risk}
+                      head={head} reload={reload} />
+      ) : page(<p className="muted">{overview === null ? "This review is shown as one board." : "Loading…"}</p>)} />
       <Route path="findings" element={page(
-        <Findings reviewId={id} findings={findings} focus={focus} comments={comments}
+        <Findings reviewId={id} findings={findings} focus={focus} comments={comments} groups={overview?.clusters}
                   onComments={loadComments} onFindings={loadFindings} onCite={onCite} />)} />
       <Route path="files" element={<Navigate to={`/r/${id}`} replace />} />
       <Route path="cls" element={page(<ClsPanel reviewId={id} cls={detail.cls} onChange={loadDetail} />)} />
     </Routes>
     </AiProvider>
   );
+}
+
+/** `/r/:id?node=N12` on a split review: open the board of the cluster that shows the node. */
+function Locate({ reviewId, node }: { reviewId: number; node: string }) {
+  const navigate = useNavigate();
+  const [missing, setMissing] = useState(false);
+  useEffect(() => {
+    api.locate(reviewId, { node }).then(({ cluster }) => {
+      if (cluster) navigate(`/r/${reviewId}/c/${cluster}?node=${encodeURIComponent(node)}`, { replace: true });
+      else setMissing(true);
+    }).catch(() => setMissing(true));
+  }, [reviewId, node, navigate]);
+  return <main className="page muted">{missing ? `${node} isn't on any board of this review.` : `Finding ${node}…`}</main>;
+}
+
+function ClusterRoute(p: Omit<Parameters<typeof ClusterBoard>[0], "cid">) {
+  const cid = useParams().cid!;
+  return <ClusterBoard key={cid} {...p} cid={cid} />;
 }
