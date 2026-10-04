@@ -171,3 +171,12 @@ def test_explaining_a_flow_updates_the_cluster_board_that_holds_it(tmp_path_fact
     after = next(f for f in owner.get(f"/api/reviews/{rid}/board", params={"cluster": c3}).json()["flows"]
                  if f["id"] == fl["id"])
     assert after["what_source"] == "llm" and after["what"].startswith("regs_a1 now returns -2")
+
+
+def test_the_overview_board_and_locate_need_a_signed_in_user(api):
+    from fastapi.testclient import TestClient
+    svc, owner, rid = api
+    anon = TestClient(owner.app)
+    for path, params in ((f"/api/reviews/{rid}/overview", {}), (f"/api/reviews/{rid}/board", {"cluster": "C1"}),
+                         (f"/api/reviews/{rid}/locate", {"node": "N1"})):
+        assert anon.get(path, params=params).status_code == 401, path
