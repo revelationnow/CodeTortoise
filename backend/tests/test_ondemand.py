@@ -86,6 +86,7 @@ def test_explaining_a_story_retells_its_title_and_summary_for_everyone(ai):
     assert bob.post(f"/api/reviews/{rid}/explain", json={"kind": "story", "target": "S2"}).status_code == 202
     s2 = owner.get(f"/api/reviews/{rid}/stories").json()["stories"][1]
     assert s2["title"] == "hal_write's new signature reaches uart_init" and s2["text_source"] == "llm"
+    assert ss["stories"][1]["text_files"] is None and s2["text_files"]          # the files behind its prompt
     assert owner.get(f"/api/reviews/{rid}/stories/S2").json()["story"]["summary"] == "uart_init calls hal_write."
     r = owner.post(f"/api/reviews/{rid}/explain", json={"kind": "story", "target": "S9"})
     assert r.status_code == 404 and "S9" in r.json()["detail"]

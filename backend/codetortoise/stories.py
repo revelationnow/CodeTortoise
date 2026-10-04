@@ -19,6 +19,7 @@ from codetortoise.board import (
     Board,
     BoardContext,
     BoardNode,
+    Files,
     Flow,
     Impact,
     StructField,
@@ -75,6 +76,7 @@ class Story(BaseModel):
     title: str
     summary: str
     text_source: Literal["template", "llm"] = "template"
+    text_files: Files = None                                # LLM text: the files whose code was in its prompt
     risk: str | None = None
     counts: dict[str, int] = Field(default_factory=dict)
     nodes: list[str] = Field(default_factory=list)          # changed code whose home is this story
