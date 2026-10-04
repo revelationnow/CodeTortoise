@@ -749,11 +749,16 @@ def build_boards(c: BoardContext) -> BoardSet:
     if len(_required(x, list(x.im.changed), flows)) <= c.cfg.board_max_nodes:
         return BoardSet(board=build_board(c))
     try:
-        res = cluster_change(x.im, flows, c.findings, is_test=x.is_test_path, module_of=x.module_of,
-                             max_nodes=c.cfg.board_max_nodes, min_changed=c.cfg.cluster_min_changed,
-                             max_clusters=c.cfg.overview_max_clusters)
+        return _split(c, x, impacts, flows)
     except Exception as e:  # never lose the review over clustering: one board of the most important nodes
         return BoardSet(board=build_board(c), note=f"shown as one board (clustering failed: {type(e).__name__}: {e})")
+
+
+def _split(c: BoardContext, x: _Ctx, impacts: list[Impact], flows: list[Flow]) -> BoardSet:
+    """An overview and one board per cluster."""
+    res = cluster_change(x.im, flows, c.findings, is_test=x.is_test_path, module_of=x.module_of,
+                         max_nodes=c.cfg.board_max_nodes, min_changed=c.cfg.cluster_min_changed,
+                         max_clusters=c.cfg.overview_max_clusters)
     by_id = {f.id: f for f in flows}
     picks = {}
     for cl in res.clusters:

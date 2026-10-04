@@ -298,3 +298,17 @@ def test_a_board_leaves_out_fields_past_the_budget_but_never_changed_code_or_flo
     (b,) = boards
     flow_nodes = {n for f in b.flows for n in f.path}
     assert "N1" in {n.id for n in b.nodes} and flow_nodes <= {n.id for n in b.nodes} and b.hidden_nodes >= 11
+
+
+def test_a_split_review_that_fails_to_render_falls_back_to_one_board(monkeypatch):
+    import codetortoise.board as board_mod
+    ctx, _ = _synthetic(callers=("test_set", "api"))
+    ctx.cfg = ctx.cfg.model_copy(update={"board_max_nodes": 2})
+    assert build_boards(ctx).overview is not None                  # without the fault, this review is split
+
+    def boom(*a, **k):
+        raise RuntimeError("overview broke")
+    monkeypatch.setattr(board_mod, "_overview", boom)
+    bs = build_boards(ctx)
+    assert bs.overview is None and bs.board is not None and bs.board.nodes
+    assert bs.note == "shown as one board (clustering failed: RuntimeError: overview broke)"
