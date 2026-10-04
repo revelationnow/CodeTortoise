@@ -223,7 +223,7 @@ def run_review(rid: int, svc: Services) -> None:
                             ctx.get("layers"), cfg.analysis, resolve, root=canon(str(cfg.workspace.root)))
         bs = build_boards(bctx)
         try:                                   # change stories (spec 2026-10-04); the boards stand without them
-            bs.stories, bs.story_details = build_stories(bctx, bs.home or None)
+            bs.stories, bs.story_details = build_stories(bctx, bs.home or None, bs.analysis)
         except Exception as e:
             notes.append(f"stories failed: {type(e).__name__}: {e}")
         # file tags (spec §14.3): every graph node and finding, from one more lookup of the files not yet resolved

@@ -226,6 +226,17 @@ def test_a_flow_causing_function_is_a_behaviour_story_titled_from_its_flows():
     assert rec.label == "R" and [f.label for f in rec.fields] == ["v"]
 
 
+def test_stories_tell_the_flows_the_boards_hold():
+    from codetortoise.board import build_boards
+    ctx, _ = _synthetic(callers=("api",))
+    bs = build_boards(ctx)
+    bs.analysis.flows[0].id = "FLX"                          # the boards' own analysis, not a second one
+    ss, det = build_stories(ctx, bs.home or None, bs.analysis)
+    assert "FLX" in ss.flow_story
+    b = next(d for d in det.values() if any(fl.id == "FLX" for fl in d.board.flows))
+    assert next(fl for fl in b.board.flows if fl.id == "FLX") is not bs.analysis.flows[0]   # copies: no aliasing
+
+
 def _joined():
     """`set` newly writes R::v and `peek` reads it (a flow); `helper` (changed) is called by `set`; `far` is called by
     `helper`; `lonely` is changed and connected to nothing; `test_x` is changed test code."""
