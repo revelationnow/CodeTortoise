@@ -166,11 +166,16 @@ def build_stories(c: BoardContext, home: dict[str, str] | None = None,
         fn_sites[nid] = all_sites
         fn_explained[nid] = bool(all_sites) and not unexplained
     outside: list[tuple[Site, str]] = []
+    spans_a: dict[str, list[tuple[int, int]]] = defaultdict(list)     # file -> its functions' lines, after and before
+    spans_b: dict[str, list[tuple[int, int]]] = defaultdict(list)
+    for facts, spans in ((c.after, spans_a), (c.before, spans_b)):
+        for fx in facts:
+            for f in fx.functions:
+                spans[f.file].append((f.start_line, f.end_line))
     for fc in c.cs.files:
         if fc.action != "edit":
             continue
-        inside_a = [(f.start_line, f.end_line) for fx in c.after for f in fx.functions if f.file == fc.local]
-        inside_b = [(f.start_line, f.end_line) for fx in c.before for f in fx.functions if f.file == fc.local]
+        inside_a, inside_b = spans_a[fc.local], spans_b[fc.local]
         sites, _ = changed_pairs(fc.before.splitlines(), fc.after.splitlines())
         for s in sites:
             if not any(lo <= s.after_line <= hi for lo, hi in inside_a) and not any(lo <= s.before_line <= hi
@@ -373,7 +378,7 @@ def _spans(x: _Ctx, nid: str) -> list[tuple]:
     fb, fa = x.fb.get(n.key), x.fa.get(n.key)
     if fb is None or fa is None:
         return []
-    texts = {f.local: f for f in x.c.cs.files}
+    texts = x.texts
     out = [(texts[d.file], d.before_lines, d.after_lines) for d in x.c.dm.functions
            if d.qualname == fa.qualname and d.file in (fa.file, fb.file) and d.before_lines and d.after_lines
            and d.file in texts]
@@ -534,8 +539,8 @@ def _note(x: _Ctx, nid: str, mech_of: dict[str, Sub], fn_sites: dict[str, list[S
         if ch is not None and ch.kind == "signature_changed":
             parts.append("signature changed")
     for status, verb in (("added", "now writes"), ("removed", "no longer writes")):
-        fields = [x.label(e.dst).split("::")[-1] for e in x.im.edges if e.src == nid and e.kind == "writes"
-                  and e.status == status and e.dst in x.im.nodes]
+        fields = [x.label(e.dst).split("::")[-1] for e in x.writes_from.get(nid, [])
+                  if e.status == status and e.dst in x.im.nodes]
         if fields:
             parts.append(f"{verb} {', '.join(dict.fromkeys(fields[:3]))}" + (f" +{len(fields) - 3}" if len(fields) > 3 else ""))
     also = sorted({s.sub for s in fn_sites.get(nid, []) if s.sub in mech_subs}, key=lambda s: s.old)

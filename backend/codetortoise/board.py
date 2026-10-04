@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import difflib
 import fnmatch
+import functools
 import posixpath
 import re
 from collections import defaultdict, deque
@@ -22,7 +23,7 @@ from codetortoise.config import AnalysisConfig
 from codetortoise.detectors.base import SEVERITY_RANK, Finding
 from codetortoise.diffmap import DiffMap
 from codetortoise.facts.model import CallEdge, Facts, FieldAccess, Function
-from codetortoise.impact import ImpactModel
+from codetortoise.impact import Edge, ImpactModel
 from codetortoise.layers import LayerModel
 from codetortoise.vcs.model import ChangeSet
 
@@ -298,11 +299,16 @@ def _cmp(c: CallEdge) -> str:
     return ", ".join(f"{c.compared_names[x]} ({x})" if x in c.compared_names else x for x in c.compared)
 
 
+@functools.lru_cache(maxsize=128)
+def _opcodes(before: str, after: str) -> tuple:
+    """A file's line diff, once: every changed function of the file is counted against it."""
+    return tuple(difflib.SequenceMatcher(None, before.splitlines(), after.splitlines(), autojunk=False).get_opcodes())
+
+
 def _count(before: str, after: str, lo: int | None = None, hi: int | None = None) -> tuple[int, int]:
     """(+added, -removed) lines, optionally only those whose new-side line (or nearest) is within [lo, hi]."""
-    a, b = before.splitlines(), after.splitlines()
     add = rem = 0
-    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+    for tag, i1, i2, j1, j2 in _opcodes(before, after):
         if tag == "equal":
             continue
         if lo is not None and not (j1 + 1 <= hi and max(j2, j1 + 1) >= lo):
@@ -322,6 +328,7 @@ class _Ctx:
         self.id_of = {n.key: n.id for n in c.impact.nodes.values()}
         self.changed = set(c.impact.changed)
         self.changed_keys = {c.impact.nodes[n].key for n in self.changed}
+        self.texts = {f.local: f for f in c.cs.files}                 # local path -> the file's before/after text
         self.calls_after = [e for fx in c.after for e in fx.calls]
         self.fields_after = [a for fx in c.after for a in fx.fields]
         self.fields_before = [a for fx in c.before for a in fx.fields]
@@ -353,6 +360,15 @@ class _Ctx:
             return False
         root = self.c.root.rstrip("/") + "/"
         return is_test_path(f[len(root):] if self.c.root and f.startswith(root) else f)
+
+    @functools.cached_property
+    def writes_from(self) -> dict[str, list[Edge]]:
+        """Node id -> its field writes (edges), for notes on what changed."""
+        out: dict[str, list[Edge]] = defaultdict(list)
+        for e in self.im.edges:
+            if e.kind == "writes":
+                out[e.src].append(e)
+        return out
 
     def module_of(self, path: str) -> str:
         return self.c.layers.module_of(path) if self.c.layers and path else posixpath.dirname(path)
