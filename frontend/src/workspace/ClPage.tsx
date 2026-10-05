@@ -13,18 +13,22 @@ export default function ClPage({ cl }: { cl: number }) {
   const ws = useWs(), d = ws.data, me = useMe();
   const [msg, setMsg] = useState<string | null>(null);
   const c = d.detail!.cls.find((x) => x.cl === cl)!;
-  const [title, ...rest] = (c.description ?? "").trim().split("\n");
+  const [title, ...more] = (c.description ?? "").trim().split("\n");
+  const rest = more.join("\n").trim();
   const files = d.about?.tree.flatMap((t) => t.files).filter((f) => f.cls.includes(cl)) ?? [];
   const paths = new Set(files.map((f) => f.path));
   const stories = d.stories?.stories.filter((s) => s.cls.includes(cl)) ?? [];
   const findings = d.findings.filter((f) => f.files?.some((p) => paths.has(p)));
-  const run = (p: Promise<unknown>, ok: string) => p.then(() => { setMsg(ok); d.loadDetail(); }).catch((e) => setMsg(String(e.message ?? e)));
+  const run = (act: () => Promise<unknown>, ok: string) => {           // a new press clears the last answer
+    setMsg(null);
+    act().then(() => { setMsg(ok); d.loadDetail(); }).catch((e) => setMsg(String(e.message ?? e)));
+  };
   return (
     <div className="ws-page"><div className="ws-text ws-finding">
       <header className="ws-story-head">
         <div className="ws-story-title"><h2>CL {c.cl} · {title || "(no description)"}</h2></div>
         <p className="ws-story-meta"><span className="muted">{c.user}</span><span className="ws-badge">{c.status}</span></p>
-        {rest.join("\n").trim() && <pre className="ws-desc">{rest.join("\n").trim()}</pre>}
+        {rest && <pre className="ws-desc">{rest}</pre>}
       </header>
       <section aria-labelledby="ws-swarm" className="ws-swarm">
         <h3 id="ws-swarm">Swarm</h3>
@@ -37,9 +41,9 @@ export default function ClPage({ cl }: { cl: number }) {
         ) : <p className="muted">No Swarm review.</p>}
         {me?.is_owner && (
           <p className="ws-tools">
-            <button onClick={() => run(api.swarmRefresh(d.id, cl), "Swarm state refreshed")}>Refresh</button>
-            {!c.swarm && c.status === "pending" && <button onClick={() => run(api.swarmCreate(d.id, cl), "Swarm review created")}>Create review</button>}
-            {c.swarm && <button onClick={() => run(api.swarmPost(d.id, cl).catch((e) => {
+            <button onClick={() => run(() => api.swarmRefresh(d.id, cl), "Swarm state refreshed")}>Refresh</button>
+            {!c.swarm && c.status === "pending" && <button onClick={() => run(() => api.swarmCreate(d.id, cl), "Swarm review created")}>Create review</button>}
+            {c.swarm && <button onClick={() => run(() => api.swarmPost(d.id, cl).catch((e) => {
               if (e.status === 409 && window.confirm("A summary was already posted. Post again?")) return api.swarmPost(d.id, cl, true);
               throw e;
             }), "Summary link posted to Swarm")}>Post summary link</button>}

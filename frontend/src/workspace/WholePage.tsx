@@ -3,8 +3,8 @@ import { Link } from "react-router-dom";
 import { driftSummary } from "../board/drift";
 import { bandsOf, linkLines } from "../board/overview";
 import { sideEffectFiles } from "../board/sideEffects";
-import Comments from "../components/Comments";
 import type { Board } from "../board/types";
+import Comments from "../components/Comments";
 import { useWs } from "./context";
 import { pickFlow } from "./flows";
 import GraphView from "./graph/GraphView";
@@ -35,8 +35,8 @@ export default function WholePage() {
       {about && about.why.length > 0 && (
         <section aria-labelledby="ws-why">
           <h2 id="ws-why">Why it is {risk ?? "flagged"} risk</h2>
-          <ul className="ws-why">{about.why.map((w) => (
-            <li key={w.finding}><span className={`ws-sev ${w.severity}`} aria-hidden />
+          <ul className="ws-why">{about.why.map((w, i) => (
+            <li key={`${w.finding}:${i}`}><span className={`ws-sev ${w.severity}`} aria-hidden />
               <Link to={ws.link(ws.item({ kind: "finding", fid: w.finding }))} title={`Go to finding ${w.finding}`}
                     aria-label={`Go to finding ${w.finding}: ${w.text}`}>{w.text}</Link><span className="ws-handle">{w.finding}</span></li>
           ))}</ul>
@@ -102,7 +102,8 @@ export default function WholePage() {
       <section aria-labelledby="ws-talk">
         <h2 id="ws-talk">Discussion</h2>
         <Comments reviewId={d.id} comments={d.comments} kind="review" anchor={{}} onChange={d.loadComments} />
-        {[...new Set(d.comments.filter((c) => c.anchor_kind === "chapter" && c.parent_id === null).map((c) => c.anchor.level as number | null))]
+        {[...new Set(d.comments.filter((c) => c.anchor_kind === "chapter" && c.parent_id === null)
+          .map((c) => (typeof c.anchor.level === "number" ? c.anchor.level : null)))]
           .map((level) => (
             <div key={String(level)} className="bd-layer-thread">
               <div className="m">Layer {layerName(level) ?? (level === null ? "unlayered" : `L${level}`)}</div>

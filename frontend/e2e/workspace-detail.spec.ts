@@ -146,6 +146,9 @@ test.describe("desktop", () => {
     const talk = page.locator("section", { has: page.getByRole("heading", { name: "Discussion" }) });
     await expect(talk.getByText("overall: please split the CLs")).toBeVisible();
     await expect(talk.getByText("driver layer looks risky")).toBeVisible();
+    const head = talk.locator(".bd-layer-thread .m");
+    await expect(head).toContainText("Layer ");
+    expect(await head.evaluate((e) => getComputedStyle(e).textTransform)).toBe("uppercase");   // a heading, not body text
     await talk.getByPlaceholder("Start another thread…").first().fill("agreed");
     await talk.getByRole("button", { name: "Comment" }).first().click();
     await expect(talk.getByText("agreed")).toBeVisible();

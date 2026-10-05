@@ -153,6 +153,8 @@ test.describe("a large change", () => {
     await expect(map.getByRole("region", { name: "Layer drv" })).toContainText("drv/dma");
     const tints = await map.locator(".ov-band").evaluateAll((els) => els.map((e) => getComputedStyle(e).backgroundColor));
     expect(new Set(tints).size).toBeGreaterThan(1);   // each layer band keeps its level tint
+    const gaps = await map.locator(".ov-band").evaluateAll((els) => els.map((e) => getComputedStyle(e).marginBottom));
+    expect(new Set(gaps)).toEqual(new Set(["8px"]));      // bands sit close; only the page's own sections are spaced apart
     await map.getByRole("link", { name: "Open drv/uart" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}/c/C\\d+$`));
     await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toContainText("Map › drv/uart");

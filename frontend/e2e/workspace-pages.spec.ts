@@ -34,6 +34,39 @@ test.describe("desktop", () => {
     await expectNamed(page);
   });
 
+  test("a finding without an explanation offers Explain only once the AI is known to be there", async ({ page }) => {
+    const base = await startReview(page);
+    const rid = base.split("/")[2];
+    await page.route(`**/api/reviews/${rid}/ai`, async (r) => { await new Promise((ok) => setTimeout(ok, 1500)); await r.continue(); });
+    await page.goto(`${base}/f/F5`);
+    const ai = page.getByRole("region", { name: "AI analysis" });
+    await expect(ai).toBeVisible();
+    for (let i = 0; i < 6; i++) {
+      expect(await ai.getByRole("button", { name: /Explain/ }).count()).toBe(0);
+      expect(await ai.innerText()).not.toContain("Not written yet");                 // it may never be: say nothing yet
+      await page.waitForTimeout(150);
+    }
+    await expect(ai).toContainText("AI analysis unavailable.");
+  });
+
+  test("the owner's Swarm buttons say what happened, and a new press clears the last answer", async ({ page }) => {
+    const base = await startReview(page);
+    const rid = base.split("/")[2];
+    let n = 0;
+    await page.route(`**/api/reviews/${rid}/cls/102/swarm/refresh`, async (r) => {
+      if (n++ === 0) return r.fulfill({ status: 502, json: { detail: "Swarm did not answer" } });
+      await new Promise((ok) => setTimeout(ok, 1000));
+      return r.fulfill({ json: null });
+    });
+    await page.goto(`${base}/cl/102`);
+    const swarm = page.getByRole("region", { name: "Swarm" });
+    await swarm.getByRole("button", { name: "Refresh" }).click();
+    await expect(swarm.locator(".banner")).toContainText("Swarm did not answer");
+    await swarm.getByRole("button", { name: "Refresh" }).click();
+    expect(await swarm.getByText("Swarm did not answer").count()).toBe(0);
+    await expect(swarm.locator(".banner")).toHaveText("Swarm state refreshed");
+  });
+
   test("a changelist: its Swarm card, its files filtered to it, the stories and findings drawn from it", async ({ page }) => {
     const base = await startReview(page);
     await page.locator(".ws-rail").getByRole("link", { name: "Open CL 102" }).click();
