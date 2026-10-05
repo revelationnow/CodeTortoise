@@ -72,7 +72,8 @@ export default function FindingPage({ fid }: { fid: string }) {
       <section aria-labelledby="ws-ai">
         <h3 id="ws-ai">AI analysis</h3>
         {f.explanation ? <p><span className="ai-label">AI</span><NameText text={f.explanation} /> <Explain kind="finding" target={f.id} has /></p>
-          : ai?.view && !ai.view.llm ? <p className="muted">AI analysis unavailable.</p>
+          : !ai?.view ? <p className="muted">Checking for AI analysis…</p>
+          : !ai.view.llm ? <p className="muted">AI analysis unavailable.</p>
           : <p className="muted">Not written yet. <Explain kind="finding" target={f.id} has={false} /></p>}
       </section>
       <section aria-labelledby="ws-ev">
@@ -80,13 +81,13 @@ export default function FindingPage({ fid }: { fid: string }) {
         <p><NameText text={f.summary} /></p>
         <ul className="ws-evidence">{f.evidence.map((e, k) => {
           const depot = e.file ? depotFor(e.file, depots) : null, file = depot ?? e.file;
-          const short_ = file ? file.split("/").slice(-2).join("/") : null;
+          const fileTail = file ? file.split("/").slice(-2).join("/") : null;
           return (
             <li key={k} className={`sev-${e.severity}`}><NameText text={e.text} />
               {depot ? <> <Link className="mono small" to={ws.link(ws.opened({ file: depot, line: e.line }))}
-                                title={`Open ${short_}${e.line ? ` at line ${e.line}` : ""}`}
-                                aria-label={`Open ${short_}${e.line ? ` at line ${e.line}` : ""}`}>{short_}{e.line ? `:${e.line}` : ""}</Link></>
-                : short_ && <span className="mono small muted"> {short_}{e.line ? `:${e.line}` : ""}</span>}
+                                title={`Open ${fileTail}${e.line ? ` at line ${e.line}` : ""}`}
+                                aria-label={`Open ${fileTail}${e.line ? ` at line ${e.line}` : ""}`}>{fileTail}{e.line ? `:${e.line}` : ""}</Link></>
+                : fileTail && <span className="mono small muted"> {fileTail}{e.line ? `:${e.line}` : ""}</span>}
             </li>
           );
         })}</ul>

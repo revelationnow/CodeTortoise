@@ -32,11 +32,13 @@ export function MechanicalStory({ detail }: { detail: StoryDetail }) {
           {dir.files.map((f) => (
             <details key={f.path} open={openAll}>
               <summary><b className="mono">{f.name}</b> <span className="muted small">{f.sites.length} site{f.sites.length === 1 ? "" : "s"}</span></summary>
-              <ul className="ws-sites">{f.sites.map((s) => (
-                <li key={s.line}>
-                  <Link className="ws-where" to={ws.link(ws.opened(s.path ? { file: s.path, line: s.line } : null))}
-                        title={`Open ${f.name} at line ${s.line}`} aria-label={`Open ${f.name} at line ${s.line}`}>
-                    {s.function ?? "outside functions"} · line {s.line}</Link>
+              <ul className="ws-sites">{f.sites.map((s, i) => (
+                <li key={`${s.line}:${i}`}>
+                  {s.path ? (
+                    <Link className="ws-where" to={ws.link(ws.opened({ file: s.path, line: s.line }))}
+                          title={`Open ${f.name} at line ${s.line}`} aria-label={`Open ${f.name} at line ${s.line}`}>
+                      {s.function ?? "outside functions"} · line {s.line}</Link>
+                  ) : <span className="ws-where">{s.function ?? "outside functions"} · line {s.line}</span>}
                   {s.test && <span className="ws-badge">test</span>}
                   <code className="del">− {s.before}</code>
                   <code className="add">+ {s.after}</code>

@@ -83,7 +83,7 @@ test.describe("desktop", () => {
     const base = await startReview(page);
     const id = base.split("/")[2];
     // neither e2e fixture has a repeated edit: this story is served as the API would for one
-    const site = (path: string, line: number, test = false, effect: string | null = null) => ({
+    const site = (path: string | null, line: number, test = false, effect: string | null = null) => ({
       path, line, function: test ? "test_free" : "free_it", node: null, before: "git_vector_free(&v);",
       after: "git_vector_dispose(&v);", test, effect, other_edits: null });
     const story = { id: "S9", kind: "mechanical", title: "`git_vector_free` → `git_vector_dispose` at 3 sites in 2 files (1 in tests)",
@@ -95,20 +95,24 @@ test.describe("desktop", () => {
     await page.route(`**/api/reviews/${id}/stories/S9`, (r) => r.fulfill({ json: {
       story, board: { nodes: [], edges: [], flows: [], impacts: [], layers: [], about: real.about ?? { intent: "", intent_source: "template", why: [], cls: [], tree: [], drift: [] }, hidden_nodes: 0 },
       graph: null, functions: [], also_in: [{ node: "N7", label: "busy", story: "S2" }],
-      sites: [site("//fixture/driver/uart.c", 12, false, "S1"), site("//fixture/driver/uart.c", 30), site("//fixture/tests/t.c", 4, true)] } }));
+      sites: [site("//fixture/driver/uart.c", 12, false, "S1"), site("//fixture/driver/uart.c", 30), site("//fixture/tests/t.c", 4, true),
+              site(null, 7, true)] } }));
     await page.goto(`${base}/s/S9`);
     const sites = page.locator(".ws-sites li");
-    await expect(sites).toHaveCount(3);
-    await expect(page.locator(".ws-dir h3").first()).toContainText("//fixture/driver");
-    await expect(sites.first()).toContainText("free_it · line 12");
+    await expect(sites).toHaveCount(4);
+    const unknown = sites.filter({ hasText: "line 7" });          // a site whose file the server could not name
+    await expect(unknown).toContainText("test_free · line 7");
+    await expect(unknown.getByRole("link")).toHaveCount(0);
     await page.getByLabel(/Hide tests/).check();
     await expect(sites).toHaveCount(2);
+    await expect(page.locator(".ws-dir h3").first()).toContainText("//fixture/driver");
+    await expect(sites.first()).toContainText("free_it · line 12");
     await sites.first().getByRole("link", { name: "Open uart.c at line 12" }).click();
     await expect(page.getByRole("complementary", { name: "Code: uart.c" })).toBeVisible();
     await page.locator(".ws-mech").getByRole("link", { name: "Go to story S2" }).click();
     await expect(page).toHaveURL(/\/s\/S2$/);
     await page.goBack();
-    await sites.first().getByRole("link", { name: "Go to story S1" }).click();
+    await sites.filter({ hasText: "line 12" }).getByRole("link", { name: "Go to story S1" }).click();
     await expect(page).toHaveURL(/\/s\/S1$/);
   });
 });
