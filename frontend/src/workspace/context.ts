@@ -1,5 +1,6 @@
 import { createContext, useContext } from "react";
 import type { Address, Open, Place, Tab } from "./address";
+import type { useSources } from "../board/useSources";
 import type { Screen } from "./media";
 import type { ReviewData } from "./useReview";
 
@@ -9,6 +10,8 @@ export interface Ws {
   data: ReviewData;
   addr: Address;
   screen: Screen;
+  /** File text for the detail panel, fetched once per session. */
+  sources: ReturnType<typeof useSources>;
   link: (a: Address) => string;
   /** Opening an item or the panel on something new pushes; switching flow, view or tab replaces (§2.4). */
   go: (a: Address, replace?: boolean) => void;

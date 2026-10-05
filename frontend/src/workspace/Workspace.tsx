@@ -5,11 +5,13 @@ import { useMe } from "../App";
 import "../board/board.css";
 import { driftSummary } from "../board/drift";
 import AiPill from "../components/AiPill";
+import { useSources } from "../board/useSources";
 import Stages from "../components/Stages";
 import { AiProvider } from "../lib/ai";
 import { type Address, at, href, type Open, type Place, readAddress, type Tab } from "./address";
 import { useWs as useWs, type Ws, WsContext } from "./context";
 import Crumbs, { PhoneBar } from "./Crumbs";
+import Detail from "./Detail";
 import { type Crumb, crumbs } from "./crumbs";
 import { useScreen } from "./media";
 import { loadMemory, recall, remember, saveMemory } from "./memory";
@@ -30,6 +32,7 @@ export default function Workspace() {
   const navigate = useNavigate();
   const data = useReview(id);
   const screen = useScreen();
+  const sources = useSources(id, data.files);
   const [drawer, setDrawer] = useState(false);
   const root = base(id);
   const addr = useMemo(() => readAddress(`/${params["*"] ?? ""}`, q), [params, q]);
@@ -40,8 +43,8 @@ export default function Workspace() {
   const go = useCallback((a: Address, replace = false) => navigate(href(root, a), { replace }), [navigate, root]);
   const item = useCallback((p: Place) => recall(memory, p), [memory]);
   const opened = useCallback((open: Open, tab: Tab = "diff") => ({ ...addr, open, tab }), [addr]);
-  const ws: Ws = useMemo(() => ({ base: root, data, addr, screen, link, go, item, opened }),
-                         [root, data, addr, screen, link, go, item, opened]);
+  const ws: Ws = useMemo(() => ({ base: root, data, addr, screen, sources, link, go, item, opened }),
+                         [root, data, addr, screen, sources, link, go, item, opened]);
 
   const d = data.detail;
   const trail = useMemo(() => crumbs(addr.place, {
@@ -67,6 +70,7 @@ export default function Workspace() {
                 <Centre />
               </section>
             )}
+            {addr.open && d && data.ready && (screen !== "phone" || level === "detail") && <Detail key={JSON.stringify(addr.open)} />}
           </div>
         </main>
       </WsContext.Provider>
