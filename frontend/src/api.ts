@@ -16,7 +16,14 @@ export interface Cited { text: string; cites: string[]; verified: boolean }
 export interface Finding {
   id: string; kind: string; severity: Severity; title: string; nodes: string[]; evidence: Evidence[]; summary: string;
   explanation: string | null; verify_steps: string[]; hypotheses: Cited[]; state: "open" | "ack" | "dismissed";
+  /** Depot paths behind the finding (null: unknown). */
+  files: string[] | null;
 }
+/** A node's name for the workspace (review workspace §4.2): the reader sees names, never node ids. */
+export interface NodeName { label: string; kind: string; path: string | null; line: number | null; story: string | null }
+export type Names = Record<string, NodeName>;
+export interface Neighbour extends NodeName { id: string; changed: boolean; test: boolean }
+export interface Neighbours { node: Neighbour; callers: { total: number; items: Neighbour[] }; callees: { total: number; items: Neighbour[] } }
 export interface PerCl { cl: number; before: string; after: string }
 export interface FileChange { depot: string; local: string; action: string; before: string; after: string; base_rev: string | null; per_cl: PerCl[] }
 export type AnchorKind = "line" | "function" | "finding" | "chapter" | "review";
@@ -88,6 +95,9 @@ export const api = {
     call<{ cluster: string | null; story?: string | null }>("GET", `/api/reviews/${id}/locate?${new URLSearchParams(q)}`),
   source: (id: number, path: string, side: "before" | "after" = "after") =>
     call<SourceText>("GET", `/api/reviews/${id}/source?${new URLSearchParams({ path, side })}`),
+  names: (id: number) => call<Names>("GET", `/api/reviews/${id}/names`),
+  neighbours: (id: number, nid: string, limit = 20) =>
+    call<Neighbours>("GET", `/api/reviews/${id}/nodes/${encodeURIComponent(nid)}/neighbours?limit=${limit}`),
   findings: (id: number) => call<Finding[]>("GET", `/api/reviews/${id}/findings`),
   setFindingState: (id: number, fid: string, state: Finding["state"]) =>
     call("PATCH", `/api/reviews/${id}/findings/${fid}`, { state }),

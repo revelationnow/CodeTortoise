@@ -62,6 +62,8 @@ export interface Story {
   text_files?: string[] | null;
   counts: Partial<Record<"flows" | "findings" | "functions" | "files" | "sites" | "test_sites", number>>;
   nodes: string[]; flows: string[]; findings: string[]; board: string | null;
+  /** The changelists of the files holding its code (review workspace §4.1; [] for stories stored before them). */
+  cls: number[];
   sub: [string, string] | null; subs: [string, string][]; collapsed: boolean;
 }
 export interface StoryRef { node: string; label: string; story: string | null }
