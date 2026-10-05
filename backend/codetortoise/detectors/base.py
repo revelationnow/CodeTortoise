@@ -44,6 +44,9 @@ class Finding(BaseModel):
     state: Literal["open", "ack", "dismissed"] = "open"
     files: list[str] | None = None          # depot paths behind the finding (spec §14.3); None = unknown
     explain_files: list[str] | None = None  # files behind the LLM explanation, verify steps and hypotheses
+    side_effect: bool = False               # a new field write: neutral until the AI judges it
+    verdict: Literal["hazard", "no_hazard"] | None = None   # the AI's judgement of a side effect (None: not assessed)
+    verdict_reason: str | None = None
 
 
 @dataclass
@@ -75,6 +78,11 @@ def run_detectors(ctx: DetectorContext, detectors: list[Detector] | None = None)
     findings: list[Finding] = []
     for d in detectors:
         findings.extend(d(ctx))
+    return renumber(findings)
+
+
+def renumber(findings: list[Finding]) -> list[Finding]:
+    """Sort by severity (then kind and title) and number F1, F2, … in that order, in place."""
     findings.sort(key=lambda f: (-SEVERITY_RANK[f.severity], f.kind, f.title))
     for i, f in enumerate(findings):
         f.id = f"F{i + 1}"

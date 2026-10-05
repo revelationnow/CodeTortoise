@@ -8,9 +8,10 @@ explanations, the API) goes through here.
 from __future__ import annotations
 
 from codetortoise.board import Board, BoardSet, Files, Overview
+from codetortoise.detectors.base import SEVERITY_RANK, Finding
 from codetortoise.provenance import tag_board
 from codetortoise.store import Store
-from codetortoise.stories import StoryDetail, StorySet
+from codetortoise.stories import RISK, StoryDetail, StorySet
 
 PREFIX = "board:"
 STORY = "story:"
@@ -114,3 +115,39 @@ def merge(parts: list[Board], about) -> Board:
     flows = sorted((f for b in parts for f in b.flows), key=lambda f: int(f.id[2:]) if f.id[2:].isdigit() else 0)
     return Board(nodes=nodes, edges=[e for b in parts for e in b.edges], flows=flows,
                  impacts=[i for b in parts for i in b.impacts], layers=parts[0].layers if parts else [], about=about)
+
+
+def recolor(store: Store, rid: int, f: Finding, findings: list[Finding]) -> None:
+    """A finding's severity changed after the boards were drawn (an AI verdict on a side effect): its flows and state
+    annotations, and the risk of the stories holding it, follow — on every board and story, in one write."""
+    sev = {x.id: x.severity for x in findings}
+    warn = "warn" if SEVERITY_RANK.get(f.severity, 0) >= SEVERITY_RANK["medium"] else "info"
+
+    def paint(b: Board) -> None:
+        for fl in b.flows:
+            if f.id in fl.findings:
+                fl.severity = f.severity
+        for imp in b.impacts:
+            if imp.finding == f.id and imp.channel == "state":
+                imp.severity = warn
+    puts: dict = {}
+    for key, b in boards(store, rid).items():
+        paint(b)
+        puts[PREFIX + key if key else "board"] = b
+    ss = stories(store, rid)
+    if ss is not None:
+        for s in ss.stories:
+            raw = store.get_blob(rid, STORY + s.id)
+            if not raw or (f.id not in s.findings and not any(f.id in fl.findings for fl in StoryDetail.model_validate(
+                    raw).board.flows)):
+                continue
+            d = StoryDetail.model_validate(raw)
+            paint(d.board)
+            if d.graph is not None:
+                paint(d.graph)
+            top = max([SEVERITY_RANK.get(sev.get(i, "info"), 0) for i in d.story.findings]
+                      + [SEVERITY_RANK.get(fl.severity, 0) for fl in d.board.flows], default=0)
+            d.story.risk = s.risk = RISK.get(top)
+            puts[STORY + s.id] = d
+        puts["stories"] = ss
+    store.replace_blobs(rid, [], [], puts)

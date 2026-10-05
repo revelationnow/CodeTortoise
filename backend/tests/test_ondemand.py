@@ -1,5 +1,6 @@
 """On-demand explanations, usage and the owner's budget control (spec 2026-10-03 §4, §6)."""
 import json
+import re
 
 import httpx
 import pytest
@@ -14,9 +15,13 @@ CITES = [f"N{i}" for i in range(1, 40)] + [f"F{i}" for i in range(1, 10)]
 
 
 def _reply(user: str) -> dict:
+    if "Judge each side effect" in user:                              # the run's verdicts: nothing alarming
+        return {"verdicts": [{"finding": i, "hazard": False, "reason": "uart_errors only reports the count.", "cites": []}
+                             for i in re.findall(r"SIDE EFFECT (F\d+)", user)]}
     if "Explain the risk" in user:
         return {"explanation": "uart_send can now return -2, and logger_flush drops it.", "verify_steps": ["Check logger_flush."],
-                "hypotheses": [{"text": "uart_errors may count twice.", "cites": ["N9"]}]}
+                "hypotheses": [{"text": "uart_errors may count twice.", "cites": ["N9"]}],
+                "hazard": True, "reason": "logger_flush assumes Uart::errors only grows."}
     if "Describe this call flow" in user:
         return {"what": "main reaches uart_send through logger_flush.", "title": "flush drops -2", "cites": CITES}
     if "Retell this change story" in user:
@@ -67,8 +72,8 @@ def test_a_reviewer_explains_a_flow_and_everyone_sees_it(ai):
 
 def test_explaining_a_finding_and_summarising_a_file(ai):
     svc, app, owner, rid, seen = ai
-    assert owner.post(f"/api/reviews/{rid}/explain", json={"kind": "finding", "target": "F1"}).status_code == 202
-    f1 = next(f for f in owner.get(f"/api/reviews/{rid}/findings").json() if f["id"] == "F1")
+    assert owner.post(f"/api/reviews/{rid}/explain", json={"kind": "finding", "target": "F4"}).status_code == 202
+    f1 = next(f for f in owner.get(f"/api/reviews/{rid}/findings").json() if f["id"] == "F4")   # uart_send's -2
     assert f1["explanation"].startswith("uart_send can now return -2") and f1["explain_files"]
     assert owner.post(f"/api/reviews/{rid}/explain",
                       json={"kind": "file", "target": "//fixture/driver/uart.c"}).status_code == 202
@@ -78,6 +83,24 @@ def test_explaining_a_finding_and_summarising_a_file(ai):
     prompt = next(u for u in seen if "Summarise this file" in u)
     assert "uart_send" in prompt and "+" in prompt                    # the diff and the functions' facts
 
+
+
+def test_explaining_a_side_effect_judges_it_and_recolours_its_flow_and_story(ai):
+    svc, app, owner, rid, seen = ai
+    find = lambda fid: next(f for f in owner.get(f"/api/reviews/{rid}/findings").json() if f["id"] == fid)  # noqa: E731
+    errors = next(f for f in owner.get(f"/api/reviews/{rid}/findings").json()
+                  if f["title"].startswith("uart_send now writes Uart::errors"))
+    assert (errors["severity"], errors["verdict"], errors["verdict_reason"]) == (
+        "info", "no_hazard", "uart_errors only reports the count.")
+    flow = lambda: next(fl for fl in svc.store.get_blob(rid, "board")["flows"] if errors["id"] in fl["findings"])  # noqa: E731
+    story = lambda: next(s for s in owner.get(f"/api/reviews/{rid}/stories").json()["stories"]  # noqa: E731
+                         if errors["id"] in s["findings"])
+    assert flow()["severity"] == "info"
+    assert owner.post(f"/api/reviews/{rid}/explain", json={"kind": "finding", "target": errors["id"]}).status_code == 202
+    now = find(errors["id"])
+    assert (now["severity"], now["verdict"], now["verdict_reason"]) == (
+        "high", "hazard", "logger_flush assumes Uart::errors only grows.")
+    assert flow()["severity"] == "high" and story()["risk"] == "high"
 
 def test_explaining_a_story_retells_its_title_and_summary_for_everyone(ai):
     svc, app, owner, rid, seen = ai
@@ -97,11 +120,11 @@ def test_explain_is_refused_over_the_budget_and_the_owner_raises_it(ai):
     svc, app, owner, rid, _ = ai
     bob = login(app, "bob")
     used = owner.get(f"/api/reviews/{rid}/ai").json()["used"]
-    assert used == 4                                                   # the up-front pass: 1 flow, 1 story, 1 finding, the summary
+    assert used == 5                    # the run: the side-effect verdicts, then 1 flow, 1 story, 1 finding, the summary
     assert bob.put(f"/api/reviews/{rid}/ai/budget", json={"budget": 10}).status_code == 403
     assert owner.put(f"/api/reviews/{rid}/ai/budget", json={"budget": used}).json()["budget"] == used
     r = bob.post(f"/api/reviews/{rid}/explain", json={"kind": "finding", "target": "F1"})
-    assert r.status_code == 429 and "this review has used its 4 AI calls" in r.json()["detail"]
+    assert r.status_code == 429 and "this review has used its 5 AI calls" in r.json()["detail"]
     owner.put(f"/api/reviews/{rid}/ai/budget", json={"budget": used + 5})
     assert bob.post(f"/api/reviews/{rid}/explain", json={"kind": "finding", "target": "F1"}).status_code == 202
 
@@ -125,10 +148,10 @@ def test_the_ai_view_reports_limits_and_calls(ai):
     assert (u["budget"], u["me_limit"], u["per_mention"], u["llm"]) == (200, 100, 10, True)
     assert "calls" not in u                                            # polled often: the list is fetched apart
     calls = owner.get(f"/api/reviews/{rid}/ai/calls").json()
-    assert [c["purpose"] for c in calls] == ["flow", "story", "finding", "summary"]
+    assert [c["purpose"] for c in calls] == ["verdict", "flow", "story", "finding", "summary"]
     assert all(c["prompt_tokens"] == 1000 for c in calls)
     h = owner.get("/api/health").json()                               # + layer naming, once per index
-    assert h["ai"]["calls_today"] == 5 and h["ai"]["limits"] == {"per_review": 200, "per_person_daily": 100,
+    assert h["ai"]["calls_today"] == 6 and h["ai"]["limits"] == {"per_review": 200, "per_person_daily": 100,
                                                                  "per_mention": 6}
 
 

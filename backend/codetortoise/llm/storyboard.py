@@ -57,6 +57,26 @@ class _ExplainOut(BaseModel):
     explanation: str
     verify_steps: list[str] = Field(default_factory=list)
     hypotheses: list[Cited] = Field(default_factory=list)
+    hazard: bool | None = None         # a side effect only: the verdict, with its one-sentence reason
+    reason: str = ""
+
+
+class _Verdict(BaseModel):
+    finding: str
+    hazard: bool
+    reason: str = ""
+    cites: list[str] = Field(default_factory=list)
+
+
+class _VerdictsOut(BaseModel):
+    verdicts: list[_Verdict] = Field(default_factory=list)
+
+
+HAZARD_RULE = ("Side effects are normal: a function that now writes a field other code uses is not a problem by itself. "
+               "Call it a hazard only when the code shows a clear hazard or breaks an assumption other code makes: a "
+               "reader that relies on the old value or on only the old writers, two writers that can overwrite each "
+               "other, a value its readers don't handle, or a write that skips a lock or an invariant. Otherwise it is "
+               "not a hazard. Give one sentence of reason naming the functions involved.")
 
 
 class _SummaryOut(BaseModel):
@@ -234,6 +254,55 @@ def _titled(text: str) -> bool:
     return _styled(text, "headline") and not _IDS.search(text)
 
 
+def _judge(f: Finding, hazard: bool | None, reason: str) -> bool:
+    """Record the AI's verdict on side effect `f` (severity follows it); False if there is no usable verdict."""
+    reason = reason.strip()
+    if not f.side_effect or hazard is None or not reason or not _styled(reason, "explanation"):
+        return False
+    f.verdict, f.verdict_reason, f.severity = ("hazard" if hazard else "no_hazard"), reason, ("high" if hazard else "info")
+    return True
+
+
+def _neighbourhood(ctx: AiContext, f: Finding) -> tuple[list[str], list[str]]:
+    impact = ctx.impact
+    nodes = [n for n in f.nodes if n in impact.nodes]
+    near = sorted({e.src for e in impact.edges if e.dst in nodes} | {e.dst for e in impact.edges if e.src in nodes}
+                  | {n for e in f.evidence for n in (e.nodes or []) if n in impact.nodes})
+    return nodes, [n for n in near if n not in nodes]
+
+
+def verdict_job(ctx: AiContext, batch: list[Finding]) -> Job:
+    """One call judging a batch of side effects: hazard (red) or not (neutral), each with its reason."""
+    parts = []
+    for f in batch:
+        nodes, near = _neighbourhood(ctx, f)
+        parts.append(f"SIDE EFFECT {f.id}:\n" + _finding_text(f) + "\nGRAPH FACTS:\n" + _facts_for_nodes(ctx.impact, nodes + near)
+                     + "".join(f"\nCODE {n}:\n{ctx.snippets[n]}" for n in nodes + near if n in ctx.snippets))
+    mine = {f.id: f for f in batch}
+
+    def apply(out: _VerdictsOut) -> int:
+        return sum(1 for v in out.verdicts if v.finding in mine and v.reason.strip()
+                   and not _judge(mine[v.finding], v.hazard, v.reason))
+    prompt = (f"Judge each side effect below. {HAZARD_RULE} Reply with one verdict per side effect, by its id.\n"
+              f"Reasons: {MODES['explanation']}\n\n" + budget(parts, ctx.per_call))
+    return Job("verdict", ",".join(mine), prompt, _VerdictsOut, apply)
+
+
+def judge_side_effects(llm: LlmClient, ctx: AiContext, findings: list[Finding], limit: int, batch: int = 12,
+                       ledger: Ledger | None = None, rid: int | None = None) -> tuple[int, str | None]:
+    """Judge up to `limit` side effects not yet judged, `batch` to a call. Returns how many got a verdict and why the
+    rest stopped (None when nothing failed); unjudged ones stay neutral."""
+    todo = [f for f in findings if f.side_effect and f.verdict is None][:max(0, limit)]
+    try:
+        for i in range(0, len(todo), max(1, batch)):
+            run_job(llm, verdict_job(ctx, todo[i:i + batch]), ledger, rid)
+    except Refused as e:
+        return sum(f.verdict is not None for f in todo), f"AI budget: {e.reason}"
+    except Exception as e:  # the rest stay neutral
+        return sum(f.verdict is not None for f in todo), str(e) if isinstance(e, LlmError) else f"{type(e).__name__}: {e}"
+    return sum(f.verdict is not None for f in todo), None
+
+
 def finding_job(ctx: AiContext, f: Finding) -> Job:
     impact = ctx.impact
     nodes = [n for n in f.nodes if n in impact.nodes]
@@ -252,9 +321,13 @@ def finding_job(ctx: AiContext, f: Finding) -> Job:
         hyps = [h for h in ground(out.hypotheses, ctx.known) if _styled(h.text, "explanation")]
         dropped += len(out.verify_steps) - len(steps) + len(ground(out.hypotheses, ctx.known)) - len(hyps)
         f.verify_steps, f.hypotheses = steps, [Hypothesis(text=h.text, cites=h.cites) for h in hyps]
+        if out.reason.strip() and not _judge(f, out.hazard, out.reason):
+            dropped += f.side_effect
         return dropped
+    judge = (f"This finding is a side effect: also give hazard (true or false) and a one-sentence reason. {HAZARD_RULE}\n"
+             if f.side_effect else "")
     prompt = ("Explain the risk of this finding, list concrete verification steps, and propose additional side-effect "
-              "hypotheses (each citing ids).\n"
+              "hypotheses (each citing ids).\n" + judge +
               f"Explanation and hypotheses: {MODES['explanation']} Verification steps: {MODES['how-to']}\n\n"
               + budget(parts, ctx.per_call))
     return Job("finding", f.id, prompt, _ExplainOut, apply)

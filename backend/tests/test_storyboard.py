@@ -14,6 +14,7 @@ from codetortoise.llm.storyboard import (
     finding_job,
     flow_job,
     ground,
+    judge_side_effects,
     name_layers,
     run_job,
     skeleton,
@@ -359,3 +360,44 @@ def test_ai_titles_naming_node_or_finding_ids_keep_the_template_title():
     assert details[0].story.title == "template 1" and details[0].story.text_source == "template"
     assert board.flows[0].title == "template title"
     assert sb.style_dropped == 2
+
+
+def _side_effects(n):
+    return [Finding(id=f"F{i}", kind="field_mutation", severity="info", side_effect=True, nodes=["N2"], summary="s",
+                    title=f"uart_send now writes f{i}") for i in range(1, n + 1)]
+
+
+def test_side_effects_are_judged_in_batches_and_only_a_clear_hazard_turns_red():
+    import re
+    im, _, _ = model()
+    fs = _side_effects(14)
+    prompts = []
+
+    def respond(system, user):
+        prompts.append(user)
+        return {"verdicts": [{"finding": i, "hazard": i == "F2", "cites": ["N3"],
+                              "reason": "logger_flush assumes errors only grows." if i == "F2" else "uart_errors only reports it."}
+                             for i in re.findall(r"SIDE EFFECT (F\d+)", user)]}
+    assert judge_side_effects(fake_llm(respond), _ctx(fs, im), fs, limit=13, batch=12) == (13, None)
+    assert len(prompts) == 2 and "Side effects are normal" in prompts[0]
+    assert [f.severity for f in fs[:3]] == ["info", "high", "info"]
+    assert (fs[1].verdict, fs[1].verdict_reason) == ("hazard", "logger_flush assumes errors only grows.")
+    assert (fs[0].verdict, fs[0].verdict_reason) == ("no_hazard", "uart_errors only reports it.")
+    assert fs[13].verdict is None and fs[13].severity == "info"            # past the cap: not assessed
+
+
+def test_a_verdict_without_a_reason_or_for_another_finding_is_ignored():
+    im, _, _ = model()
+    fs = _side_effects(2)
+    reply = {"verdicts": [{"finding": "F1", "hazard": True, "reason": "", "cites": []},
+                          {"finding": "F9", "hazard": True, "reason": "made up.", "cites": []}]}
+    assert judge_side_effects(fake_llm(lambda s, u: reply), _ctx(fs, im), fs, limit=10) == (0, None)
+    assert [(f.verdict, f.severity) for f in fs] == [(None, "info"), (None, "info")]
+
+
+def test_explaining_a_side_effect_also_judges_it():
+    im, _, _ = model()
+    [f] = _side_effects(1)
+    out = {"explanation": "exp", "hazard": True, "reason": "logger_flush assumes errors only grows."}
+    run_job(fake_llm(lambda s, u: out), finding_job(_ctx([f], im), f))
+    assert (f.verdict, f.severity, f.verdict_reason) == ("hazard", "high", "logger_flush assumes errors only grows.")

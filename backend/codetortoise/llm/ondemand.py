@@ -144,9 +144,11 @@ def explain(svc: Services, rid: int, user: str, kind: str, target: str) -> None:
             now = next((x for x in findings if x.id == target and x.kind == f.kind and x.title == f.title), None)
             if now is None:
                 raise Changed(CHANGED)
-            for k in ("explanation", "verify_steps", "hypotheses", "explain_files"):
+            for k in ("explanation", "verify_steps", "hypotheses", "explain_files", "verdict", "verdict_reason", "severity"):
                 setattr(now, k, getattr(trial, k))
             svc.store.put_findings(rid, findings)
+            if f.severity != now.severity:            # a verdict on a side effect: its flows and stories follow
+                boardstore.recolor(svc.store, rid, now, findings)
     elif kind == "story":
         d = boardstore.story(svc.store, rid, target)
         if d is None:

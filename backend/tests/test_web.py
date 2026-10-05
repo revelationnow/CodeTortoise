@@ -67,7 +67,7 @@ def test_owner_creates_review_others_view_and_comment(env):
     assert r.status_code == 200 and r.json()["title"] == "CLs 101, 102"
     rid = r.json()["id"]
     detail = bob.get(f"/api/reviews/{rid}").json()
-    assert detail["review"]["status"] == "degraded" and len(detail["stages"]) == 11
+    assert detail["review"]["status"] == "degraded" and len(detail["stages"]) == 12
     assert detail["review"]["risk"] == "high"
     # the raw storyboard and impact graph are not served: the board replaced them (spec §14.4)
     assert bob.get(f"/api/reviews/{rid}/storyboard").status_code == 404
@@ -257,7 +257,7 @@ def test_board_stored_by_an_older_version_gets_current_defaults(env):
     assert b["about"]["drift"] == []
     assert all(i["landing"] is False and i["cause"] is None for i in b["impacts"])
     assert len(b["flows"]) == 3
-    assert [f["title"] for f in b["flows"]] == ["affects uart_errors", "-2 ignored", "signature changed"]
+    assert [f["title"] for f in b["flows"]] == ["-2 ignored", "signature changed", "affects uart_errors"]
 
 
 def test_board_stored_before_file_tags_gets_them_on_load(env):
@@ -298,7 +298,7 @@ def test_story_endpoints_serve_the_list_and_each_story(env):
     ss = owner.get(f"/api/reviews/{rid}/stories").json()
     assert ss["summary"] == "2 behaviour stories." and [s["id"] for s in ss["stories"]] == ["S1", "S2"]
     s1 = owner.get(f"/api/reviews/{rid}/stories/S1").json()
-    assert s1["story"]["title"].startswith("`uart_send` now writes `Uart::errors`")
+    assert s1["story"]["title"].startswith("`uart_send` can now return -2")
     assert len(s1["graph"]["nodes"]) <= 12 and s1["board"]["flows"]
     assert all(n["path"] is None or n["path"].startswith("//") for n in s1["graph"]["nodes"])
     send = next(n["id"] for n in s1["graph"]["nodes"] if n["label"] == "uart_send")

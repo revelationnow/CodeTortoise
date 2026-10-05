@@ -28,7 +28,7 @@ test.describe("desktop", () => {
     await expect(s1).toHaveAttribute("aria-current", "page");
     const crumbs = page.getByRole("navigation", { name: "Breadcrumb" });
     await expect(crumbs).toContainText("Stories");
-    await expect(crumbs.locator("[aria-current=page]")).toContainText("uart_send now writes Uart::errors");
+    await expect(crumbs.locator("[aria-current=page]")).toContainText("uart_send can now return -2");
     await crumbs.getByRole("link", { name: "Go to Stories" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}#stories$`));
     await page.goBack();

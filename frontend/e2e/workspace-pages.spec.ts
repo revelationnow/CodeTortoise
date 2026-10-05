@@ -8,13 +8,13 @@ test.describe("desktop", () => {
 
   test("a finding: to its story and back, on the graph, evidence opens the diff at its line", async ({ page }) => {
     const base = await startReview(page);
-    await page.goto(`${base}/f/F5`);
+    await page.goto(`${base}/f/F4`);
     await expect(page.locator(".ws-finding h2")).toContainText("uart_send: new return value(s) -2");
     await expect(page.getByRole("region", { name: "AI analysis" })).toContainText("AI analysis unavailable.");
     await page.getByRole("link", { name: /^Go to story S1/ }).first().click();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S1$`));
     await page.goBack();
-    await expect(page).toHaveURL(new RegExp(`${base}/f/F5$`));
+    await expect(page).toHaveURL(new RegExp(`${base}/f/F4$`));
 
     await page.getByRole("link", { name: "Open service/logger.c at line 12" }).first().click();
     await expect(page).toHaveURL(/open=file%3A%2F%2Ffixture%2Fservice%2Flogger\.c%3A12$/);
@@ -26,12 +26,30 @@ test.describe("desktop", () => {
     await expect(page.getByRole("complementary", { name: "Code: uart_send" })).toBeVisible();
     await page.goBack();
 
-    await page.getByRole("link", { name: /^Next finding: F6/ }).click();
-    await expect(page).toHaveURL(new RegExp(`${base}/f/F6$`));
+    await page.getByRole("link", { name: /^Next finding: F5/ }).click();
+    await expect(page).toHaveURL(new RegExp(`${base}/f/F5$`));
     await page.getByRole("button", { name: "mark acknowledged" }).click();
     await expect(page.locator(".ws-finding .ws-badge")).toHaveText("acknowledged");
     await expectNoNodeIds(page);
     await expectNamed(page);
+  });
+
+  test("a side effect is neutral until the AI judges it: no red, and it says it isn't assessed", async ({ page }) => {
+    const base = await startReview(page);
+    const findings = await (await page.request.get(`/api/reviews/${base.split("/")[2]}/findings`)).json() as { id: string; title: string }[];
+    const errors = findings.find((f) => f.title.startsWith("uart_send now writes Uart::errors"))!;
+    await page.goto(`${base}/f/${errors.id}`);
+    await expect(page.locator(".ws-finding h2 .badge")).toHaveText("info");
+    await expect(page.locator(".ws-verdict")).toContainText("Side effect · not yet assessed");
+    await page.locator(".ws-where").getByRole("link", { name: /^Go to story/ }).click();
+    const strip = page.getByRole("region", { name: "Flow" });
+    await strip.getByRole("button", { name: "Every flow" }).click();
+    await strip.getByRole("menuitemradio", { name: /uart_errors sees a new writer of Uart::errors/ }).click();
+    const lands = strip.locator(".ws-flow-lands");
+    await expect(lands).toContainText("Side effect lands on uart_errors.");
+    await expect(lands).not.toContainText("⚠");
+    expect(await lands.locator("b").evaluate((el) => getComputedStyle(el).color))
+      .toBe(await lands.evaluate((el) => getComputedStyle(el).color));
   });
 
   test("a finding without an explanation offers Explain only once the AI is known to be there", async ({ page }) => {

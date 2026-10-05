@@ -180,6 +180,7 @@ llm:                                # optional; without it, narratives use built
   max_context_tokens: 64000
   concurrency: 4                    # parallel LLM calls
   upfront_flows: 3                  # flow narratives written when a review runs; the rest on demand (✦ Explain)
+  upfront_side_effects: 36          # new field writes the AI judges when a review runs (12 a call); red only if a hazard
   budget:                           # AI calls (failed calls count; refused ones cost nothing)
     per_review: 200                 # per review, everyone and the pipeline together; the owner can raise it
     per_person_daily: 100           # calls one person can trigger per day (UTC), across reviews
@@ -351,6 +352,11 @@ titles are headlines; facts and evidence stay deterministic reference). Text tha
 favour of the deterministic text, and the LLM stage says how many outputs were dropped (`backend/codetortoise/llm/style.py`).
 
 ### AI calls on a budget
+
+A function that newly writes a field other code uses is a *side effect*: normal, and shown neutral. When a review runs
+the AI judges up to `upfront_side_effects` of them and marks one red only when the code shows a clear hazard or breaks
+an assumption other code makes, with its reason; **✦ Explain** on a side effect judges it too. Without an AI they stay
+neutral, marked "not yet assessed".
 
 When a review runs, the AI writes only the change summary and the first `upfront_flows` flow narratives. Everything
 else is written when someone asks, once, and shown to everyone: **✦ Explain** on a flow or a finding, **✦ Summarise**

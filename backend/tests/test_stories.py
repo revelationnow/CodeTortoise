@@ -343,7 +343,7 @@ def test_the_fixture_tells_two_behaviour_stories(analysed, fx_source):
     ss, det = build_stories(_ctx(analysed, fx_source))
     assert ss.summary == "2 behaviour stories."
     assert [(s.kind, s.risk, s.title) for s in ss.stories] == [
-        ("behaviour", "high", "`uart_send` now writes `Uart::errors`; `uart_errors` reads it (1 more effect)"),
+        ("behaviour", "high", "`uart_send` can now return -2; `logger_flush` ignores it (1 more effect)"),
         ("behaviour", "medium", "`hal_write`'s signature changed; `uart_init` calls it")]
     for s in ss.stories:
         g = det[s.id].graph

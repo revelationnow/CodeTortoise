@@ -17,8 +17,8 @@ def test_every_item_on_the_fixture_board_is_tagged(board):  # noqa: F811
 
 def test_fixture_tags_are_exact(board):  # noqa: F811
     b = tag_board(board.model_copy(deep=True))
-    fl1 = next(f for f in b.flows if f.id == "FL1")
-    assert fl1.files == [D + "app/main.c", D + "driver/uart.c", D + "driver/uart.h", D + "service/logger.c"]
+    state = next(f for f in b.flows if f.tag == "state")                  # through the field Uart::errors in uart.h
+    assert state.files == [D + "app/main.c", D + "driver/uart.c", D + "driver/uart.h", D + "service/logger.c"]
     by_cl = {c.cl: c.files for c in b.about.cls}
     assert by_cl == {101: [D + "driver/uart.c"], 102: [D + "driver/uart.h", D + "hal/regs.c", D + "include/hal/regs.h"]}
     assert [c.file_count for c in b.about.cls] == [1, 3]
