@@ -14,6 +14,7 @@ const ctx: CrumbContext = {
 describe("the breadcrumb", () => {
   it("names the review alone at home", () => {
     expect(crumbs({ kind: "whole" }, ctx)).toEqual([{ label: "Review 7", to: null }]);
+    expect(crumbs({ kind: "whole", view: "graph" }, ctx)).toEqual([{ label: "Review 7", to: "/r/7" }, { label: "Graph", to: null }]);
   });
 
   it("goes up from a story's graph to its steps, the stories and the review", () => {

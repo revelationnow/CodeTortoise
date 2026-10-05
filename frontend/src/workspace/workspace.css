@@ -155,3 +155,11 @@ a.ws-nb:hover { border-color: var(--accent); }
 .ws-flow-check { color: var(--muted); }
 .ws-flow-steps { line-height: 1.9; }
 .ws-flow-steps .arrow { color: var(--muted); }
+
+/* graphs */
+.ws-graph { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bd-bg); }
+.ws-graph .ws-flow { background: var(--bd-surface); }
+.ws-graph .bd-stage { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+.bd-node.lit { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ws-mapgraph { height: 460px; display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.ws-open-full { float: right; text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 13px; }

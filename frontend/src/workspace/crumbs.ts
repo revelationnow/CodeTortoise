@@ -24,8 +24,8 @@ export function short(text: string, n = 46): string {
 const MISSING: Crumb = { label: "Not found", to: null };
 
 export function crumbs(place: Place, c: CrumbContext): Crumb[] {
-  if (place.kind === "whole") return [{ label: c.title, to: null }];
   const home = { label: c.title, to: c.base };
+  if (place.kind === "whole") return place.view === "graph" ? [home, { label: "Graph", to: null }] : [{ label: c.title, to: null }];
   const section = (label: string, anchor: string): Crumb => ({ label, to: `${c.base}#${anchor}` });
   switch (place.kind) {
     case "story": {

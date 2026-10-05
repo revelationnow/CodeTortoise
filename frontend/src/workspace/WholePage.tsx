@@ -4,8 +4,19 @@ import { driftSummary } from "../board/drift";
 import { bandsOf, linkLines } from "../board/overview";
 import { sideEffectFiles } from "../board/sideEffects";
 import Comments from "../components/Comments";
+import type { Board } from "../board/types";
 import { useWs } from "./context";
+import { pickFlow } from "./flows";
+import GraphView from "./graph/GraphView";
 import NameText from "./NameText";
+
+/** A review shown as one board: its graph, on the whole change page or filling the centre (`?view=graph`). */
+export function ReviewGraph({ board }: { board: Board }) {
+  const ws = useWs(), open = ws.addr.open;
+  const index = pickFlow(board.flows, ws.addr.flow, open && "node" in open ? open.node : null);
+  return <GraphView board={board} prefKey={String(ws.data.id)} flowIndex={index}
+                    onFlow={(i) => ws.go({ ...ws.addr, flow: i + 1 }, true)} />;
+}
 
 /** The review's home (spec 2026-10-04-review-workspace §3.1): what the change is for and why it is risky first. */
 export default function WholePage() {
@@ -52,6 +63,13 @@ export default function WholePage() {
               ))}</div>
             </section>
           ))}
+        </section>
+      )}
+      {d.board && d.board.nodes.length > 0 && (
+        <section aria-labelledby="ws-map" id="map">
+          <h2 id="ws-map">The map <Link className="ws-open-full" to={ws.link({ ...ws.addr, place: { kind: "whole", view: "graph" } })}
+                                        title="Open the full graph" aria-label="Open the full graph">Open full graph ›</Link></h2>
+          <div className="ws-mapgraph"><ReviewGraph board={d.board} /></div>
         </section>
       )}
       {sideEffects.length > 0 && (

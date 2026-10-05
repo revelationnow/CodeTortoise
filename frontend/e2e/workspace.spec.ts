@@ -41,7 +41,7 @@ test.describe("desktop", () => {
     const base = await startWorkspace(page);
     const page_ = page.locator(".ws-whole");
     await expect(page_.locator("h2")).toHaveText(["What this change is trying to do", "Why it is high risk",
-                                                  "Files with side effects", "Discussion"]);
+                                                  /^The map/, "Files with side effects", "Discussion"]);
     await expect(page_.locator(".ws-summary")).toContainText("2 behaviour stories.");
     await page_.getByRole("link", { name: /^Go to finding F1:/ }).click();
     await expect(page).toHaveURL(new RegExp(`${base}/f/F1$`));
