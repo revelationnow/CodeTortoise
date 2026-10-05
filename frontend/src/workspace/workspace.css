@@ -136,3 +136,22 @@ a.ws-nb:hover { border-color: var(--accent); }
 .ws-nb.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
 .ws-nb-col.me { position: sticky; top: 0; }
 @media (max-width: 640px) { .ws-nbs { grid-template-columns: 1fr; } .ws-nb-col.me { position: static; order: -1; } }
+
+/* flow strip: the controls keep their place and the row never scrolls sideways */
+.ws-flow { flex: none; border-bottom: 1px solid var(--line); background: var(--surface); min-width: 0; }
+.ws-flow-row { display: flex; align-items: center; gap: 8px; padding: 8px 14px; min-width: 0; }
+.ws-flow-btn { flex: none; width: 30px; padding: 2px 0 !important; text-align: center; }
+.ws-flow-pos { flex: none; width: 7.5em; text-align: center; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ws-flow-row .bd-tag { flex: none; }
+.ws-flow-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-flow-menu { position: relative; flex: none; }
+.ws-flow-menu ul { position: absolute; right: 0; top: 110%; z-index: 60; list-style: none; margin: 0; padding: 4px; min-width: 260px;
+  max-width: min(480px, 80vw); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .14); }
+.ws-flow-menu li button { display: block; width: 100%; text-align: left; border: 0; padding: 6px 8px; white-space: normal; }
+.ws-flow-menu li button[aria-checked=true] { background: var(--gap-bg); font-weight: 600; }
+.ws-flow-text { padding: 0 14px 10px; font-size: 13.5px; }
+.ws-flow-text p { margin: 4px 0; }
+.ws-flow-lands b { color: var(--bad); font-weight: 600; }
+.ws-flow-check { color: var(--muted); }
+.ws-flow-steps { line-height: 1.9; }
+.ws-flow-steps .arrow { color: var(--muted); }

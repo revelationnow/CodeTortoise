@@ -1,0 +1,73 @@
+import { useState } from "react";
+import { Link } from "react-router-dom";
+import type { Board } from "../board/types";
+import Explain from "../components/Explain";
+import { useWs } from "./context";
+import { wrap } from "./flows";
+import NameText from "./NameText";
+
+interface Props {
+  board: Board;
+  /** The flows to step through (a story's, or every flow on the board). */
+  flows: Board["flows"];
+  index: number;
+  onFlow: (i: number) => void;
+  /** Graph views list the flow's steps too; the Steps view numbers them below. */
+  steps: boolean;
+  /** Leave the "what" out (the story's summary already tells it). */
+  hideWhat?: boolean;
+}
+
+/** The flow strip (spec 2026-10-04-review-workspace §3.6): fixed-width ‹ flow 2 of 5 ›, the tag, the title cut to the
+ * width left, a ▾ menu of every flow; below it the flow's text, collapsible. Its controls never move between flows. */
+export default function FlowStrip({ board, flows, index, onFlow, steps, hideWhat }: Props) {
+  const ws = useWs();
+  const [menu, setMenu] = useState(false);
+  const [shut, setShut] = useState(false);
+  const flow = flows[index];
+  if (!flow) return null;
+  const byId = new Map(board.nodes.map((n) => [n.id, n]));
+  const n = flows.length;
+  return (
+    <section className="ws-flow" aria-label="Flow">
+      <div className="ws-flow-row">
+        <button className="bd-ibtn ws-flow-btn" aria-label="Previous flow" title="Previous flow" disabled={n < 2}
+                onClick={() => onFlow(wrap(index, -1, n))}>‹</button>
+        <span className="ws-flow-pos">flow {index + 1} of {n}</span>
+        <button className="bd-ibtn ws-flow-btn" aria-label="Next flow" title="Next flow" disabled={n < 2}
+                onClick={() => onFlow(wrap(index, 1, n))}>›</button>
+        <span className={`bd-tag ${flow.tag}`}>{flow.tag}</span>
+        <b className="ws-flow-title" title={flow.title}>{flow.title}</b>
+        <span className="ws-flow-menu">
+          <button className="bd-ibtn" aria-label="Every flow" title="Every flow" aria-expanded={menu} onClick={() => setMenu(!menu)}>▾</button>
+          {menu && (
+            <ul role="menu">{flows.map((f, i) => (
+              <li key={f.id} role="none"><button role="menuitemradio" aria-checked={i === index}
+                onClick={() => { setMenu(false); onFlow(i); }}><span className="muted">{i + 1}</span> {f.title}</button></li>
+            ))}</ul>
+          )}
+        </span>
+        <button className="bd-ibtn ws-flow-btn" aria-expanded={!shut} aria-label={shut ? "Show the flow's text" : "Hide the flow's text"}
+                title={shut ? "Show the flow's text" : "Hide the flow's text"} onClick={() => setShut(!shut)}>{shut ? "+" : "−"}</button>
+      </div>
+      {!shut && (
+        <div className="ws-flow-text">
+          {!hideWhat && <p>{flow.what_source === "llm" && <span className="ai-label">AI</span>}<NameText text={flow.what} />{" "}
+            <Explain kind="flow" target={flow.id} has={flow.what_source === "llm"} /></p>}
+          {steps && (
+            <p className="ws-flow-steps">{flow.path.map((id, i) => {
+              const node = byId.get(id);
+              if (!node) return null;
+              return <span key={id}>{i > 0 && <span className="arrow" aria-hidden> → </span>}
+                <Link className="ws-name" to={ws.link(ws.opened({ node: id }))} title={`Open ${node.label}'s code`}
+                      aria-label={`Open ${node.label}'s code`}>{node.label}</Link></span>;
+            })}</p>
+          )}
+          <p className="ws-flow-lands"><b>⚠ Side effect lands on {byId.get(flow.lands)?.label ?? "a function off this graph"}.</b>{" "}
+            <NameText text={flow.effect} /></p>
+          <p className="ws-flow-check"><NameText text={flow.check} /></p>
+        </div>
+      )}
+    </section>
+  );
+}
