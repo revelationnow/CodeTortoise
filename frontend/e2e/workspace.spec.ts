@@ -112,5 +112,18 @@ test.describe("a large change", () => {
     await map.getByRole("link", { name: "Open drv/uart" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}/c/C\\d+$`));
     await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toContainText("Map › drv/uart");
+    await expect(page.locator(".bd-node").first()).toBeVisible();
+    await expect(page.getByRole("region", { name: "Flow" })).toBeVisible();
+    let visitor = page.locator(".bd-home").first();
+    for (let i = 0; i < 7 && !(await visitor.count()); i++) {          // step through the parts to one with a visitor
+      await page.getByRole("link", { name: /^Next part:/ }).click();
+      await expect(page.locator(".bd-node").first()).toBeVisible();
+      visitor = page.locator(".bd-home").first();
+    }
+    const to = (await visitor.getAttribute("aria-label"))!.replace(/^Go to /, "");   // a visitor links to its own part
+    await visitor.dispatchEvent("pointerdown", { bubbles: true, pointerId: 1, button: 0 });
+    await visitor.dispatchEvent("pointerup", { bubbles: true, pointerId: 1, button: 0 });
+    await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toContainText(`Map › ${to}`);
+    await expect(page).toHaveURL(/open=N\d+$/);
   });
 });
