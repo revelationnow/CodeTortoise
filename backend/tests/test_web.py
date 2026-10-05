@@ -302,8 +302,8 @@ def test_story_endpoints_serve_the_list_and_each_story(env):
     assert len(s1["graph"]["nodes"]) <= 12 and s1["board"]["flows"]
     assert all(n["path"] is None or n["path"].startswith("//") for n in s1["graph"]["nodes"])
     send = next(n["id"] for n in s1["graph"]["nodes"] if n["label"] == "uart_send")
-    grown = owner.get(f"/api/reviews/{rid}/stories/S1", params={"expand": f"{send}:callers"}).json()
-    assert len(grown["graph"]["nodes"]) >= len(s1["graph"]["nodes"])
+    asked = owner.get(f"/api/reviews/{rid}/stories/S1", params={"expand": f"{send}:callers"}).json()
+    assert asked["graph"] == s1["graph"]                                   # graphs no longer grow by `expand`
     r = owner.get(f"/api/reviews/{rid}/stories/S9")
     assert r.status_code == 404 and r.json()["detail"] == "That story no longer exists after the re-run."
     svc.store.replace_blobs(rid, ["stories"], [boardstore.STORY], {})     # a review run before stories

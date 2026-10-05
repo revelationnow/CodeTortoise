@@ -876,59 +876,6 @@ def _overview(x: _Ctx, res, about: About, depots: dict[str, str], flows: list[Fl
                     merged_over_limit=res.merged_over_limit)
 
 
-def expand_board(b: Board, im: ImpactModel, asks: list[tuple[str, str]], *, step: int,
-                 ranges: dict[str, list[int]], depot_of: dict[str, Files], layer_name: Callable[[int], str],
-                 root: str, home: dict[str, str] | None = None) -> Board:
-    """`b` with up to `step` more callers or callees of each asked node ("+N callers"), most affected first, laid out
-    again. Asks are applied in order, so a node added by one can be expanded by the next. The board may pass its
-    node budget: the reader asked for it."""
-    out = b.model_copy(deep=True)
-    on = {n.id for n in out.nodes}
-    changed = set(im.changed)
-
-    def is_test(nid: str) -> bool:
-        return unchanged_test(im, root, nid, changed)
-    score = {x.node: x.score for x in im.blast}
-    callers: dict[str, set[str]] = defaultdict(set)
-    callees: dict[str, set[str]] = defaultdict(set)
-    for e in im.edges:
-        if e.kind in ("call", "virtual"):
-            callers[e.dst].add(e.src)
-            callees[e.src].add(e.dst)
-    for nid, way in asks:
-        if nid not in on:
-            continue
-        cands = [n for n in (callers if way == "callers" else callees)[nid] - on if n in im.nodes and not is_test(n)]
-        for n in sorted(cands, key=lambda n: (-score.get(n, 0.0), int(n[1:]) if n[1:].isdigit() else 0))[:step]:
-            node = im.nodes[n]
-            h = (home or {}).get(n)
-            files = depot_of.get(n) or []
-            out.nodes.append(BoardNode(id=n, key=node.key, label=node.label, kind=node.kind,
-                                       layer=node.layer if node.layer is not None else -1,
-                                       path=files[0] if node.file and files else None, local=node.file,
-                                       range=ranges.get(node.key), home=h if out.cluster and h and h != out.cluster.id
-                                       else None))
-            on.add(n)
-    to = {f.id: n.id for n in out.nodes for f in n.fields}         # a story graph's folded field -> its struct node
-    out.edges, seen = [], set()
-    for e in im.edges:
-        src, dst = to.get(e.src, e.src), to.get(e.dst, e.dst)
-        if src in on and dst in on and src != dst and (src, dst, e.kind) not in seen:
-            seen.add((src, dst, e.kind))
-            out.edges.append(BoardEdge(src=src, dst=dst, kind=e.kind, status=e.status, confidence=e.confidence))
-    xs = barycentre_layout({n.id: n.layer if n.layer is not None else -1 for n in out.nodes},
-                           [(e.src, e.dst) for e in out.edges])
-    for n in out.nodes:
-        n.x = xs.get(n.id, n.x)
-        n.more_callers = len({s_ for s_ in callers.get(n.id, ()) if s_ not in on and not is_test(s_)})
-        n.more_callees = len({d for d in callees.get(n.id, ()) if d not in on and not is_test(d)})
-    have = {lv.level for lv in out.layers}
-    for lv in sorted({n.layer for n in out.nodes if n.layer is not None} - have):
-        out.layers.append(BoardLayer(level=lv, name=layer_name(lv) if lv >= 0 else "other"))
-    out.layers.sort(key=lambda lv: -lv.level)
-    return out
-
-
 def _tree_prefix(depots: list[str]) -> str:
     """Prefix stripped from the change tree: everything above the deepest directory the files share, so that
     directory itself stays visible (a change inside one directory shows that directory, not ".")."""
