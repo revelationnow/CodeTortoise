@@ -10,6 +10,12 @@ CITES = [f"N{i}" for i in range(1, 80)] + [f"F{i}" for i in range(1, 20)]
 def answer(system: str, user: str) -> dict:
     if "Give each level" in user:
         return {"layers": []}
+    if "Judge each side effect" in user:      # Uart::errors is the hazard; every other side effect is fine
+        blocks = re.split(r"SIDE EFFECT (F\d+):", user)[1:]
+        return {"verdicts": [{"finding": fid, "hazard": "Uart::errors" in body.split("\n", 2)[1], "cites": [],
+                              "reason": "uart_errors assumes only uart_init writes Uart::errors." if "Uart::errors"
+                              in body.split("\n", 2)[1] else "Nothing else depends on the value it writes."}
+                             for fid, body in zip(blocks[::2], blocks[1::2])]}
     if "Summarize the whole change" in user:
         return {"summary": "The change adds transmit statistics to the UART driver.", "risk": "high", "cites": CITES}
     if "Describe this call flow" in user:

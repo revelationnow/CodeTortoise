@@ -395,7 +395,10 @@ a.ws-nb:hover { border-color: var(--accent); }
 .ws-flow-menu li button[aria-checked=true] { background: var(--gap-bg); font-weight: 600; }
 .ws-flow-text { padding: 0 14px 10px; font-size: 13.5px; }
 .ws-flow-text p { margin: 4px 0; }
-.ws-flow-lands b { color: var(--bad); font-weight: 600; }
+.ws-flow-lands b { font-weight: 600; }
+.ws-flow-lands.warn b { color: var(--bad); }
+.ws-verdict { font-size: 13.5px; color: var(--muted); margin: 4px 0 0; }
+.ws-verdict.hazard { color: var(--bad); }
 .ws-flow-check { color: var(--muted); }
 .ws-flow-steps { line-height: 1.9; }
 .ws-flow-steps .arrow { color: var(--muted); }

@@ -11,12 +11,12 @@ from pathlib import Path
 
 from codetortoise import boardstore
 from codetortoise.board import BoardContext, build_boards
-from codetortoise.detectors.base import DetectorContext, run_detectors
+from codetortoise.detectors.base import DetectorContext, renumber, run_detectors
 from codetortoise.diffmap import map_changes
 from codetortoise.facts.model import Facts, relative_records
 from codetortoise.facts.runner import build_requests, parse_summary, run_extraction
 from codetortoise.impact import ImpactModel, build_impact
-from codetortoise.llm.storyboard import build_storyboard
+from codetortoise.llm.storyboard import AiContext, build_storyboard, judge_side_effects
 from codetortoise.paths import canon
 from codetortoise.provenance import finding_files, impact_node_files, local_files
 from codetortoise.services import Services
@@ -27,10 +27,11 @@ from codetortoise.vcs.model import ChangeSet
 
 log = logging.getLogger(__name__)
 
-STAGES = ["ingest", "swarm_read", "diffmap", "tu_select", "layers", "facts", "impact", "detectors", "board", "llm",
-          "finalize"]
+STAGES = ["ingest", "swarm_read", "diffmap", "tu_select", "layers", "facts", "impact", "detectors", "verdicts", "board",
+          "llm", "finalize"]
 DEPS = {"swarm_read": ["ingest"], "diffmap": ["ingest"], "tu_select": ["diffmap"], "facts": ["tu_select"],
-        "impact": ["facts", "tu_select", "diffmap"], "detectors": ["impact"], "board": ["impact", "detectors"],
+        "impact": ["facts", "tu_select", "diffmap"], "detectors": ["impact"], "verdicts": ["detectors"],
+        "board": ["impact", "detectors"],
         "llm": ["detectors"]}
 
 
@@ -216,6 +217,25 @@ def run_review(rid: int, svc: Services) -> None:
         store.put_findings(rid, findings)
         return f"{len(findings)} finding(s)"
 
+    def verdicts():
+        """The AI judges side effects before the board is drawn, so flows and stories take the verdicts' colours."""
+        findings = ctx["findings"]
+        todo = [f for f in findings if f.side_effect]
+        if not todo:
+            return "no side effects"
+        if svc.llm is None:
+            return f"no LLM: {len(todo)} side effect(s) not assessed (shown neutral)"
+        snippets = collect_snippets(ctx["impact"], ctx["cs"], ctx["after"])
+        aictx = AiContext(ctx["impact"], findings, snippets, cfg.llm.max_context_tokens)
+        judged, error = judge_side_effects(svc.llm, aictx, findings, cfg.llm.upfront_side_effects, ledger=svc.ledger, rid=rid)
+        renumber(findings)                     # a hazard is now high: ids follow severity again
+        store.put_findings(rid, findings)
+        hazards = sum(f.verdict == "hazard" for f in todo)
+        msg = f"{judged} of {len(todo)} side effect(s) judged, {hazards} hazard(s)"
+        if error:
+            raise Degraded(f"{msg}; {error}")
+        return msg + ("" if judged == len(todo) else "; the rest not assessed (shown neutral)")
+
     def board():
         notes: list[str] = []
         resolve = depot_resolver(svc.source, ctx["cs"], cfg.workspace.root, notes)
@@ -291,7 +311,7 @@ def run_review(rid: int, svc: Services) -> None:
         store.put_blob(rid, "file_summaries", {})       # they describe the old diff
         for name, fn in [("ingest", ingest), ("swarm_read", swarm_read), ("diffmap", diffmap), ("tu_select", tu_select),
                          ("layers", layers), ("facts", facts), ("impact", impact), ("detectors", detectors),
-                         ("board", board), ("llm", llm), ("finalize", finalize)]:
+                         ("verdicts", verdicts), ("board", board), ("llm", llm), ("finalize", finalize)]:
             stage(name, fn)
 
 

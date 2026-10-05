@@ -12,7 +12,7 @@ test.describe("desktop", () => {
   test("steps open the detail panel and mark the step; flows replace history; findings link to their pages", async ({ page }) => {
     const base = await startReview(page);
     await page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ }).click();
-    await expect(page.locator(".ws-story-head h2")).toContainText("uart_send now writes Uart::errors");
+    await expect(page.locator(".ws-story-head h2")).toContainText("uart_send can now return -2");
     await expect(page.getByRole("tab", { name: "Steps" })).toHaveAttribute("aria-selected", "true");
     await expect(page.locator(".ws-story-meta .ws-chip")).toHaveText(["CL 101"]);
     await step(page, "uart_send").click();
@@ -33,7 +33,7 @@ test.describe("desktop", () => {
 
   test("names in text read as text: the sentence's colour and a faint dotted underline, the accent on hover", async ({ page }) => {
     const base = await startReview(page);
-    await page.goto(`${base}/f/F1`);
+    await page.goto(`${base}/f/F4`);
     const name = page.locator(".ws-where li .ws-name").first();
     await expect(name).toBeVisible();
     const look = () => name.evaluate((el) => {
@@ -171,7 +171,7 @@ test.describe("re-run", () => {
   test("after Re-run a story page shows the new run's story, not the one cached from before", async ({ page }) => {
     const base = await startReview(page);
     await page.goto(`${base}/s/S1`);
-    await expect(page.locator(".ws-story-head h2")).toContainText("uart_send now writes Uart::errors");
+    await expect(page.locator(".ws-story-head h2")).toContainText("uart_send can now return -2");
     await page.route(/\/api\/reviews\/\d+\/stories\/S1$/, async (route) => {   // any fetch from here on is the new run's
       const res = await route.fetch(), j = await res.json();
       j.story.title = "the new run's S1";

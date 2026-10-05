@@ -8,21 +8,22 @@ def findings_for(a):
 def test_fixture_findings(analysed):
     findings = findings_for(analysed)
     got = [(f.id, f.severity, f.kind, f.title) for f in findings]
+    # a new field write is a side effect: neutral until the AI judges it (only a clear hazard turns it red)
     assert got == [
-        ("F1", "high", "field_mutation", "uart_send now writes Uart::errors through a local alias"),
-        ("F2", "high", "header_fanout", "regs.h: 1 change(s) reach 4 TU(s)"),
-        ("F3", "high", "header_fanout", "uart.h: 1 change(s) reach 3 TU(s)"),
-        ("F4", "medium", "contract", "hal_write: signature changed"),
-        ("F5", "medium", "contract", "uart_send: new return value(s) -2"),
-        ("F6", "medium", "field_mutation", "uart_send now writes Stats::tx through a local alias"),
+        ("F1", "high", "header_fanout", "regs.h: 1 change(s) reach 4 TU(s)"),
+        ("F2", "high", "header_fanout", "uart.h: 1 change(s) reach 3 TU(s)"),
+        ("F3", "medium", "contract", "hal_write: signature changed"),
+        ("F4", "medium", "contract", "uart_send: new return value(s) -2"),
+        ("F5", "info", "field_mutation", "uart_send now writes Stats::tx through a local alias"),
+        ("F6", "info", "field_mutation", "uart_send now writes Uart::errors through a local alias"),
     ]
-    f5 = findings[4]
-    texts = [e.text for e in f5.evidence]
+    assert [(f.side_effect, f.verdict) for f in findings] == [(False, None)] * 4 + [(True, None)] * 2
+    texts = [e.text for e in findings[3].evidence]
     assert "logger_flush ignores the result" in texts
     assert "logger_write checks !=0 (covers new values)" in texts
-    f1 = findings[0]
-    assert f1.evidence[0].text == "write `u.errors` via err (precise)"
-    assert "uart_errors" in f1.evidence[-1].text
+    errors = findings[5]
+    assert errors.evidence[0].text == "write `u.errors` via err (precise)"
+    assert "uart_errors" in errors.evidence[-1].text and {e.severity for e in errors.evidence} == {"info"}
 
 
 def test_max_severity():
@@ -77,7 +78,7 @@ def test_heuristic_field_users_restricted_to_record_includers(tmp_path):
     users = {im.nodes[e.src].label for e in im.edges if im.nodes[e.dst].label == "A::count" and e.src != im.changed[0]}
     assert users == {"peek"}  # other.c's B::count is a different record
     (f,) = [f for f in run_detectors(DetectorContext(before, after, dm, im, cfg)) if f.kind == "field_mutation"]
-    assert f.severity == "medium"  # only heuristic users; not escalated to high
+    assert (f.severity, f.side_effect) == ("info", True)  # a side effect: neutral until the AI judges it
     assert "peek" in f.evidence[-1].text and "heuristic" in f.evidence[-1].text
 
 
@@ -129,6 +130,6 @@ def test_new_function_writes_fold_into_one_info_finding():
 
 def test_alias_claim_requires_an_alias_variable():
     (f,) = run_detectors(_mutation_ctx("changed", ["call:memcpy"]))
-    assert f.title == "f now writes B::ptr" and f.severity == "high"
+    assert f.title == "f now writes B::ptr" and (f.severity, f.side_effect) == ("info", True)
     (g,) = run_detectors(_mutation_ctx("changed", ["tmp"]))
     assert g.title == "f now writes B::ptr through a local alias"

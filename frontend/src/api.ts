@@ -18,6 +18,8 @@ export interface Finding {
   explanation: string | null; verify_steps: string[]; hypotheses: Cited[]; state: "open" | "ack" | "dismissed";
   /** Depot paths behind the finding (null: unknown). */
   files: string[] | null;
+  /** A new field write: neutral until the AI judges it; `verdict` is that judgement (null: not assessed). */
+  side_effect?: boolean; verdict?: "hazard" | "no_hazard" | null; verdict_reason?: string | null;
 }
 /** A node's name for the workspace (review workspace §4.2): the reader sees names, never node ids. */
 export interface NodeName { label: string; kind: string; path: string | null; line: number | null; story: string | null }

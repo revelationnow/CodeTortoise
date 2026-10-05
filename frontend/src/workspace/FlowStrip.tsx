@@ -46,6 +46,8 @@ export default function FlowStrip({ board, flows, index, onFlow, steps, hideWhat
   if (!flow) return null;
   const byId = new Map(board.nodes.map((n) => [n.id, n]));
   const n = flows.length;
+  const warn = flow.severity === "high" || flow.severity === "medium";       // a side effect is red only once judged a hazard
+  const why = ws.data.findings.find((f) => flow.findings.includes(f.id) && f.verdict === "hazard")?.verdict_reason;
   return (
     <section className="ws-flow" aria-label="Flow">
       <div className="ws-flow-row">
@@ -83,8 +85,10 @@ export default function FlowStrip({ board, flows, index, onFlow, steps, hideWhat
                       aria-label={`Open ${node.label}'s code`}>{node.label}</Link></span>;
             })}</p>
           )}
-          <p className="ws-flow-lands"><b>⚠ Side effect lands on {byId.get(flow.lands)?.label ?? "a function off this graph"}.</b>{" "}
-            <NameText text={flow.effect} /></p>
+          <p className={`ws-flow-lands${warn ? " warn" : ""}`}>
+            <b>{warn ? "⚠ " : ""}Side effect lands on {byId.get(flow.lands)?.label ?? "a function off this graph"}.</b>{" "}
+            <NameText text={flow.effect} />
+            {why && <span className="ws-flow-why"> <span className="ai-label">AI</span>AI: <NameText text={why} /></span>}</p>
           <p className="ws-flow-check"><NameText text={flow.check} /></p>
           <Comments reviewId={ws.data.id} comments={ws.data.comments} kind="flow" anchor={{ id: flow.id }} onChange={ws.data.loadComments} compact />
         </div>

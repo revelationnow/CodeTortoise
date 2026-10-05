@@ -27,20 +27,21 @@ def _labels(board, ids):
 
 def test_fixture_board_has_the_three_prototype_flows(board):
     got = [(f.tag, _labels(board, f.path)) for f in board.flows]
+    # the state flow is a side effect not judged a hazard (no AI here): it stays, neutral, after the contract flows
     assert got == [
-        ("state", ["main", "logger_write", "uart_send", "Uart::errors", "uart_errors"]),
         ("contract", ["main", "logger_flush", "uart_send"]),
         ("contract", ["main", "uart_init", "hal_write"]),
+        ("state", ["main", "logger_write", "uart_send", "Uart::errors", "uart_errors"]),
     ]
-    state, ignored, sig = board.flows
+    ignored, sig, state = board.flows
     assert [f.id for f in board.flows] == ["FL1", "FL2", "FL3"]
-    assert state.severity == "high" and state.fx_at is None
+    assert state.severity == "info" and state.fx_at is None
     assert ignored.text == "main → logger_flush → uart_send ⟶ -2 ignored"
     assert _labels(board, [ignored.fx_at]) == ["logger_flush"] and ignored.findings
     assert sig.text.endswith("⟶ signature changed")
     assert "uart_errors" in state.effect and "Uart::errors" in state.check
-    assert [f.title for f in board.flows] == ["uart_errors sees a new writer of Uart::errors", "logger_flush ignores -2",
-                                              "uart_init calls hal_write (signature changed)"]
+    assert [f.title for f in board.flows] == ["logger_flush ignores -2", "uart_init calls hal_write (signature changed)",
+                                              "uart_errors sees a new writer of Uart::errors"]
 
 
 def test_fixture_board_annotates_where_the_effects_land(board):
@@ -49,9 +50,9 @@ def test_fixture_board_annotates_where_the_effects_land(board):
     assert {
         ("service/logger.c", 21, "warn", "contract"),     # logger_flush ignores the result
         ("service/logger.c", 12, "ok", "contract"),       # logger_write checks != 0
-        ("driver/uart.c", 29, "warn", "state"),           # uart_errors reads Uart::errors
-        ("driver/uart.h", 15, "warn", "state"),           # the field declaration
-        ("driver/uart.c", 17, "warn", "state"),           # uart_send writes errors through `err`
+        ("driver/uart.c", 29, "info", "state"),           # uart_errors reads Uart::errors (a side effect: neutral)
+        ("driver/uart.h", 15, "info", "state"),           # the field declaration
+        ("driver/uart.c", 17, "info", "state"),           # uart_send writes errors through `err`
         ("driver/uart.c", 18, "warn", "contract"),        # uart_send's new return -2
         ("driver/uart.c", 8, "warn", "signature"),        # uart_init calls hal_write
     } <= got
@@ -64,7 +65,7 @@ def test_fixture_board_annotates_where_the_effects_land(board):
 
 def test_co_writers_are_annotated_but_are_not_landings(board):
     (w,) = [i for i in board.impacts if i.path.endswith("uart.c") and i.line == 7]
-    assert w.text.startswith("writes Uart::errors") and w.severity == "warn" and not w.landing
+    assert w.text.startswith("writes Uart::errors") and w.severity == "info" and not w.landing
     landed = {_labels(board, [f.lands])[0] for f in board.flows}
     assert landed == {"uart_errors", "logger_flush", "uart_init"}
 
@@ -75,7 +76,7 @@ def test_board_nodes_carry_change_ranges_layers_and_warn_counts(board):
     assert send.change.kind == "modified" and send.change.add > 0
     assert send.path == "//fixture/driver/uart.c" and send.range[0] <= 17 <= send.range[1]
     assert by["hal_write"].change.kind == "signature"
-    assert by["uart_errors"].change is None and by["uart_errors"].warn == 1
+    assert by["uart_errors"].change is None and by["uart_errors"].warn == 0      # its side effect is neutral
     assert by["Uart::errors"].kind == "field" and by["Uart::errors"].range == [15, 15]
     assert by["Uart::errors"].layer == by["uart_send"].layer
     names = {l.level: l.name for l in board.layers}

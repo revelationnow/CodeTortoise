@@ -90,6 +90,23 @@ test.describe("with an AI", () => {
     await expect(ai.getByRole("button", { name: /Explain again/ })).toBeVisible();
   });
 
+  test("a side effect the AI judges a hazard turns red and says why; one it clears stays neutral with its reason", async ({ page }) => {
+    const base = await startReview(page);
+    const findings = await (await page.request.get(`/api/reviews/${base.split("/")[2]}/findings`)).json() as { id: string; title: string }[];
+    const errors = findings.find((f) => f.title.startsWith("uart_send now writes Uart::errors"))!;
+    const tx = findings.find((f) => f.title.startsWith("uart_send now writes Stats::tx"))!;
+    await page.goto(`${base}/f/${errors.id}`);
+    await expect(page.locator(".ws-finding h2 .badge")).toHaveText("high");
+    await expect(page.locator(".ws-verdict")).toContainText("AI: hazard — uart_errors assumes only uart_init writes Uart::errors.");
+    await page.goto(`${base}/f/${tx.id}`);
+    await expect(page.locator(".ws-finding h2 .badge")).toHaveText("info");
+    await expect(page.locator(".ws-verdict")).toContainText("AI: no clear hazard — Nothing else depends on the value it writes.");
+    await page.goto(`${base}/s/S1`);
+    const lands = page.getByRole("region", { name: "Flow" }).locator(".ws-flow-lands");
+    await expect(lands).toContainText("⚠ Side effect lands on uart_errors.");
+    await expect(lands).toContainText("AI: uart_errors assumes only uart_init writes Uart::errors.");
+  });
+
   test("✦ Summarise sums up a file in its diff", async ({ page }) => {
     await startReview(page);
     await page.locator(".ws-rail").getByRole("button", { name: /Files/ }).click();
@@ -106,9 +123,9 @@ test.describe("with an AI", () => {
     expect(await contrast(page, ".ws-head .ai-pill")).toBeGreaterThanOrEqual(4.5);   // readable on the light head
     await pill.click();
     const usage = page.getByRole("dialog", { name: "AI usage" });
-    await expect(usage).toContainText("By purpose: finding 1 · flow 1 · summary 1");
+    await expect(usage).toContainText("By purpose: finding 1 · flow 1 · summary 1 · verdict 1");
     await usage.getByText(/^All calls/).click();                          // the call list loads when opened
-    await expect(usage.locator(".ai-calls tbody tr")).toHaveCount(3);
+    await expect(usage.locator(".ai-calls tbody tr")).toHaveCount(4);
     await usage.getByLabel("New budget").fill("300");
     await usage.getByRole("button", { name: "Raise budget" }).click();
     await expect(page.getByRole("button", { name: /^AI \d+\/300$/ })).toBeVisible();

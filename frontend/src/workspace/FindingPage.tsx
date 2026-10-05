@@ -56,6 +56,13 @@ export default function FindingPage({ fid }: { fid: string }) {
               mark {STATE[s]}</button>
           ))}
         </p>
+        {f.side_effect && (
+          <p className={`ws-verdict${f.verdict === "hazard" ? " hazard" : ""}`}>
+            {f.verdict === "hazard" ? <><span className="ai-label">AI</span>AI: hazard — <NameText text={f.verdict_reason ?? ""} /></>
+              : f.verdict === "no_hazard" ? <><span className="ai-label">AI</span>AI: no clear hazard — <NameText text={f.verdict_reason ?? ""} /></>
+              : <>Side effect · not yet assessed. Side effects are normal; ✦ Explain asks the AI whether this one is a hazard.</>}
+          </p>
+        )}
       </header>
       <section aria-labelledby="ws-where" className="ws-where">
         <h3 id="ws-where">Where it lives</h3>

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from codetortoise.detectors.base import DetectorContext, Evidence, Finding, max_severity
+from codetortoise.detectors.base import DetectorContext, Evidence, Finding
 from codetortoise.facts.model import FieldAccess
 
 
@@ -42,9 +42,8 @@ def detect_field_mutation(ctx: DetectorContext) -> list[Finding]:
                          if e.dst == field_node.id and e.src not in changed_ids and e.status != "removed"]
                 others = sorted({im.nodes[e.src].label for e in users if e.confidence != "heuristic"})
                 heuristic = sorted({im.nodes[e.src].label for e in users if e.confidence == "heuristic"} - set(others))
-            only_may = all(a.mode == "may_write" for a in accesses)
-            # name-matched (heuristic) users alone do not escalate to high
-            sev = "low" if only_may else ("high" if others else "medium")
+            # a side effect, not a risk by itself: neutral until the AI judges it a clear hazard (spec: AI verdicts)
+            sev = "info"
             ev = []
             for a in accesses:
                 how = f" via {' -> '.join(a.via)}" if a.via else ""
@@ -55,15 +54,15 @@ def detect_field_mutation(ctx: DetectorContext) -> list[Finding]:
                                    severity=sev, nodes=sorted({e.src for e in users if e.confidence != "heuristic"})))
             if heuristic:
                 ev.append(Evidence(text=f"{len(heuristic)} more by name match outside parsed TUs (heuristic): "
-                                        f"{', '.join(heuristic[:10])}", severity="low",
+                                        f"{', '.join(heuristic[:10])}", severity="info",
                                    nodes=sorted({e.src for e in users if e.confidence == "heuristic"})))
             label = field_node.label if field_node else a0.field_name
             alias = any(not v.startswith("call:") for a in accesses for v in a.via)
             findings.append(Finding(
-                kind="field_mutation", severity=max_severity(ev),
+                kind="field_mutation", severity="info", side_effect=True,
                 title=f"{node.label} now writes {label}" + (" through a local alias" if alias else ""),
                 nodes=[nid] + ([field_node.id] if field_node else []), evidence=ev,
-                summary=f"{node.label} newly modifies {label} ({a0.path})."))
+                summary=f"{node.label} newly modifies {label} ({a0.path}). A side effect, not a risk by itself."))
         for key in sorted(set(wb) - set(wa)):
             a0 = wb[key][0]
             findings.append(Finding(

@@ -16,8 +16,8 @@ def test_full_review_without_llm_or_swarm(fx, tmp_path):
     rid = svc.store.create_review("t", "owner", [101, 102])
     run_review(rid, svc)
     assert stages(svc, rid) == {"ingest": "ok", "swarm_read": "degraded", "diffmap": "ok", "tu_select": "ok",
-                                "layers": "ok", "facts": "ok", "impact": "ok", "detectors": "ok", "board": "ok",
-                                "llm": "degraded", "finalize": "ok"}
+                                "layers": "ok", "facts": "ok", "impact": "ok", "detectors": "ok", "verdicts": "ok",
+                                "board": "ok", "llm": "degraded", "finalize": "ok"}
     review = svc.store.get_review(rid)
     assert review["status"] == "degraded" and review["risk"] == "high"
     assert len(svc.store.list_findings(rid)) == 6
@@ -26,7 +26,10 @@ def test_full_review_without_llm_or_swarm(fx, tmp_path):
     assert [c["cl"] for c in svc.store.list_cls(rid)] == [101, 102]
     assert svc.store.list_cls(rid)[0]["description"].startswith("uart:")
     board = svc.store.get_blob(rid, "board")
-    assert [f["tag"] for f in board["flows"]] == ["state", "contract", "contract"]
+    # the state flow stays, neutral: its side effect hasn't been judged a hazard (no AI here)
+    assert [(f["tag"], f["severity"]) for f in board["flows"]] == [("contract", "medium"), ("contract", "medium"),
+                                                                   ("state", "info")]
+    assert "not assessed" in next(s["message"] for s in svc.store.list_stages(rid) if s["name"] == "verdicts")
     assert all(n["path"].startswith("//fixture/") for n in board["nodes"] if n["kind"] == "function")
     assert board["about"]["intent_source"] == "template"
     assert all(n["files"] for n in board["nodes"]) and all(f["files"] for f in board["flows"])   # tags stored (spec §14.3)
@@ -34,10 +37,10 @@ def test_full_review_without_llm_or_swarm(fx, tmp_path):
     assert all(f.files for f in findings.values() if f.kind != "header_fanout")
     # header fan-out evidence lists layers by name, which come from directory names: unknown
     assert all(f.files is None for f in findings.values() if f.kind == "header_fanout")
-    # F1: the field Uart::errors is declared in uart.h; other accessors are named in its evidence
-    assert findings["F1"].files == ["//fixture/driver/uart.c", "//fixture/driver/uart.h"]
-    # F4: "callers must be re-checked: uart_init, uart_send" names functions in uart.c
-    assert findings["F4"].files == ["//fixture/driver/uart.c", "//fixture/hal/regs.c"]
+    # F6: the field Uart::errors is declared in uart.h; other accessors are named in its evidence
+    assert findings["F6"].files == ["//fixture/driver/uart.c", "//fixture/driver/uart.h"]
+    # F3: "callers must be re-checked: uart_init, uart_send" names functions in uart.c
+    assert findings["F3"].files == ["//fixture/driver/uart.c", "//fixture/hal/regs.c"]
     assert [w["files"] for w in board["about"]["why"]] == [findings[w["finding"]].files for w in board["about"]["why"]]
 
 
@@ -131,7 +134,9 @@ def test_malformed_llm_reply_still_stores_storyboard(fx, tmp_path):
     run_review(rid, svc)
     assert stages(svc, rid)["llm"] == "degraded"
     sb = svc.store.get_blob(rid, "storyboard")
-    assert sb is not None and sb["risk"] == "high" and "unexpected LLM response" in sb["llm_error"]
+    # the side effect the AI couldn't judge stays neutral: the contract change sets the risk
+    assert sb is not None and sb["risk"] == "medium" and "unexpected LLM response" in sb["llm_error"]
+    assert stages(svc, rid)["verdicts"] == "degraded"
 
 
 def test_llm_text_stored_by_a_review_records_its_prompt_files(fx, tmp_path):
@@ -144,7 +149,8 @@ def test_llm_text_stored_by_a_review_records_its_prompt_files(fx, tmp_path):
 
     def reply(req):
         user = json.loads(req.content)["messages"][1]["content"]
-        out = ({"explanation": "e"} if "Explain the risk" in user else
+        out = ({"verdicts": []} if "Judge each side effect" in user else
+               {"explanation": "e"} if "Explain the risk" in user else
                {"narrative": "n", "cites": cites} if "narrative for this architectural layer" in user else
                {"what": "w", "title": "t", "cites": cites} if "Describe this call flow" in user else
                {"summary": "s", "risk": "high", "cites": cites})
@@ -164,7 +170,7 @@ def test_llm_text_stored_by_a_review_records_its_prompt_files(fx, tmp_path):
     assert len(llm_flows) == 3 and any(f.severity == "high" for f in found)
     assert all((f.explanation is not None) == (f.severity == "high") for f in found)
     usage = svc.ledger.usage(rid)
-    assert usage["used"] == 9 and usage["by_purpose"] == {"flow": 3, "story": 2, "finding": 3, "summary": 1}
+    assert usage["by_purpose"] == {"verdict": 1, "flow": 3, "story": 2, "finding": 2, "summary": 1}, usage["by_purpose"]
     assert usage["by_person"] == {"pipeline": 9}                       # the fixture's 3 high findings, under the cap of 5
 
 
@@ -283,8 +289,8 @@ def test_board_without_depot_paths_for_context_nodes_is_degraded(fx, tmp_path):
     tags = {n["label"]: n["files"] for n in board["nodes"]}
     assert tags["uart_send"] == ["//fixture/driver/uart.c"] and tags["main"] is None
     assert all(f["files"] is None for f in board["flows"])                    # every flow starts at main
-    f5 = next(f for f in svc.store.list_findings(rid) if f.id == "F5")      # evidence in service/logger.c
-    assert f5.files is None
+    f4 = next(f for f in svc.store.list_findings(rid) if f.id == "F4")      # evidence in service/logger.c
+    assert f4.files is None
     assert st["board"]["message"].count("connect failed") == 1              # one lookup, not one per caller
 
 
@@ -304,7 +310,7 @@ def test_one_failed_lookup_leaves_that_files_items_unknown_not_guessed_from_call
     assert tags["logger_write"] is None and tags["logger_flush"] is None and tags["main"] == ["//fixture/app/main.c"]
     assert all(i["files"] is None for i in board["impacts"] if i["node"] in ("N3", "N5"))
     flows = {f["id"]: f["files"] for f in board["flows"]}
-    assert flows["FL1"] is None and flows["FL2"] is None and flows["FL3"] is not None   # FL3 avoids logger.c
+    assert flows["FL1"] is None and flows["FL2"] is not None and flows["FL3"] is None   # FL2 avoids logger.c
 
 def test_depot_resolver_asks_the_source_only_about_workspace_files():
     from codetortoise.pipeline import depot_resolver

@@ -416,6 +416,7 @@ def _new_writes(x: _Ctx, usr: str) -> dict[str, list[FieldAccess]]:
 
 def build_impacts(x: _Ctx) -> list[Impact]:
     out: list[Impact] = []
+    sev_of = {f.id: f.severity for f in x.c.findings}
     seen: set[tuple] = set()
 
     def add(node: str | None, local: str, line: int, sev: Sev, channel: Channel, title: str, text: str, finding=None,
@@ -427,7 +428,8 @@ def build_impacts(x: _Ctx) -> list[Impact]:
             return
         seen.add(k)
         out.append(Impact(node=node, path=local, line=line, severity=sev, channel=channel, title=title,
-                          text=text, finding=finding, cause=cause, landing=landing and sev == "warn" and node != cause,
+                          text=text, finding=finding, cause=cause,
+                          landing=landing and (sev == "warn" or channel == "state") and node != cause,
                           refs=sorted({r for r in refs if r})))
 
     for nid in sorted(x.changed, key=lambda s: int(s[1:])):
@@ -474,12 +476,16 @@ def build_impacts(x: _Ctx) -> list[Impact]:
         for field, accs in sorted(_new_writes(x, node.key).items()):
             a0 = accs[0]
             fid = x.id_of.get(f"field:{field}")
-            fm = x.finding("field_mutation", nid)
+            # the finding for this field (a function writing several fields has one finding per field)
+            fm = next((i for i in x.finding_by.get(("field_mutation", nid), []) if fid and i in x.finding_by.get(
+                ("field_mutation", fid), [])), None) or x.finding("field_mutation", nid)
+            # a side effect warns only once the AI has judged it a hazard; until then it is shown, neutral
+            st: Sev = "warn" if SEVERITY_RANK.get(sev_of.get(fm or "", "info"), 0) >= SEVERITY_RANK["medium"] else "info"
             label = f"{a0.record}::{a0.field_name}" if a0.record else a0.field_name
             for a in accs:
                 alias = [v for v in a.via if not v.startswith("call:")]
                 how = f" through alias `{alias[0]}`" if alias else (f" via {a.via[0][5:]}()" if a.via else "")
-                add(nid, a.file, a.line, "warn", "state", "State", f"writes {label}{how}", fm, refs=[fid])
+                add(nid, a.file, a.line, st, "state", "State", f"writes {label}{how}", fm, refs=[fid])
             wline = a0.line
             modes: dict[tuple[str, str, int], set[str]] = defaultdict(set)   # one annotation per line: r, w or both
             for o in x.fields_after:
@@ -497,7 +503,7 @@ def build_impacts(x: _Ctx) -> list[Impact]:
                     writers.add(x.label(oid))
                 verb = "reads and writes" if len(ms) == 2 else "reads" if "read" in ms else "writes"
                 # the effect lands on readers: they observe the new values; pure co-writers are annotated only
-                add(oid, file, line, "warn", "state", "State", f"{verb} {label} — now also written by {name} (line {wline})", fm,
+                add(oid, file, line, st, "state", "State", f"{verb} {label} — now also written by {name} (line {wline})", fm,
                     landing="read" in ms, refs=[fid])
             if fid:
                 for e in x.im.edges:
@@ -508,7 +514,7 @@ def build_impacts(x: _Ctx) -> list[Impact]:
                     text = f"new writer: {name} · readers: {', '.join(sorted(readers)) or 'none in the parsed code'}"
                     if writers:
                         text += f" · other writers: {', '.join(sorted(writers))}"
-                    add(fid, a0.record_file, a0.decl_line, "warn" if readers or writers else "info", "state", "State",
+                    add(fid, a0.record_file, a0.decl_line, st if readers or writers else "info", "state", "State",
                         text, fm, refs=named)
     return out
 
