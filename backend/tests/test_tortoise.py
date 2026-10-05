@@ -175,6 +175,22 @@ def test_each_anchor_kind_brings_its_context(world):
     assert "FLOWS" in script.prompts[2] and "FINDINGS" in script.prompts[2]
 
 
+
+def test_a_story_a_flow_and_a_file_bring_their_context(world):
+    script = Script({"action": "answer", "text": "uart_send can now return -2.", "cites": ["N9"]})
+    svc, app, rid = world(script)
+    bob = login(app, "bob")
+    story = bob.get(f"/api/reviews/{rid}/stories/S1").json()["story"]
+    flow = svc.store.get_blob(rid, "board")["flows"][0]
+    _ask(bob, rid, "@tortoise story?", "story", {"id": "S1"})
+    _ask(bob, rid, "@tortoise flow?", "flow", {"id": flow["id"]})
+    _ask(bob, rid, "@tortoise file?", "file", {"path": UART})
+    assert f"STORY S1: {story['title']}" in script.prompts[0] and "FLOW " in script.prompts[0]
+    assert f"FLOW {flow['id']}: {flow['title']}" in script.prompts[1] and flow["check"] in script.prompts[1]
+    assert f"FILE {UART}" in script.prompts[2] and "int uart_send" in script.prompts[2]
+    replies = [c for c in bob.get(f"/api/reviews/{rid}/comments").json() if c["author"] == "tortoise"]
+    assert [r["anchor_kind"] for r in replies] == ["story", "flow", "file"]
+
 def test_a_full_prompt_drops_the_oldest_reads_first(world):
     calls = []
 

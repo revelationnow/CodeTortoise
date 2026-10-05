@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS llm_budget(review_id INTEGER, budget INTEGER, set_by 
 CREATE TABLE IF NOT EXISTS llm_rounds(review_id INTEGER, rounds INTEGER, set_by TEXT, set_at TEXT);
 """
 
-ANCHOR_KINDS = {"line", "function", "finding", "chapter", "review"}
+ANCHOR_KINDS = {"line", "function", "finding", "chapter", "review", "story", "flow", "file"}
 
 
 def _now() -> str:

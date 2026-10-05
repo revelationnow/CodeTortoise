@@ -1,6 +1,7 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { Board } from "../board/types";
+import Comments from "../components/Comments";
 import Explain from "../components/Explain";
 import { useWs } from "./context";
 import { wrap } from "./flows";
@@ -72,7 +73,7 @@ export default function FlowStrip({ board, flows, index, onFlow, steps, hideWhat
       {!shut && !note && (
         <div className="ws-flow-text">
           {!hideWhat && <p>{flow.what_source === "llm" && <span className="ai-label">AI</span>}<NameText text={flow.what} />{" "}
-            <Explain kind="flow" target={flow.id} has={flow.what_source === "llm"} /></p>}
+            <Explain kind="flow" target={flow.id} has={flow.what_source === "llm"} ask={{ kind: "flow", anchor: { id: flow.id }, onAsked: ws.data.loadComments }} /></p>}
           {steps && (
             <p className="ws-flow-steps">{flow.path.map((id, i) => {
               const node = byId.get(id);
@@ -85,6 +86,7 @@ export default function FlowStrip({ board, flows, index, onFlow, steps, hideWhat
           <p className="ws-flow-lands"><b>⚠ Side effect lands on {byId.get(flow.lands)?.label ?? "a function off this graph"}.</b>{" "}
             <NameText text={flow.effect} /></p>
           <p className="ws-flow-check"><NameText text={flow.check} /></p>
+          <Comments reviewId={ws.data.id} comments={ws.data.comments} kind="flow" anchor={{ id: flow.id }} onChange={ws.data.loadComments} compact />
         </div>
       )}
     </section>

@@ -26,7 +26,7 @@ export interface Neighbour extends NodeName { id: string; changed: boolean; test
 export interface Neighbours { node: Neighbour; callers: { total: number; items: Neighbour[] }; callees: { total: number; items: Neighbour[] } }
 export interface PerCl { cl: number; before: string; after: string }
 export interface FileChange { depot: string; local: string; action: string; before: string; after: string; base_rev: string | null; per_cl: PerCl[] }
-export type AnchorKind = "line" | "function" | "finding" | "chapter" | "review";
+export type AnchorKind = "line" | "function" | "finding" | "chapter" | "review" | "story" | "flow" | "file";
 export interface Comment {
   id: number; review_id: number; parent_id: number | null; author: string; body: string;
   anchor_kind: AnchorKind; anchor: Record<string, unknown>; resolved: boolean; created_at: string; edited_at: string | null;

@@ -25,8 +25,8 @@ interface Props {
 /** All threads for one anchor plus a composer. */
 export default function Comments({ reviewId, comments, kind, anchor, onChange, compact, match, autoFocus }: Props) {
   const roots = comments.filter((c) => c.parent_id === null && (match ? match(c) : anchorMatches(c, kind, anchor)));
-  const [open, setOpen] = useState(!compact || roots.length > 0);
-  if (!open)
+  const [open, setOpen] = useState(!compact);
+  if (!open && roots.length === 0)                  // a thread that arrives later (an Ask…) shows without a click
     return <button className="link small" onClick={() => setOpen(true)}>+ comment</button>;
   return (
     <div className="comments">

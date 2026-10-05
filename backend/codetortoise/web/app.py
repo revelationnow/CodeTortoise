@@ -61,7 +61,7 @@ class RoundsIn(BaseModel):
 
 class CommentIn(BaseModel):
     body: str = Field(min_length=1, max_length=20000)
-    anchor_kind: Literal["line", "function", "finding", "chapter", "review"]
+    anchor_kind: Literal["line", "function", "finding", "chapter", "review", "story", "flow", "file"]
     anchor: dict = Field(default_factory=dict)
     parent_id: int | None = None
 
