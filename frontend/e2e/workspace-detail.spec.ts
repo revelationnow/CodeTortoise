@@ -264,6 +264,24 @@ test.describe("a split review", () => {
   test.use({ baseURL: "http://127.0.0.1:8796", viewport: { width: 1440, height: 900 } });
   type Node = { id: string; label: string; path: string | null; range: number[] | null; change: unknown; fields?: { id: string }[] };
 
+  test("opened folds close again with Fold again", async ({ page }) => {
+    const base = await startReview(page, "201 202");
+    const files = await (await page.request.get(`/api/reviews/${base.split("/")[2]}/files`)).json() as { depot: string }[];
+    const depot = files.find((f) => f.depot.endsWith("/uart_b.c"))!.depot;
+    await page.goto(`${base}?open=${encodeURIComponent(`file:${depot}`)}`);
+    const panel = page.getByRole("complementary", { name: "Code: uart_b.c" });
+    await panel.getByRole("button", { name: "Changes" }).click();
+    const gaps = panel.locator(".bd-gap");
+    await expect(gaps.first()).toBeVisible();
+    const before = await panel.locator(".bd-code").innerText();
+    await expect(panel.getByRole("button", { name: "Fold again" })).toHaveCount(0);
+    await gaps.first().getByRole("button", { name: "Show all" }).click();
+    expect(await panel.locator(".bd-code").innerText()).not.toBe(before);
+    await panel.getByRole("button", { name: "Fold again" }).click();
+    await expect(panel.getByRole("button", { name: "Fold again" })).toHaveCount(0);
+    expect(await panel.locator(".bd-code").innerText()).toBe(before);
+  });
+
   test("a field without a story shows its struct from the story being read; a context function its slice on its part", async ({ page }) => {
     const base = await startReview(page, "201 202");
     const rid = base.split("/")[2];

@@ -75,6 +75,9 @@ export default function FileDiff({ path, line, anns, cl: firstCl = null, wide }:
             {cls.map((c) => <option key={c} value={String(c)}>CL {c}</option>)}
           </select>
         )}
+        {folding && shown.length > 0 && (
+          <button className="bd-ibtn" title="Fold the lines you opened" onClick={() => setShown([])}>Fold again</button>
+        )}
         {change && (
           <span className="bd-seg">
             <button className={`bd-ibtn${view === "changes" ? " on" : ""}`} aria-pressed={view === "changes"}
