@@ -111,8 +111,8 @@ def test_a_board_no_longer_grows_by_expand_the_neighbours_tab_lists_them_instead
     ov = owner.get(f"/api/reviews/{rid}/overview").json()
     boards = {c["id"]: owner.get(f"/api/reviews/{rid}/board", params={"cluster": c["id"]}).json() for c in ov["clusters"]}
     cid, node = next((cid, n) for cid, b in boards.items() for n in b["nodes"] if n["more_callers"] > 0)
-    asked = owner.get(f"/api/reviews/{rid}/board", params={"cluster": cid, "expand": f"{node['id']}:callers"}).json()
-    assert asked == boards[cid]
+    asked = owner.get(f"/api/reviews/{rid}/board", params={"cluster": cid, "expand": f"{node['id']}:callers"})
+    assert asked.status_code == 200 and asked.json() == boards[cid]
     assert owner.get(f"/api/reviews/{rid}/board", params={"cluster": cid, "expand": "N1:sideways"}).status_code == 200
     assert not hasattr(svc.cfg.analysis, "expand_step")
 
