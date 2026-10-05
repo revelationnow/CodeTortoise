@@ -113,6 +113,28 @@ test.describe("desktop", () => {
   });
 });
 
+test.describe("a story loading", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("the Steps | Graph switch and ‹ › are in place from the first paint, on the graph's layout", async ({ page }) => {
+    const base = await startReview(page);
+    await page.route(/\/api\/reviews\/\d+\/stories\/S1$/, async (route) => {
+      const res = await route.fetch();
+      await new Promise((r) => setTimeout(r, 3000));
+      await route.fulfill({ response: res });
+    });
+    await page.goto(`${base}/s/S1?view=graph`);
+    await expect(page.getByText("Loading S1…")).toBeVisible();
+    const graph = page.getByRole("tab", { name: "Graph" }), next = page.getByRole("link", { name: /^Next story/ });
+    expect(await graph.getAttribute("aria-selected", { timeout: 500 })).toBe("true");     // there while it loads, not after
+    const before = [(await graph.boundingBox())!, (await next.boundingBox())!];
+    await expect(page.getByText("Loading S1…")).toBeVisible();
+    await expect(page.locator(".ws-graph .bd-node").first()).toBeVisible();
+    await expect(page.getByText("Loading S1…")).toHaveCount(0);
+    expect([(await graph.boundingBox())!, (await next.boundingBox())!]).toEqual(before);
+  });
+});
+
 test.describe("re-run", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 

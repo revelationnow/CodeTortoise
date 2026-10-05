@@ -17,18 +17,20 @@ import StorySteps from "./StorySteps";
  * in a fixed-width group; its steps or its graph, with the flow strip. */
 export default function StoryPage({ sid, view }: { sid: string; view: "steps" | "graph" }) {
   const ws = useWs(), d = ws.data, ss = d.stories!;
-  const [detail, setDetail] = useState<StoryDetail | null>(null);
+  // held with its story: another story starts loading, while a refreshed one (AI text) replaces it in place
+  const [held, setHeld] = useState<{ sid: string; detail: StoryDetail } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const story = d.story;
   useEffect(() => {
     let live = true;
-    setDetail(null);
-    d.story(sid).then((x) => { if (live) { setDetail(x); setError(null); } })
+    story(sid).then((x) => { if (live) { setHeld({ sid, detail: x }); setError(null); } })
       .catch((e) => { if (live) setError(e instanceof ApiError && e.status === 404 ? e.message : String(e.message ?? e)); });
     return () => { live = false; };
-  }, [d, sid]);
+  }, [story, sid]);
+  const detail = held?.sid === sid ? held.detail : null;
   const st = detail?.story ?? ss.stories.find((s) => s.id === sid)!;
   const at = ss.stories.findIndex((s) => s.id === sid);
-  const hasGraph = !!detail?.graph && (st.kind === "behaviour" || st.kind === "other");
+  const hasGraph = st.kind === "behaviour" || st.kind === "other";      // known from the list: the switch is there at once
   const shown = hasGraph ? view : "steps";
   const flows = detail ? detail.board.flows.filter((f) => st.flows.includes(f.id)) : [];
   const open = ws.addr.open && "node" in ws.addr.open ? ws.addr.open.node : null;
@@ -64,6 +66,8 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
     </header>
   );
   if (error) return <div className="ws-page"><div className="ws-text">{header}<div className="banner warn">{error}</div></div></div>;
+  if (shown === "graph" && !detail)
+    return <div className="ws-page graph"><div className="ws-story-bar">{header}</div><p className="muted ws-page">Loading {st.id}…</p></div>;
   if (!detail) return <div className="ws-page"><div className="ws-text">{header}<p className="muted">Loading {st.id}…</p></div></div>;
   if (shown === "graph" && detail.graph)
     return (
