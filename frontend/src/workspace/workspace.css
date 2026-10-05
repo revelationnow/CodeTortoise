@@ -352,6 +352,12 @@ a.ov-block { display: block; color: var(--ink); text-decoration: none; }
 .ws-file-tools .cnt { font: 12px var(--mono); } .ws-file-tools .cnt .p { color: var(--ok); } .ws-file-tools .cnt .m { color: var(--bad); }
 .ws-file-tools .act { font: 600 11px var(--sans); text-transform: uppercase; color: var(--muted); }
 .ws-fn .effects { margin-bottom: 8px; font-size: 13px; color: var(--bad); }
+/* a function's code scrolls both ways in its own box, so its sideways scrollbar is always on screen */
+.ws-detail-body:has(> .ws-fn) { display: flex; flex-direction: column; padding-bottom: 10px; }
+.ws-fn { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.ws-fn-code { flex: 0 1 auto; min-height: 140px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; }
+.ws-fn-code .bd-code { overflow: visible; min-width: max-content; }
+.ws-fn .bd-fn-comments { flex: none; }
 .ws-fn .effects .ico { margin-right: 6px; }
 .ws-fn .fetched { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
 @media (max-width: 1100px) {

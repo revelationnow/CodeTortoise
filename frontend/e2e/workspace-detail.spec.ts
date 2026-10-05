@@ -23,6 +23,30 @@ test.describe("desktop", () => {
     await expect(page.locator(".ws-detail")).toHaveCount(0);
   });
 
+  test("a function's code scrolls both ways inside the panel and grows 15 lines past either end", async ({ page }) => {
+    await page.setViewportSize({ width: 1000, height: 640 });
+    const base = await startReview(page);
+    const names = await page.evaluate(async (b) => (await fetch(`/api/reviews/${b.split("/")[2]}/names`)).json(), base);
+    const send = Object.entries(names as Record<string, { label: string }>).find(([, n]) => n.label === "uart_send")![0];
+    await page.goto(`${base}?open=${send}`);
+    const panel = page.getByRole("complementary", { name: "Code: uart_send" });
+    const code = panel.locator(".bd-code"), scroller = panel.locator(".ws-fn-code");
+    await expect(code).toBeVisible();
+    await panel.evaluate((el) => { el.style.width = "260px"; el.style.minWidth = "0"; });
+    const box = (await scroller.boundingBox())!, body = (await panel.locator(".ws-detail-body").boundingBox())!;
+    expect(box.y + box.height).toBeLessThanOrEqual(body.y + body.height + 1);      // its scrollbar is on screen
+    expect(await scroller.evaluate((el) => el.scrollWidth > el.clientWidth && el.scrollHeight > el.clientHeight
+                                     && getComputedStyle(el).overflow === "auto")).toBe(true);
+
+    const first = () => code.locator(".bd-ln .no").first().innerText();
+    const at = Number(await first());
+    const above = panel.locator(".bd-more-lines", { hasText: "above the function" });
+    await expect(above).toBeVisible();
+    await above.getByRole("button", { name: /^Show \d+ more$/ }).click();
+    expect(Number(await first())).toBe(Math.max(1, at - 15));
+    await expect(panel.locator(".bd-more-lines", { hasText: "below the function" })).toBeVisible();
+  });
+
   test("a node opens its function, its story and the full file", async ({ page }) => {
     const base = await startReview(page);
     const names = await page.evaluate(async (b) => (await fetch(`/api/reviews/${b.split("/")[2]}/names`)).json(), base);

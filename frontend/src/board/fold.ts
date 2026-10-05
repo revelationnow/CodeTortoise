@@ -44,3 +44,26 @@ export function revealRange(lines: Line[], n: number): Range | null {
   const i = lines.findIndex((l) => l.n === n);
   return i < 0 ? null : [i - STEP, i + STEP + 1];
 }
+
+/** A function's code in the detail panel: new-side lines `lo`–`hi` grown by `more` lines past each end. A changed
+ * function folds like the changes view, keeping its first line; lines brought in from past its ends are always shown.
+ * `above` and `below` count the file's lines still outside. */
+export function functionView(lines: Line[], lo: number, hi: number, more: { above: number; below: number }, shown: Range[],
+                             change: boolean): { lines: Line[]; runs: Run[] | null; above: number; below: number } {
+  let cur = 0;
+  const at = lines.map((l) => (l.n !== null ? (cur = l.n) : cur + 1));
+  const from = lo - more.above, to = hi + more.below;
+  const start = at.findIndex((a) => a >= from), stop = start < 0 ? -1 : lastIndex(at, (a) => a <= to);
+  if (start < 0 || stop < start) return { lines: [], runs: change ? [] : null, above: lines.length, below: 0 };
+  const slice = lines.slice(start, stop + 1);
+  const head = at.slice(start, stop + 1).findIndex((a) => a >= lo);
+  const tail = lastIndex(at.slice(start, stop + 1), (a) => a <= hi);
+  const outside: Range[] = [[0, Math.max(0, head)], [tail + 1, slice.length]];
+  return { lines: slice, runs: change ? foldRuns(slice, [...outside, ...shown], new Set(head >= 0 ? [head] : [])) : null,
+           above: start, below: lines.length - stop - 1 };
+}
+
+function lastIndex<T>(xs: T[], ok: (x: T) => boolean): number {
+  for (let i = xs.length - 1; i >= 0; i--) if (ok(xs[i])) return i;
+  return -1;
+}
