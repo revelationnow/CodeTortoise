@@ -8,6 +8,7 @@ import Health from "./pages/Health";
 import Login from "./pages/Login";
 import Review from "./pages/Review";
 import Reviews from "./pages/Reviews";
+import Workspace from "./workspace/Workspace";
 
 const MeContext = createContext<Me | null>(null);
 export const useMe = () => useContext(MeContext);
@@ -53,6 +54,7 @@ export default function App() {
         <Route path="/new" element={<Navigate to="/" replace />} />
         <Route path="/health" element={<Health />} />
         <Route path="/r/:id/*" element={<Review />} />
+        <Route path="/w/:id/*" element={<Workspace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </MeContext.Provider>
