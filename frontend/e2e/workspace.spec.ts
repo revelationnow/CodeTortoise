@@ -104,6 +104,8 @@ test.describe("a large change", () => {
     const map = page.getByRole("region", { name: "The map" });
     await expect(map.locator(".ov-block")).toHaveCount(7);
     await expect(map.getByRole("region", { name: "Layer drv" })).toContainText("drv/dma");
+    const tints = await map.locator(".ov-band").evaluateAll((els) => els.map((e) => getComputedStyle(e).backgroundColor));
+    expect(new Set(tints).size).toBeGreaterThan(1);   // each layer band keeps its level tint
     await map.getByRole("link", { name: "Open drv/uart" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}/c/C\\d+$`));
     await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toContainText("Map › drv/uart");
