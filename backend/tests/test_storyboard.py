@@ -321,3 +321,38 @@ def test_a_retold_story_records_the_files_behind_its_prompt():
                      node_files=node_files)
     assert details[0].story.text_files == ["//w/d/uart.c", "//w/svc/logger.c"]     # its code, its flow's and F1's
     assert details[1].story.text_source == "template" and details[1].story.text_files is None
+
+
+def test_the_upfront_pass_explains_high_findings_only_up_to_the_cap():
+    im, findings, layers = model()
+    findings.append(Finding(id="F3", kind="contract", severity="high", title="t", summary="s", nodes=["N1"]))
+    asked = []
+
+    def respond(system, user):
+        if "Explain the risk" in user:
+            asked.append(user)
+            return {"explanation": "uart_send can now return -2 and logger_flush drops it.", "verify_steps": [],
+                    "hypotheses": []}
+        return _respond(lambda u: {"what": "w", "cites": []})(system, user)
+    build_storyboard(im, findings, layers, {}, fake_llm(respond), board=_board(0), upfront_findings=1)
+    assert len(asked) == 1 and "regs.h" in asked[0]                                # F2: the first high finding
+    assert findings[1].explanation == "uart_send can now return -2 and logger_flush drops it."
+    assert findings[0].explanation is None and findings[2].explanation is None    # medium; past the cap
+
+
+def test_ai_titles_naming_node_or_finding_ids_keep_the_template_title():
+    im, findings, layers = model()
+    details = _story_details(1)
+    board = _board(1)
+
+    def respond(system, user):
+        if "Retell this change story" in user:
+            return {"title": "uart_send changes reach N3", "summary": "uart_send can now return -2 and logger_flush drops it.",
+                    "cites": ["N3"]}
+        if "Describe this call flow" in user:
+            return {"what": "logger_flush drops -2.", "title": "F1 drops the new result", "cites": ["N3"]}
+        return _respond(lambda u: {})(system, user)
+    sb = build_storyboard(im, findings, layers, {}, fake_llm(respond), board=board, stories=details, upfront_stories=1)
+    assert details[0].story.title == "template 1" and details[0].story.text_source == "template"
+    assert board.flows[0].title == "template title"
+    assert sb.style_dropped == 2

@@ -44,6 +44,7 @@ def ai(fx, tmp_path):
     svc.cfg.llm.base_url = "http://llm/v1"
     svc.cfg.llm.upfront_flows = 1                                      # the fixture has 3 flows: leave 2 for later
     svc.cfg.llm.upfront_stories = 1                                    # and 2 stories: leave 1
+    svc.cfg.llm.upfront_findings = 1                                   # and several high findings: leave the rest
     app = create_app(svc, InlineRunner(svc), make_authenticator(svc))
     owner = login(app, "owner")
     rid = owner.post("/api/reviews", json={"cls": [101, 102]}).json()["id"]
@@ -96,11 +97,11 @@ def test_explain_is_refused_over_the_budget_and_the_owner_raises_it(ai):
     svc, app, owner, rid, _ = ai
     bob = login(app, "bob")
     used = owner.get(f"/api/reviews/{rid}/ai").json()["used"]
-    assert used == 3                                                   # the up-front pass: 1 flow, 1 story, the summary
+    assert used == 4                                                   # the up-front pass: 1 flow, 1 story, 1 finding, the summary
     assert bob.put(f"/api/reviews/{rid}/ai/budget", json={"budget": 10}).status_code == 403
     assert owner.put(f"/api/reviews/{rid}/ai/budget", json={"budget": used}).json()["budget"] == used
     r = bob.post(f"/api/reviews/{rid}/explain", json={"kind": "finding", "target": "F1"})
-    assert r.status_code == 429 and "this review has used its 3 AI calls" in r.json()["detail"]
+    assert r.status_code == 429 and "this review has used its 4 AI calls" in r.json()["detail"]
     owner.put(f"/api/reviews/{rid}/ai/budget", json={"budget": used + 5})
     assert bob.post(f"/api/reviews/{rid}/explain", json={"kind": "finding", "target": "F1"}).status_code == 202
 
@@ -124,10 +125,10 @@ def test_the_ai_view_reports_limits_and_calls(ai):
     assert (u["budget"], u["me_limit"], u["per_mention"], u["llm"]) == (200, 100, 6, True)
     assert "calls" not in u                                            # polled often: the list is fetched apart
     calls = owner.get(f"/api/reviews/{rid}/ai/calls").json()
-    assert [c["purpose"] for c in calls] == ["flow", "story", "summary"]
+    assert [c["purpose"] for c in calls] == ["flow", "story", "finding", "summary"]
     assert all(c["prompt_tokens"] == 1000 for c in calls)
     h = owner.get("/api/health").json()                               # + layer naming, once per index
-    assert h["ai"]["calls_today"] == 4 and h["ai"]["limits"] == {"per_review": 200, "per_person_daily": 100,
+    assert h["ai"]["calls_today"] == 5 and h["ai"]["limits"] == {"per_review": 200, "per_person_daily": 100,
                                                                  "per_mention": 6}
 
 

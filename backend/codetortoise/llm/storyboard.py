@@ -1,6 +1,7 @@
 """Storyboard: deterministic skeleton + optional grounded LLM narrative."""
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -224,6 +225,15 @@ def _styled(text: str, mode: str) -> bool:
     return not check_style(text, mode)
 
 
+IDS = re.compile(r"\b[NF]\d+\b")
+
+
+def _titled(text: str) -> bool:
+    """A headline in the house style that names no node or finding id: titles are read without the ids' meaning
+    (spec 2026-10-04-review-workspace §4.5)."""
+    return _styled(text, "headline") and not IDS.search(text)
+
+
 def finding_job(ctx: AiContext, f: Finding) -> Job:
     impact = ctx.impact
     nodes = [n for n in f.nodes if n in impact.nodes]
@@ -259,7 +269,7 @@ def flow_job(ctx: AiContext, fl: Flow) -> Job:
             return 1
         fl.what, fl.what_source, fl.what_files = out.what.strip(), "llm", ctx.prompt_files(fl.path, fl.findings)
         if 0 < len(out.title.strip()) <= 80:
-            if not _styled(out.title.strip(), "headline"):
+            if not _titled(out.title.strip()):
                 return 1
             fl.title = out.title.strip()
         return 0
@@ -284,7 +294,7 @@ def story_job(ctx: AiContext, d: StoryDetail) -> Job:
         title, summary = out.title.strip(), out.summary.strip()
         if not (title and summary and set(out.cites) & (set(mentioned) | set(st.findings))):
             return 0
-        if not (0 < len(title) <= 80 and _styled(title, "headline") and _styled(summary, "explanation")):
+        if not (0 < len(title) <= 80 and _titled(title) and _styled(summary, "explanation")):
             return 1
         st.title, st.summary, st.text_source = title, summary, "llm"
         st.text_files = ctx.prompt_files(nodes, st.findings)
@@ -333,10 +343,10 @@ def build_storyboard(impact: ImpactModel, findings: list[Finding], layers: Layer
                      board: Board | None = None, concurrency: int = 1, upfront_flows: int = 3,
                      node_files: dict[str, list[str] | None] | None = None, ledger: Ledger | None = None,
                      rid: int | None = None, stories: list[StoryDetail] | None = None,
-                     upfront_stories: int = 3) -> Storyboard:
+                     upfront_stories: int = 3, upfront_findings: int = 0) -> Storyboard:
     """The deterministic storyboard, then (with an LLM) the up-front pass of spec 2026-10-03 §3: narratives for the
-    first `upfront_flows` flows and titles for the first `upfront_stories` stories given (concurrently), then the
-    change summary. Everything else is explained on demand.
+    first `upfront_flows` flows, titles for the first `upfront_stories` stories given and explanations of the first
+    `upfront_findings` high-severity findings (concurrently), then the change summary. Everything else is explained on demand.
 
     Every call goes through `ledger` when given (as the pipeline). A refused or failed call stops the pass and leaves
     the deterministic text for whatever wasn't written; `llm_error` says why."""
@@ -346,6 +356,7 @@ def build_storyboard(impact: ImpactModel, findings: list[Finding], layers: Layer
     ctx = AiContext(impact, findings, snippets, max_tokens, node_files)
     jobs = [flow_job(ctx, fl) for fl in (board.flows[:upfront_flows] if board else [])]
     jobs += [story_job(ctx, d) for d in (stories or [])[:upfront_stories]]
+    jobs += [finding_job(ctx, f) for f in [f for f in findings if f.severity == "high"][:upfront_findings]]
     pool = ThreadPoolExecutor(max(1, concurrency), thread_name_prefix="tortoise-llm")
     try:
         for dropped in pool.map(lambda j: run_job(llm, j, ledger, rid), jobs):

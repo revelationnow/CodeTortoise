@@ -69,6 +69,7 @@ class LlmConfig(BaseModel):
     concurrency: int = 4           # parallel LLM calls (finding explanations, chapter and flow narratives)
     upfront_flows: int = 3         # flow narratives written when a review runs (the rest on demand)
     upfront_stories: int = 3       # behaviour stories whose title and summary the AI writes when a review runs
+    upfront_findings: int = 5      # high-severity findings the AI explains when a review runs, not on first open
     budget: LlmBudget = Field(default_factory=LlmBudget)
 
 

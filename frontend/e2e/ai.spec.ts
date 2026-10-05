@@ -64,9 +64,9 @@ test.describe("with an AI", () => {
     const pill = page.getByRole("button", { name: /^AI \d+\/200$/ });
     await pill.click();
     const usage = page.getByRole("dialog", { name: "AI usage" });
-    await expect(usage).toContainText("By purpose: flow 1 · summary 1");
+    await expect(usage).toContainText("By purpose: finding 1 · flow 1 · summary 1");
     await usage.getByText(/^All calls/).click();                          // the call list loads when opened
-    await expect(usage.locator(".ai-calls tbody tr")).toHaveCount(2);
+    await expect(usage.locator(".ai-calls tbody tr")).toHaveCount(3);
     await usage.getByLabel("New budget").fill("300");
     await usage.getByRole("button", { name: "Raise budget" }).click();
     await expect(page.getByRole("button", { name: /^AI \d+\/300$/ })).toBeVisible();
