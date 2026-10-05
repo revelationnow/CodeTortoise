@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { bandsFor, centrePan, preferDepth, worldNodes } from "../../board/layout";
 import { makeLens, type Viewport } from "../../board/lens";
 import { keys, loadLayout, loadLens, loadMovedAll, save } from "../../board/prefs";
-import type { Board } from "../../board/types";
+import type { Board, BoardFlow } from "../../board/types";
 import { fitZoom, pinchView, pinchZoom, zoomLens } from "../../board/zoom";
 import { useWs } from "../context";
+import { drawnIndex } from "../flows";
 import FlowStrip from "../FlowStrip";
 import Canvas from "./Canvas";
 import { type GraphAction, initialGraph, reduceGraph } from "./reducer";
@@ -13,8 +15,13 @@ interface Props {
   board: Board;
   /** Whose saved layout and moves: "12.S1", "12.C3", "12". */
   prefKey: string;
+  /** The selected flow among `flows`. */
   flowIndex: number;
   onFlow: (i: number) => void;
+  /** The flows the address numbers (a story's, as its Steps list them); the board's own by default. A flow the board
+   * leaves out says so, with a link to `stepsHref`. */
+  flows?: BoardFlow[];
+  stepsHref?: string;
   /** A story graph (change stories §3.1): opens whole, no lens, quiet field lines; "+N more" calls `onMore`. */
   quiet?: boolean;
   onMore?: () => void;
@@ -25,8 +32,10 @@ interface Props {
 
 /** A graph in the centre (spec 2026-10-04-review-workspace §5: Board.tsx rebuilt as canvas, flow strip and toolbar).
  * A node click opens its code in the detail panel and a second click closes it; "+N callers" opens Neighbours. */
-export default function GraphView({ board, prefKey, flowIndex, onFlow, quiet, onMore, onHome, homeName }: Props) {
+export default function GraphView({ board, prefKey, flowIndex, onFlow, flows, stepsHref, quiet, onMore, onHome, homeName }: Props) {
   const ws = useWs(), phone = ws.screen === "phone";
+  const numbered = flows ?? board.flows, at = drawnIndex(numbered, flowIndex, board.flows);
+  const drawn = at < 0 ? undefined : board.flows[at];
   const [state, dispatch] = useReducer(reduceGraph, undefined, () => {
     const s = initialGraph(quiet ? 0 : loadLens(), loadMovedAll(prefKey), loadLayout(prefKey) ?? (preferDepth(board) ? "depth" : "layers"));
     return board.flows.length ? s : { ...s, mode: "graph" as const };
@@ -83,8 +92,7 @@ export default function GraphView({ board, prefKey, flowIndex, onFlow, quiet, on
       setVp({ W, H });
       if (first && W) {
         first = false;
-        const f = board.flows[flowIndex];
-        const ids = stateRef.current.mode === "flows" && f && !quiet ? f.path : board.nodes.map((n) => n.id);
+        const ids = stateRef.current.mode === "flows" && drawn && !quiet ? drawn.path : board.nodes.map((n) => n.id);
         const t = centrePan(ids, worldRef.current, W, H);
         if (t) dispatch({ t: "pan", ...t });
         if (quiet || phone) setZoom(fitZoom([...worldRef.current.values()], { W, H }));
@@ -98,8 +106,8 @@ export default function GraphView({ board, prefKey, flowIndex, onFlow, quiet, on
   useEffect(() => {
     if (shownFlow.current === flowIndex) return;
     shownFlow.current = flowIndex;
-    if (board.flows[flowIndex]) { dispatch({ t: "mode", mode: "flows" }); panTo(board.flows[flowIndex].path); }
-  }, [flowIndex, board, panTo]);
+    if (drawn) { dispatch({ t: "mode", mode: "flows" }); panTo(drawn.path); }
+  }, [flowIndex, drawn, panTo]);
   const centred = useRef<string | null>(null);           // a node opened from elsewhere (a link, a finding): centre it once
   useEffect(() => {
     if (!selected || selected === centred.current || !vp.W) return;
@@ -111,14 +119,14 @@ export default function GraphView({ board, prefKey, flowIndex, onFlow, quiet, on
   useEffect(() => {
     if (relaid.current === state.layout) return;
     relaid.current = state.layout;
-    panTo(state.mode === "graph" ? board.nodes.map((n) => n.id) : board.flows[flowIndex]?.path ?? []);
-  }, [state.layout, state.mode, flowIndex, board, panTo]);
+    panTo(state.mode === "graph" ? board.nodes.map((n) => n.id) : drawn?.path ?? []);
+  }, [state.layout, state.mode, drawn, board, panTo]);
 
   const act = useCallback((a: GraphAction) => dispatch(a), []);
   const setLayout = (layout: "layers" | "depth") => { if (layout !== state.layout) { save(keys.layout(prefKey), layout); act({ t: "layout", layout }); } };
   const setMode = (mode: "flows" | "graph") => {
     act({ t: "mode", mode });
-    panTo(mode === "graph" ? board.nodes.map((n) => n.id) : board.flows[flowIndex]?.path ?? []);
+    panTo(mode === "graph" ? board.nodes.map((n) => n.id) : drawn?.path ?? []);
   };
   const onSelect = (id: string) => ws.go(ws.opened(id === selected ? null : { node: id }));
   const onNeighbours = (id: string) => ws.go(ws.opened({ node: id }, "neighbours"));
@@ -143,13 +151,15 @@ export default function GraphView({ board, prefKey, flowIndex, onFlow, quiet, on
 
   return (
     <div className="ws-graph">
-      {board.flows.length > 0 && (
-        <FlowStrip board={board} flows={board.flows} index={flowIndex} steps onFlow={(i) => { onFlow(i); }} />
+      {numbered.length > 0 && (
+        <FlowStrip board={board} flows={numbered} index={flowIndex} steps onFlow={(i) => { onFlow(i); }}
+                   note={!drawn && <>This flow is too long to draw here.{" "}
+                     {stepsHref && <Link to={stepsHref} replace>See it in Steps</Link>}</>} />
       )}
       <div className="bd-stage" ref={setStage}>
         {vp.W > 0 && (
           <Canvas board={board} lens={lens} pos={pos} vp={vp} bands={bands} state={state} dispatch={act} panBy={panBy}
-                  flow={state.mode === "flows" ? board.flows[flowIndex] : undefined} selected={selected} lit={lit}
+                  flow={state.mode === "flows" ? drawn : undefined} selected={selected} lit={lit}
                   onSelect={onSelect} onNeighbours={onNeighbours} onHome={onHome} homeName={homeName} quiet={quiet} onMore={onMore}
                   touch={phone ? { onPinchStart, onPinch } : undefined} />
         )}
