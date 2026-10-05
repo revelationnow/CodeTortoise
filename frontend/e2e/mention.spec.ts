@@ -43,6 +43,38 @@ test.describe("with an AI", () => {
     await expect(reply.getByRole("button", { name: "edit" })).toHaveCount(0);   // tortoise replies can't be edited
   });
 
+  test("Ask… on an explain button puts the question to tortoise in a thread on that finding, story, flow or file", async ({ page }) => {
+    const base = await startReview(page);
+    const ask = async (where: Locator, question: string) => {
+      await where.getByRole("button", { name: "Ask…" }).first().click();
+      await where.getByLabel("What should the AI explain?").fill(question);
+      await where.getByRole("button", { name: "Ask", exact: true }).click();
+    };
+    const answer = "logger_flush drops the -2 that uart_send now returns.";
+
+    await page.goto(`${base}/f/F1`);
+    const finding = page.locator(".ws-finding");
+    await ask(finding.locator("#ws-ai").locator(".."), "why is this risky for the logger?");
+    await expect(finding.locator(".comment", { hasText: "@tortoise why is this risky for the logger?" })).toBeVisible();
+    await expect(finding.locator(".comment.ai")).toContainText(answer, { timeout: 30_000 });
+
+    await page.goto(`${base}/s/S1`);
+    await ask(page.locator(".ws-story-head"), "what does this story change for callers?");
+    const talk = page.getByRole("region", { name: "Questions and comments" });
+    await expect(talk.locator(".comment", { hasText: "what does this story change for callers?" })).toBeVisible();
+    await expect(talk.locator(".comment.ai")).toContainText(answer, { timeout: 30_000 });
+
+    const strip = page.getByRole("region", { name: "Flow" });
+    await strip.getByRole("button", { name: "Next flow" }).click();          // flow 1's text is the story's summary
+    await ask(strip, "is the new writer safe?");
+    await expect(strip.locator(".comment.ai")).toContainText(answer, { timeout: 30_000 });
+
+    await page.goto(`${base}?open=${encodeURIComponent("file://fixture/driver/uart.c")}`);
+    const file = page.getByRole("complementary", { name: "Code: uart.c" });
+    await ask(file.locator(".ws-file-tools"), "what changed in error handling?");
+    await expect(file.locator(".ws-file-talk .comment.ai")).toContainText(answer, { timeout: 30_000 });
+  });
+
   test("when the review's budget is spent, tortoise says so and the owner can raise it from the reply", async ({ page }) => {
     await startReview(page);
     await page.getByRole("button", { name: /^AI \d+\/200$/ }).click();

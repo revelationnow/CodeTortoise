@@ -6,6 +6,7 @@ import { expandRange, foldRuns, type Range, revealRange } from "../board/fold";
 import { keys, loadViewerView, save, type ViewerView } from "../board/prefs";
 import type { Annotation } from "../board/types";
 import { isChange, useEnsureSource } from "../board/useSources";
+import Comments from "../components/Comments";
 import Explain, { FileSummaryView } from "../components/Explain";
 import { useAi } from "../lib/ai";
 import { onLine } from "../lib/anchors";
@@ -67,7 +68,7 @@ export default function FileDiff({ path, line, anns, cl: firstCl = null, wide }:
         {change?.base_rev && <span className="muted small">base {change.base_rev}</span>}
         {counts && <span className="cnt"><span className="p">+{counts[0]}</span> <span className="m">−{counts[1]}</span></span>}
         <span className="sp" />
-        {change && <Explain kind="file" target={path} label="Summarise" has={!!summarised} />}
+        {change && <Explain kind="file" target={path} label="Summarise" has={!!summarised} ask={{ kind: "file", anchor: { path }, onAsked: d.loadComments }} />}
         {change && cls.length > 0 && (
           <select aria-label="Changelist" value={cl === null ? "all" : String(cl)}
                   onChange={(e) => setCl(e.target.value === "all" ? null : Number(e.target.value))}>
@@ -94,6 +95,9 @@ export default function FileDiff({ path, line, anns, cl: firstCl = null, wide }:
         )}
       </div>
       {change && <FileSummaryView path={path} />}
+      <div className="ws-file-talk">
+        <Comments reviewId={d.id} comments={d.comments} kind="file" anchor={{ path }} onChange={d.loadComments} compact />
+      </div>
       {lines ? (
         <CodeView reviewId={d.id} path={path} lines={lines} mode={change ? mode : "unified"} anns={anns} comments={d.comments}
                   onComments={d.loadComments} focus={line} windowed cl={cl} runs={runs}

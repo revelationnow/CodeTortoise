@@ -40,6 +40,7 @@ export default function FindingPage({ fid }: { fid: string }) {
     return <Link key={nid} className="ws-name" to={ws.link(ws.opened({ node: nid }))} title={`Open ${label}'s code`}
                  aria-label={`Open ${label}'s code`}>{label}</Link>;
   };
+  const talk = { kind: "finding" as const, anchor: { kind: f.kind, title: f.title }, onAsked: d.loadComments };
   return (
     <div className="ws-page"><div className="ws-text ws-finding">
       <header className="ws-story-head">
@@ -71,10 +72,10 @@ export default function FindingPage({ fid }: { fid: string }) {
       </section>
       <section aria-labelledby="ws-ai">
         <h3 id="ws-ai">AI analysis</h3>
-        {f.explanation ? <p><span className="ai-label">AI</span><NameText text={f.explanation} /> <Explain kind="finding" target={f.id} has /></p>
+        {f.explanation ? <p><span className="ai-label">AI</span><NameText text={f.explanation} /> <Explain kind="finding" target={f.id} has ask={talk} /></p>
           : !ai?.view ? <p className="muted">Checking for AI analysis…</p>
           : !ai.view.llm ? <p className="muted">AI analysis unavailable.</p>
-          : <p className="muted">Not written yet. <Explain kind="finding" target={f.id} has={false} /></p>}
+          : <p className="muted">Not written yet. <Explain kind="finding" target={f.id} has={false} ask={talk} /></p>}
       </section>
       <section aria-labelledby="ws-ev">
         <h3 id="ws-ev">Evidence</h3>

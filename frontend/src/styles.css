@@ -196,6 +196,8 @@ button.go:disabled { opacity: .55; }
 .ai-label { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .05em; padding: 0 5px; margin-right: 5px;
   border-radius: 4px; background: #6d55e8; color: #fff; vertical-align: 1px; }
 .ai-ask { display: inline-flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+.ai-askq { display: flex; flex-basis: 100%; gap: 6px; align-items: flex-end; }
+.ai-askq textarea { flex: 1; min-width: 200px; font: 13px/1.4 var(--sans); }
 .ai-btn { font-size: 12px; padding: 1px 8px; border-radius: 99px; border: 1px solid #8f75ff; background: transparent; color: inherit;
   cursor: pointer; white-space: nowrap; }
 .ai-btn:hover:not(:disabled) { background: rgba(143,117,255,.15); } .ai-btn:disabled { opacity: .6; cursor: default; }

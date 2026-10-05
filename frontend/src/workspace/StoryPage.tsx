@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiError } from "../api";
 import type { StoryDetail } from "../board/types";
+import Comments from "../components/Comments";
 import Explain from "../components/Explain";
 import { countLine, stepStory } from "../stories/stories";
 import { useWs } from "./context";
@@ -59,7 +60,7 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
         )}
         <span className="ws-pos">{step(-1)}<span>{st.id} of {ss.stories.length}</span>{step(1)}</span>
       </div>
-      <p><NameText text={st.summary} /> {st.kind !== "mechanical" && <Explain kind="story" target={st.id} has={st.text_source === "llm"} />}</p>
+      <p><NameText text={st.summary} /> {st.kind !== "mechanical" && <Explain kind="story" target={st.id} has={st.text_source === "llm"} ask={{ kind: "story", anchor: { id: st.id }, onAsked: d.loadComments }} />}</p>
       <p className="ws-story-meta"><span className="muted">{countLine(st)}</span>
         {st.cls.map((c) => (
           <Link key={c} className="ws-chip" to={ws.link(ws.item({ kind: "cl", cl: c }))} title={`Open CL ${c}`} aria-label={`Open CL ${c}`}>CL {c}</Link>
@@ -88,6 +89,10 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
         <StorySteps detail={detail} flow={flows[index]} />
       </>}
       {at < 0 && <p className="muted">This story isn't in the list.</p>}
+      <section aria-labelledby="ws-talk" className="ws-talk">
+        <h3 id="ws-talk">Questions and comments</h3>
+        <Comments reviewId={d.id} comments={d.comments} kind="story" anchor={{ id: st.id }} onChange={d.loadComments} compact />
+      </section>
     </div></div>
   );
 }

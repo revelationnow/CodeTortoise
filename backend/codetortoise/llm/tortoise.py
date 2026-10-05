@@ -13,7 +13,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from codetortoise.board import Board
+from codetortoise import boardstore
+from codetortoise.board import Board, Flow
 from codetortoise.llm.ledger import Refused
 from codetortoise.llm.ondemand import context_for
 from codetortoise.llm.storyboard import STYLE, AiContext, _facts_for_nodes, _finding_text, budget
@@ -206,6 +207,41 @@ def _anchor_context(svc: Services, rid: int, comment: dict, ctx: AiContext, boar
             reader.files.update(f.files or [])
             out.append("FINDING:\n" + _finding_text(f) + "\n" + "\n".join(ctx.snippets.get(n, "") for n in f.nodes))
         return "\n\n".join(out)
+    if kind == "story":
+        d = boardstore.story(svc.store, rid, str(a.get("id")))
+        if d is None:
+            return ""
+        st = d.story
+        nodes = [n for n in st.nodes if n in im.nodes]
+        reader.ids.update(nodes)
+        reader.ids.update(st.findings)
+        live = {f.id: f for f in d.board.flows}
+        flows = [_flow_text(live[f]) for f in st.flows if f in live]
+        return (f"STORY {st.id}: {st.title}\n{st.summary}\n" + "\n".join(flows)
+                + "\nCHANGED FUNCTIONS:\n" + _facts_for_nodes(im, nodes) + "\n"
+                + "\n".join(ctx.snippets.get(n, "") for n in nodes))
+    if kind == "flow":
+        held = boardstore.with_flow(svc.store, rid, str(a.get("id")))
+        fl = next((f for f in held[1].flows if f.id == a.get("id")), None) if held else None
+        if fl is None:
+            return ""
+        path = [n for n in fl.path if n in im.nodes]
+        reader.ids.update(path)
+        reader.files.update(fl.files or [])
+        return _flow_text(fl) + "\nFUNCTIONS ON IT:\n" + _facts_for_nodes(im, path) + "\n" + "\n".join(
+            ctx.snippets.get(n, "") for n in path)
+    if kind == "file":
+        path = str(a.get("path") or "")
+        got = reader.text_of(depot=path) if path else None
+        nodes = [n.id for n in board.nodes if n.path == path and n.change and n.id in im.nodes]
+        reader.ids.update(nodes)
+        parts = []
+        if got:
+            reader.files.add(got[0])
+            parts.append(f"FILE {got[0]}:\n" + reader.lines(got[1], 1, 400))
+        if nodes:
+            parts.append("CHANGED FUNCTIONS IN IT:\n" + _facts_for_nodes(im, nodes))
+        return "\n\n".join(parts)
     if kind == "chapter":
         nodes = [n.id for n in board.nodes if n.layer == a.get("level") and n.id in im.nodes]
         reader.ids.update(nodes)
@@ -214,6 +250,10 @@ def _anchor_context(svc: Services, rid: int, comment: dict, ctx: AiContext, boar
     finds = "\n".join(f"{f.id} [{f.severity}] {f.title}" for f in ctx.findings)
     reader.ids.update(f.id for f in ctx.findings)
     return f"CHANGE: {board.about.intent}\nFLOWS:\n{flows}\nFINDINGS:\n{finds}"
+
+
+def _flow_text(fl: Flow) -> str:
+    return f"FLOW {fl.id}: {fl.title}\n{fl.what}\neffect: {fl.effect}\ncheck: {fl.check}"
 
 
 def _fit(convo: list[str], max_tokens: int) -> str:
