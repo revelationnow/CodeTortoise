@@ -39,6 +39,18 @@ test.describe("desktop", () => {
     await expectNoNodeIds(page);
   });
 
+  test("the diff colours added lines, highlights code and fills annotations, outside any graph", async ({ page }) => {
+    await startReview(page);
+    await page.locator(".ws-rail").getByRole("button", { name: /Files/ }).click();
+    await page.locator(".ws-rail").getByRole("link", { name: "Open uart.c's diff" }).click();
+    const file = page.getByRole("complementary", { name: "Code: uart.c" });
+    const css = (sel: string, prop: string) => file.locator(sel).first().evaluate((e, p) => getComputedStyle(e).getPropertyValue(p), prop);
+    const clear = "rgba(0, 0, 0, 0)";
+    expect(await css(".bd-ln.a", "background-color")).not.toBe(clear);
+    expect(await css(".bd-ann", "background-color")).not.toBe(clear);
+    expect(await css(".hl-kw", "color")).not.toBe(await css(".bd-ln", "color"));
+  });
+
   test("a line comment in a file's diff shows in that function's code", async ({ page }) => {
     const base = await startReview(page);
     await page.locator(".ws-rail").getByRole("button", { name: /Files/ }).click();

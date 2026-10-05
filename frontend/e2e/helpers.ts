@@ -43,3 +43,23 @@ export async function flowStripHolds(page: Page) {
     expect((await next.boundingBox())!.x).toBe(at);
   }
 }
+
+/** WCAG contrast ratio between an element's text colour and the first opaque background behind it. */
+export async function contrast(page: Page, selector: string) {
+  return page.locator(selector).first().evaluate((el) => {
+    // rgb(0-255…) or, for color-mix() backgrounds, color(srgb 0-1…)
+    const rgb = (c: string) => (c.match(/[\d.]+/g) ?? []).map(Number).map((v, i) => c.startsWith("color(") && i < 3 ? v * 255 : v);
+    const lum = ([r, g, b]: number[]) => {
+      const f = (v: number) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+    };
+    let bgEl: Element | null = el, bg = "";
+    while (bgEl) {
+      const c = getComputedStyle(bgEl).backgroundColor, a = rgb(c)[3];
+      if (c && c !== "transparent" && (a === undefined || a > 0.9)) { bg = c; break; }
+      bgEl = bgEl.parentElement;
+    }
+    const fg = lum(rgb(getComputedStyle(el).color)), b = lum(rgb(bg || "rgb(255,255,255)"));
+    return (Math.max(fg, b) + 0.05) / (Math.min(fg, b) + 0.05);
+  });
+}

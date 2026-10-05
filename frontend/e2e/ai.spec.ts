@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { login, startReview } from "./helpers";
+import { contrast, login, startReview } from "./helpers";
 
 const AI = "http://127.0.0.1:8798";      // e2e/serve-ai.sh: CodeTortoise with the fake model in e2e/fake_llm.py
 
@@ -59,6 +59,7 @@ test.describe("with an AI", () => {
   test("the owner raises the budget from the AI pill; a reviewer sees the usage without the control", async ({ page, browser }) => {
     await startReview(page);
     const pill = page.getByRole("button", { name: /^AI \d+\/200$/ });
+    expect(await contrast(page, ".ws-head .ai-pill")).toBeGreaterThanOrEqual(4.5);   // readable on the light head
     await pill.click();
     const usage = page.getByRole("dialog", { name: "AI usage" });
     await expect(usage).toContainText("By purpose: finding 1 · flow 1 · summary 1");

@@ -142,7 +142,7 @@ export default function GraphView({ board, prefKey, flowIndex, onFlow, quiet, on
   }, []);
 
   return (
-    <div className="bd ws-graph">
+    <div className="ws-graph">
       {board.flows.length > 0 && (
         <FlowStrip board={board} flows={board.flows} index={flowIndex} steps onFlow={(i) => { onFlow(i); }} />
       )}
