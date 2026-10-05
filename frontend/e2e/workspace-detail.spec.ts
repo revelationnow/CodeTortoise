@@ -61,3 +61,28 @@ test.describe("phone", () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
   });
 });
+
+test.describe("neighbours", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("callers and callees; a row moves the panel and Back returns", async ({ page }) => {
+    const base = await startWorkspace(page);
+    const names = await page.evaluate(async (b) => (await fetch(`/api/reviews/${b.split("/")[2]}/names`)).json(), base);
+    const send = Object.entries(names as Record<string, { label: string }>).find(([, n]) => n.label === "uart_send")![0];
+    await page.goto(`${base}?open=${send}`);
+    await page.getByRole("tab", { name: "Neighbours" }).click();
+    await expect(page).toHaveURL(new RegExp(`open=${send}&tab=neighbours$`));
+    const callers = page.getByRole("region", { name: "Callers" });
+    await expect(callers.getByRole("link", { name: "Open logger_flush's neighbours" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "This function" })).toContainText("uart_send");
+    await callers.getByRole("link", { name: "Open logger_flush's neighbours" }).click();
+    await expect(page.getByRole("region", { name: "This function" })).toContainText("logger_flush");
+    await expect(page.getByRole("region", { name: "Callees" })).toContainText("uart_send");
+    await page.goBack();
+    await expect(page.getByRole("region", { name: "This function" })).toContainText("uart_send");
+    await page.getByRole("tab", { name: "Diff" }).click();
+    await expect(page.locator(".ws-detail .bd-code")).toBeVisible();
+    await expectNoNodeIds(page);
+    await expectNamed(page);
+  });
+});

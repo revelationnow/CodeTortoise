@@ -123,3 +123,16 @@ a.ov-block { display: block; color: var(--ink); text-decoration: none; }
 @media (max-width: 640px) {
   .ws.phone .ws-detail { width: 100%; max-width: none; border-left: 0; }
 }
+.ws-tabs { display: flex; gap: 2px; margin-top: 4px; }
+.ws-tabs a { padding: 4px 12px; border-radius: 6px 6px 0 0; text-decoration: none; color: var(--muted); border-bottom: 2px solid transparent; }
+.ws-tabs a.on { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+.ws-nbs { display: grid; grid-template-columns: 1fr minmax(140px, .7fr) 1fr; gap: 12px; align-items: start; }
+.ws-nb-col h3 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.ws-nb-col ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.ws-nb { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px;
+  text-decoration: none; color: var(--ink); background: var(--bg); }
+a.ws-nb:hover { border-color: var(--accent); }
+.ws-nb.test { opacity: .75; }
+.ws-nb.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+.ws-nb-col.me { position: sticky; top: 0; }
+@media (max-width: 640px) { .ws-nbs { grid-template-columns: 1fr; } .ws-nb-col.me { position: static; order: -1; } }
