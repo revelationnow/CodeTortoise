@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useMe } from "../App";
-import "../board/board.css";
 import { driftSummary } from "../board/drift";
 import AiPill from "../components/AiPill";
 import { useSources } from "../board/useSources";
