@@ -59,6 +59,35 @@ test.describe("desktop", () => {
     await page.getByRole("link", { name: "Whole change" }).last().click();
     await expect(page).toHaveURL(new RegExp(`${base}$`));
   });
+
+  test("the rail keeps its closed sections and its width across a reload", async ({ page }) => {
+    await startReview(page);
+    const rail = page.locator(".ws-rail");
+    await rail.getByRole("button", { name: /^Findings/ }).click();
+    await expect(rail.getByRole("button", { name: /^Findings/ })).toHaveAttribute("aria-expanded", "false");
+    const grip = rail.locator(".bd-resizer");
+    const g = (await grip.boundingBox())!, w = (await rail.boundingBox())!.width;
+    await page.mouse.move(g.x + g.width / 2, g.y + 200);
+    await page.mouse.down();
+    await page.mouse.move(g.x + g.width / 2 + 80, g.y + 200, { steps: 5 });
+    await page.mouse.up();
+    await expect.poll(async () => (await rail.boundingBox())!.width).toBeGreaterThan(w + 60);
+    const wider = (await rail.boundingBox())!.width;
+    await page.reload();
+    await expect(rail.getByRole("button", { name: /^Findings/ })).toHaveAttribute("aria-expanded", "false");
+    await expect(rail.getByRole("button", { name: /^Stories/ })).toHaveAttribute("aria-expanded", "true");
+    expect(Math.abs((await rail.boundingBox())!.width - wider)).toBeLessThan(2);
+  });
+
+  test("Back from a review that does not exist shows the review before it", async ({ page }) => {
+    const base = await startReview(page);
+    const title = await page.locator(".ws-head h1").innerText();
+    await page.evaluate(() => { history.pushState(null, "", "/r/999999"); dispatchEvent(new PopStateEvent("popstate")); });
+    await expect(page.locator("main.page.error")).toBeVisible();
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp(`${base}$`));
+    await expect(page.locator(".ws-head h1")).toHaveText(title);
+  });
 });
 
 test.describe("tablet", () => {
@@ -73,6 +102,17 @@ test.describe("tablet", () => {
     await rail.getByRole("link", { name: /^Go to story S2/ }).click();
     await expect(page).toHaveURL(/\/s\/S2$/);
     await expect(rail).not.toBeInViewport();
+  });
+
+  test("the closed drawer is out of the keyboard's way", async ({ page }) => {
+    await startReview(page);
+    const menu = page.getByRole("button", { name: "Review contents" });
+    const inRail = () => page.evaluate(() => !!document.activeElement?.closest(".ws-rail"));
+    await menu.focus();
+    for (let i = 0; i < 4; i++) { await page.keyboard.press("Tab"); expect(await inRail()).toBe(false); }
+    await menu.click();
+    await page.locator(".ws-rail").getByRole("link", { name: "Go to the whole change" }).focus();
+    expect(await inRail()).toBe(true);
   });
 });
 
@@ -93,6 +133,13 @@ test.describe("phone", () => {
     await expect(page).toHaveURL(new RegExp(`${base}#stories$`));
     await expect(page.locator(".ws-rail")).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+  });
+
+  test("#map opens the whole change at its map, not the rail", async ({ page }) => {
+    const base = await startReview(page);
+    await page.goto(`${base}#map`);
+    await expect(page.getByRole("region", { name: "The map" })).toBeInViewport();
+    await expect(page.locator(".ws-rail")).toHaveCount(0);
   });
 });
 

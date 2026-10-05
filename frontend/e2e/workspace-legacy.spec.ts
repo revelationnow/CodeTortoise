@@ -46,5 +46,15 @@ test.describe("a large change", () => {
     await page.goto(`${base}?node=${nid}`);
     await expect(page).toHaveURL(new RegExp(`/c/${part.id}\\?open=${nid}$`));
     await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toContainText(part.name);
+
+    // a reader who leaves before the server answers stays where they went
+    await page.route(`**/api/reviews/${rid}/locate**`, async (r) => { await new Promise((ok) => setTimeout(ok, 1500)); await r.continue(); });
+    await page.goto(base);
+    await expect(page.getByRole("region", { name: "The map" })).toBeVisible();
+    await page.evaluate((u) => { history.pushState(null, "", u); dispatchEvent(new PopStateEvent("popstate")); }, `${base}?node=${nid}`);
+    await expect(page.locator("main.page")).toContainText("Loading");
+    await page.goBack();
+    await page.waitForTimeout(2500);
+    await expect(page).toHaveURL(new RegExp(`${base}$`));
   });
 });

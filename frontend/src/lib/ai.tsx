@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, type AiJob, type AiKind, type AiView } from "../api";
 import { finished } from "./aiState";
 import { pollLoop } from "./poll";
@@ -54,5 +54,6 @@ export function useAiState(reviewId: number, enabled: boolean, people: string[],
     }
     await refresh();
   }, [reviewId, refresh]);
-  return { reviewId, view, people, asked, explain, refresh, usageOpen, setUsageOpen };
+  return useMemo(() => ({ reviewId, view, people, asked, explain, refresh, usageOpen, setUsageOpen }),
+                 [reviewId, view, people, asked, explain, refresh, usageOpen]);
 }

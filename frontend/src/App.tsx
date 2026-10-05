@@ -9,6 +9,13 @@ import Login from "./pages/Login";
 import Reviews from "./pages/Reviews";
 import Workspace from "./workspace/Workspace";
 
+/** One workspace per review: moving to another review starts it afresh, so nothing of the last one (an error, its
+ * memory, a late answer) carries over. */
+function ReviewRoute() {
+  const { id } = useParams();
+  return <Workspace key={id} />;
+}
+
 /** `/w/` was the workspace's address while it was built; it is `/r/` now. */
 function ToReview() {
   const { id, "*": rest } = useParams(), { search, hash } = useLocation();
@@ -58,7 +65,7 @@ export default function App() {
         <Route path="/" element={<Reviews />} />
         <Route path="/new" element={<Navigate to="/" replace />} />
         <Route path="/health" element={<Health />} />
-        <Route path="/r/:id/*" element={<Workspace />} />
+        <Route path="/r/:id/*" element={<ReviewRoute />} />
         <Route path="/w/:id/*" element={<ToReview />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

@@ -20,7 +20,7 @@ function loadOpen(): Record<Section, boolean> {
 
 /** The rail (spec 2026-10-04-review-workspace §2.2): everything in the review, the stories visibly drawn from the change
  * set. `show` names a section to open and scroll to (an address's #stories). */
-export default function Rail({ show, onPick }: { show: string | null; onPick: () => void }) {
+export default function Rail({ show, onPick, hidden = false }: { show: string | null; onPick: () => void; hidden?: boolean }) {
   const ws = useWs(), d = ws.data;
   const [open, setOpen] = useState(loadOpen);
   const [width, setWidth] = useState(() => Math.min(600, Math.max(200, loadWidth(keys.railW, 280))));
@@ -72,7 +72,7 @@ export default function Rail({ show, onPick }: { show: string | null; onPick: ()
   const shown = ws.addr.open && "file" in ws.addr.open ? ws.addr.open.file : null;
 
   return (
-    <aside className="ws-rail" ref={box} style={{ ["--w" as string]: `${width}px` }} aria-label="Review contents">
+    <aside className="ws-rail" ref={box} style={{ ["--w" as string]: `${width}px` }} aria-label="Review contents" inert={hidden}>
       <Resizer size={width} edge="right" min={200} max={() => 600} onSize={setWidth} onDone={(w) => save(keys.railW, w)} />
       <Link to={ws.base} state={{ page: true }} className="ws-row ws-home" aria-current={here({ kind: "whole" })}
             title="Go to the whole change" aria-label="Go to the whole change" onClick={onPick}>
