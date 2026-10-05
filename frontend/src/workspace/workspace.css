@@ -216,3 +216,4 @@ a.ws-chip { text-decoration: none; }
 .ws-evidence { padding-left: 18px; } .ws-evidence li { margin: 3px 0; }
 .ws-evidence .sev-high::marker, .ws-evidence .sev-medium::marker { color: var(--bad); }
 .ws-badge.state-ack { color: var(--warn); } .ws-badge.state-dismissed { color: var(--muted); }
+.ws-desc { white-space: pre-wrap; font: 13px/1.5 var(--sans); color: var(--muted); margin: 8px 0 0; }

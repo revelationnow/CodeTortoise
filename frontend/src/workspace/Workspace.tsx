@@ -15,6 +15,7 @@ import Detail from "./Detail";
 import { type Crumb, crumbs } from "./crumbs";
 import { useScreen } from "./media";
 import { loadMemory, recall, remember, saveMemory } from "./memory";
+import ClPage from "./ClPage";
 import FindingPage from "./FindingPage";
 import Rail from "./Rail";
 import StoryPage from "./StoryPage";
@@ -124,6 +125,7 @@ function Centre() {
   if (p.kind === "whole") return <WholePage />;
   if (p.kind === "story") return <StoryPage key={p.sid} sid={p.sid} view={p.view} />;
   if (p.kind === "finding") return <FindingPage key={p.fid} fid={p.fid} />;
+  if (p.kind === "cl") return <ClPage key={p.cl} cl={p.cl} />;
   return <div className="ws-page"><p className="muted">This page is built in a later step.</p></div>;
 }
 
