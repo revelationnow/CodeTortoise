@@ -45,3 +45,16 @@ export async function expectNamed(page: Page) {
        .map((e) => e.outerHTML.slice(0, 120)));
   expect(unnamed).toEqual([]);
 }
+
+/** The flow strip's ‹ › keep their place across flows and its row never scrolls sideways (spec §3.6, §8). */
+export async function flowStripHolds(page: Page) {
+  const strip = page.getByRole("region", { name: "Flow" });
+  const next = strip.getByRole("button", { name: "Next flow" });
+  const at = (await next.boundingBox())!.x;
+  const row = strip.locator(".ws-flow-row");
+  for (let i = 0; i < 3; i++) {
+    expect(await row.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+    await next.click();
+    expect((await next.boundingBox())!.x).toBe(at);
+  }
+}
