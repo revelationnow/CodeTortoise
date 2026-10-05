@@ -30,7 +30,8 @@ export default function FileDiff({ path, line, anns, cl: firstCl = null, wide }:
   const cls = change ? [...new Set(change.per_cl.map((c) => c.cl))] : [];
   const [cl, setCl] = useState<number | null>(firstCl !== null && cls.includes(firstCl) ? firstCl : null);
   const [view, setView] = useState<ViewerView>(loadViewerView);
-  const [mode, setMode] = useState<"unified" | "split">(wide ? "split" : "unified");
+  const [chosen, setMode] = useState<"unified" | "split" | null>(null);      // until the reader picks, the panel's width does
+  const mode = chosen ?? (wide ? "split" : "unified");
   const [shown, setShown] = useState<Range[]>([]);
   const box = useRef<HTMLDivElement>(null);
   const step = change && cl !== null ? change.per_cl.find((x) => x.cl === cl) ?? null : null;
