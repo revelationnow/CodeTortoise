@@ -21,7 +21,7 @@ export function short(text: string, n = 46): string {
   return `${t.slice(0, cut > 0 ? cut : n - 1)}…`;
 }
 
-const MISSING: Crumb = { label: "Not found", to: null };
+const missing = (): Crumb => ({ label: "Not found", to: null });
 
 export function crumbs(place: Place, c: CrumbContext): Crumb[] {
   const home = { label: c.title, to: c.base };
@@ -30,7 +30,7 @@ export function crumbs(place: Place, c: CrumbContext): Crumb[] {
   switch (place.kind) {
     case "story": {
       const st = c.stories.find((s) => s.id === place.sid);
-      if (!st) return [home, section("Stories", "stories"), MISSING];
+      if (!st) return [home, section("Stories", "stories"), missing()];
       const graph = place.view === "graph";
       const me: Crumb = { label: short(st.title), handle: st.id,
                           to: graph ? href(c.base, { place: { ...place, view: "steps" }, flow: null, open: null, tab: "diff" }) : null };
@@ -38,19 +38,19 @@ export function crumbs(place: Place, c: CrumbContext): Crumb[] {
     }
     case "finding": {
       const f = c.findings.find((x) => x.id === place.fid);
-      return [home, section("Findings", "findings"), f ? { label: short(f.title), handle: f.id, to: null } : MISSING];
+      return [home, section("Findings", "findings"), f ? { label: short(f.title), handle: f.id, to: null } : missing()];
     }
     case "cl": {
       const cl = c.cls.find((x) => x.cl === place.cl);
       const first = cl?.description?.trim().split("\n")[0];
       return [home, section("Change set", "changeset"),
-              cl ? { label: short(`CL ${cl.cl}${first ? ` · ${first}` : ""}`), to: null } : MISSING];
+              cl ? { label: short(`CL ${cl.cl}${first ? ` · ${first}` : ""}`), to: null } : missing()];
     }
     case "cluster": {
       const k = c.clusters.find((x) => x.id === place.cid);
-      return [home, section("Map", "map"), k ? { label: short(k.name), to: null } : MISSING];
+      return [home, section("Map", "map"), k ? { label: short(k.name), to: null } : missing()];
     }
     case "unknown":
-      return [home, MISSING];
+      return [home, missing()];
   }
 }

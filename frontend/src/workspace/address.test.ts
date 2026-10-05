@@ -19,6 +19,7 @@ describe("readAddress", () => {
     expect([a.flow, a.open, a.tab]).toEqual([2, { node: "N9" }, "neighbours"]);
     expect(readAddress("", q("open=file://fixture/driver/uart.c:17")).open).toEqual({ file: "//fixture/driver/uart.c", line: 17 });
     expect(readAddress("", q("open=file://fixture/driver/uart.c")).open).toEqual({ file: "//fixture/driver/uart.c", line: null });
+    expect(readAddress("", q("open=file://d/a.c:0")).open).toEqual({ file: "//d/a.c", line: null });   // lines start at 1
   });
 
   it("falls back on anything it cannot read", () => {

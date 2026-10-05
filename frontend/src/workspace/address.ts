@@ -37,7 +37,7 @@ function readOpen(raw: string | null): Open {
   if (!raw) return null;
   if (!raw.startsWith("file:")) return { node: raw };
   const m = /^(.+?)(?::(\d+))?$/.exec(raw.slice(5));
-  return m ? { file: m[1], line: m[2] ? Number(m[2]) : null } : null;
+  return m ? { file: m[1], line: m[2] && Number(m[2]) > 0 ? Number(m[2]) : null } : null;
 }
 
 /** The address of `path` (what follows `/r/:id`) and its query. */
@@ -51,9 +51,16 @@ export function readAddress(path: string, q: URLSearchParams): Address {
   };
 }
 
-const placePath = (p: Place): string =>
-  p.kind === "story" ? `/s/${p.sid}` : p.kind === "finding" ? `/f/${p.fid}` : p.kind === "cl" ? `/cl/${p.cl}`
-    : p.kind === "cluster" ? `/c/${p.cid}` : p.kind === "unknown" ? p.path : "";
+function placePath(p: Place): string {
+  switch (p.kind) {
+    case "whole": return "";
+    case "story": return `/s/${p.sid}`;
+    case "finding": return `/f/${p.fid}`;
+    case "cl": return `/cl/${p.cl}`;
+    case "cluster": return `/c/${p.cid}`;
+    case "unknown": return p.path;
+  }
+}
 
 /** The link to `a` under `base` ("/r/7"), defaults left out. */
 export function href(base: string, a: Address): string {
@@ -66,9 +73,16 @@ export function href(base: string, a: Address): string {
 }
 
 /** One key per item, whatever its view: "s:S1", "f:F2", "whole". */
-export const placeKey = (p: Place): string =>
-  p.kind === "story" ? `s:${p.sid}` : p.kind === "finding" ? `f:${p.fid}` : p.kind === "cl" ? `cl:${p.cl}`
-    : p.kind === "cluster" ? `c:${p.cid}` : p.kind === "unknown" ? `?:${p.path}` : "whole";
+export function placeKey(p: Place): string {
+  switch (p.kind) {
+    case "whole": return "whole";
+    case "story": return `s:${p.sid}`;
+    case "finding": return `f:${p.fid}`;
+    case "cl": return `cl:${p.cl}`;
+    case "cluster": return `c:${p.cid}`;
+    case "unknown": return `?:${p.path}`;
+  }
+}
 
 export const samePlace = (a: Place, b: Place) => placeKey(a) === placeKey(b);
 

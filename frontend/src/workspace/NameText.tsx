@@ -9,7 +9,7 @@ export default function NameText({ text }: { text: string }) {
   const ws = useWs();
   return (
     <>
-      {nameParts(text, ws.data.names).map((p, i) => {
+      {nameParts(text, ws.data.names, ws.data.findings.map((f) => f.id)).map((p, i) => {
         if ("text" in p) return <Fragment key={i}>{p.text}</Fragment>;
         if ("code" in p) return <code key={i}>{p.code}</code>;
         if ("node" in p)
