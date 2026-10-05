@@ -37,9 +37,27 @@ describe("the breadcrumb", () => {
       { label: "Map", to: "/r/7#map" }, { label: "driver/uart", to: null }]);
   });
 
-  it("says when the item does not exist", () => {
-    expect(crumbs({ kind: "story", sid: "S9", view: "steps" }, ctx).at(-1)).toEqual({ label: "Not found", to: null });
-    expect(crumbs({ kind: "unknown", path: "/x" }, ctx).at(-1)).toEqual({ label: "Not found", to: null });
+  it("names a changelist without a description by number, and cuts a long one", () => {
+    const c = { ...ctx, cls: [{ cl: 5, description: null }, { cl: 6, description: "  \n" },
+                              { cl: 7, description: "uart: count tx stats, rx stats, framing errors and parity errors per port" }] };
+    expect(crumbs({ kind: "cl", cl: 5 }, c).at(-1)).toEqual({ label: "CL 5", to: null });
+    expect(crumbs({ kind: "cl", cl: 6 }, c).at(-1)).toEqual({ label: "CL 6", to: null });
+    expect(crumbs({ kind: "cl", cl: 7 }, c).at(-1)).toEqual({ label: "CL 7 · uart: count tx stats, rx stats,…", to: null });
+  });
+
+  it("says when the item does not exist, under its section", () => {
+    const missing = { label: "Not found", to: null };
+    expect(crumbs({ kind: "story", sid: "S9", view: "steps" }, ctx).slice(1)).toEqual([{ label: "Stories", to: "/r/7#stories" }, missing]);
+    expect(crumbs({ kind: "finding", fid: "F9" }, ctx).slice(1)).toEqual([{ label: "Findings", to: "/r/7#findings" }, missing]);
+    expect(crumbs({ kind: "cl", cl: 999 }, ctx).slice(1)).toEqual([{ label: "Change set", to: "/r/7#changeset" }, missing]);
+    expect(crumbs({ kind: "cluster", cid: "C9" }, ctx).slice(1)).toEqual([{ label: "Map", to: "/r/7#map" }, missing]);
+    expect(crumbs({ kind: "unknown", path: "/x" }, ctx).at(-1)).toEqual(missing);
+  });
+
+  it("hands out a crumb the caller may change without changing the next one", () => {
+    const a = crumbs({ kind: "unknown", path: "/x" }, ctx).at(-1)!;
+    a.label = "changed";
+    expect(crumbs({ kind: "unknown", path: "/y" }, ctx).at(-1)).toEqual({ label: "Not found", to: null });
   });
 });
 
