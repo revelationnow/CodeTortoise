@@ -1,6 +1,7 @@
 import { Fragment, memo, useMemo, useState } from "react";
 import type { Comment } from "../api";
 import Comments from "../components/Comments";
+import FoldButton from "../components/FoldButton";
 import { lineAnchor, onLine } from "../lib/anchors";
 import { codeItems, lineKey, type Line, type Side, WINDOW, windowAround } from "./codeRows";
 import { type Run, STEP } from "./fold";
@@ -60,16 +61,17 @@ function CodeView({ reviewId, path, lines, mode, anns, comments, onComments, foc
     <div className="bd-code">
       {win.start > 0 && (
         <div className="bd-more-lines">
-          ⋯ {win.start} lines above <button onClick={() => more("above", WINDOW)}>Show {Math.min(WINDOW, win.start)} more</button>
-          <button onClick={() => more("above", Infinity)}>Show all</button>
+          <FoldButton icon="up" label={`Show ${Math.min(WINDOW, win.start)} more lines above`} onClick={() => more("above", WINDOW)} />
+          <FoldButton icon="top" label={`Show all ${win.start} lines above`} onClick={() => more("above", Infinity)} />
+          <span>{win.start} lines above</span>
         </div>
       )}
       {blocks.map((blk, bi) => blk.kind === "gap" ? (
         <div key={`g${bi}`} className="bd-gap">
-          ⋯ {blk.run.end - blk.run.start} lines hidden
-          <button onClick={() => onExpand?.(blk.run, "up")}>▲ {Math.min(STEP, blk.run.end - blk.run.start)} more</button>
-          <button onClick={() => onExpand?.(blk.run, "all")}>Show all</button>
-          <button onClick={() => onExpand?.(blk.run, "down")}>▼ {Math.min(STEP, blk.run.end - blk.run.start)} more</button>
+          <FoldButton icon="down" label={`Show ${Math.min(STEP, blk.run.end - blk.run.start)} more lines, downward`} onClick={() => onExpand?.(blk.run, "down")} />
+          <FoldButton icon="all" label={`Show all ${blk.run.end - blk.run.start} hidden lines`} onClick={() => onExpand?.(blk.run, "all")} />
+          <FoldButton icon="up" label={`Show ${Math.min(STEP, blk.run.end - blk.run.start)} more lines, upward`} onClick={() => onExpand?.(blk.run, "up")} />
+          <span>{blk.run.end - blk.run.start} lines hidden</span>
         </div>
       ) : blk.items.map((it, j) => {
         const i = `${bi}-${j}`;
@@ -112,8 +114,9 @@ function CodeView({ reviewId, path, lines, mode, anns, comments, onComments, foc
       }))}
       {win.end < lines.length && (
         <div className="bd-more-lines">
-          ⋯ {lines.length - win.end} lines below <button onClick={() => more("below", WINDOW)}>Show {Math.min(WINDOW, lines.length - win.end)} more</button>
-          <button onClick={() => more("below", Infinity)}>Show all</button>
+          <FoldButton icon="down" label={`Show ${Math.min(WINDOW, lines.length - win.end)} more lines below`} onClick={() => more("below", WINDOW)} />
+          <FoldButton icon="bottom" label={`Show all ${lines.length - win.end} lines below`} onClick={() => more("below", Infinity)} />
+          <span>{lines.length - win.end} lines below</span>
         </div>
       )}
     </div>

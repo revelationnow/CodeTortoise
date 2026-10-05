@@ -5,6 +5,7 @@ import { expandRange, functionView, type Range, STEP } from "../board/fold";
 import type { Board, BoardNode } from "../board/types";
 import { isChange, useEnsureSource } from "../board/useSources";
 import Comments from "../components/Comments";
+import FoldButton from "../components/FoldButton";
 import { useWs } from "./context";
 
 /** A function's code slice with its effects (changed) or what it touches (context), and its comments: the detail
@@ -48,15 +49,17 @@ export default function FunctionCode({ node, board }: { node: BoardNode; board: 
       {lines && view ? (
         <div className="ws-fn-code" ref={box}>
           {view.above > 0 && (
-            <div className="bd-more-lines">⋯ {view.above} lines above the function
-              <button onClick={() => grow("above")}>Show {Math.min(STEP, view.above)} more</button></div>
+            <div className="bd-more-lines">
+              <FoldButton icon="up" label={`Show ${Math.min(STEP, view.above)} more lines above`} onClick={() => grow("above")} />
+              <span>{view.above} lines above the function</span></div>
           )}
           <CodeView reviewId={d.id} path={node.path!} lines={lines} mode="unified" anns={board.impacts} comments={d.comments}
                     onComments={d.loadComments} runs={view.runs}
                     onExpand={(run, how) => setShown((r) => [...r, expandRange(run, how)])} />
           {view.below > 0 && (
-            <div className="bd-more-lines">⋯ {view.below} lines below the function
-              <button onClick={() => grow("below")}>Show {Math.min(STEP, view.below)} more</button></div>
+            <div className="bd-more-lines">
+              <FoldButton icon="down" label={`Show ${Math.min(STEP, view.below)} more lines below`} onClick={() => grow("below")} />
+              <span>{view.below} lines below the function</span></div>
           )}
         </div>
       ) : src && "status" in src && src.status === "error" ? (

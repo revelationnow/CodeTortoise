@@ -1,5 +1,5 @@
 import { devices, expect, test } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, startReview } from "./helpers";
+import { expectIconsOnly, expectNamed, expectNoNodeIds, startReview } from "./helpers";
 
 /** The detail panel (spec 2026-10-04-review-workspace §3.7): a node's code or a file's diff, on demand. */
 
@@ -42,7 +42,8 @@ test.describe("desktop", () => {
     const at = Number(await first());
     const above = panel.locator(".bd-more-lines", { hasText: "above the function" });
     await expect(above).toBeVisible();
-    await above.getByRole("button", { name: /^Show \d+ more$/ }).click();
+    await expectIconsOnly(panel.locator(".bd-more-lines button, .bd-gap button"));
+    await above.getByRole("button", { name: /^Show \d+ more lines above$/ }).click();
     expect(Number(await first())).toBe(Math.max(1, at - 15));
     await expect(panel.locator(".bd-more-lines", { hasText: "below the function" })).toBeVisible();
   });
@@ -249,6 +250,7 @@ test.describe("neighbours", () => {
     const callers = page.getByRole("region", { name: "Callers" });
     await expect(callers.getByRole("listitem")).toHaveCount(20);
     await expect(page.getByRole("region", { name: "Callees" })).toContainText("None.");
+    await expectIconsOnly(callers.getByRole("button", { name: "Show all 25" }));
     await callers.getByRole("button", { name: "Show all 25" }).click();
     await expect(callers.getByRole("listitem")).toHaveCount(25);
     expect(asked.at(-1)).toContain("callers=25");
@@ -299,7 +301,8 @@ test.describe("a split review", () => {
     await expect(gaps.first()).toBeVisible();
     const before = await panel.locator(".bd-code").innerText();
     await expect(panel.getByRole("button", { name: "Fold again" })).toHaveCount(0);
-    await gaps.first().getByRole("button", { name: "Show all" }).click();
+    await expectIconsOnly(gaps.first().getByRole("button"));
+    await gaps.first().getByRole("button", { name: /^Show all \d+ hidden lines$/ }).click();
     expect(await panel.locator(".bd-code").innerText()).not.toBe(before);
     await panel.getByRole("button", { name: "Fold again" }).click();
     await expect(panel.getByRole("button", { name: "Fold again" })).toHaveCount(0);

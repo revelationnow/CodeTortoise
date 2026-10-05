@@ -125,8 +125,9 @@ body.bd-resizing-v, body.bd-resizing-v * { cursor: row-resize !important; user-s
 
 /* a function's comments and notes */
 .bd-fn-comments { padding: 2px 12px 8px; border-top: 1px solid var(--bd-line); font-size: 12.5px; }
-.bd-more-lines { position: sticky; left: 0; padding: 4px 12px; background: var(--bd-sunken); color: var(--bd-muted); font: 11.5px var(--bd-sans); }
-.bd-more-lines button { margin-left: 8px; border: 0; background: none; color: var(--flow); font: 600 11.5px var(--bd-sans); cursor: pointer; padding: 0; }
+.bd-more-lines { position: sticky; left: 0; display: flex; gap: 4px; align-items: center; padding: 2px 8px; background: var(--bd-sunken);
+  color: var(--bd-muted); font: 11.5px var(--bd-sans); }
+.bd-more-lines > span, .bd-gap > span { margin-left: 6px; }
 .bd-note { padding: 10px 12px; font-size: 12px; color: var(--bd-muted); } .bd-note.error { color: var(--fx-ink); }
 
 /* code */
@@ -179,10 +180,13 @@ body.bd-resizing-v, body.bd-resizing-v * { cursor: row-resize !important; user-s
 }
 
 /* folded lines */
-.bd-gap { position: sticky; left: 0; display: flex; gap: 10px; align-items: center; padding: 3px 12px; background: var(--bd-sunken);
+.bd-gap { position: sticky; left: 0; display: flex; gap: 4px; align-items: center; padding: 2px 8px; background: var(--bd-sunken);
   color: var(--bd-muted); font: 11.5px var(--bd-sans); border-top: 1px dashed var(--bd-line); border-bottom: 1px dashed var(--bd-line); }
-.bd-gap button { border: 0; background: none; color: var(--flow); font: 600 11.5px var(--bd-sans); cursor: pointer; padding: 2px 0; }
-.bd-gap button:hover { text-decoration: underline; }
+/* icon-only fold controls (FoldButton) */
+.fold-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 22px; padding: 0 !important;
+  border: 0 !important; border-radius: 5px; background: none !important; color: var(--flow); cursor: pointer; flex: none; }
+.fold-btn:hover, .fold-btn:focus-visible { background: color-mix(in srgb, var(--flow) 14%, transparent) !important; }
+.ws-nb-col > .fold-btn { display: flex; margin: 4px auto 0; width: 40px; }
 
 /* the map of a split review, and a part's visitors and +N (spec 2026-10-03-large-change-boards §5) */
 .ov-band { display: flex; gap: 10px; align-items: stretch; padding: 10px; border-radius: 10px; margin-bottom: 8px;
