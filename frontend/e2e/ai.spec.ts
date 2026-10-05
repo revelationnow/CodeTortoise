@@ -77,6 +77,16 @@ test.describe("with an AI", () => {
     await expect(ask).toHaveText("✦ Explain again");
   });
 
+  test("✦ Summarise sums up a file in its diff", async ({ page }) => {
+    await startReview(page);
+    await page.locator(".ws-rail").getByRole("button", { name: /Files/ }).click();
+    await page.locator(".ws-rail").getByRole("link", { name: "Open uart.c's diff" }).click();
+    const panel = page.getByRole("complementary", { name: "Code: uart.c" });
+    await panel.getByRole("button", { name: /Summarise/ }).click();
+    await expect(panel).toContainText("This file now counts transmit errors.", { timeout: 30_000 });
+    await expect(panel).toContainText("Check the readers of uart_errors.");
+  });
+
   test("the owner raises the budget from the AI pill; a reviewer sees the usage without the control", async ({ page, browser }) => {
     await startReview(page);
     const pill = page.getByRole("button", { name: /^AI \d+\/200$/ });

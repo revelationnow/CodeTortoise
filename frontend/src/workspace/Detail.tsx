@@ -29,14 +29,17 @@ export default function Detail() {
     return () => { live = false; };
   }, [nid, known, d.id]);
   const off = asked?.nid === nid ? asked : null, name = known ?? off?.name ?? null;
-  const [story, setStory] = useState<StoryDetail | null>(null);
+  const [story, setStory] = useState<{ sid: string; detail: StoryDetail | null } | null>(null);   // null detail: failed
   const [full, setFull] = useState(false);
+  const { story: storyOf, id: rid } = d;
   useEffect(() => {
-    if (!name?.story) return;
+    const sid = name?.story;
+    if (!sid) return;
     let live = true;
-    d.story(name.story).then((s) => { if (live) setStory(s); }).catch(() => {});
+    storyOf(sid).then((s) => { if (live) setStory({ sid, detail: s }); }, () => { if (live) setStory({ sid, detail: null }); });
     return () => { live = false; };
-  }, [name?.story, d]);
+  }, [name?.story, storyOf]);
+  const own = story && story.sid === name?.story ? story : null;
   // the place being read: a field or context function off its own story is drawn there (a story's graph, a cluster)
   const place = ws.addr.place, hereKey = place.kind === "story" ? `s:${place.sid}` : place.kind === "cluster" ? `c:${place.cid}` : null;
   const [here, setHere] = useState<{ key: string; at: StoryDetail | Board } | null>(null);
@@ -44,12 +47,14 @@ export default function Detail() {
     if (!nid || !hereKey) return;
     let live = true;
     const id = hereKey.slice(2);
-    (hereKey.startsWith("s:") ? d.story(id) : api.board(d.id, id))
+    (hereKey.startsWith("s:") ? storyOf(id) : api.board(rid, id))
       .then((at) => { if (live) setHere({ key: hereKey, at }); }).catch(() => {});
     return () => { live = false; };
-  }, [nid, hereKey, d]);
+  }, [nid, hereKey, storyOf, rid]);
   const close = ws.link({ ...ws.addr, open: null, tab: "diff" });
-  const found = nid ? locateNode(nid, detailBoards(story, here?.key === hereKey ? here.at : null, d.board)) : null;
+  const found = nid ? locateNode(nid, detailBoards(own?.detail ?? null, here?.key === hereKey ? here.at : null, d.board)) : null;
+  // until the node's story has answered, a node without its lines may yet get them: wait rather than show the file first
+  const waiting = !!name?.story && !own && !(found?.node.path && found.node.range);
   const node = found?.node;
   const path = "file" in open ? open.file : node?.path ?? name?.path ?? null;
   const label = "file" in open ? path!.slice(path!.lastIndexOf("/") + 1) : node?.label ?? name?.label ?? null;
@@ -58,7 +63,7 @@ export default function Detail() {
   const badge = !nid ? null : node?.kind === "field" || node?.kind === "struct" || name?.kind === "field" ? "field"
     : node?.change ? "changed" : "context";
   const sid = name?.story ?? null, st = sid ? d.stories?.stories.find((s) => s.id === sid) : null;
-  const anns = found?.board.impacts ?? story?.board.impacts ?? d.board?.impacts ?? [];
+  const anns = found?.board.impacts ?? own?.detail?.board.impacts ?? d.board?.impacts ?? [];
   const wide = ws.screen === "desktop" && width > 900;
 
   const body = () => {
@@ -66,6 +71,7 @@ export default function Detail() {
     if (nid && !name && !node && off?.error) return <div className="bd-note error">{off.error}</div>;
     if (nid && !name && !node)
       return <div className="banner warn">This function isn't in this review. <Link to={ws.link(at({ kind: "whole" }))}>Whole change</Link></div>;
+    if (waiting) return <div className="bd-note">Fetching {label}'s code…</div>;
     if (node?.path && node.range && !full) return <FunctionCode node={node} board={found!.board} />;
     if (!path) return <p className="muted">No code to show for {label}.</p>;
     const line = "file" in open ? open.line : node?.range?.[0] ?? name?.line ?? null;
@@ -95,8 +101,9 @@ export default function Detail() {
         {nid && (name || node) && (
           <div className="ws-tabs" role="tablist" aria-label="Detail">
             {(["diff", "neighbours"] as const).map((t) => (
-              <Link key={t} role="tab" aria-selected={ws.addr.tab === t} className={ws.addr.tab === t ? "on" : ""} replace
-                    to={ws.link({ ...ws.addr, tab: t })}>{t === "diff" ? "Diff" : "Neighbours"}</Link>
+              <Link key={t} id={`ws-tab-${t}`} role="tab" aria-selected={ws.addr.tab === t} aria-controls="ws-tabpanel"
+                    className={ws.addr.tab === t ? "on" : ""} replace to={ws.link({ ...ws.addr, tab: t })}>
+                {t === "diff" ? "Diff" : "Neighbours"}</Link>
             ))}
           </div>
         )}
@@ -109,7 +116,9 @@ export default function Detail() {
           </div>
         )}
       </div>
-      <div className="ws-detail-body">{nid && ws.addr.tab === "neighbours" && (name || node) ? <Neighbours nid={nid} /> : body()}</div>
+      <div className="ws-detail-body" {...(nid && (name || node)
+        ? { id: "ws-tabpanel", role: "tabpanel", "aria-labelledby": `ws-tab-${ws.addr.tab}` } : {})}>
+        {nid && ws.addr.tab === "neighbours" && (name || node) ? <Neighbours nid={nid} /> : body()}</div>
     </aside>
   );
 }

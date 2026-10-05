@@ -91,8 +91,10 @@ export const api = {
   source: (id: number, path: string, side: "before" | "after" = "after") =>
     call<SourceText>("GET", `/api/reviews/${id}/source?${new URLSearchParams({ path, side })}`),
   names: (id: number) => call<Names>("GET", `/api/reviews/${id}/names`),
-  neighbours: (id: number, nid: string, limit = 20) =>
-    call<Neighbours>("GET", `/api/reviews/${id}/nodes/${encodeURIComponent(nid)}/neighbours?limit=${limit}`),
+  /** At most `limit` callers and callees, or `more.callers`/`more.callees` of that side. */
+  neighbours: (id: number, nid: string, limit = 20, more: { callers?: number; callees?: number } = {}) =>
+    call<Neighbours>("GET", `/api/reviews/${id}/nodes/${encodeURIComponent(nid)}/neighbours?${new URLSearchParams({
+      limit: String(limit), ...Object.fromEntries(Object.entries(more).map(([k, v]) => [k, String(v)])) })}`),
   findings: (id: number) => call<Finding[]>("GET", `/api/reviews/${id}/findings`),
   setFindingState: (id: number, fid: string, state: Finding["state"]) =>
     call("PATCH", `/api/reviews/${id}/findings/${fid}`, { state }),

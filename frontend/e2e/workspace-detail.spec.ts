@@ -85,6 +85,45 @@ test.describe("desktop", () => {
     await expect(file.getByText("only in CL 101")).toBeVisible();
   });
 
+  test("the diff goes side by side when the panel is wide enough, until the reader picks", async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("ct.ws.detailW", "600"));
+    await startReview(page);
+    await page.locator(".ws-rail").getByRole("button", { name: /Files/ }).click();
+    await page.locator(".ws-rail").getByRole("link", { name: "Open uart.c's diff" }).click();
+    const panel = page.getByRole("complementary", { name: "Code: uart.c" });
+    await expect(panel.getByRole("button", { name: "Stacked" })).toHaveAttribute("aria-pressed", "true");
+    const drag = async (dx: number) => {
+      const g = (await panel.locator(".bd-resizer").boundingBox())!;
+      await page.mouse.move(g.x + g.width / 2, g.y + 300);
+      await page.mouse.down();
+      await page.mouse.move(g.x + g.width / 2 + dx, g.y + 300, { steps: 5 });
+      await page.mouse.up();
+    };
+    await drag(-400);
+    await expect(panel.getByRole("button", { name: "Side by side" })).toHaveAttribute("aria-pressed", "true");
+    await panel.getByRole("button", { name: "Stacked" }).click();
+    await drag(-60);
+    await expect(panel.getByRole("button", { name: "Stacked" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  test("a node in a story waits for the story before choosing how to show it", async ({ page }) => {
+    const base = await startReview(page);
+    const rid = base.split("/")[2];
+    const names = await (await page.request.get(`/api/reviews/${rid}/names`)).json();
+    const send = Object.entries(names as Record<string, { label: string }>).find(([, n]) => n.label === "uart_send")![0];
+    // the review's board names the function without its lines; only its story's board gives them, a moment later
+    const board = await (await page.request.get(`/api/reviews/${rid}/board`)).json();
+    board.nodes = board.nodes.map((n: { id: string }) => (n.id === send ? { ...n, range: null } : n));
+    await page.route(`**/api/reviews/${rid}/board`, (r) => r.fulfill({ json: board }));
+    await page.route(`**/api/reviews/${rid}/stories/S1`, async (r) => { await new Promise((ok) => setTimeout(ok, 1500)); await r.continue(); });
+    await page.goto(`${base}?open=${send}`);
+    const panel = page.getByRole("complementary", { name: "Code: uart_send" });
+    await expect(panel).toBeVisible();
+    for (let i = 0; i < 8; i++) { expect(await panel.locator(".ws-file").count()).toBe(0); await page.waitForTimeout(150); }
+    await expect(panel.locator(".bd-code")).toBeVisible();
+    await expect(panel.locator(".ws-file")).toHaveCount(0);
+  });
+
   test("a side effect on the whole change opens its file at a folded line, shown", async ({ page }) => {
     await startReview(page);
     await page.locator(".ws-rail").getByRole("link", { name: "Go to the whole change" }).click();
@@ -157,6 +196,37 @@ test.describe("neighbours", () => {
     await expect(page.locator(".ws-detail .bd-code")).toBeVisible();
     await expectNoNodeIds(page);
     await expectNamed(page);
+    await expect(page.getByRole("tabpanel", { name: "Neighbours" })).toHaveCount(0);   // the Diff tab is selected again
+    await expect(page.getByRole("tabpanel", { name: "Diff" })).toBeVisible();
+  });
+
+  test("Show all grows one column; a failed answer offers Retry; a column may be empty", async ({ page }) => {
+    const base = await startReview(page);
+    const rid = base.split("/")[2];
+    const item = (i: number, test = false) => ({ id: `N${900 + i}`, label: `${test ? "test_" : ""}caller_${i}`, kind: "function",
+      path: `//fixture/${test ? "tests" : "svc"}/c${i}.c`, line: i, story: null, changed: false, test });
+    const all = [...Array.from({ length: 24 }, (_, i) => item(i)), item(99, true)];
+    const asked: string[] = [];
+    let fail = true;
+    await page.route(`**/api/reviews/${rid}/nodes/N1/neighbours**`, (r) => {
+      const u = new URL(r.request().url());
+      asked.push(u.search);
+      if (u.searchParams.get("limit") === "20" && fail) { fail = false; return r.fulfill({ status: 500, json: { detail: "the graph is busy" } }); }
+      const n = Number(u.searchParams.get("callers") ?? u.searchParams.get("limit"));
+      return r.fulfill({ json: { node: { id: "N1", label: "busy", kind: "function", path: "//fixture/svc/busy.c", line: 1, story: null, changed: true, test: false },
+        callers: { total: all.length, items: all.slice(0, n) }, callees: { total: 0, items: [] } } });
+    });
+    await page.goto(`${base}?open=N1&tab=neighbours`);
+    await expect(page.locator(".ws-detail .bd-note.error")).toContainText("the graph is busy");
+    await page.getByRole("button", { name: "Retry" }).click();
+    const callers = page.getByRole("region", { name: "Callers" });
+    await expect(callers.getByRole("listitem")).toHaveCount(20);
+    await expect(page.getByRole("region", { name: "Callees" })).toContainText("None.");
+    await callers.getByRole("button", { name: "Show all 25" }).click();
+    await expect(callers.getByRole("listitem")).toHaveCount(25);
+    expect(asked.at(-1)).toContain("callers=25");
+    expect(asked.at(-1)).not.toContain("callees=");
+    await expect(callers.getByRole("listitem").last().locator(".ws-nb.test")).toContainText("test");
   });
 });
 
