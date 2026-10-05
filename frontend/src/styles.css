@@ -1,6 +1,6 @@
 :root {
   --bg: #faf9f6; --surface: #ffffff; --ink: #1d1b16; --muted: #6b665b; --line: #e3dfd6; --accent: #2451b8;
-  --ok: #2f7d32; --warn: #a07a10; --bad: #b3261e; --info: #55606e;
+  --ok: #2f7d32; --warn: #86650a; --bad: #b3261e; --info: #55606e;
   --add-bg: #e7f5e7; --del-bg: #fbe9e8; --gap-bg: #f1efe9;
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;

@@ -166,6 +166,7 @@ test.describe("a large change", () => {
       await expect(page.locator(".bd-node").first()).toBeVisible();
       visitor = page.locator(".bd-home").first();
     }
+    expect(await visitor.count(), "no part of the large fixture shows a visitor from another part").toBeGreaterThan(0);
     const to = (await visitor.getAttribute("aria-label"))!.replace(/^Go to /, "");   // a visitor links to its own part
     await visitor.dispatchEvent("pointerdown", { bubbles: true, pointerId: 1, button: 0 });
     await visitor.dispatchEvent("pointerup", { bubbles: true, pointerId: 1, button: 0 });

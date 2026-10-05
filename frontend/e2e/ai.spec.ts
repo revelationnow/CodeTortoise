@@ -77,6 +77,19 @@ test.describe("with an AI", () => {
     await expect(ask).toHaveText("✦ Explain again");
   });
 
+  test("a high finding's page shows the analysis the up-front pass wrote, without asking", async ({ page }) => {
+    const base = await startReview(page);
+    const rid = base.split("/")[2];
+    const findings: { id: string; severity: string }[] = await (await page.request.get(`/api/reviews/${rid}/findings`)).json();
+    const high = findings.find((f) => f.severity === "high")!;
+    expect(high, "the fixture has a high finding").toBeTruthy();
+    await page.goto(`${base}/f/${high.id}`);
+    const ai = page.getByRole("region", { name: "AI analysis" });
+    await expect(ai).toContainText("uart_send can now return -2, and logger_flush drops it.", { timeout: 30_000 });
+    await expect(ai.locator(".ai-label")).toBeVisible();
+    await expect(ai.getByRole("button", { name: /Explain again/ })).toBeVisible();
+  });
+
   test("✦ Summarise sums up a file in its diff", async ({ page }) => {
     await startReview(page);
     await page.locator(".ws-rail").getByRole("button", { name: /Files/ }).click();

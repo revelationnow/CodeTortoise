@@ -30,7 +30,8 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
   const detail = held?.sid === sid ? held.detail : null;
   const st = detail?.story ?? ss.stories.find((s) => s.id === sid)!;
   const at = ss.stories.findIndex((s) => s.id === sid);
-  const hasGraph = st.kind === "behaviour" || st.kind === "other";      // known from the list: the switch is there at once
+  // known from the list, so the switch is there at once; gone if the story arrives without a graph after all
+  const hasGraph = (st.kind === "behaviour" || st.kind === "other") && (!detail || !!detail.graph);
   const shown = hasGraph ? view : "steps";
   const flows = detail ? detail.board.flows.filter((f) => st.flows.includes(f.id)) : [];
   const open = ws.addr.open && "node" in ws.addr.open ? ws.addr.open.node : null;

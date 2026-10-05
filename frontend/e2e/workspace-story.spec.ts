@@ -79,6 +79,16 @@ test.describe("desktop", () => {
     await expect(page.getByRole("region", { name: "The map" })).toBeVisible();
   });
 
+  test("a story the server sends without a graph drops the Graph tab and shows its steps", async ({ page }) => {
+    const base = await startReview(page);
+    const rid = base.split("/")[2];
+    const real = await (await page.request.get(`/api/reviews/${rid}/stories/S1`)).json();
+    await page.route(`**/api/reviews/${rid}/stories/S1`, (r) => r.fulfill({ json: { ...real, graph: null } }));
+    await page.goto(`${base}/s/S1?view=graph`);
+    await expect(page.getByRole("list", { name: "Flow steps" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Graph" })).toHaveCount(0);
+  });
+
   test("a repeated edit lists its sites by file, hides tests and links its effects", async ({ page }) => {
     const base = await startReview(page);
     const id = base.split("/")[2];
