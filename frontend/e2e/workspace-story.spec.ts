@@ -113,6 +113,23 @@ test.describe("desktop", () => {
   });
 });
 
+test.describe("re-run", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("after Re-run a story page shows the new run's story, not the one cached from before", async ({ page }) => {
+    const base = await startReview(page);
+    await page.goto(`${base}/s/S1`);
+    await expect(page.locator(".ws-story-head h2")).toContainText("uart_send now writes Uart::errors");
+    await page.route(/\/api\/reviews\/\d+\/stories\/S1$/, async (route) => {   // any fetch from here on is the new run's
+      const res = await route.fetch(), j = await res.json();
+      j.story.title = "the new run's S1";
+      await route.fulfill({ response: res, json: j });
+    });
+    await page.getByRole("button", { name: "Re-run" }).click();
+    await expect(page.locator(".ws-story-head h2")).toContainText("the new run's S1", { timeout: 40_000 });
+  });
+});
+
 test.describe("phone", () => {
   test.use({ viewport: devices["iPhone 13"].viewport, userAgent: devices["iPhone 13"].userAgent,
     deviceScaleFactor: devices["iPhone 13"].deviceScaleFactor, isMobile: true, hasTouch: true });

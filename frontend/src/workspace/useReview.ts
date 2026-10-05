@@ -20,7 +20,7 @@ export function useReview(id: number) {
   const [files, setFiles] = useState<FileChange[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
   const [names, setNames] = useState<Names>({});
-  const [reload, setReload] = useState(0);                // story pages and cluster graphs fetch again after AI text
+  const [reload, setReload] = useState(0);                // story pages and cluster graphs fetch again: new results, AI text
   const [error, setError] = useState<string | null>(null);
 
   const fail = useCallback((e: unknown) => setError(String((e as Error).message ?? e)), []);
@@ -30,11 +30,11 @@ export function useReview(id: number) {
   const loadStories = useCallback(() => api.stories(id).then(setStories, (e) => setStories(missing(null)(e))), [id]);
   const loadNames = useCallback(() => api.names(id).then(setNames).catch(() => { /* names fall back to "a function" */ }), [id]);
   const loadBoard = useCallback(() => api.board(id).then(setBoard, (e) => setBoard(missing(null)(e))), [id]);
-  const loadResults = useCallback(() => Promise.all([
+  const loadResults = useCallback(() => (setReload((k) => k + 1), Promise.all([
     api.overview(id).then((ov) => { setOverview(ov); setBoard(null); },
                           (e) => { setOverview(missing(null)(e)); return loadBoard(); }),
     loadStories(), loadFindings(), api.files(id).then(setFiles), loadComments(), loadNames(),
-  ]).catch(fail), [id, loadBoard, loadStories, loadFindings, loadComments, loadNames, fail]);
+  ]).catch(fail)), [id, loadBoard, loadStories, loadFindings, loadComments, loadNames, fail]);
 
   useEffect(() => { loadDetail(); }, [loadDetail]);
   const status = detail?.review.status;
