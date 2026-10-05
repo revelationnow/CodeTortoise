@@ -31,6 +31,22 @@ test.describe("desktop", () => {
     await expectNoNodeIds(page);
   });
 
+  test("names in text read as text: the sentence's colour and a faint dotted underline, the accent on hover", async ({ page }) => {
+    const base = await startReview(page);
+    await page.goto(`${base}/f/F1`);
+    const name = page.locator(".ws-where li .ws-name").first();
+    await expect(name).toBeVisible();
+    const look = () => name.evaluate((el) => {
+      const s = getComputedStyle(el), p = getComputedStyle(el.closest("li")!);
+      return { color: s.color, parent: p.color, line: s.textDecorationLine, style: s.textDecorationStyle, border: s.borderBottomStyle };
+    });
+    const at = await look();
+    expect(at.color).toBe(at.parent);
+    expect(at).toMatchObject({ line: "underline", style: "dotted", border: "none" });
+    await name.hover();
+    expect((await look()).color).not.toBe(at.parent);
+  });
+
   test("the graph: a node click opens and closes its code; ‹ › keep their place between stories", async ({ page }) => {
     const base = await startReview(page);
     await page.goto(`${base}/s/S1`);
