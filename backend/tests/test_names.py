@@ -1,4 +1,5 @@
 """Names and neighbours for the review workspace (spec 2026-10-04-review-workspace §4.2–§4.3)."""
+from codetortoise import names as names_mod
 from codetortoise.impact import BlastItem, Edge, ImpactModel, Node
 from codetortoise.names import cited, names, neighbours
 
@@ -48,6 +49,20 @@ def test_neighbours_list_callers_most_affected_first_tests_last_and_callees():
 def test_neighbours_are_capped_by_the_limit_and_count_them_all():
     out = neighbours(_im(), "N1", DEPOTS, {}, root="/w", limit=1)
     assert [i["label"] for i in out["callers"]["items"]] == ["init"] and out["callers"]["total"] == 3
+
+
+def test_each_side_of_the_neighbours_can_have_its_own_limit():
+    out = neighbours(_im(), "N1", DEPOTS, {}, root="/w", limit=1, callers=3)
+    assert len(out["callers"]["items"]) == 3 and len(out["callees"]["items"]) == 1
+    out = neighbours(_im(), "N1", DEPOTS, {}, root="/w", limit=20, callers=1)
+    assert len(out["callers"]["items"]) == 1
+
+
+def test_no_limit_asks_for_more_neighbours_than_the_cap_or_fewer_than_one(monkeypatch):
+    monkeypatch.setattr(names_mod, "NEIGHBOURS_MAX", 2)
+    out = neighbours(_im(), "N1", DEPOTS, {}, root="/w", limit=10_000)
+    assert len(out["callers"]["items"]) == 2 and out["callers"]["total"] == 3
+    assert len(neighbours(_im(), "N1", DEPOTS, {}, root="/w", limit=0, callers=-5)["callers"]["items"]) == 1
 
 
 def test_neighbours_of_an_unknown_node_are_none():
