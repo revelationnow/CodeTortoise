@@ -122,7 +122,7 @@ def test_the_ai_view_reports_limits_and_calls(ai):
     svc, app, owner, rid, _ = ai
     svc.cfg.llm.budget = LlmBudget(per_review=200, per_person_daily=100, per_mention=6)
     u = owner.get(f"/api/reviews/{rid}/ai").json()
-    assert (u["budget"], u["me_limit"], u["per_mention"], u["llm"]) == (200, 100, 6, True)
+    assert (u["budget"], u["me_limit"], u["per_mention"], u["llm"]) == (200, 100, 10, True)
     assert "calls" not in u                                            # polled often: the list is fetched apart
     calls = owner.get(f"/api/reviews/{rid}/ai/calls").json()
     assert [c["purpose"] for c in calls] == ["flow", "story", "finding", "summary"]

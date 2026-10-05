@@ -112,6 +112,10 @@ test.describe("with an AI", () => {
     await usage.getByLabel("New budget").fill("300");
     await usage.getByRole("button", { name: "Raise budget" }).click();
     await expect(page.getByRole("button", { name: /^AI \d+\/300$/ })).toBeVisible();
+    await expect(usage.getByLabel("Rounds per @tortoise answer")).toHaveValue("10");
+    await usage.getByLabel("Rounds per @tortoise answer").fill("4");
+    await usage.getByRole("button", { name: "Set rounds" }).click();
+    await expect(usage).toContainText("One @tortoise answer is 1 AI call of up to 4 rounds.");
 
     const bob = await browser.newPage({ baseURL: AI });
     await login(bob, "bob");
@@ -120,6 +124,8 @@ test.describe("with an AI", () => {
     const theirs = bob.getByRole("dialog", { name: "AI usage" });
     await expect(theirs).toContainText("You today: 0 of 100");
     await expect(theirs.getByRole("button", { name: "Raise budget" })).toHaveCount(0);
+    await expect(theirs).toContainText("One @tortoise answer is 1 AI call of up to 4 rounds.");
+    await expect(theirs.getByRole("button", { name: "Set rounds" })).toHaveCount(0);
     await bob.close();
   });
 
@@ -127,7 +133,7 @@ test.describe("with an AI", () => {
     await login(page);
     await page.goto("/health");
     const card = page.locator(".card", { has: page.getByRole("heading", { name: "AI calls" }) });
-    await expect(card).toContainText("Limits: 200 a review · 100 a person a day · 6 for one @tortoise answer");
+    await expect(card).toContainText("Limits: 200 a review · 100 a person a day · 10 rounds for one @tortoise answer (1 call");
     await expect(card).toContainText(/Today: \d+ calls across reviews/);
   });
 });

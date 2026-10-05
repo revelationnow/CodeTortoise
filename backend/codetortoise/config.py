@@ -57,7 +57,7 @@ class SwarmConfig(BaseModel):
 class LlmBudget(BaseModel):
     per_review: int = 200          # AI calls per review: everyone and the pipeline together
     per_person_daily: int = 100    # AI calls one person can trigger per day (UTC), across reviews
-    per_mention: int = 6           # rounds one @tortoise answer may take
+    per_mention: int = 10          # rounds one @tortoise answer may take (one AI call however many); the owner sets it per review
 
 
 class LlmConfig(BaseModel):

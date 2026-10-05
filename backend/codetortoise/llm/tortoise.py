@@ -246,12 +246,12 @@ class _Gone(Exception):
 
 
 def answer(svc: Services, rid: int, user: str, question: dict, reply_id: int) -> None:
-    """Answer the question comment `question` in reply `reply_id`, as `user` (whose limits the rounds count against)."""
-    cap = svc.cfg.llm.budget.per_mention
+    """Answer the question comment `question` in reply `reply_id`, as `user`; the whole answer is one AI call against
+    their limits, of up to the review's rounds."""
+    cap = svc.ledger.rounds(rid)
     meta = {"pending": True, "round": 0, "of": cap, "read": [], "files": [], "calls": 0, "error": None}
     svc.store.set_ai_reply(reply_id, "thinking…", meta)
     reader: _Reader | None = None
-    fixed = False
     try:                                   # whatever fails from here on, the reply stops being pending
         ctx, board, findings, cs = context_for(svc, rid)
         reader = _Reader(svc, rid, ctx, cs)
@@ -259,35 +259,38 @@ def answer(svc: Services, rid: int, user: str, question: dict, reply_id: int) ->
         known = set(ctx.impact.nodes) | {f.id for f in findings}
         convo = [f"QUESTION: {question['body']}", "THREAD SO FAR:\n" + _thread(svc, rid, root, question["id"]),
                  "CONTEXT:\n" + _anchor_context(svc, rid, question, ctx, board, reader)]
-        for n in range(1, cap + 1):
-            if svc.store.get_comment(question["id"]) is None or svc.store.get_comment(reply_id) is None:
-                raise _Gone()                      # the question (or the reply) was deleted: stop spending calls
-            meta.update(round=n)
-            svc.store.set_ai_reply(reply_id, "thinking…", meta)
-            last = n == cap
-            prompt = _fit(convo, ctx.per_call) + (
-                "\n\nYou must answer now: reply with action \"answer\"." if last else "") + f"\n{MODES['explanation']}"
-            step = svc.ledger.call(svc.llm, rid, user, "mention", str(reply_id),
-                                   lambda llm, p=prompt: llm.complete_json(SYSTEM, p, _Step))
-            meta["calls"] += 1
-            if step.action == "read" and step.read is not None and not last:
-                r = step.read
-                what = f"{r.path} from {r.from_} " if r.kind == "file" else r.name
-                convo.append(f"READ {r.kind} {what}->\n" + reader.run(r))
-                continue
-            text = step.text.strip()
-            cited = {c for c in step.cites if c in known or c in reader.files or c in ctx.impact.nodes}
-            problems = ([] if cited else ["it cites nothing you were given or read"]) + check_style(text, "explanation")
-            if text and not problems:
-                break
-            if not fixed and not last:
-                fixed = True
-                convo.append(f"YOUR ANSWER: {text}\nIt was not accepted ({'; '.join(problems) or 'empty'}). Answer again: "
-                             "cite the node ids or depot paths you rely on, and keep the house style.")
-                continue
-            raise ValueError("the answer failed the checks: " + "; ".join(problems or ["empty"]))
-        else:
+
+        def rounds(llm) -> str:            # the whole answer, every round of it, is one AI call
+            fixed = False
+            for n in range(1, cap + 1):
+                if svc.store.get_comment(question["id"]) is None or svc.store.get_comment(reply_id) is None:
+                    raise _Gone()                  # the question (or the reply) was deleted: stop spending calls
+                meta.update(round=n)
+                svc.store.set_ai_reply(reply_id, "thinking…", meta)
+                last = n == cap
+                prompt = _fit(convo, ctx.per_call) + (
+                    "\n\nYou must answer now: reply with action \"answer\"." if last else "") + f"\n{MODES['explanation']}"
+                step = llm.complete_json(SYSTEM, prompt, _Step)
+                meta["calls"] += 1
+                if step.action == "read" and step.read is not None and not last:
+                    r = step.read
+                    what = f"{r.path} from {r.from_} " if r.kind == "file" else r.name
+                    convo.append(f"READ {r.kind} {what}->\n" + reader.run(r))
+                    continue
+                text = step.text.strip()
+                cited = {c for c in step.cites if c in known or c in reader.files or c in ctx.impact.nodes}
+                problems = ([] if cited else ["it cites nothing you were given or read"]) + check_style(text, "explanation")
+                if text and not problems:
+                    return text
+                if not fixed and not last:
+                    fixed = True
+                    convo.append(f"YOUR ANSWER: {text}\nIt was not accepted ({'; '.join(problems) or 'empty'}). Answer "
+                                 "again: cite the node ids or depot paths you rely on, and keep the house style.")
+                    continue
+                raise ValueError("the answer failed the checks: " + "; ".join(problems or ["empty"]))
             raise ValueError("no answer within the rounds allowed")
+
+        text = svc.ledger.call(svc.llm, rid, user, "mention", str(reply_id), rounds)
     except _Gone:
         if svc.store.get_comment(reply_id) is not None:
             _done(svc, reply_id, meta, reader, "I stopped: the question was deleted.", "question deleted")
