@@ -24,6 +24,12 @@ test.describe("desktop", () => {
     await expect(page).toHaveURL(new RegExp(`${base}/s/${sid}\\?view=graph$`));
     await page.goto(`/w/${rid}/s/${sid}?flow=1`);
     await expect(page).toHaveURL(new RegExp(`${base}/s/${sid}\\?flow=1$`));
+    // a node in no story, on a review shown as one board: the whole graph with it open
+    const board = await (await page.request.get(`/api/reviews/${rid}/board`)).json();
+    const ctx = board.nodes.find((n: { id: string; kind: string }) => !ss.node_story[n.id] && n.kind === "function");
+    await page.goto(`${base}?node=${ctx.id}`);
+    await expect(page).toHaveURL(new RegExp(`${base}\\?view=graph&open=${ctx.id}$`));
+    await expect(page.getByRole("complementary", { name: `Code: ${ctx.label}` })).toBeVisible();
   });
 });
 

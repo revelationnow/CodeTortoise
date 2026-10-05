@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, ApiError, type Board } from "../api";
+import { api, type Board } from "../api";
 import { stepCluster } from "../board/overview";
 import { useWs } from "./context";
 import { short } from "./crumbs";
@@ -17,7 +17,7 @@ export default function ClusterPage({ cid }: { cid: string }) {
   useEffect(() => {
     let live = true;
     api.board(d.id, cid).then((b) => { if (live) { setBoard(b); setError(null); } })
-      .catch((e) => { if (live) setError(e instanceof ApiError && e.status === 404 ? e.message : String(e.message ?? e)); });
+      .catch((e) => { if (live) setError(String(e.message ?? e)); });
     return () => { live = false; };
   }, [d.id, cid, d.reload]);
   const c = ov.clusters.find((x) => x.id === cid)!;

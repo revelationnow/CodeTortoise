@@ -25,6 +25,8 @@ describe("old addresses", () => {
   it("rename the old story tab and cluster file parameters", () => {
     expect(legacy("/s/S1", q("tab=graph"), ctx)).toEqual({ to: "/r/7/s/S1?view=graph" });
     expect(legacy("/c/C1", q("file=//d/a.c"), ctx)).toEqual({ to: "/r/7/c/C1?open=file%3A%2F%2Fd%2Fa.c" });
+    expect(legacy("/c/C1", q("x=N4:callers"), ctx)).toEqual({ to: "/r/7/c/C1" });       // the old expand state: dropped
+    expect(legacy("/s/S1", q("x=N4:callers&flow=2"), ctx)).toEqual({ to: "/r/7/s/S1?flow=2" });
   });
 
   it("leave current addresses alone", () => {
