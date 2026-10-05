@@ -207,3 +207,12 @@ a.ws-chip { text-decoration: none; }
   .ws-story-title h2 { flex-basis: 100%; font-size: 17px; }
   .ws-story-bar { padding: 10px 14px 2px; }
 }
+
+/* finding page */
+.ws-finding section { margin: 0 0 20px; }
+.ws-finding h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 6px; }
+.ws-where ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.ws-where li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.ws-evidence { padding-left: 18px; } .ws-evidence li { margin: 3px 0; }
+.ws-evidence .sev-high::marker, .ws-evidence .sev-medium::marker { color: var(--bad); }
+.ws-badge.state-ack { color: var(--warn); } .ws-badge.state-dismissed { color: var(--muted); }
