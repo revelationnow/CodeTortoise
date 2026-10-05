@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { keys, loadWidth, save } from "../board/prefs";
 import Resizer from "../board/Resizer";
+import { api, ApiError, type NodeName } from "../api";
 import type { StoryDetail } from "../board/types";
 import { at } from "./address";
 import { useWs } from "./context";
@@ -16,7 +17,18 @@ import Neighbours from "./Neighbours";
 export default function Detail() {
   const ws = useWs(), d = ws.data, open = ws.addr.open!;
   const [width, setWidth] = useState(() => Math.max(320, loadWidth(keys.detailW, Math.round(window.innerWidth * 0.45))));
-  const nid = "node" in open ? open.node : null, name = nid ? d.names[nid] : null;
+  const nid = "node" in open ? open.node : null, known = nid ? d.names[nid] : null;
+  // a node off every board (a Neighbours row's caller or callee) is named by its neighbours (§4.3); null: no such node
+  const [asked, setAsked] = useState<{ nid: string; name: NodeName | null; error?: string } | null>(null);
+  useEffect(() => {
+    if (!nid || known) return;
+    let live = true;
+    api.neighbours(d.id, nid, 1).then((m) => { if (live) setAsked({ nid, name: m.node }); }, (e) => {
+      if (live) setAsked({ nid, name: null, error: e instanceof ApiError && e.status === 404 ? undefined : String(e.message ?? e) });
+    });
+    return () => { live = false; };
+  }, [nid, known, d.id]);
+  const off = asked?.nid === nid ? asked : null, name = known ?? off?.name ?? null;
   const [story, setStory] = useState<StoryDetail | null>(null);
   const [full, setFull] = useState(false);
   useEffect(() => {
@@ -39,6 +51,8 @@ export default function Detail() {
   const wide = ws.screen === "desktop" && width > 900;
 
   const body = () => {
+    if (nid && !name && !node && !off) return <div className="bd-note">Finding this function…</div>;
+    if (nid && !name && !node && off?.error) return <div className="bd-note error">{off.error}</div>;
     if (nid && !name && !node)
       return <div className="banner warn">This function isn't in this review. <Link to={ws.link(at({ kind: "whole" }))}>Whole change</Link></div>;
     if (node?.path && node.range && !full) return <FunctionCode node={node} board={found!.board} />;

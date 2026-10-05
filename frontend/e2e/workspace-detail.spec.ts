@@ -159,3 +159,30 @@ test.describe("neighbours", () => {
     await expectNamed(page);
   });
 });
+
+test.describe("neighbours off every board", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("a row for a function outside the name index still names it, shows its code and keeps walking", async ({ page }) => {
+    const base = await startReview(page);
+    const rid = base.split("/")[2];
+    const names = await (await page.request.get(`/api/reviews/${rid}/names`)).json() as Record<string, { label: string }>;
+    let from = "", to = "";
+    for (const nid of Object.keys(names)) {
+      const nb = await (await page.request.get(`/api/reviews/${rid}/nodes/${nid}/neighbours?limit=999`)).json();
+      const off = [...nb.callers.items, ...nb.callees.items].find((i: { id: string; label: string }) => i.label === "logger_init" && !(i.id in names));
+      if (off) { from = nid; to = off.id; break; }
+    }
+    expect(to).not.toBe("");
+    await page.goto(`${base}?open=${from}&tab=neighbours`);
+    await page.getByRole("link", { name: "Open logger_init's neighbours" }).click();
+    await expect(page).toHaveURL(new RegExp(`open=${to}&tab=neighbours$`));
+    const panel = page.getByRole("complementary", { name: "Code: logger_init" });
+    await expect(panel.getByRole("region", { name: "This function" })).toContainText("logger_init");
+    await expect(panel.getByRole("tab", { name: "Neighbours" })).toBeVisible();
+    await panel.getByRole("tab", { name: "Diff" }).click();
+    await expect(panel.locator(".ws-detail-path")).toContainText("logger.c · line");
+    await expect(panel.locator(".bd-code")).toBeVisible();
+    await expect(panel.locator(".banner")).toHaveCount(0);
+  });
+});
