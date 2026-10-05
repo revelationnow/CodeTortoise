@@ -290,7 +290,9 @@ a.ws-handle { text-decoration: none; }
 .ws-page { flex: 1; min-height: 0; overflow: auto; padding: 18px 24px 48px; }
 .ws-page > .ws-text { max-width: 880px; margin: 0 auto; }
 .ws-page.graph { padding: 0; display: flex; flex-direction: column; overflow: hidden; }
-.ws-name { font-family: var(--mono); font-size: .92em; text-decoration: none; border-bottom: 1px dotted var(--accent); }
+.ws-name { font-family: var(--mono); font-size: .92em; color: inherit; border: 0; text-decoration: underline dotted 1px;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent); text-underline-offset: 3px; }
+.ws-name:hover, .ws-name:focus-visible { color: var(--accent); text-decoration-color: currentColor; }
 .ws-phonebar { flex: none; display: flex; align-items: baseline; gap: 6px; padding: 10px 14px; border-bottom: 1px solid var(--line);
   background: var(--surface); font-size: 14px; min-width: 0; }
 .ws-phonebar a { flex: none; text-decoration: none; font-weight: 600; }
