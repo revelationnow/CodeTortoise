@@ -22,7 +22,7 @@ test.describe("with an AI", () => {
     await box.fill("Who handles this? ");
     await box.pressSequentially("@");
     const menu = viewer.getByRole("listbox", { name: "Mention" });
-    await expect(menu.getByRole("option")).toHaveText([/@tortoise.*up to 6 AI calls/, /@demo/]);
+    await expect(menu.getByRole("option")).toHaveText([/@tortoise.*1 AI call, reading code for up to 10 rounds/, /@demo/]);
     await box.press("Escape");                                            // Esc closes it
     await expect(menu).toBeHidden();
     await box.press("Backspace");                                         // a new @ opens it again

@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS llm_calls(id INTEGER PRIMARY KEY AUTOINCREMENT, revie
 CREATE INDEX IF NOT EXISTS ix_llm_calls_review ON llm_calls(review_id);
 CREATE INDEX IF NOT EXISTS ix_llm_calls_user ON llm_calls(user, started_at);
 CREATE TABLE IF NOT EXISTS llm_budget(review_id INTEGER, budget INTEGER, set_by TEXT, set_at TEXT);
+CREATE TABLE IF NOT EXISTS llm_rounds(review_id INTEGER, rounds INTEGER, set_by TEXT, set_at TEXT);
 """
 
 ANCHOR_KINDS = {"line", "function", "finding", "chapter", "review"}

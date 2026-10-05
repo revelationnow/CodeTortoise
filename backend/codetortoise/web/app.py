@@ -55,6 +55,10 @@ class BudgetIn(BaseModel):
     budget: int = Field(ge=0, le=1_000_000)
 
 
+class RoundsIn(BaseModel):
+    rounds: int = Field(ge=1, le=50)
+
+
 class CommentIn(BaseModel):
     body: str = Field(min_length=1, max_length=20000)
     anchor_kind: Literal["line", "function", "finding", "chapter", "review"]
@@ -403,8 +407,9 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         u = svc.ledger.usage(rid) if svc.ledger else {"used": 0, "budget": b.per_review, "by_person": {},
                                                       "by_purpose": {}, "calls": []}
         u.pop("calls", None)                           # polled while work is pending; the list is /ai/calls
+        rounds = svc.ledger.rounds(rid) if svc.ledger else b.per_mention
         return {**u, "llm": svc.llm is not None, "me_today": svc.ledger.person_today(user) if svc.ledger else 0,
-                "me_limit": b.per_person_daily, "per_mention": b.per_mention, "is_owner": user == cfg.owner,
+                "me_limit": b.per_person_daily, "per_mention": rounds, "is_owner": user == cfg.owner,
                 "jobs": runner.ai_jobs.get(rid, []), "file_summaries": store.get_blob(rid, "file_summaries") or {}}
 
     @app.get("/api/reviews/{rid}/ai/calls")
@@ -417,6 +422,12 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         review_or_404(rid)
         svc.ledger.raise_budget(rid, body.budget, user)
         return {"budget": svc.ledger.budget(rid)}
+
+    @app.put("/api/reviews/{rid}/ai/rounds")
+    def ai_rounds(rid: int, body: RoundsIn, user: str = Depends(owner_of)):
+        review_or_404(rid)
+        svc.ledger.set_rounds(rid, body.rounds, user)
+        return {"rounds": svc.ledger.rounds(rid)}
 
     # ---- comments ----------------------------------------------------------
     @app.get("/api/reviews/{rid}/comments")
@@ -454,7 +465,7 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
                                {**base, "error": RERUNNING})
             return
         store.set_ai_reply(reply["id"], "thinking…", {**base, "pending": True, "round": 0,
-                                                      "of": cfg.llm.budget.per_mention})
+                                                      "of": svc.ledger.rounds(rid)})
         runner.submit_ai(rid, user, "mention", str(reply["id"]),
                          lambda: tortoise.answer(svc, rid, user, question, reply["id"]))
 

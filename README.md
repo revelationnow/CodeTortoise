@@ -183,7 +183,7 @@ llm:                                # optional; without it, narratives use built
   budget:                           # AI calls (failed calls count; refused ones cost nothing)
     per_review: 200                 # per review, everyone and the pipeline together; the owner can raise it
     per_person_daily: 100           # calls one person can trigger per day (UTC), across reviews
-    per_mention: 6                  # rounds one @tortoise answer may take
+    per_mention: 10                 # rounds one @tortoise answer may take (the answer is 1 call); owners change it per review
 auth:
   mode: p4                          # sign in with Perforce credentials ("dev" accepts any name: demos only)
 analysis:
@@ -355,8 +355,9 @@ favour of the deterministic text, and the LLM stage says how many outputs were d
 When a review runs, the AI writes only the change summary and the first `upfront_flows` flow narratives. Everything
 else is written when someone asks, once, and shown to everyone: **✦ Explain** on a flow or a finding, **✦ Summarise**
 on a changed file. Type `@tortoise` in any comment (the `@` menu offers it) to ask the AI about that thread; it reads the
-functions, callers, declarations and files it needs from this review and the workspace, up to `per_mention` calls, and
-answers in the thread with what it read.
+functions, callers, declarations and files it needs from this review and the workspace, in up to `per_mention` rounds,
+and answers in the thread with what it read. The whole answer counts as one AI call; the owner can change the rounds
+per review in the AI usage panel.
 
 Every call is recorded and checked against `llm.budget` before it is made. The **AI 57/200** pill in the review
 header shows the review's usage (by person, by purpose, every call); the owner raises the review's budget there. The

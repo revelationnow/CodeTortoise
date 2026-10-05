@@ -112,5 +112,6 @@ export const api = {
   aiCalls: (id: number) => call<AiCall[]>("GET", `/api/reviews/${id}/ai/calls`),
   explain: (id: number, kind: AiKind, target: string) => call<AiJob>("POST", `/api/reviews/${id}/explain`, { kind, target }),
   raiseBudget: (id: number, budget: number) => call<{ budget: number }>("PUT", `/api/reviews/${id}/ai/budget`, { budget }),
+  setRounds: (id: number, rounds: number) => call<{ rounds: number }>("PUT", `/api/reviews/${id}/ai/rounds`, { rounds }),
   renameLayer: (level: number, name: string) => call("PUT", `/api/layers/${level}`, { name }),
 };

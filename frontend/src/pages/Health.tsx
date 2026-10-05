@@ -37,7 +37,7 @@ export default function Health() {
           <section className="card">
             <h2>AI calls</h2>
             <p className="small">Limits: {h.ai.limits.per_review} a review · {h.ai.limits.per_person_daily} a person a day ·{" "}
-              {h.ai.limits.per_mention} for one @tortoise answer</p>
+              {h.ai.limits.per_mention} rounds for one @tortoise answer (1 call; owners can change it per review)</p>
             <p className="small">Today: {h.ai.calls_today ?? 0} calls across reviews</p>
           </section>
         )}

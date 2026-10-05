@@ -10,7 +10,7 @@ const view = (over: Partial<AiView> = {}): AiView => ({
 describe("aiAvailability", () => {
   it("says what @tortoise costs and what is left", () => {
     expect(aiAvailability(view())).toEqual({ ok: true,
-      detail: "ask the AI about this thread — reads code as needed, up to 6 AI calls · 143 left on this review, 97 left for you today" });
+      detail: "ask the AI about this thread — 1 AI call, reading code for up to 6 rounds · 143 left on this review, 97 left for you today" });
   });
   it("gives the reason when it can't run", () => {
     expect(aiAvailability(null)).toEqual({ ok: false, detail: "no AI is configured for CodeTortoise" });

@@ -23,6 +23,7 @@ function Usage({ onClose }: { onClose: () => void }) {
   const ai = useAi()!;
   const v = ai.view!;
   const [total, setTotal] = useState(String(v.budget + 100));
+  const [rounds, setRounds] = useState(String(v.per_mention));
   const [error, setError] = useState<string | null>(null);
   const [calls, setCalls] = useState<AiCall[] | null>(null);              // loaded when the list is opened
   useEffect(() => {
@@ -36,6 +37,7 @@ function Usage({ onClose }: { onClose: () => void }) {
       <div className="row"><b>AI calls</b><span className="sp" /><button className="link small" onClick={onClose}>Close</button></div>
       <p>This review: <b>{v.used}</b> of {v.budget}. You today: <b>{v.me_today}</b> of {v.me_limit}.</p>
       <p className="muted small">By purpose: {counts(v.by_purpose)}<br />By person: {counts(v.by_person)}</p>
+      <p className="muted small">One @tortoise answer is 1 AI call of up to {v.per_mention} rounds.</p>
       {v.is_owner && (
         <form className="ai-raise" onSubmit={(e) => {
           e.preventDefault();
@@ -45,9 +47,20 @@ function Usage({ onClose }: { onClose: () => void }) {
           <label>Raise budget to <input type="number" min={1} value={total} aria-label="New budget"
                                         onChange={(e) => setTotal(e.target.value)} /></label>
           <button disabled={!(Number(total) > 0)}>Raise budget</button>
-          {error && <span className="ai-err">{error}</span>}
         </form>
       )}
+      {v.is_owner && (
+        <form className="ai-raise" onSubmit={(e) => {
+          e.preventDefault();
+          setError(null);
+          api.setRounds(ai.reviewId, Number(rounds)).then(ai.refresh).catch((x) => setError(String(x.message ?? x)));
+        }}>
+          <label>Rounds per answer <input type="number" min={1} max={50} value={rounds} aria-label="Rounds per @tortoise answer"
+                                          onChange={(e) => setRounds(e.target.value)} /></label>
+          <button disabled={!(Number(rounds) >= 1 && Number(rounds) <= 50)}>Set rounds</button>
+        </form>
+      )}
+      {error && <span className="ai-err">{error}</span>}
       <details onToggle={(e) => {
         if ((e.currentTarget as HTMLDetailsElement).open) api.aiCalls(ai.reviewId).then(setCalls).catch(() => setCalls([]));
       }}>

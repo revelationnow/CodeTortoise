@@ -43,6 +43,14 @@ class Ledger:
     def raise_budget(self, rid: int, total: int, by: str) -> None:
         self.store._exec("INSERT INTO llm_budget VALUES(?,?,?,?)", (rid, int(total), by, _now()))
 
+    def rounds(self, rid: int) -> int:
+        """Rounds one @tortoise answer on review `rid` may take (the whole answer is one call)."""
+        rows = self.store._all("SELECT rounds FROM llm_rounds WHERE review_id=? ORDER BY rowid DESC LIMIT 1", (rid,))
+        return rows[0]["rounds"] if rows else self.limits.per_mention
+
+    def set_rounds(self, rid: int, rounds: int, by: str) -> None:
+        self.store._exec("INSERT INTO llm_rounds VALUES(?,?,?,?)", (rid, int(rounds), by, _now()))
+
     def used(self, rid: int) -> int:
         return self.store._all("SELECT COUNT(*) AS n FROM llm_calls WHERE review_id=? AND outcome != 'refused'",
                                (rid,))[0]["n"]

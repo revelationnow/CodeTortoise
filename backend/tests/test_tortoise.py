@@ -78,8 +78,10 @@ def test_a_mention_reads_code_then_answers_in_the_thread(world):
     assert {UART, "//fixture/service/logger.c"} <= set(meta["files"])
     assert "int uart_send" in script.prompts[0] and "@tortoise who handles the new -2?" in script.prompts[0]
     assert "logger_flush" in script.prompts[1] and "uart_send(lg->uart" in script.prompts[1]   # the read's result
-    u = svc.ledger.usage(rid)
-    assert u["by_purpose"].get("mention") == 2 and u["by_person"].get("bob") == 2
+    u = svc.ledger.usage(rid)                          # the whole answer is one AI call, with every round's tokens
+    assert u["by_purpose"].get("mention") == 1 and u["by_person"].get("bob") == 1
+    [call] = [c for c in u["calls"] if c["purpose"] == "mention"]
+    assert (call["prompt_tokens"], call["completion_tokens"], call["outcome"]) == (1000, 100, "ok")
 
 
 def test_the_last_round_must_answer(world):
@@ -91,6 +93,23 @@ def test_the_last_round_must_answer(world):
     assert r["body"] == "uart_send can now return -2." and r["ai_meta"]["calls"] == 3
     assert "You must answer now" in script.prompts[2] and "You must answer now" not in script.prompts[1]
 
+
+
+def test_the_owner_sets_a_reviews_round_cap(world):
+    script = Script(lambda u: {"action": "answer", "text": "uart_send can now return -2.", "cites": ["N9"]}
+                    if "You must answer now" in u else {"action": "read", "read": {"kind": "search", "name": "uart_send"}})
+    svc, app, rid = world(script)
+    owner, bob = login(app, "owner"), login(app, "bob")
+    assert owner.get(f"/api/reviews/{rid}/ai").json()["per_mention"] == 10           # the config's default
+    assert bob.put(f"/api/reviews/{rid}/ai/rounds", json={"rounds": 3}).status_code == 403
+    assert owner.put(f"/api/reviews/{rid}/ai/rounds", json={"rounds": 0}).status_code == 422
+    assert owner.put(f"/api/reviews/{rid}/ai/rounds", json={"rounds": 3}).json() == {"rounds": 3}
+    assert bob.get(f"/api/reviews/{rid}/ai").json()["per_mention"] == 3
+    q = _ask(bob, rid, "@tortoise what changed?")
+    [r] = _reply_to(bob, rid, q["id"])
+    assert r["body"] == "uart_send can now return -2." and r["ai_meta"]["calls"] == 3 and r["ai_meta"]["of"] == 3
+    assert "You must answer now" in script.prompts[2]
+    assert svc.ledger.usage(rid)["by_purpose"]["mention"] == 1
 
 def test_reads_stay_inside_the_workspace(world):
     script = Script({"action": "read", "read": {"kind": "file", "path": "/etc/passwd", "from": 1, "to": 5}},
