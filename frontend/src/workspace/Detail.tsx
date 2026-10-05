@@ -3,11 +3,11 @@ import { Link } from "react-router-dom";
 import { keys, loadWidth, save } from "../board/prefs";
 import Resizer from "../board/Resizer";
 import { api, ApiError, type NodeName } from "../api";
-import type { StoryDetail } from "../board/types";
+import type { Board, StoryDetail } from "../board/types";
 import { at } from "./address";
 import { useWs } from "./context";
 import { short } from "./crumbs";
-import { locateNode } from "./detail";
+import { detailBoards, locateNode } from "./detail";
 import FileDiff from "./FileDiff";
 import FunctionCode from "./FunctionCode";
 import Neighbours from "./Neighbours";
@@ -37,8 +37,19 @@ export default function Detail() {
     d.story(name.story).then((s) => { if (live) setStory(s); }).catch(() => {});
     return () => { live = false; };
   }, [name?.story, d]);
+  // the place being read: a field or context function off its own story is drawn there (a story's graph, a cluster)
+  const place = ws.addr.place, hereKey = place.kind === "story" ? `s:${place.sid}` : place.kind === "cluster" ? `c:${place.cid}` : null;
+  const [here, setHere] = useState<{ key: string; at: StoryDetail | Board } | null>(null);
+  useEffect(() => {
+    if (!nid || !hereKey) return;
+    let live = true;
+    const id = hereKey.slice(2);
+    (hereKey.startsWith("s:") ? d.story(id) : api.board(d.id, id))
+      .then((at) => { if (live) setHere({ key: hereKey, at }); }).catch(() => {});
+    return () => { live = false; };
+  }, [nid, hereKey, d]);
   const close = ws.link({ ...ws.addr, open: null, tab: "diff" });
-  const found = nid ? locateNode(nid, [story?.graph, story?.board, d.board]) : null;
+  const found = nid ? locateNode(nid, detailBoards(story, here?.key === hereKey ? here.at : null, d.board)) : null;
   const node = found?.node;
   const path = "file" in open ? open.file : node?.path ?? name?.path ?? null;
   const label = "file" in open ? path!.slice(path!.lastIndexOf("/") + 1) : node?.label ?? name?.label ?? null;

@@ -186,3 +186,38 @@ test.describe("neighbours off every board", () => {
     await expect(panel.locator(".banner")).toHaveCount(0);
   });
 });
+
+test.describe("a split review", () => {
+  test.use({ baseURL: "http://127.0.0.1:8796", viewport: { width: 1440, height: 900 } });
+  type Node = { id: string; label: string; path: string | null; range: number[] | null; change: unknown; fields?: { id: string }[] };
+
+  test("a field without a story shows its struct from the story being read; a context function its slice on its part", async ({ page }) => {
+    const base = await startReview(page, "201 202");
+    const rid = base.split("/")[2];
+    const get = async (url: string) => (await page.request.get(`/api/reviews/${rid}/${url}`)).json();
+    const names = await get("names") as Record<string, { story: string | null; path: string | null }>;
+    let field: [string, string] | null = null;
+    for (const st of (await get("stories")).stories as { id: string }[]) {
+      const f = ((await get(`stories/${st.id}`)).graph?.nodes as Node[] ?? []).flatMap((n) => n.fields ?? [])
+        .find((x) => names[x.id] && !names[x.id].story && !names[x.id].path);
+      if (f) { field = [st.id, f.id]; break; }
+    }
+    expect(field).not.toBeNull();
+    await page.goto(`${base}/s/${field![0]}?open=${field![1]}`);
+    const panel = page.locator(".ws-detail");
+    await expect(panel.locator(".ws-badge")).toHaveText("field");
+    await expect(panel.locator(".bd-code")).toBeVisible();
+    await expect(panel.getByText(/No code to show/)).toHaveCount(0);
+
+    let fn: [string, Node] | null = null;
+    for (const c of (await get("overview")).clusters as { id: string }[]) {
+      const n = ((await get(`board?cluster=${c.id}`)).nodes as Node[])
+        .find((x) => !x.change && x.range && names[x.id] && !names[x.id].story);
+      if (n) { fn = [c.id, n]; break; }
+    }
+    expect(fn).not.toBeNull();
+    await page.goto(`${base}/c/${fn![0]}?open=${fn![1].id}`);
+    await expect(panel.locator(".ws-detail-path")).toContainText(`lines ${fn![1].range![0]}–${fn![1].range![1]}`);
+    await expect(panel.getByRole("button", { name: "Function" })).toHaveAttribute("aria-pressed", "true");
+  });
+});
