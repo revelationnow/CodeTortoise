@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 export async function login(page: Page, user = "demo") {
   await page.goto("/login");
@@ -62,4 +62,16 @@ export async function contrast(page: Page, selector: string) {
     const fg = lum(rgb(getComputedStyle(el).color)), b = lum(rgb(bg || "rgb(255,255,255)"));
     return (Math.max(fg, b) + 0.05) / (Math.min(fg, b) + 0.05);
   });
+}
+
+/** Each button is an icon with a name: no visible text, an svg, and a tooltip that says what it does. */
+export async function expectIconsOnly(buttons: Locator) {
+  const n = await buttons.count();
+  expect(n).toBeGreaterThan(0);
+  for (let i = 0; i < n; i++) {
+    const b = buttons.nth(i);
+    expect((await b.innerText()).trim()).toBe("");
+    await expect(b.locator("svg")).toHaveCount(1);
+    expect(await b.getAttribute("title")).toBe(await b.getAttribute("aria-label"));
+  }
 }

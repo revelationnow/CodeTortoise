@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Neighbour, type Neighbours as Model } from "../api";
+import FoldButton from "../components/FoldButton";
 import { useWs } from "./context";
 
 const LIMIT = 20;
@@ -47,8 +48,8 @@ export default function Neighbours({ nid }: { nid: string }) {
         <h3>{title} <span className="muted small">{side.total}</span></h3>
         {side.items.length ? <ul>{side.items.map(row)}</ul> : <p className="muted small">None.</p>}
         {all > side.items.length && (
-          <button className="link small" onClick={() => setMore((m) => ({ ...m, [key]: all }))}>
-            {all === side.total ? `Show all ${side.total}` : `Show ${MAX} of ${side.total}`}</button>
+          <FoldButton icon="more" label={all === side.total ? `Show all ${side.total}` : `Show ${MAX} of ${side.total}`}
+                      onClick={() => setMore((m) => ({ ...m, [key]: all }))} />
         )}
       </section>
     );
