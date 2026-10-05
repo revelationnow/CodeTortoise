@@ -260,7 +260,8 @@ def run_review(rid: int, svc: Services) -> None:
         sb = build_storyboard(ctx["impact"], findings, ctx.get("layers"), snippets, svc.llm, cfg.llm.max_context_tokens,
                               board=b, concurrency=cfg.llm.concurrency, upfront_flows=cfg.llm.upfront_flows,
                               node_files=ctx.get("node_files"), ledger=svc.ledger, rid=rid, stories=top,
-                              upfront_stories=cfg.llm.upfront_stories)
+                              upfront_stories=cfg.llm.upfront_stories,
+                              upfront_findings=cfg.llm.upfront_findings)
         if bs is not None and bs.stories is not None:          # the list shows the retold titles too
             bs.stories.stories = [bs.story_details[s.id].story for s in bs.stories.stories]
         store.put_findings(rid, findings)

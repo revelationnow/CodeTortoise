@@ -10,6 +10,7 @@ llm:
   model: fake
   upfront_flows: 1
   upfront_stories: 0
+  upfront_findings: 1
 YAML
 export TORTOISE_LLM_KEY=fake
 exec $CMD serve --config "$DIR/tortoise.yaml"
