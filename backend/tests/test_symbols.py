@@ -61,6 +61,44 @@ def test_includes_resolve_relative_then_include_dirs(tmp_path):
     assert short(idx.includers_of(f"{root}/a/config.h")) == ["a/x.c", "c/z.c", "d/w.c"]
 
 
+
+def test_includes_resolve_through_symlinked_headers_and_dirs(tmp_path):
+    files = {"src/foo.h": "", "other/foo.h": "", "real/sub/bar.h": "", "vendor/sub/bar.h": "",
+             "lib/x.c": '#include "foo.h"\n#include "sub/bar.h"\n'}
+    for rel_path, text in files.items():
+        (tmp_path / rel_path).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel_path).write_text(text)
+    (tmp_path / "include").mkdir()
+    (tmp_path / "include/foo.h").symlink_to("../src/foo.h")
+    (tmp_path / "include/sub").symlink_to("../real/sub")
+    root = str(tmp_path.resolve())
+    idx = SymbolIndex(tmp_path / "s.db")
+    idx.build(tmp_path, include_dirs=[f"{root}/include"])
+    assert idx.includers_of(f"{root}/src/foo.h") == [f"{root}/lib/x.c"]
+    assert idx.includers_of(f"{root}/real/sub/bar.h") == [f"{root}/lib/x.c"]
+    assert idx.includers_of(f"{root}/other/foo.h") == []
+
+
+def test_include_resolution_skips_realpath_when_lookups_decide(tmp_path, monkeypatch):
+    """Many include dirs times many includes made one realpath per (include, dir): runaway on big workspaces."""
+    import codetortoise.index.symbols as symbols
+    dirs = [f"d{i}" for i in range(20)]
+    for d in dirs:
+        (tmp_path / d).mkdir()
+    (tmp_path / "d19/common.h").write_text("")
+    for i in range(30):
+        (tmp_path / f"f{i}.c").write_text('#include "common.h"\n#include "missing.h"\n')
+    root = str(tmp_path.resolve())
+    include_dirs = [f"{root}/{d}" for d in dirs]
+    idx = SymbolIndex(tmp_path / "s.db")
+    idx.build(tmp_path, include_dirs=include_dirs)
+    calls = []
+    real = symbols.canon
+    monkeypatch.setattr(symbols, "canon", lambda p: calls.append(p) or real(p))
+    pairs = idx._resolve_includes(include_dirs)
+    assert sorted({t for _, t in pairs}) == [f"{root}/d19/common.h"] and len(pairs) == 30
+    assert calls == []  # a symlink-free tree is decided by set lookups and lstat alone
+
 def test_native_parser_crash_skips_only_that_file(tmp_path):
     from crashy import parse_crash_on_boom
     (tmp_path / "a.c").write_text("int a(void) { return b(); }\n")
