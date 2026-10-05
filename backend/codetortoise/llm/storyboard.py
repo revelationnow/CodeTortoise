@@ -225,13 +225,13 @@ def _styled(text: str, mode: str) -> bool:
     return not check_style(text, mode)
 
 
-IDS = re.compile(r"\b[NF]\d+\b")
+_IDS = re.compile(r"\b[NF]\d+\b")
 
 
 def _titled(text: str) -> bool:
     """A headline in the house style that names no node or finding id: titles are read without the ids' meaning
     (spec 2026-10-04-review-workspace §4.5)."""
-    return _styled(text, "headline") and not IDS.search(text)
+    return _styled(text, "headline") and not _IDS.search(text)
 
 
 def finding_job(ctx: AiContext, f: Finding) -> Job:
@@ -356,7 +356,7 @@ def build_storyboard(impact: ImpactModel, findings: list[Finding], layers: Layer
     ctx = AiContext(impact, findings, snippets, max_tokens, node_files)
     jobs = [flow_job(ctx, fl) for fl in (board.flows[:upfront_flows] if board else [])]
     jobs += [story_job(ctx, d) for d in (stories or [])[:upfront_stories]]
-    jobs += [finding_job(ctx, f) for f in [f for f in findings if f.severity == "high"][:upfront_findings]]
+    jobs += [finding_job(ctx, f) for f in [h for h in findings if h.severity == "high"][:upfront_findings]]
     pool = ThreadPoolExecutor(max(1, concurrency), thread_name_prefix="tortoise-llm")
     try:
         for dropped in pool.map(lambda j: run_job(llm, j, ledger, rid), jobs):

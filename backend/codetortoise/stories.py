@@ -365,8 +365,8 @@ def build_stories(c: BoardContext, home: dict[str, str] | None = None,
     for d in ordered:
         sid = ids[id(d)]
         st = _story(x, d, sid, sev, home, depots, is_test, effect_of)
-        files = {x.local(n) for n in d.members} | {x.local(fl.cause) for fl in d.flows if fl.cause} | {
-            loc for _, loc, _ in d.sites}
+        files = {x.local(n) for n in d.members}
+        files |= {loc for _, loc, _ in d.sites}                             # sites outside functions too
         st.cls = sorted(set().union(*(cls_of.get(f, set()) for f in files if f)))
         stories.append(st)
         details[sid] = _detail(x, d, st, impacts, depots, about, cfg.story_graph_nodes, node_story, mech_of, ids, mechs,

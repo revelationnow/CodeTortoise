@@ -460,3 +460,18 @@ def test_each_story_names_the_changelists_of_its_files():
     (m,) = _by_kind(ss, "mechanical")
     (o,) = _by_kind(ss, "other")
     assert m.cls == [1, 2] and o.cls == [3]
+
+
+def test_a_story_names_the_changelists_of_the_code_behind_its_flows_and_of_sites_outside_functions():
+    c = _world([_mech("free_a", "src/a.c"), _mech("free_b", "src/b.c"), _same("peek", "src/c.c")],
+               fields=[("free_a", "R", "v", "write", "added"), ("peek", "R", "v", "read", "unchanged")])
+    c.cs.files.append(FileChange(depot="//d/w/src/v.h", local=f"{W}/src/v.h", action="edit",
+                                 before="#define FREE(v) git_vector_free(&v)\n", after="#define FREE(v) git_vector_dispose(&v)\n"))
+    per = {"/w/src/a.c": [1], "/w/src/b.c": [2], "/w/src/c.c": [3], "/w/src/v.h": [4]}
+    for f in c.cs.files:
+        f.per_cl = [PerClText(cl=n, before=f.before, after=f.after) for n in per[f.local]]
+    ss, _ = build_stories(c)
+    (b,) = _by_kind(ss, "behaviour")
+    (m,) = _by_kind(ss, "mechanical")
+    assert b.nodes == [] and b.cls == [1]                  # no functions of its own: the CL of the edit behind its flows
+    assert m.cls == [1, 2, 4]                              # the header holds a site and no function

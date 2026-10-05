@@ -338,6 +338,9 @@ def test_the_upfront_pass_explains_high_findings_only_up_to_the_cap():
     assert len(asked) == 1 and "regs.h" in asked[0]                                # F2: the first high finding
     assert findings[1].explanation == "uart_send can now return -2 and logger_flush drops it."
     assert findings[0].explanation is None and findings[2].explanation is None    # medium; past the cap
+    asked.clear()
+    build_storyboard(im, findings, layers, {}, fake_llm(respond), board=_board(0), upfront_findings=0)
+    assert asked == []                                                              # a cap of 0 explains none up front
 
 
 def test_ai_titles_naming_node_or_finding_ids_keep_the_template_title():

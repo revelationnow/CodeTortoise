@@ -352,5 +352,7 @@ def test_neighbours_list_a_nodes_callers_and_callees(env):
     assert nb["callers"]["total"] >= len(nb["callers"]["items"])
     one = owner.get(f"/api/reviews/{rid}/nodes/{send}/neighbours", params={"limit": 1}).json()
     assert len(one["callers"]["items"]) == 1
+    own = owner.get(f"/api/reviews/{rid}/nodes/{send}/neighbours", params={"limit": 1, "callers": 50}).json()
+    assert len(own["callers"]["items"]) == min(50, own["callers"]["total"]) and len(own["callees"]["items"]) <= 1
     r = owner.get(f"/api/reviews/{rid}/nodes/N99999/neighbours")
     assert r.status_code == 404 and r.json()["detail"] == "no node N99999 in this review"
