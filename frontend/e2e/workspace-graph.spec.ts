@@ -16,6 +16,49 @@ async function reachable(page: Page) {
 
 const node = (page: Page, label: string) => page.locator(".bd-node", { has: page.locator(".lbl", { hasText: new RegExp(`^${label}$`) }) });
 
+/** The first node's offset from the graph's canvas: it changes when the graph pans, not when the page scrolls. */
+async function offset(canvas: ReturnType<Page["locator"]>) {
+  return canvas.evaluate((c) => {
+    const a = c.getBoundingClientRect(), b = c.querySelector(".bd-node")!.getBoundingClientRect();
+    return { x: Math.round(b.x - a.x), y: Math.round(b.y - a.y) };
+  });
+}
+
+test.describe("the wheel", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("over the whole change's map a plain wheel scrolls the page; Shift pans it; the full graph pans on the wheel", async ({ page }) => {
+    const base = await startReview(page);
+    const map = page.locator(".ws-mapgraph .bd-canvas"), scroller = page.locator(".ws-page").first();
+    await expect(map.locator(".bd-node").first()).toBeVisible();
+    await page.locator(".ws-mapgraph").evaluate((e) => e.scrollIntoView({ block: "center" }));
+    const box = (await map.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    const top = await scroller.evaluate((e) => e.scrollTop), at = await offset(map);
+    await page.mouse.wheel(0, 200);
+    await expect.poll(() => scroller.evaluate((e) => e.scrollTop)).toBeGreaterThan(top);
+    expect(await offset(map)).toEqual(at);
+
+    const box2 = (await map.boundingBox())!;
+    await page.mouse.move(box2.x + box2.width / 2, box2.y + box2.height / 2);
+    const top2 = await scroller.evaluate((e) => e.scrollTop);
+    await page.keyboard.down("Shift");
+    await page.mouse.wheel(0, 200);
+    await page.keyboard.up("Shift");
+    await expect.poll(() => offset(map).then((o) => o.x)).not.toBe(at.x);
+    expect(await scroller.evaluate((e) => e.scrollTop)).toBe(top2);
+
+    await page.goto(`${base}?view=graph`);
+    const full = page.locator(".bd-canvas");
+    await expect(full.locator(".bd-node").first()).toBeVisible();
+    const fb = (await full.boundingBox())!;
+    await page.mouse.move(fb.x + fb.width / 2, fb.y + fb.height / 2);
+    const was = await offset(full);
+    await page.mouse.wheel(0, 200);
+    await expect.poll(() => offset(full).then((o) => o.y)).not.toBe(was.y);
+  });
+});
+
 test.describe("desktop", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 

@@ -28,11 +28,14 @@ interface Props {
   /** A cluster's visitors link to their own cluster. */
   onHome?: (cluster: string, id: string) => void;
   homeName?: (cluster: string) => string;
+  /** A map on a scrolling page (the whole change's): a plain wheel scrolls the page. */
+  embedded?: boolean;
 }
 
 /** A graph in the centre (spec 2026-10-04-review-workspace §5: Board.tsx rebuilt as canvas, flow strip and toolbar).
  * A node click opens its code in the detail panel and a second click closes it; "+N callers" opens Neighbours. */
-export default function GraphView({ board, prefKey, flowIndex, onFlow, flows, stepsHref, quiet, onMore, onHome, homeName }: Props) {
+export default function GraphView({ board, prefKey, flowIndex, onFlow, flows, stepsHref, quiet, onMore, onHome, homeName,
+  embedded }: Props) {
   const ws = useWs(), phone = ws.screen === "phone";
   const numbered = flows ?? board.flows, at = drawnIndex(numbered, flowIndex, board.flows);
   const drawn = at < 0 ? undefined : board.flows[at];
@@ -161,7 +164,7 @@ export default function GraphView({ board, prefKey, flowIndex, onFlow, flows, st
           <Canvas board={board} lens={lens} pos={pos} vp={vp} bands={bands} state={state} dispatch={act} panBy={panBy}
                   flow={state.mode === "flows" ? drawn : undefined} selected={selected} lit={lit}
                   onSelect={onSelect} onNeighbours={onNeighbours} onHome={onHome} homeName={homeName} quiet={quiet} onMore={onMore}
-                  touch={phone ? { onPinchStart, onPinch } : undefined} />
+                  embedded={embedded} touch={phone ? { onPinchStart, onPinch } : undefined} />
         )}
         <div className="bd-tools">
           <div className="bd-toolbar">
