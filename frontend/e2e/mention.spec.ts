@@ -3,10 +3,11 @@ import { startReview } from "./helpers";
 
 const AI = "http://127.0.0.1:8798";      // e2e/serve-ai.sh: CodeTortoise with the fake model in e2e/fake_llm.py
 
-/** Open uart.c in the file viewer and start a comment on its new `return -2;` line. */
+/** Open uart.c's diff in the detail panel and start a comment on its new `return -2;` line. */
 async function commentOnReturn(page: Page): Promise<{ viewer: Locator; box: Locator }> {
-  await page.locator(".bd-about .tree .file", { hasText: "uart.c" }).first().click();
-  const viewer = page.locator(".bd-viewer");
+  await page.locator(".ws-rail").getByRole("button", { name: /Files/ }).click();
+  await page.locator(".ws-rail").getByRole("link", { name: "Open uart.c's diff" }).click();
+  const viewer = page.getByRole("complementary", { name: "Code: uart.c" });
   await viewer.getByRole("button", { name: "Stacked" }).click();
   await viewer.locator(".bd-ln.a", { hasText: "return -2;" }).first().click();
   return { viewer, box: viewer.getByPlaceholder("Leave a comment…") };

@@ -1,5 +1,5 @@
 import { devices, expect, test } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, login, startWorkspace } from "./helpers";
+import { expectNamed, expectNoNodeIds, startReview } from "./helpers";
 
 /** The workspace shell (spec 2026-10-04-review-workspace §2): rail, breadcrumb, addresses, phone levels. */
 
@@ -7,7 +7,7 @@ test.describe("desktop", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
   test("the rail lists the review, its CLs, the stories drawn from them, findings and files", async ({ page }) => {
-    const base = await startWorkspace(page);
+    const base = await startReview(page);
     const rail = page.locator(".ws-rail");
     await expect(rail.locator(".ws-sec h2")).toHaveText([/Change set \(2 CLs\)/, /Stories \(from 2 CLs\)/, /Findings \(6\)/, /Files \(4\)/]);
     await expect(rail.getByRole("link", { name: "Go to the whole change" })).toHaveAttribute("aria-current", "page");
@@ -38,7 +38,7 @@ test.describe("desktop", () => {
   });
 
   test("the whole change: what it is for, why it is risky, then the rest", async ({ page }) => {
-    const base = await startWorkspace(page);
+    const base = await startReview(page);
     const page_ = page.locator(".ws-whole");
     await expect(page_.locator("h2")).toHaveText(["What this change is trying to do", "Why it is high risk",
                                                   /^The map/, "Files with side effects", "Discussion"]);
@@ -53,7 +53,7 @@ test.describe("desktop", () => {
   });
 
   test("an address to something that does not exist says so", async ({ page }) => {
-    const base = await startWorkspace(page);
+    const base = await startReview(page);
     await page.goto(`${base}/s/S9`);
     await expect(page.locator(".ws-centre .banner")).toContainText("Story S9 isn't in this review.");
     await page.getByRole("link", { name: "Whole change" }).last().click();
@@ -65,7 +65,7 @@ test.describe("tablet", () => {
   test.use({ viewport: { width: 900, height: 1000 } });
 
   test("the rail is a drawer behind ☰", async ({ page }) => {
-    await startWorkspace(page);
+    await startReview(page);
     const rail = page.locator(".ws-rail");
     await expect(rail).not.toBeInViewport();
     await page.getByRole("button", { name: "Review contents" }).click();
@@ -81,7 +81,7 @@ test.describe("phone", () => {
     deviceScaleFactor: devices["iPhone 13"].deviceScaleFactor, isMobile: true, hasTouch: true });
 
   test("the rail is home; an item's top bar names where it came from", async ({ page }) => {
-    const base = await startWorkspace(page);
+    const base = await startReview(page);
     await expect(page.locator(".topbar")).toBeHidden();
     await expect(page.locator(".ws-centre")).toHaveCount(0);
     await page.getByRole("link", { name: /^Go to story S1/ }).click();
@@ -100,12 +100,7 @@ test.describe("a large change", () => {
   test.use({ baseURL: "http://127.0.0.1:8796", viewport: { width: 1440, height: 900 } });
 
   test("the whole change maps its parts; a part opens its page", async ({ page }) => {
-    await login(page);
-    await page.getByLabel("Changelists (shelved or submitted)").fill("201 202");
-    await page.getByRole("button", { name: "Start review" }).click();
-    await expect(page.locator(".st-entry").first()).toBeVisible({ timeout: 60_000 });
-    const base = `/w/${page.url().match(/\/r\/(\d+)/)![1]}`;
-    await page.goto(base);
+    const base = await startReview(page, "201 202");
     const map = page.getByRole("region", { name: "The map" });
     await expect(map.locator(".ov-block")).toHaveCount(7);
     await expect(map.getByRole("region", { name: "Layer drv" })).toContainText("drv/dma");
@@ -125,5 +120,24 @@ test.describe("a large change", () => {
     await visitor.dispatchEvent("pointerup", { bubbles: true, pointerId: 1, button: 0 });
     await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toContainText(`Map › ${to}`);
     await expect(page).toHaveURL(/open=N\d+$/);
+  });
+});
+
+test.describe("a large change on a phone", () => {
+  test.use({ baseURL: "http://127.0.0.1:8796", viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+
+  test("the map stacks the parts; a part opens with its place among them", async ({ page }) => {
+    await startReview(page, "201 202");
+    await page.locator(".ws-rail").getByRole("link", { name: "Go to the whole change" }).click();
+    const first = page.locator(".ov-block").first(), second = page.locator(".ov-block").nth(1);
+    const a = (await first.boundingBox())!, b = (await second.boundingBox())!;
+    expect(b.y).toBeGreaterThan(a.y + a.height - 1);                      // stacked, not side by side
+    expect(a.width).toBeGreaterThan(300);
+    await expect(first).toHaveAttribute("aria-label", /^Open /);    // each part is a link to its page
+    await first.click();
+    await expect(page.locator(".bd-node").first()).toBeVisible();
+    await expect(page.getByRole("link", { name: /^Next part:/ })).toBeVisible();
+    await expect(page.getByRole("link", { name: /^Back to Map/ })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
   });
 });

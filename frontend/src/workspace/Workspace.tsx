@@ -20,12 +20,13 @@ import ClusterPage from "./ClusterPage";
 import FindingPage from "./FindingPage";
 import Rail from "./Rail";
 import StoryPage from "./StoryPage";
+import { legacy } from "./legacy";
 import { useReview } from "./useReview";
 import WholePage, { ReviewGraph } from "./WholePage";
 import "./workspace.css";
 
-/** Where the workspace lives (spec 2026-10-04-review-workspace §6: `/w/` while it is built, then `/r/`). */
-export const base = (id: number) => `/w/${id}`;
+/** Where the workspace lives (spec 2026-10-04-review-workspace §6). */
+export const base = (id: number) => `/r/${id}`;
 
 /** The review workspace (spec 2026-10-04-review-workspace §2): header, rail, centre and the detail panel on demand. */
 export default function Workspace() {
@@ -56,10 +57,26 @@ export default function Workspace() {
     cls: d?.cls ?? [], clusters: data.overview?.clusters ?? [],
   }), [addr.place, root, d, id, data.stories, data.findings, data.overview]);
   const hash = location.hash.slice(1) || null;
+
+  // an address from before the workspace goes to where that thing lives now (§2.3)
+  const settled = data.ready && data.stories !== undefined && data.board !== undefined;
+  const old = useMemo(() => settled ? legacy(`/${params["*"] ?? ""}`, q, {
+    base: root, nodeStory: data.stories?.node_story ?? {}, oneBoard: !!data.board,
+  }) : null, [settled, params, q, root, data.stories, data.board]);
+  useEffect(() => {
+    if (!old) return;
+    if ("to" in old) { navigate(old.to, { replace: true }); return; }
+    api.locate(id, { node: old.locate }).then(
+      (r) => navigate(r.cluster ? href(root, at({ kind: "cluster", cid: r.cluster }, { open: { node: old.locate } })) : root, { replace: true }),
+      () => navigate(root, { replace: true }));
+  }, [old, id, root, navigate]);
+  useEffect(() => {
+    if (hash === "map" && d) document.getElementById("map")?.scrollIntoView({ block: "start" });
+  }, [hash, d]);
   const level = addr.open ? "detail" : addr.place.kind === "whole" && !addr.place.view && !(location.state as { page?: boolean } | null)?.page ? "rail" : "item";
 
   if (data.error) return <main className="page error">{data.error}</main>;
-  if (!d) return <main className="page muted">Loading…</main>;
+  if (!d || old) return <main className="page muted">Loading…</main>;
   return (
     <AiProvider value={data.ai}>
       <WsContext.Provider value={ws}>

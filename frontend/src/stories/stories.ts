@@ -1,5 +1,5 @@
 /** Change stories (spec 2026-10-04-change-stories §3, §5): the list's sections, ‹ › order and a repeated edit's sites. */
-import type { Board, Story, StorySet, StorySite } from "../board/types";
+import type { Story, StorySet, StorySite } from "../board/types";
 
 export interface Sections {
   behaviour: Story[];
@@ -56,17 +56,3 @@ export function groupSites(sites: StorySite[], hideTests: boolean): SiteDir[] {
 
 /** Sites past which files start closed (a very large repeated edit lists files with a count, spec §6). */
 export const OPEN_SITES = 200;
-
-/** Where "Whole graph ›" goes: the board holding the story's first node, focused on it; a story without code of its
- * own (a repeated edit's flows) focuses on `cause`, its first flow's. */
-export function wholeGraph(reviewId: number, s: Story, cause?: string | null): string {
-  const at = s.nodes[0] ?? cause;
-  const node = at ? `?node=${encodeURIComponent(at)}` : "";
-  return s.board ? `/r/${reviewId}/c/${s.board}${node}` : `/r/${reviewId}/board${node}`;
-}
-
-/** The story graph's node to focus for `?node=`: a field folded into a struct focuses the struct's node. */
-export function graphFocus(graph: Board | null, node: string | null): string | null {
-  if (!node || !graph) return node;
-  return graph.nodes.find((n) => n.fields?.some((f) => f.id === node))?.id ?? node;
-}

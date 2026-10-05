@@ -26,11 +26,13 @@ test.describe("on a network host name", () => {
   test.describe("on a phone", () => {
     test.use({ viewport: devices["iPhone 13"].viewport, userAgent: devices["iPhone 13"].userAgent, isMobile: true, hasTouch: true });
 
-    test("the banner and the phone board fit the screen together", async ({ page }) => {
+    test("the banner and the phone workspace fit the screen together", async ({ page }) => {
       await startReview(page);
       await expect(page.getByRole("alert")).toBeVisible();
-      const tabs = (await page.locator(".ph-tabs").boundingBox())!;
-      expect(tabs.y + tabs.height).toBeLessThanOrEqual(page.viewportSize()!.height + 1);   // the tab bar stays on screen
+      await page.locator(".ws-rail").getByRole("link", { name: /^Go to story/ }).first().click();
+      const bar = (await page.locator(".ws-phonebar").boundingBox())!;
+      expect(bar.y).toBeGreaterThanOrEqual(0);                                             // the back bar stays on screen
+      expect(bar.y + bar.height).toBeLessThanOrEqual(page.viewportSize()!.height);
       expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
     });
   });

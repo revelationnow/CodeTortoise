@@ -1,5 +1,5 @@
 import { devices, expect, test } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, startWorkspace } from "./helpers";
+import { expectNamed, expectNoNodeIds, startReview } from "./helpers";
 
 /** The detail panel (spec 2026-10-04-review-workspace §3.7): a node's code or a file's diff, on demand. */
 
@@ -7,7 +7,7 @@ test.describe("desktop", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
   test("a file from the rail opens its diff; ✕ closes it", async ({ page }) => {
-    const base = await startWorkspace(page);
+    const base = await startReview(page);
     await page.locator(".ws-rail").getByRole("button", { name: /Files/ }).click();
     await page.locator(".ws-rail").getByRole("link", { name: "Open uart.c's diff" }).click();
     await expect(page).toHaveURL(/\?open=file%3A%2F%2Ffixture%2Fdriver%2Fuart\.c$/);
@@ -24,7 +24,7 @@ test.describe("desktop", () => {
   });
 
   test("a node opens its function, its story and the full file", async ({ page }) => {
-    const base = await startWorkspace(page);
+    const base = await startReview(page);
     const names = await page.evaluate(async (b) => (await fetch(`/api/reviews/${b.split("/")[2]}/names`)).json(), base);
     const send = Object.entries(names as Record<string, { label: string }>).find(([, n]) => n.label === "uart_send")![0];
     await page.goto(`${base}?open=${send}`);
@@ -39,8 +39,69 @@ test.describe("desktop", () => {
     await expectNoNodeIds(page);
   });
 
+  test("a line comment in a file's diff shows in that function's code", async ({ page }) => {
+    const base = await startReview(page);
+    await page.locator(".ws-rail").getByRole("button", { name: /Files/ }).click();
+    await page.locator(".ws-rail").getByRole("link", { name: "Open uart.c's diff" }).click();
+    const file = page.getByRole("complementary", { name: "Code: uart.c" });
+    await file.getByRole("button", { name: "Stacked" }).click();
+    await file.locator(".bd-ln.a", { hasText: "return -2;" }).first().click();
+    await file.getByPlaceholder("Leave a comment…").fill("Does logger_flush handle -2?");
+    await file.getByRole("button", { name: "Comment", exact: true }).click();
+    await expect(file.getByText("Does logger_flush handle -2?")).toBeVisible();
+    const names = await page.evaluate(async (b) => (await fetch(`/api/reviews/${b.split("/")[2]}/names`)).json(), base);
+    const send = Object.entries(names as Record<string, { label: string }>).find(([, n]) => n.label === "uart_send")![0];
+    await page.goto(`${base}?open=${send}`);
+    await expect(page.getByRole("complementary", { name: "Code: uart_send" }).getByText("Does logger_flush handle -2?")).toBeVisible();
+  });
+
+  test("one changelist's diff keeps the comments made on it", async ({ page }) => {
+    await startReview(page);
+    await page.locator(".ws-rail").getByRole("button", { name: /Files/ }).click();
+    await page.locator(".ws-rail").getByRole("link", { name: "Open uart.c's diff" }).click();
+    const file = page.getByRole("complementary", { name: "Code: uart.c" });
+    await expect(file.locator(".act")).toContainText("edit");
+    await file.getByRole("button", { name: "Stacked" }).click();
+    await file.getByLabel("Changelist").selectOption("101");
+    await file.locator(".bd-ln.a").first().click();
+    await file.locator("textarea").fill("only in CL 101");
+    await file.getByRole("button", { name: "Comment", exact: true }).click();
+    await expect(file.getByText("only in CL 101")).toBeVisible();
+    await file.getByLabel("Changelist").selectOption("all");
+    await expect(file.getByText("only in CL 101")).toHaveCount(0);
+    await file.getByLabel("Changelist").selectOption("101");
+    await expect(file.getByText("only in CL 101")).toBeVisible();
+  });
+
+  test("a side effect on the whole change opens its file at a folded line, shown", async ({ page }) => {
+    await startReview(page);
+    await page.locator(".ws-rail").getByRole("link", { name: "Go to the whole change" }).click();
+    await page.getByRole("link", { name: "Open uart_init at line 8" }).click();       // line 8: outside the hunks
+    await expect(page.getByRole("complementary", { name: "Code: uart.c" }).locator('.focus[data-n="8"]')).toBeVisible();
+  });
+
+  test("review, layer and function comments show where they belong", async ({ page }) => {
+    const base = await startReview(page);
+    const rid = base.split("/")[2];
+    const board = await (await page.request.get(`/api/reviews/${rid}/board`)).json();
+    const send = board.nodes.find((n: { label: string }) => n.label === "uart_send");
+    const post = (body: string, anchor_kind: string, anchor: object) =>
+      page.request.post(`/api/reviews/${rid}/comments`, { data: { body, anchor_kind, anchor } });
+    await post("overall: please split the CLs", "review", {});
+    await post("driver layer looks risky", "chapter", { level: send.layer });
+    await post("why -2 and not -EINVAL?", "function", { key: send.key });
+    await page.goto(`${base}?open=${send.id}`);
+    await expect(page.getByRole("complementary", { name: "Code: uart_send" }).getByText("why -2 and not -EINVAL?")).toBeVisible();
+    const talk = page.locator("section", { has: page.getByRole("heading", { name: "Discussion" }) });
+    await expect(talk.getByText("overall: please split the CLs")).toBeVisible();
+    await expect(talk.getByText("driver layer looks risky")).toBeVisible();
+    await talk.getByPlaceholder("Start another thread…").first().fill("agreed");
+    await talk.getByRole("button", { name: "Comment" }).first().click();
+    await expect(talk.getByText("agreed")).toBeVisible();
+  });
+
   test("an unknown node says so", async ({ page }) => {
-    const base = await startWorkspace(page);
+    const base = await startReview(page);
     await page.goto(`${base}?open=N99999`);
     await expect(page.locator(".ws-detail .banner")).toContainText("This function isn't in this review.");
   });
@@ -51,7 +112,7 @@ test.describe("phone", () => {
     deviceScaleFactor: devices["iPhone 13"].deviceScaleFactor, isMobile: true, hasTouch: true });
 
   test("the code opens as a full-screen sheet whose top bar names it", async ({ page }) => {
-    const base = await startWorkspace(page);
+    const base = await startReview(page);
     await page.goto(`${base}?open=${encodeURIComponent("file://fixture/driver/uart.c:17")}`);
     await expect(page.locator(".ws-rail, .ws-centre")).toHaveCount(0);
     const bar = page.locator(".ws-detail .ws-phonebar");
@@ -66,7 +127,7 @@ test.describe("neighbours", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
   test("callers and callees; a row moves the panel and Back returns", async ({ page }) => {
-    const base = await startWorkspace(page);
+    const base = await startReview(page);
     const names = await page.evaluate(async (b) => (await fetch(`/api/reviews/${b.split("/")[2]}/names`)).json(), base);
     const send = Object.entries(names as Record<string, { label: string }>).find(([, n]) => n.label === "uart_send")![0];
     await page.goto(`${base}?open=${send}`);

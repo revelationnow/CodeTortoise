@@ -1,7 +1,7 @@
 /** World geometry helpers for the board (pure). Two layouts: `layers` (bands by architectural layer, x from the
  * backend's barycentre ordering) and `depth` (rows by call depth from the entry points, ordered here). The viewer may
  * move any node anywhere; moves are kept per layout. */
-import { BAND, type Projected } from "./lens";
+import { BAND } from "./lens";
 import type { Board, BoardFlow, BoardNode } from "./types";
 
 export type LayoutKind = "layers" | "depth";
@@ -145,35 +145,4 @@ export function centrePan(ids: string[], nodes: Map<string, WorldNode>, W: numbe
 export function flowSets(flow: BoardFlow | undefined, graph: boolean) {
   if (graph || !flow) return { onPath: new Set<string>(), pairs: new Set<string>() };
   return { onPath: new Set(flow.path), pairs: new Set(flow.path.slice(1).map((b, i) => `${flow.path[i]}>${b}`)) };
-}
-
-const NODE_HALF = 100;                             // about half a changed node's width, in screen px at scale 1
-
-export interface Rect { x: number; y: number; w: number; h: number }
-export interface CardBox { id: string; at: Projected; w: number; h: number; collapsed: boolean; offset?: { x: number; y: number } }
-
-/** Screen rectangles for cards (spec §3.4): pills under their node; dragged cards follow their node at the chosen
- * offset; others go right/left/above of the node, then into canvas corners — first free spot, else least overlap. */
-export function placeCards(cards: CardBox[], W: number, H: number): Map<string, Rect & { k: number }> {
-  const placed: Rect[] = [], out = new Map<string, Rect & { k: number }>();
-  const area = (a: Rect, b: Rect) =>
-    Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
-  const overlap = (r: Rect) => placed.reduce((s, q) => s + area(r, q), 0);
-  for (const c of cards) {
-    const p = c.at, k = c.collapsed ? 1 : Math.max(0.55, p.s), cw = c.w * k, ch = Math.min(c.h * k, H - 16);
-    const cx = (x: number) => Math.max(8, Math.min(x, W - cw - 8)), cy = (y: number) => Math.max(8, Math.min(y, H - ch - 8));
-    let r: Rect;
-    if (c.collapsed) r = { x: cx(p.x - cw / 2), y: cy(p.y + 24 * p.s), w: cw, h: ch };
-    else if (c.offset) r = { x: p.x + c.offset.x, y: p.y + c.offset.y, w: cw, h: ch };
-    else {
-      const gap = NODE_HALF * p.s;                 // clear of the node itself, so its ⤢ button stays reachable
-      const cands = [[p.x + gap, p.y - 40], [p.x - gap - cw, p.y - 40], [p.x + gap, p.y - ch + 40],
-        [p.x - gap - cw, p.y - ch + 40], [W - cw - 8, 8], [8, 8], [W - cw - 8, H - ch - 8], [8, H - ch - 8]]
-        .map(([x, y]) => ({ x: cx(x), y: cy(y), w: cw, h: ch }));
-      r = cands.find((t) => overlap(t) === 0) ?? cands.reduce((b, t) => (overlap(t) < overlap(b) ? t : b));
-    }
-    placed.push(r);
-    out.set(c.id, { ...r, k });
-  }
-  return out;
 }

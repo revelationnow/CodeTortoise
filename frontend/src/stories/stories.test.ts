@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Board, BoardNode, Story, StorySet, StorySite } from "../board/types";
-import { countLine, graphFocus, groupSites, sections, stepStory, wholeGraph } from "./stories";
+import type { Story, StorySet, StorySite } from "../board/types";
+import { countLine, groupSites, sections, stepStory } from "./stories";
 
 const story = (id: string, kind: Story["kind"], extra: Partial<Story> = {}): Story => ({
   id, kind, title: id, summary: "", text_source: "template", risk: null, counts: {}, nodes: [], flows: [], findings: [],
@@ -40,20 +40,5 @@ describe("stories", () => {
     expect(g.map((d) => [d.dir, d.count])).toEqual([["//d/src", 3], ["//d/tests", 1]]);
     expect(g[0].files.map((f) => [f.name, f.sites.map((s) => s.line)])).toEqual([["a.c", [1]], ["b.c", [3, 9]]]);
     expect(groupSites(sites, true).map((d) => d.dir)).toEqual(["//d/src"]);
-  });
-
-  it("opens the whole graph on the board holding the story's first node", () => {
-    expect(wholeGraph(3, story("S1", "behaviour", { nodes: ["N9"] }))).toBe("/r/3/board?node=N9");
-    expect(wholeGraph(3, story("S1", "behaviour", { nodes: ["N9"], board: "C2" }))).toBe("/r/3/c/C2?node=N9");
-    expect(wholeGraph(3, story("S1", "behaviour"), "N4")).toBe("/r/3/board?node=N4");     // a repeated edit's flows
-    expect(wholeGraph(3, story("S1", "behaviour", { nodes: ["N9"] }), "N4")).toBe("/r/3/board?node=N9");
-  });
-  it("focuses a field folded into a struct on its struct node", () => {
-    const n = (id: string, fields?: { id: string; label: string }[]) => ({ id, fields }) as BoardNode;
-    const g = { nodes: [n("N1"), n("N2", [{ id: "N2", label: "a" }, { id: "N3", label: "b" }])] } as Board;
-    expect(graphFocus(g, "N3")).toBe("N2");
-    expect(graphFocus(g, "N1")).toBe("N1");
-    expect(graphFocus(g, "N9")).toBe("N9");
-    expect(graphFocus(g, null)).toBeNull();
   });
 });

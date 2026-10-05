@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { centrePan, flowSets, layerRows, placeCards, worldNodes } from "./layout";
+import { centrePan, flowSets, layerRows, worldNodes } from "./layout";
 import type { Board, BoardEdge, BoardFlow, BoardNode } from "./types";
 
 const node = (id: string, layer: number | null, x: number) => ({
@@ -32,26 +32,6 @@ describe("layout", () => {
     expect([...s.onPath]).toEqual(["A", "B", "C"]);
     expect([...s.pairs]).toEqual(["A>B", "B>C"]);
     expect(flowSets(f, true).onPath.size).toBe(0);
-  });
-
-  it("places cards beside their node without overlap and inside the canvas", () => {
-    const at = { x: 500, y: 300, v: 1, s: 1 };
-    const rects = placeCards([{ id: "1", at, w: 300, h: 200, collapsed: false },
-                              { id: "2", at, w: 300, h: 200, collapsed: false }], 1200, 800);
-    const a = rects.get("1")!, b = rects.get("2")!;
-    expect(a.x).toBe(600);                                     // right of the node, clear of it
-    expect(b.x + b.w).toBeLessThanOrEqual(450);                // then left of it
-    for (const r of [a, b]) expect(r.x >= 8 && r.y >= 8 && r.x + r.w <= 1192 && r.y + r.h <= 792).toBe(true);
-  });
-
-  it("keeps dragged offsets, scales by the lens and puts pills under the node", () => {
-    const rects = placeCards([
-      { id: "d", at: { x: 400, y: 300, v: 1, s: 0.4 }, w: 300, h: 200, collapsed: false, offset: { x: 10, y: 20 } },
-      { id: "p", at: { x: 600, y: 300, v: 1, s: 1 }, w: 100, h: 30, collapsed: true },
-    ], 1200, 800);
-    const d = rects.get("d")!;
-    expect([d.x, d.y, Math.round(d.w), Math.round(d.h), d.k]).toEqual([410, 320, 165, 110, 0.55]);
-    expect(rects.get("p")).toEqual({ x: 550, y: 324, w: 100, h: 30, k: 1 });
   });
 });
 

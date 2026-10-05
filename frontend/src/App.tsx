@@ -1,14 +1,19 @@
 import { createContext, useContext, useEffect, useState } from "react";
-import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, type Me } from "./api";
 import InsecureBanner from "./components/InsecureBanner";
 import Logo from "./components/Logo";
 import ThemeSwitch from "./components/ThemeSwitch";
 import Health from "./pages/Health";
 import Login from "./pages/Login";
-import Review from "./pages/Review";
 import Reviews from "./pages/Reviews";
 import Workspace from "./workspace/Workspace";
+
+/** `/w/` was the workspace's address while it was built; it is `/r/` now. */
+function ToReview() {
+  const { id, "*": rest } = useParams(), { search, hash } = useLocation();
+  return <Navigate to={`/r/${id}${rest ? `/${rest}` : ""}${search}${hash}`} replace />;
+}
 
 const MeContext = createContext<Me | null>(null);
 export const useMe = () => useContext(MeContext);
@@ -53,8 +58,8 @@ export default function App() {
         <Route path="/" element={<Reviews />} />
         <Route path="/new" element={<Navigate to="/" replace />} />
         <Route path="/health" element={<Health />} />
-        <Route path="/r/:id/*" element={<Review />} />
-        <Route path="/w/:id/*" element={<Workspace />} />
+        <Route path="/r/:id/*" element={<Workspace />} />
+        <Route path="/w/:id/*" element={<ToReview />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </MeContext.Provider>
