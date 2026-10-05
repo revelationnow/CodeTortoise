@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useMe } from "../App";
@@ -8,7 +8,7 @@ import { useSources } from "../board/useSources";
 import Stages from "../components/Stages";
 import { AiProvider } from "../lib/ai";
 import { type Address, at, href, type Open, type Place, readAddress, type Tab } from "./address";
-import { useWs as useWs, type Ws, WsContext } from "./context";
+import { useWs, type Ws, WsContext } from "./context";
 import Crumbs, { PhoneBar } from "./Crumbs";
 import Detail from "./Detail";
 import { type Crumb, crumbs } from "./crumbs";
@@ -41,7 +41,8 @@ export default function Workspace() {
   const root = base(id);
   const addr = useMemo(() => readAddress(`/${params["*"] ?? ""}`, q), [params, q]);
   const [memory, setMemory] = useState(() => loadMemory(id));
-  useEffect(() => setMemory((m) => { const n = remember(m, addr); saveMemory(id, n); return n; }), [id, addr]);
+  useEffect(() => setMemory((m) => remember(m, addr)), [addr]);
+  useEffect(() => saveMemory(id, memory), [id, memory]);
 
   const link = useCallback((a: Address) => href(root, a), [root]);
   const go = useCallback((a: Address, replace = false) => navigate(href(root, a), { replace }), [navigate, root]);
@@ -65,14 +66,21 @@ export default function Workspace() {
   useEffect(() => {
     if (!old) return;
     if ("to" in old) { navigate(old.to, { replace: true }); return; }
+    let live = true;                                       // a reader who leaves first stays where they went
+    const to = (path: string) => { if (live) navigate(path, { replace: true }); };
     api.locate(id, { node: old.locate }).then(
-      (r) => navigate(r.cluster ? href(root, at({ kind: "cluster", cid: r.cluster }, { open: { node: old.locate } })) : root, { replace: true }),
-      () => navigate(root, { replace: true }));
+      (r) => to(r.cluster ? href(root, at({ kind: "cluster", cid: r.cluster }, { open: { node: old.locate } })) : root),
+      () => to(root));
+    return () => { live = false; };
   }, [old, id, root, navigate]);
+  const scrolled = useRef(false);                          // #map scrolls once, when the map is there to scroll to
   useEffect(() => {
-    if (hash === "map" && d) document.getElementById("map")?.scrollIntoView({ block: "start" });
-  }, [hash, d]);
-  const level = addr.open ? "detail" : addr.place.kind === "whole" && !addr.place.view && !(location.state as { page?: boolean } | null)?.page ? "rail" : "item";
+    if (hash !== "map") { scrolled.current = false; return; }
+    const map = document.getElementById("map");
+    if (map && !scrolled.current) { map.scrollIntoView({ block: "start" }); scrolled.current = true; }
+  });
+  const page = (location.state as { page?: boolean } | null)?.page || hash === "map";
+  const level = addr.open ? "detail" : addr.place.kind === "whole" && !addr.place.view && !page ? "rail" : "item";
 
   if (data.error) return <main className="page error">{data.error}</main>;
   if (!d || old) return <main className="page muted">Loading…</main>;
@@ -82,7 +90,7 @@ export default function Workspace() {
         <main className={`ws ${screen} level-${level}${drawer ? " drawer" : ""}`}>
           <Head onMenu={() => setDrawer(!drawer)} drawer={drawer} />
           <div className={`ws-body${addr.open ? " with-detail" : ""}`}>
-            {(screen !== "phone" || level === "rail") && <Rail show={hash} onPick={() => setDrawer(false)} />}
+            {(screen !== "phone" || level === "rail") && <Rail show={hash} onPick={() => setDrawer(false)} hidden={screen === "tablet" && !drawer} />}
             {drawer && <div className="ws-scrim" onClick={() => setDrawer(false)} aria-hidden />}
             {(screen !== "phone" || level === "item") && (
               <section className="ws-centre" aria-label="Centre">

@@ -77,8 +77,10 @@ export function useReview(id: number) {
   const ai = useAiState(id, ready, people, comments.some((c) => c.ai_meta?.pending), onAiDone, loadComments);
   const about = (board ?? overview)?.about ?? null;
 
-  return { id, detail, board, overview, stories, findings, files, comments, names, about, reload, error, ready, ai, story,
-           loadDetail, loadComments, loadFindings };
+  return useMemo(() => ({ id, detail, board, overview, stories, findings, files, comments, names, about, reload, error, ready,
+                         ai, story, loadDetail, loadComments, loadFindings }),
+                 [id, detail, board, overview, stories, findings, files, comments, names, about, reload, error, ready, ai, story,
+                  loadDetail, loadComments, loadFindings]);
 }
 
 export type ReviewData = ReturnType<typeof useReview>;
