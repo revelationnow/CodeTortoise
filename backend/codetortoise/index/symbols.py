@@ -84,19 +84,38 @@ def _stat(path: str) -> tuple[int, int] | None:
     return st.st_mtime_ns, st.st_size
 
 
+def _find(base: str, inc: str, files: set[str]) -> str | None:
+    """The indexed file `base/inc` names, or None. `files` holds realpaths, so without a `..` (which realpath applies
+    after symlinks, normpath before) a set lookup and an lstat decide most cases; realpath runs only for a path that
+    exists but goes through a symlink."""
+    p = os.path.join(base, inc)
+    if os.pardir not in inc.split(os.sep):
+        p = os.path.normpath(p)
+        if p in files:
+            return p
+        if not os.path.lexists(p):
+            return None
+    p = canon(p)
+    return p if p in files else None
+
+
 def _resolve(path: str, inc: str, files: set[str], by_base: dict[str, list[str]],
-             include_dirs: list[str] | None) -> list[str]:
+             include_dirs: list[str] | None, memo: dict[str, list[str]]) -> list[str]:
     """Files an `#include` of `path` may name. Order: relative to the includer, then include dirs, then path-suffix
-    match (a unique match when include dirs are known; every candidate when they are not)."""
-    local = canon(os.path.join(os.path.dirname(path), inc))
-    if local in files:
+    match (a unique match when include dirs are known; every candidate when they are not). Past the first step the
+    answer doesn't depend on the includer, so it is kept in `memo` (one per `files`)."""
+    local = _find(os.path.dirname(path), inc, files)
+    if local:
         return [local]
-    hit = next((c for d in include_dirs or [] if (c := canon(os.path.join(d, inc))) in files), None)
-    if hit:
-        return [hit]
-    inc_n = os.path.normpath(inc)
-    cands = [c for c in by_base.get(os.path.basename(inc), []) if c.endswith(os.sep + inc_n)]
-    return cands if include_dirs is None or len(cands) == 1 else []
+    if inc not in memo:
+        hit = next((c for d in include_dirs or [] if (c := _find(d, inc, files))), None)
+        if hit:
+            memo[inc] = [hit]
+        else:
+            inc_n = os.path.normpath(inc)
+            cands = [c for c in by_base.get(os.path.basename(inc), []) if c.endswith(os.sep + inc_n)]
+            memo[inc] = cands if include_dirs is None or len(cands) == 1 else []
+    return memo[inc]
 
 
 class SymbolIndex:
@@ -139,6 +158,7 @@ class SymbolIndex:
             by_base: dict[str, list[str]] = {}
             for h in headers:
                 by_base.setdefault(os.path.basename(h), []).append(h)
+            memo: dict[str, list[str]] = {}
         self.skipped = []
         scope: set[str] = set()
         while queue:
@@ -162,7 +182,7 @@ class SymbolIndex:
             if headers is None:
                 break
             found = {t for f, incs in includes.items() for inc in incs
-                     for t in _resolve(f, inc, headers, by_base, include_dirs)}
+                     for t in _resolve(f, inc, headers, by_base, include_dirs, memo)}
             queue = sorted(found - scope)
         with db:
             gone = [p for (p,) in db.execute("SELECT path FROM sym_files UNION SELECT path FROM sym_stat")
@@ -248,8 +268,9 @@ class SymbolIndex:
         by_base: dict[str, list[str]] = {}
         for f in files:
             by_base.setdefault(os.path.basename(f), []).append(f)
+        memo: dict[str, list[str]] = {}
         return [(path, t) for path, inc in self._db.execute("SELECT path, inc FROM sym_includes").fetchall()
-                for t in _resolve(path, inc, files, by_base, include_dirs)]
+                for t in _resolve(path, inc, files, by_base, include_dirs, memo)]
 
     def includers_of(self, header: str) -> list[str]:
         rows = self._db.execute("SELECT path FROM sym_inc_resolved WHERE target=?", (canon(header),))
