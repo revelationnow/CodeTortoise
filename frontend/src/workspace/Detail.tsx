@@ -9,6 +9,7 @@ import { short } from "./crumbs";
 import { locateNode } from "./detail";
 import FileDiff from "./FileDiff";
 import FunctionCode from "./FunctionCode";
+import Neighbours from "./Neighbours";
 
 const WIDTH_KEY = "ct.ws.detailW";
 
@@ -71,7 +72,15 @@ export default function Detail() {
           {ws.screen !== "phone" && <Link className="ws-x" to={close} aria-label="Close the code" title="Close the code">✕</Link>}
         </div>
         {path && <div className="ws-detail-path mono">{path}{lines && <span className="muted"> · {lines}</span>}</div>}
-        {node?.path && node.range && (
+        {nid && (name || node) && (
+          <div className="ws-tabs" role="tablist" aria-label="Detail">
+            {(["diff", "neighbours"] as const).map((t) => (
+              <Link key={t} role="tab" aria-selected={ws.addr.tab === t} className={ws.addr.tab === t ? "on" : ""} replace
+                    to={ws.link({ ...ws.addr, tab: t })}>{t === "diff" ? "Diff" : "Neighbours"}</Link>
+            ))}
+          </div>
+        )}
+        {node?.path && node.range && ws.addr.tab === "diff" && (
           <div className="ws-detail-tools">
             <span className="bd-seg">
               <button className={`bd-ibtn${!full ? " on" : ""}`} aria-pressed={!full} onClick={() => setFull(false)}>Function</button>
@@ -80,7 +89,7 @@ export default function Detail() {
           </div>
         )}
       </div>
-      <div className="ws-detail-body">{body()}</div>
+      <div className="ws-detail-body">{nid && ws.addr.tab === "neighbours" && (name || node) ? <Neighbours nid={nid} /> : body()}</div>
     </aside>
   );
 }
