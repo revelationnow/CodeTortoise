@@ -1,22 +1,10 @@
 import { expect, type Page, test } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, startWorkspace } from "./helpers";
+import { expectNamed, expectNoNodeIds, flowStripHolds, startWorkspace } from "./helpers";
 
 /** Graphs in the workspace (spec 2026-10-04-review-workspace §3.2, §3.6): a node click opens its code and a second
  * click closes it; "+N callers" opens Neighbours; the flow strip keeps its controls in place and never overflows. */
 
 const node = (page: Page, label: string) => page.locator(".bd-node", { has: page.locator(".lbl", { hasText: new RegExp(`^${label}$`) }) });
-
-export async function flowStripHolds(page: Page) {
-  const strip = page.getByRole("region", { name: "Flow" });
-  const next = strip.getByRole("button", { name: "Next flow" });
-  const at = (await next.boundingBox())!.x;
-  const row = strip.locator(".ws-flow-row");
-  for (let i = 0; i < 3; i++) {
-    expect(await row.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
-    await next.click();
-    expect((await next.boundingBox())!.x).toBe(at);
-  }
-}
 
 test.describe("desktop", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
