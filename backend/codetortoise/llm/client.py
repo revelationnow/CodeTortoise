@@ -48,7 +48,7 @@ class LlmClient:
         return None
 
     def chat(self, system: str, user: str, schema: type[BaseModel] | None = None) -> str:
-        body = {"model": self.model, "temperature": 0.2,
+        body = {"model": self.model,
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
         last: Exception | None = None
         for attempt in range(self.retries + 1):
