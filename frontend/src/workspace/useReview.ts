@@ -1,8 +1,8 @@
 /** Everything the workspace shows about one review (spec 2026-10-04-review-workspace §5: Review.tsx's data loading,
  * progress events and AI state, moved into a hook). */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, type AiJob, type Board, type Comment, type FileChange, type Finding, type Names, type Overview,
-  type ReviewDetail, type StorySet } from "../api";
+  type ReviewDetail, type StoryDetail, type StorySet } from "../api";
 import { useAiState } from "../lib/ai";
 
 const TERMINAL = new Set(["done", "degraded", "failed"]);
@@ -63,10 +63,21 @@ export function useReview(id: number) {
     }
     if (jobs.some((j) => j.kind === "finding")) { loadFindings(); loadNames(); }
   }, [loadStories, loadNames, loadBoard, loadFindings, overview]);
+  const cache = useRef(new Map<string, Promise<StoryDetail>>());
+  /** A story's page data, fetched once and again after AI text changes it. */
+  const story = useCallback((sid: string) => {
+    let p = cache.current.get(`${reload}:${sid}`);
+    if (!p) {
+      p = api.story(id, sid);
+      p.catch(() => cache.current.delete(`${reload}:${sid}`));
+      cache.current.set(`${reload}:${sid}`, p);
+    }
+    return p;
+  }, [id, reload]);
   const ai = useAiState(id, ready, people, comments.some((c) => c.ai_meta?.pending), onAiDone, loadComments);
   const about = (board ?? overview)?.about ?? null;
 
-  return { id, detail, board, overview, stories, findings, files, comments, names, about, reload, error, ready, ai,
+  return { id, detail, board, overview, stories, findings, files, comments, names, about, reload, error, ready, ai, story,
            loadDetail, loadComments, loadFindings };
 }
 
