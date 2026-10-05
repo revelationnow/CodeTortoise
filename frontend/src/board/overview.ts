@@ -25,39 +25,8 @@ export function linkLines(ov: Overview, id: string, max = Infinity): string[] {
   return lines.sort((a, b) => b.w - a.w).slice(0, max).map((l) => l.text);
 }
 
-/** Clusters linked to `id` either way (outlined when it is selected). */
-export function linkedTo(ov: Overview, id: string): Set<string> {
-  return new Set(ov.links.flatMap((l) => (l.src === id ? [l.dst] : l.dst === id ? [l.src] : [])));
-}
-
 /** The previous or next cluster in risk order (‹ ›), wrapping around. */
 export function stepCluster(ov: Overview, id: string, dir: 1 | -1): string {
   const i = ov.clusters.findIndex((c) => c.id === id), n = ov.clusters.length;
   return ov.clusters[((i < 0 ? 0 : i) + dir + n) % n].id;
-}
-
-/** The cluster whose changed code is in this depot file, or null. */
-export function clusterOfFile(ov: Overview, path: string): string | null {
-  return ov.clusters.find((c) => c.files.includes(path))?.id ?? null;
-}
-
-/** The page address's expansions after one more "+N callers / callees": asking again adds the next neighbours. */
-export function addExpansion(list: string[], id: string, way: "callers" | "callees"): string[] {
-  return [...list, `${id}:${way}`];
-}
-
-/** The cluster to open for a file of the change: its own, or (a file with no changed function, such as a header of
- * macros) the one whose code shares the most directory with it, the riskiest on a tie. */
-export function nearestCluster(ov: Overview, path: string): string | null {
-  const own = clusterOfFile(ov, path);
-  if (own || !ov.clusters.length) return own;
-  const dir = (p: string) => p.split("/").slice(0, -1);
-  const shared = (a: string[], b: string[]) => { let i = 0; while (i < a.length && i < b.length && a[i] === b[i]) i++; return i; };
-  const mine = dir(path);
-  let best = ov.clusters[0].id, most = -1;
-  for (const c of ov.clusters) {
-    const n = Math.max(-1, ...c.files.map((f) => shared(mine, dir(f))));
-    if (n > most) { best = c.id; most = n; }
-  }
-  return best;
 }

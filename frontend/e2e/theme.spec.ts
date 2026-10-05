@@ -6,7 +6,8 @@ test.use({ viewport: { width: 1440, height: 900 } });
 /** WCAG contrast ratio between an element's text colour and the first opaque background behind it. */
 async function contrast(page: Page, selector: string) {
   return page.locator(selector).first().evaluate((el) => {
-    const rgb = (c: string) => (c.match(/[\d.]+/g) ?? []).map(Number);
+    // rgb(0-255…) or, for color-mix() backgrounds, color(srgb 0-1…)
+    const rgb = (c: string) => (c.match(/[\d.]+/g) ?? []).map(Number).map((v, i) => c.startsWith("color(") && i < 3 ? v * 255 : v);
     const lum = ([r, g, b]: number[]) => {
       const f = (v: number) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
       return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
@@ -22,22 +23,32 @@ async function contrast(page: Page, selector: string) {
   });
 }
 
+/** A changed function of story S1 (its first step), to open in the detail panel. */
+async function firstChanged(page: Page) {
+  const id = page.url().match(/\/r\/(\d+)/)![1];
+  const s1 = await (await page.request.get(`/api/reviews/${id}/stories/S1`)).json();
+  return s1.board.nodes.find((n: { change: unknown }) => n.change).id as string;
+}
+
 const CHECKS = [
-  ".bd-flowinfo .what",            // flow summary text
+  ".ws-flow-text p",               // flow summary text
   ".bd-node:not(.chg) .lbl",       // node label (changed nodes sit on a fixed amber gradient)
-  ".bd-card .bd-code .src",        // code in a card
+  ".ws-detail .bd-code .src",      // code in the detail panel
   ".bd-ann .k",                    // annotation label
-  ".bd-about .intent",             // change panel text
-  ".bd-toolbar .bd-ibtn",          // a board button
+  ".ws-row-title",                 // a rail row
+  ".ws-crumbs a",                  // a breadcrumb
+  ".bd-toolbar .bd-ibtn",          // a graph button
   ".topbar a",                     // app chrome link
 ];
 
 for (const theme of ["light", "dark"] as const) {
   test(`readable controls and text in ${theme} mode`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme });
-    await startReview(page);
+    const base = await startReview(page);
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme);      // follows the system by default
-    await expect(page.locator(".bd-card .bd-code .src").first()).toBeVisible();
+    await page.goto(`${base}/s/S1?view=graph&open=${await firstChanged(page)}`);
+    await expect(page.locator(".ws-detail .bd-code .src").first()).toBeVisible();
+    await expect(page.locator(".bd-node").first()).toBeVisible();
     for (const sel of CHECKS) expect(await contrast(page, sel), sel).toBeGreaterThanOrEqual(4.5);
     await page.goto("/");
     const input = page.getByRole("searchbox", { name: "Search reviews" });            // on the page surface

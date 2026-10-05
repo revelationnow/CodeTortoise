@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { load, save } from "../board/prefs";
+import { keys, loadWidth, save } from "../board/prefs";
 import Resizer from "../board/Resizer";
 import type { StoryDetail } from "../board/types";
 import { at } from "./address";
@@ -11,16 +11,11 @@ import FileDiff from "./FileDiff";
 import FunctionCode from "./FunctionCode";
 import Neighbours from "./Neighbours";
 
-const WIDTH_KEY = "ct.ws.detailW";
-
 /** The detail panel (spec 2026-10-04-review-workspace §3.7): a node's code or a file's diff, opened on demand; on a
  * phone a full-screen sheet whose top bar names its item. */
 export default function Detail() {
   const ws = useWs(), d = ws.data, open = ws.addr.open!;
-  const [width, setWidth] = useState(() => {
-    const w = load<unknown>(WIDTH_KEY, 0);
-    return typeof w === "number" && w >= 320 && w <= 4000 ? w : Math.round(window.innerWidth * 0.45);
-  });
+  const [width, setWidth] = useState(() => Math.max(320, loadWidth(keys.detailW, Math.round(window.innerWidth * 0.45))));
   const nid = "node" in open ? open.node : null, name = nid ? d.names[nid] : null;
   const [story, setStory] = useState<StoryDetail | null>(null);
   const [full, setFull] = useState(false);
@@ -55,7 +50,7 @@ export default function Detail() {
   return (
     <aside className="ws-detail" style={{ ["--w" as string]: `${width}px` }} aria-label={`Code: ${label ?? "not found"}`}>
       {ws.screen === "desktop" && <Resizer size={width} edge="left" min={320} max={() => window.innerWidth * 0.75}
-                                           onSize={setWidth} onDone={(w) => save(WIDTH_KEY, w)} />}
+                                           onSize={setWidth} onDone={(w) => save(keys.detailW, w)} />}
       {ws.screen === "phone" && (
         <div className="ws-phonebar">
           <Link to={close} aria-label="Close the code" title="Close the code">‹ {st ? st.id : "Back"}</Link>

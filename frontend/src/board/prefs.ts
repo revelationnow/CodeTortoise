@@ -16,21 +16,18 @@ export function save(key: string, value: unknown): void {
   }
 }
 
-/** Whose saved state: a review's board, or one cluster's board in a split review ("12.C3"). */
+/** Whose saved state: a review's graph, a story's ("12.S1") or a cluster's ("12.C3"). */
 export type BoardKey = number | string;
 
 export const keys = {
   moved: (reviewId: BoardKey) => `ct.board.${reviewId}.moved`,
   layout: (reviewId: BoardKey) => `ct.board.${reviewId}.layout`,
-  about: "ct.panel.about",
-  flowH: "ct.panel.flowH",
-  tab: (reviewId: BoardKey) => `ct.board.${reviewId}.tab`,
-  panelTab: (reviewId: BoardKey) => `ct.board.${reviewId}.panelTab`,
-  expand: (reviewId: BoardKey) => `ct.board.${reviewId}.expand`,
   viewerView: "ct.viewer.view",
-  viewerW: "ct.panel.viewerW",
-  aboutW: "ct.panel.aboutW",
   lens: "ct.lens",
+  /** The workspace's rail and detail panel widths and which rail sections are open (review workspace §2.2). */
+  railW: "ct.ws.railW",
+  detailW: "ct.ws.detailW",
+  railOpen: "ct.ws.rail.open",
 };
 
 /* Typed readers: a value of the wrong shape (another app version, an extension, a manual edit) falls back to the
@@ -71,34 +68,7 @@ export function loadWidth(key: string, fallback: number): number {
   return typeof v === "number" && Number.isFinite(v) && v >= 120 && v <= 8000 ? v : fallback;
 }
 
-export function loadAboutOpen(): boolean | null {
-  const v = load<unknown>(keys.about, null);
-  return typeof v === "boolean" ? v : null;
-}
-
-export function loadSize(key: string, min: number, max: number): number | null {
-  const v = load<unknown>(key, null);
-  return typeof v === "number" && Number.isFinite(v) && v >= min && v <= max ? v : null;
-}
-
-export type PhoneTab = "flows" | "map" | "files" | "summary";
-export function loadTab(reviewId: BoardKey): PhoneTab | null {
-  const v = load<unknown>(keys.tab(reviewId), null);
-  return v === "flows" || v === "map" || v === "files" || v === "summary" ? v : null;
-}
-
-export type PanelTab = "summary" | "cls";
-export function loadPanelTab(reviewId: BoardKey): PanelTab {
-  return load<unknown>(keys.panelTab(reviewId), null) === "cls" ? "cls" : "summary";
-}
-
 export type ViewerView = "changes" | "full";
 export function loadViewerView(): ViewerView {
   return load<unknown>(keys.viewerView, null) === "full" ? "full" : "changes";
-}
-
-/** A cluster board's expansions ("N12:callers"), as this reader left them. */
-export function loadExpand(key: BoardKey): string[] {
-  const v = load<unknown>(keys.expand(key), []);
-  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && /^N\d+:(callers|callees)$/.test(x)) : [];
 }

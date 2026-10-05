@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, flowStripHolds, startWorkspace } from "./helpers";
+import { expectNamed, expectNoNodeIds, flowStripHolds, startReview } from "./helpers";
 
 /** A story in the workspace (spec 2026-10-04-review-workspace §3.2, §2.4). */
 
@@ -10,7 +10,7 @@ test.describe("desktop", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
   test("steps open the detail panel and mark the step; flows replace history; findings link to their pages", async ({ page }) => {
-    const base = await startWorkspace(page);
+    const base = await startReview(page);
     await page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ }).click();
     await expect(page.locator(".ws-story-head h2")).toContainText("uart_send now writes Uart::errors");
     await expect(page.getByRole("tab", { name: "Steps" })).toHaveAttribute("aria-selected", "true");
@@ -32,7 +32,7 @@ test.describe("desktop", () => {
   });
 
   test("the graph: a node click opens and closes its code; ‹ › keep their place between stories", async ({ page }) => {
-    const base = await startWorkspace(page);
+    const base = await startReview(page);
     await page.goto(`${base}/s/S1`);
     await page.getByRole("tab", { name: "Graph" }).click();
     await expect(page).toHaveURL(/\/s\/S1\?view=graph$/);
@@ -55,7 +55,7 @@ test.describe("desktop", () => {
   });
 
   test("leaving a story for a CL and coming back returns to the same view, flow and open node", async ({ page }) => {
-    const base = await startWorkspace(page);
+    const base = await startReview(page);
     await page.goto(`${base}/s/S1?view=graph`);
     await page.getByRole("button", { name: "Next flow" }).click();
     await node(page, "uart_send").click();
@@ -68,6 +68,49 @@ test.describe("desktop", () => {
     await expect(page.getByRole("complementary", { name: "Code: uart_send" })).toBeVisible();
     await expect(page.locator(".ws-flow-pos")).toHaveText("flow 2 of 2");
   });
+
+  test("a review without stories (run before them) leaves Stories out of the rail", async ({ page }) => {
+    const base = await startReview(page);
+    await page.route(`**/api/reviews/${base.split("/")[2]}/stories`, (r) =>
+      r.fulfill({ status: 404, json: { detail: "this review has no stories: re-run it" } }));
+    await page.reload();
+    await expect(page.locator(".ws-rail").getByRole("link", { name: /^Go to finding/ }).first()).toBeAttached();
+    await expect(page.locator(".ws-rail").getByRole("button", { name: /^Stories/ })).toHaveCount(0);
+    await expect(page.getByRole("region", { name: "The map" })).toBeVisible();
+  });
+
+  test("a repeated edit lists its sites by file, hides tests and links its effects", async ({ page }) => {
+    const base = await startReview(page);
+    const id = base.split("/")[2];
+    // neither e2e fixture has a repeated edit: this story is served as the API would for one
+    const site = (path: string, line: number, test = false, effect: string | null = null) => ({
+      path, line, function: test ? "test_free" : "free_it", node: null, before: "git_vector_free(&v);",
+      after: "git_vector_dispose(&v);", test, effect, other_edits: null });
+    const story = { id: "S9", kind: "mechanical", title: "`git_vector_free` → `git_vector_dispose` at 3 sites in 2 files (1 in tests)",
+      summary: "Every changed line in these 2 functions is this one edit.", text_source: "template", risk: null,
+      counts: { sites: 3, files: 2, test_sites: 1 }, nodes: [], flows: [], findings: [], board: null, cls: [101],
+      sub: ["git_vector_free", "git_vector_dispose"], subs: [], collapsed: false };
+    const real = await (await page.request.get(`/api/reviews/${id}/stories`)).json();
+    await page.route(`**/api/reviews/${id}/stories`, (r) => r.fulfill({ json: { ...real, stories: [...real.stories, story] } }));
+    await page.route(`**/api/reviews/${id}/stories/S9`, (r) => r.fulfill({ json: {
+      story, board: { nodes: [], edges: [], flows: [], impacts: [], layers: [], about: real.about ?? { intent: "", intent_source: "template", why: [], cls: [], tree: [], drift: [] }, hidden_nodes: 0 },
+      graph: null, functions: [], also_in: [{ node: "N7", label: "busy", story: "S2" }],
+      sites: [site("//fixture/driver/uart.c", 12, false, "S1"), site("//fixture/driver/uart.c", 30), site("//fixture/tests/t.c", 4, true)] } }));
+    await page.goto(`${base}/s/S9`);
+    const sites = page.locator(".ws-sites li");
+    await expect(sites).toHaveCount(3);
+    await expect(page.locator(".ws-dir h3").first()).toContainText("//fixture/driver");
+    await expect(sites.first()).toContainText("free_it · line 12");
+    await page.getByLabel(/Hide tests/).check();
+    await expect(sites).toHaveCount(2);
+    await sites.first().getByRole("link", { name: "Open uart.c at line 12" }).click();
+    await expect(page.getByRole("complementary", { name: "Code: uart.c" })).toBeVisible();
+    await page.locator(".ws-mech").getByRole("link", { name: "Go to story S2" }).click();
+    await expect(page).toHaveURL(/\/s\/S2$/);
+    await page.goBack();
+    await sites.first().getByRole("link", { name: "Go to story S1" }).click();
+    await expect(page).toHaveURL(/\/s\/S1$/);
+  });
 });
 
 test.describe("phone", () => {
@@ -75,7 +118,7 @@ test.describe("phone", () => {
     deviceScaleFactor: devices["iPhone 13"].deviceScaleFactor, isMobile: true, hasTouch: true });
 
   test("rail → story → detail sheet, each top bar naming the place", async ({ page }) => {
-    await startWorkspace(page);
+    await startReview(page);
     await page.getByRole("link", { name: /^Go to story S1/ }).click();
     await expect(page.locator(".ws-phonebar")).toContainText("‹ Stories");
     await step(page, "uart_send").click();

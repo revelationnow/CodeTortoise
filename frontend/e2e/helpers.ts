@@ -7,29 +7,14 @@ export async function login(page: Page, user = "demo") {
   await expect(page.getByRole("heading", { name: "Reviews" })).toBeVisible();
 }
 
-/** Log in as the demo owner, review fixture CLs 101+102 from the landing page and wait for the story list. */
-export async function startStories(page: Page) {
+/** Log in as the demo owner, review fixture CLs 101+102 (the large fixture's are 201 202) from the landing page and
+ * wait for the rail's stories; returns the review's address ("/r/12"). */
+export async function startReview(page: Page, cls = "101 102"): Promise<string> {
   await login(page);
-  await page.getByLabel("Changelists (shelved or submitted)").fill("101 102");
+  await page.getByLabel("Changelists (shelved or submitted)").fill(cls);
   await page.getByRole("button", { name: "Start review" }).click();
-  await expect(page.locator(".st-entry").first()).toBeVisible({ timeout: 60_000 });
-}
-
-/** As startStories, then open the board ("Boards ›" on the story list). */
-export async function startReview(page: Page) {
-  await startStories(page);
-  await page.getByRole("link", { name: "Boards ›" }).click();
-  // desktop shows the canvas; phones open on the flow reader (spec §13)
-  await expect(page.locator(".bd-node, .ph-step").first()).toBeVisible({ timeout: 60_000 });
-}
-
-/** As startStories, then open the same review in the workspace (spec 2026-10-04-review-workspace; `/w/` while built). */
-export async function startWorkspace(page: Page): Promise<string> {
-  await startStories(page);
-  const id = page.url().match(/\/r\/(\d+)/)![1];
-  await page.goto(`/w/${id}`);
-  await expect(page.locator(".ws-rail")).toBeVisible({ timeout: 60_000 });
-  return `/w/${id}`;
+  await expect(page.locator(".ws-rail").getByRole("link", { name: /^Go to story/ }).first()).toBeVisible({ timeout: 60_000 });
+  return page.url().match(/\/r\/\d+/)![0];
 }
 
 /** No node id is ever shown (spec §8): visible text never matches N<digits>. */

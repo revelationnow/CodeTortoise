@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { Story } from "../board/types";
-import { load, save } from "../board/prefs";
+import { keys, load, loadWidth, save } from "../board/prefs";
 import Resizer from "../board/Resizer";
 import { sections } from "../stories/stories";
 import { type Place, samePlace } from "./address";
@@ -11,11 +11,10 @@ import { Ticks } from "./NameText";
 import { bySeverity, litStories, storyCls } from "./rail";
 
 export type Section = "changeset" | "stories" | "findings" | "files";
-const OPEN_KEY = "ct.ws.rail.open", WIDTH_KEY = "ct.ws.railW";
 const scrollKey = (rid: number) => `ct.ws.${rid}.railScroll`;
 
 function loadOpen(): Record<Section, boolean> {
-  const v = load<unknown>(OPEN_KEY, null), all = { changeset: true, stories: true, findings: true, files: false };
+  const v = load<unknown>(keys.railOpen, null), all = { changeset: true, stories: true, findings: true, files: false };
   return v && typeof v === "object" ? { ...all, ...(v as Partial<Record<Section, boolean>>) } : all;
 }
 
@@ -24,11 +23,11 @@ function loadOpen(): Record<Section, boolean> {
 export default function Rail({ show, onPick }: { show: string | null; onPick: () => void }) {
   const ws = useWs(), d = ws.data;
   const [open, setOpen] = useState(loadOpen);
-  const [width, setWidth] = useState(() => { const w = load<unknown>(WIDTH_KEY, 280); return typeof w === "number" && w >= 200 && w <= 600 ? w : 280; });
+  const [width, setWidth] = useState(() => Math.min(600, Math.max(200, loadWidth(keys.railW, 280))));
   const [cl, setCl] = useState<number | null>(null);
   const box = useRef<HTMLElement>(null);
   const refs = useRef(new Map<string, HTMLElement>());
-  const toggle = (s: Section, to = !open[s]) => setOpen((o) => { const n = { ...o, [s]: to }; save(OPEN_KEY, n); return n; });
+  const toggle = (s: Section, to = !open[s]) => setOpen((o) => { const n = { ...o, [s]: to }; save(keys.railOpen, n); return n; });
 
   useEffect(() => {                                        // the rail's scroll position, per review
     const el = box.current, k = scrollKey(d.id);
@@ -74,7 +73,7 @@ export default function Rail({ show, onPick }: { show: string | null; onPick: ()
 
   return (
     <aside className="ws-rail" ref={box} style={{ ["--w" as string]: `${width}px` }} aria-label="Review contents">
-      <Resizer size={width} edge="right" min={200} max={() => 600} onSize={setWidth} onDone={(w) => save(WIDTH_KEY, w)} />
+      <Resizer size={width} edge="right" min={200} max={() => 600} onSize={setWidth} onDone={(w) => save(keys.railW, w)} />
       <Link to={ws.base} state={{ page: true }} className="ws-row ws-home" aria-current={here({ kind: "whole" })}
             title="Go to the whole change" aria-label="Go to the whole change" onClick={onPick}>
         <span aria-hidden>⌂</span> Whole change {d.detail?.review.risk && <span className={`bd-pill ${d.detail.review.risk}`}>{d.detail.review.risk}</span>}
