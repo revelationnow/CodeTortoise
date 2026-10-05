@@ -33,6 +33,7 @@ def test_parses_json_and_sends_auth_and_response_format():
     assert seen["auth"] == "Bearer sk-test"
     assert seen["body"]["response_format"] == {"type": "json_object"}
     assert seen["body"]["messages"][1] == {"role": "user", "content": "user"}
+    assert "temperature" not in seen["body"]          # some servers reject it; each model's own default applies
 
 
 def test_accepts_fenced_json():
