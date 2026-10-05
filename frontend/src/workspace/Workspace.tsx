@@ -15,6 +15,7 @@ import { useScreen } from "./media";
 import { loadMemory, recall, remember, saveMemory } from "./memory";
 import Rail from "./Rail";
 import { useReview } from "./useReview";
+import WholePage from "./WholePage";
 import "./workspace.css";
 
 /** Where the workspace lives (spec 2026-10-04-review-workspace §6: `/w/` while it is built, then `/r/`). */
@@ -112,6 +113,7 @@ function Centre() {
     || (p.kind === "finding" && d.findings.some((f) => f.id === p.fid)) || (p.kind === "cl" && !!d.detail?.cls.some((c) => c.cl === p.cl))
     || (p.kind === "cluster" && !!d.overview?.clusters.some((c) => c.id === p.cid));
   if (!exists) return <Missing what={p} />;
+  if (p.kind === "whole") return <WholePage />;
   return <div className="ws-page"><p className="muted">This page is built in a later step.</p></div>;
 }
 

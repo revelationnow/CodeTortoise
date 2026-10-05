@@ -1,5 +1,5 @@
 import { devices, expect, test } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, startWorkspace } from "./helpers";
+import { expectNamed, expectNoNodeIds, login, startWorkspace } from "./helpers";
 
 /** The workspace shell (spec 2026-10-04-review-workspace §2): rail, breadcrumb, addresses, phone levels. */
 
@@ -33,6 +33,21 @@ test.describe("desktop", () => {
     await expect(page).toHaveURL(new RegExp(`${base}#stories$`));
     await page.goBack();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S1$`));
+    await expectNoNodeIds(page);
+    await expectNamed(page);
+  });
+
+  test("the whole change: what it is for, why it is risky, then the rest", async ({ page }) => {
+    const base = await startWorkspace(page);
+    const page_ = page.locator(".ws-whole");
+    await expect(page_.locator("h2")).toHaveText(["What this change is trying to do", "Why it is high risk",
+                                                  "Files with side effects", "Discussion"]);
+    await expect(page_.locator(".ws-summary")).toContainText("2 behaviour stories.");
+    await page_.getByRole("link", { name: /^Go to finding F1:/ }).click();
+    await expect(page).toHaveURL(new RegExp(`${base}/f/F1$`));
+    await page.goBack();
+    await page_.locator(".ws-fx").getByRole("link", { name: /^Open uart_errors at line/ }).click();
+    await expect(page).toHaveURL(/\?open=file%3A%2F%2Ffixture%2Fdriver%2Fuart\.c%3A\d+$/);
     await expectNoNodeIds(page);
     await expectNamed(page);
   });
@@ -78,5 +93,24 @@ test.describe("phone", () => {
     await expect(page).toHaveURL(new RegExp(`${base}#stories$`));
     await expect(page.locator(".ws-rail")).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+  });
+});
+
+test.describe("a large change", () => {
+  test.use({ baseURL: "http://127.0.0.1:8796", viewport: { width: 1440, height: 900 } });
+
+  test("the whole change maps its parts; a part opens its page", async ({ page }) => {
+    await login(page);
+    await page.getByLabel("Changelists (shelved or submitted)").fill("201 202");
+    await page.getByRole("button", { name: "Start review" }).click();
+    await expect(page.locator(".st-entry").first()).toBeVisible({ timeout: 60_000 });
+    const base = `/w/${page.url().match(/\/r\/(\d+)/)![1]}`;
+    await page.goto(base);
+    const map = page.getByRole("region", { name: "The map" });
+    await expect(map.locator(".ov-block")).toHaveCount(7);
+    await expect(map.getByRole("region", { name: "Layer drv" })).toContainText("drv/dma");
+    await map.getByRole("link", { name: "Open drv/uart" }).click();
+    await expect(page).toHaveURL(new RegExp(`${base}/c/C\\d+$`));
+    await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toContainText("Map › drv/uart");
   });
 });
