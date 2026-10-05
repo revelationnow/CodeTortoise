@@ -81,17 +81,17 @@ export default function GraphView({ board, prefKey, flowIndex, onFlow, flows, st
     dispatch({ t: "pan", panX: v.panX + dx, panY: v.panY + dy });
   }, []);
 
+  const fitted = useRef(false);                          // centred once per mount: a refreshed board keeps the reader's pan
   useLayoutEffect(() => {                                // canvas size: keep the middle where it was as panels open and close
     const el = stage;
     if (!el) return;
-    let first = true;
     const ro = new ResizeObserver(() => {
       const W = el.clientWidth, H = el.clientHeight, prev = vpRef.current;
       if (prev.W && (W !== prev.W || H !== prev.H)) panBy((W - prev.W) / 2, (H - prev.H) / 2);
       vpRef.current = { W, H };
       setVp({ W, H });
-      if (first && W) {
-        first = false;
+      if (!fitted.current && W) {
+        fitted.current = true;
         const ids = stateRef.current.mode === "flows" && drawn && !quiet ? drawn.path : board.nodes.map((n) => n.id);
         const t = centrePan(ids, worldRef.current, W, H);
         if (t) dispatch({ t: "pan", ...t });

@@ -33,6 +33,27 @@ test.describe("with an AI", () => {
       .toContainText("uart_send's new error count reaches uart_errors");
   });
 
+  test("✦ Explain on a story with its graph open neither flashes Loading nor redraws the graph", async ({ page }) => {
+    const base = await startReview(page);
+    await page.goto(`${base}/s/S1?view=graph`);
+    await expect(page.locator(".ws-graph .bd-node").first()).toBeVisible();
+    await page.getByRole("button", { name: "Whole graph" }).click();
+    await page.evaluate(() => {
+      const w = window as unknown as { loading: number };
+      w.loading = 0;
+      (document.querySelector(".ws-graph") as HTMLElement).dataset.kept = "yes";     // gone if the graph remounts
+      new MutationObserver(() => { if (document.querySelector("main")?.textContent?.includes("Loading S")) w.loading++; })
+        .observe(document.body, { subtree: true, childList: true, characterData: true });
+    });
+    const head = page.locator(".ws-story-head");
+    await head.getByRole("button", { name: "✦ Explain" }).click();
+    await expect(head.locator("h2")).toContainText("uart_send's new error count reaches uart_errors", { timeout: 30_000 });
+    await expect(page.locator(".ws-graph .bd-node").first()).toBeVisible();
+    expect(await page.evaluate(() => (window as unknown as { loading: number }).loading)).toBe(0);
+    await expect(page.locator(".ws-graph")).toHaveAttribute("data-kept", "yes");
+    await expect(page.getByRole("button", { name: "Whole graph" })).toHaveAttribute("aria-pressed", "true");
+  });
+
   test("a story shows the flow narrative the up-front pass wrote, and ✦ Explain on another flow updates it", async ({ page }) => {
     const base = await startReview(page);
     const rid = base.split("/")[2];
