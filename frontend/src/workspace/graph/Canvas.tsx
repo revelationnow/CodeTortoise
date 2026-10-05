@@ -100,6 +100,17 @@ export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, p
       onFocus={() => { engaged.current = true; }}
       onBlur={(e) => { if (!root.current?.contains(e.relatedTarget as Node | null)) engaged.current = false; }}
       onPointerLeave={() => { if (!down.current) engaged.current = false; }}
+      onKeyDown={(e) => {                                    // a node's button, its +N callers or its home link, by keyboard
+        if (e.key !== "Enter" && e.key !== " ") return;
+        const t = e.target as HTMLElement, id = t.closest<HTMLElement>("[data-id]")?.dataset.id;
+        if (!id || t.getAttribute("role") !== "button") return;
+        e.preventDefault();
+        const n = byId.get(id), act = t.dataset.act;
+        if (n?.kind === "more") onMore?.();
+        else if (act === "home") { if (n?.home) onHome?.(n.home, id); }
+        else if (act === "callers" || act === "callees") onNeighbours?.(id);
+        else onSelect(id);
+      }}
       onPointerDown={(e) => {
         e.preventDefault();                                  // no text selection starting on the board
         engaged.current = true;
@@ -214,24 +225,25 @@ export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, p
         const fx = badge.get(n.id);
         return (
           <div key={n.id} data-id={n.id} className={cls} title={sel ? `Close ${n.label}'s code` : `Open ${n.label}'s code`}
-               role="button" aria-label={sel ? `Close ${n.label}'s code` : `Open ${n.label}'s code`} aria-pressed={sel}
+               role="group" aria-label={n.label}
                style={{ left: p.x, top: p.y, transform: `translate(-50%, -50%) scale(${p.s})`, zIndex: Math.round(p.s * 20),
                         ["--hit" as string]: `${40 / Math.max(p.s, 0.1)}px` }}>
             {n.change && <span className="kind">{KIND[n.change.kind]}</span>}
-            <span className="lbl">{n.label}</span>
+            <span className="lbl" role="button" tabIndex={0} aria-pressed={sel}
+                  aria-label={sel ? `Close ${n.label}'s code` : `Open ${n.label}'s code`}>{n.label}</span>
             {n.note && <span className="note">{n.note.replace(/`/g, "")}</span>}
             {!!n.fields?.length && <span className="fields">{n.fields.map((f) => <span key={f.id}>.{f.label}</span>)}</span>}
             {n.change && <span className="stat"><b className="p">+{n.change.add}</b><b className="m">−{n.change.rem}</b></span>}
             {!n.change && n.warn > 0 && <span className="warn-dot">{n.warn}</span>}
             {fx && landings.has(n.id) && !n.note && <div className="fxbadge">⚠ {fx}</div>}
-            {n.home && onHome && <span className="bd-home" data-act="home" role="button" title={`Go to ${homeName?.(n.home) ?? n.home}`}
+            {n.home && onHome && <span className="bd-home" data-act="home" role="button" tabIndex={0} title={`Go to ${homeName?.(n.home) ?? n.home}`}
                                        aria-label={`Go to ${homeName?.(n.home) ?? n.home}`}>
               · {homeName?.(n.home) ?? n.home} ›</span>}
             {onNeighbours && (!!n.more_callers || !!n.more_callees) && (
               <span className="bd-more-nb">
-                {!!n.more_callers && <span data-act="callers" role="button" title={`Show ${n.label}'s callers`}
+                {!!n.more_callers && <span data-act="callers" role="button" tabIndex={0} title={`Show ${n.label}'s callers`}
                                            aria-label={`Show ${n.label}'s callers`}>+{n.more_callers} callers</span>}
-                {!!n.more_callees && <span data-act="callees" role="button" title={`Show ${n.label}'s callees`}
+                {!!n.more_callees && <span data-act="callees" role="button" tabIndex={0} title={`Show ${n.label}'s callees`}
                                            aria-label={`Show ${n.label}'s callees`}>+{n.more_callees} callees</span>}
               </span>
             )}

@@ -73,7 +73,7 @@ test.describe("desktop", () => {
     await node(page, "uart_send").click();
     await expect(page).toHaveURL(/&open=N\d+$/);
     await expect(page.getByRole("complementary", { name: "Code: uart_send" })).toBeVisible();
-    await expect(node(page, "uart_send")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("button", { name: "Close uart_send's code" })).toHaveAttribute("aria-pressed", "true");
     await node(page, "uart_send").click();
     await expect(page.locator(".ws-detail")).toHaveCount(0);
     await page.goBack();
@@ -172,5 +172,53 @@ test.describe("phone", () => {
     for (let k = 1; k <= 5; k++) await touch("touchMove", [[x2 + k * 14, y2 + k * 10]]);
     await touch("touchEnd", []);
     await expect(send).toHaveClass(/\bmoved\b/);
+  });
+});
+
+test.describe("by keyboard", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("a node is a button: Enter opens its code and closes it; its +N callers is a separate stop", async ({ page }) => {
+    const base = await startReview(page);
+    const rid = base.split("/")[2];
+    const real = await (await page.request.get(`/api/reviews/${rid}/stories/S1`)).json();
+    // the fixture's graphs show every caller: serve uart_send with three more, as a bigger change would
+    real.graph.nodes = real.graph.nodes.map((n: { label: string }) => (n.label === "uart_send" ? { ...n, more_callers: 3 } : n));
+    await page.route(`**/api/reviews/${rid}/stories/S1`, (r) => r.fulfill({ json: real }));
+    await page.goto(`${base}/s/S1?view=graph`);
+    const open = page.getByRole("button", { name: "Open uart_send's code" });
+    await open.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("complementary", { name: "Code: uart_send" })).toBeVisible();
+    await page.getByRole("button", { name: "Close uart_send's code" }).focus();
+    await page.keyboard.press(" ");
+    await expect(page.locator(".ws-detail")).toHaveCount(0);
+    expect(await page.locator(".ws-graph [role=button] [role=button]").count()).toBe(0);     // no button inside a button
+    await page.getByRole("button", { name: "Show uart_send's callers" }).focus();
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/tab=neighbours/);
+    await expect(page.getByRole("region", { name: "This function" })).toContainText("uart_send");
+  });
+
+  test("the flow menu: arrows move through it, Escape or a click outside closes it", async ({ page }) => {
+    const base = await startReview(page);
+    await page.goto(`${base}/s/S1?view=graph`);
+    const every = page.getByRole("button", { name: "Every flow" });
+    await expect(every).toHaveAttribute("aria-haspopup", "menu");
+    await every.click();
+    const items = page.getByRole("menuitemradio");
+    await expect(items.first()).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(items.nth(1)).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await expect(every).toBeFocused();
+    await every.click();
+    await page.locator(".ws-story-head h2").click();
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await every.click();
+    await page.keyboard.press("ArrowUp");
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/flow=2/);
   });
 });
