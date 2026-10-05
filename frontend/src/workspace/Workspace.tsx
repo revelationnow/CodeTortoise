@@ -17,7 +17,7 @@ import { useScreen } from "./media";
 import { loadMemory, recall, remember, saveMemory } from "./memory";
 import Rail from "./Rail";
 import { useReview } from "./useReview";
-import WholePage from "./WholePage";
+import WholePage, { ReviewGraph } from "./WholePage";
 import "./workspace.css";
 
 /** Where the workspace lives (spec 2026-10-04-review-workspace §6: `/w/` while it is built, then `/r/`). */
@@ -52,7 +52,7 @@ export default function Workspace() {
     cls: d?.cls ?? [], clusters: data.overview?.clusters ?? [],
   }), [addr.place, root, d, id, data.stories, data.findings, data.overview]);
   const hash = location.hash.slice(1) || null;
-  const level = addr.open ? "detail" : addr.place.kind === "whole" && !(location.state as { page?: boolean } | null)?.page ? "rail" : "item";
+  const level = addr.open ? "detail" : addr.place.kind === "whole" && !addr.place.view && !(location.state as { page?: boolean } | null)?.page ? "rail" : "item";
 
   if (data.error) return <main className="page error">{data.error}</main>;
   if (!d) return <main className="page muted">Loading…</main>;
@@ -117,6 +117,8 @@ function Centre() {
     || (p.kind === "finding" && d.findings.some((f) => f.id === p.fid)) || (p.kind === "cl" && !!d.detail?.cls.some((c) => c.cl === p.cl))
     || (p.kind === "cluster" && !!d.overview?.clusters.some((c) => c.id === p.cid));
   if (!exists) return <Missing what={p} />;
+  if (p.kind === "whole" && p.view === "graph")
+    return d.board ? <div className="ws-page graph"><ReviewGraph board={d.board} /></div> : <Missing what={p} />;
   if (p.kind === "whole") return <WholePage />;
   return <div className="ws-page"><p className="muted">This page is built in a later step.</p></div>;
 }

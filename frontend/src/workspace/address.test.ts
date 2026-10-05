@@ -6,6 +6,7 @@ const q = (s: string) => new URLSearchParams(s);
 describe("readAddress", () => {
   it("reads each kind of place", () => {
     expect(readAddress("", q("")).place).toEqual({ kind: "whole" });
+    expect(readAddress("", q("view=graph")).place).toEqual({ kind: "whole", view: "graph" });
     expect(readAddress("/s/S1", q("")).place).toEqual({ kind: "story", sid: "S1", view: "steps" });
     expect(readAddress("/s/S1", q("view=graph")).place).toEqual({ kind: "story", sid: "S1", view: "graph" });
     expect(readAddress("/f/F2", q("")).place).toEqual({ kind: "finding", fid: "F2" });
@@ -37,8 +38,8 @@ describe("href", () => {
   });
 
   it("round-trips every place", () => {
-    for (const path of ["", "/s/S2", "/f/F1", "/cl/102", "/c/C1"]) {
-      const a = readAddress(path, q("flow=3&open=file://d/x.h"));
+    for (const [path, view] of [["", ""], ["", "graph"], ["/s/S2", "graph"], ["/f/F1", ""], ["/cl/102", ""], ["/c/C1", ""]]) {
+      const a = readAddress(path, q(`flow=3&open=file://d/x.h&view=${view}`));
       const [p, s] = href("/r/1", a).slice("/r/1".length).split("?");
       expect(readAddress(p, q(s ?? ""))).toEqual(a);
     }
@@ -49,6 +50,7 @@ describe("places", () => {
   it("have a key per item and compare by item, not view", () => {
     expect(placeKey({ kind: "story", sid: "S1", view: "graph" })).toBe("s:S1");
     expect(placeKey({ kind: "whole" })).toBe("whole");
+    expect(placeKey({ kind: "whole", view: "graph" })).toBe("whole");
     expect(samePlace({ kind: "story", sid: "S1", view: "graph" }, { kind: "story", sid: "S1", view: "steps" })).toBe(true);
     expect(samePlace({ kind: "finding", fid: "F1" }, { kind: "finding", fid: "F2" })).toBe(false);
   });

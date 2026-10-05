@@ -2,7 +2,7 @@
  * work. Ids appear here and nowhere in visible text. */
 
 export type Place =
-  | { kind: "whole" }
+  | { kind: "whole"; view?: "graph" }
   | { kind: "story"; sid: string; view: "steps" | "graph" }
   | { kind: "finding"; fid: string }
   | { kind: "cl"; cl: number }
@@ -23,7 +23,7 @@ export interface Address {
 
 function readPlace(path: string, q: URLSearchParams): Place {
   const parts = path.split("/").filter(Boolean);
-  if (!parts.length) return { kind: "whole" };
+  if (!parts.length) return q.get("view") === "graph" ? { kind: "whole", view: "graph" } : { kind: "whole" };
   const [kind, id, ...rest] = parts;
   if (!id || rest.length) return { kind: "unknown", path };
   if (kind === "s") return { kind: "story", sid: id, view: q.get("view") === "graph" ? "graph" : "steps" };
@@ -58,7 +58,7 @@ const placePath = (p: Place): string =>
 /** The link to `a` under `base` ("/r/7"), defaults left out. */
 export function href(base: string, a: Address): string {
   const q = new URLSearchParams();
-  if (a.place.kind === "story" && a.place.view === "graph") q.set("view", "graph");
+  if ((a.place.kind === "story" || a.place.kind === "whole") && a.place.view === "graph") q.set("view", "graph");
   if (a.flow) q.set("flow", String(a.flow));
   if (a.open) q.set("open", "node" in a.open ? a.open.node : `file:${a.open.file}${a.open.line ? `:${a.open.line}` : ""}`);
   if (a.tab !== "diff") q.set("tab", a.tab);
