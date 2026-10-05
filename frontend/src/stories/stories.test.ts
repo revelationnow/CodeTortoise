@@ -4,7 +4,7 @@ import { countLine, graphFocus, groupSites, sections, stepStory, wholeGraph } fr
 
 const story = (id: string, kind: Story["kind"], extra: Partial<Story> = {}): Story => ({
   id, kind, title: id, summary: "", text_source: "template", risk: null, counts: {}, nodes: [], flows: [], findings: [],
-  board: null, sub: null, subs: [], collapsed: false, ...extra,
+  board: null, cls: [], sub: null, subs: [], collapsed: false, ...extra,
 });
 const set = (stories: Story[]): StorySet => ({ summary: "", stories, node_story: {}, flow_story: {}, finding_story: {} });
 const site = (path: string, line: number, test = false): StorySite => ({
