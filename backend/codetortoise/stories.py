@@ -86,6 +86,7 @@ class Story(BaseModel):
     sub: list[str] | None = None                            # a mechanical story: [old, new]
     subs: list[list[str]] = Field(default_factory=list)     # "N more repeated edits": each substitution
     collapsed: bool = False                                 # a behaviour story past the list's limit
+    cls: list[int] = Field(default_factory=list)            # the changelists of the files holding its code
 
 
 class StoryDetail(BaseModel):
@@ -360,9 +361,13 @@ def build_stories(c: BoardContext, home: dict[str, str] | None = None,
 
     stories, details = [], {}
     changed_lines = sum(max(_count(f.before, f.after)) for f in c.cs.files)   # added and deleted files too
+    cls_of = {f.local: {p.cl for p in f.per_cl} for f in c.cs.files}
     for d in ordered:
         sid = ids[id(d)]
         st = _story(x, d, sid, sev, home, depots, is_test, effect_of)
+        files = {x.local(n) for n in d.members} | {x.local(fl.cause) for fl in d.flows if fl.cause} | {
+            loc for _, loc, _ in d.sites}
+        st.cls = sorted(set().union(*(cls_of.get(f, set()) for f in files if f)))
         stories.append(st)
         details[sid] = _detail(x, d, st, impacts, depots, about, cfg.story_graph_nodes, node_story, mech_of, ids, mechs,
                                fn_sites, effect_of, is_test)

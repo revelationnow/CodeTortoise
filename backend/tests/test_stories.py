@@ -7,7 +7,7 @@ from codetortoise.diffmap import DiffMap, FunctionChange
 from codetortoise.facts.model import CallEdge, Facts, FieldAccess, Function, TuInfo
 from codetortoise.impact import Edge, ImpactModel, Node
 from codetortoise.stories import build_stories
-from codetortoise.vcs.model import ChangeSet, ClMeta, FileChange
+from codetortoise.vcs.model import ChangeSet, ClMeta, FileChange, PerClText
 
 W = "/w"
 
@@ -448,3 +448,15 @@ def test_unreached_code_over_the_board_budget_is_split_as_boards_are():
     ss, _ = build_stories(_world(fns, calls=calls, cfg=AnalysisConfig(board_max_nodes=4)))
     assert len(ss.stories) > 1 and all(len(s.nodes) <= 4 for s in ss.stories)
     assert all(s.title.startswith("Other changes in `") for s in ss.stories)
+
+
+def test_each_story_names_the_changelists_of_its_files():
+    c = _world([_mech("free_a", "src/a.c"), _mech("free_b", "src/b.c", var="b"),
+                ("lonely", "src/c.c", ["y = 1;"], ["y = 2;"])])
+    per = {"/w/src/a.c": [1], "/w/src/b.c": [1, 2], "/w/src/c.c": [3]}
+    for f in c.cs.files:
+        f.per_cl = [PerClText(cl=n, before=f.before, after=f.after) for n in per[f.local]]
+    ss, _ = build_stories(c)
+    (m,) = _by_kind(ss, "mechanical")
+    (o,) = _by_kind(ss, "other")
+    assert m.cls == [1, 2] and o.cls == [3]
