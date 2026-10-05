@@ -11,11 +11,11 @@ import GraphView from "./graph/GraphView";
 import NameText from "./NameText";
 
 /** A review shown as one board: its graph, on the whole change page or filling the centre (`?view=graph`). */
-export function ReviewGraph({ board }: { board: Board }) {
+export function ReviewGraph({ board, embedded }: { board: Board; embedded?: boolean }) {
   const ws = useWs(), open = ws.addr.open;
   const index = pickFlow(board.flows, ws.addr.flow, open && "node" in open ? open.node : null);
   return <GraphView board={board} prefKey={String(ws.data.id)} flowIndex={index}
-                    onFlow={(i) => ws.go({ ...ws.addr, flow: i + 1 }, true)} />;
+                    onFlow={(i) => ws.go({ ...ws.addr, flow: i + 1 }, true)} embedded={embedded} />;
 }
 
 /** The review's home (spec 2026-10-04-review-workspace §3.1): what the change is for and why it is risky first. */
@@ -69,7 +69,7 @@ export default function WholePage() {
         <section aria-labelledby="ws-map" id="map">
           <h2 id="ws-map">The map <Link className="ws-open-full" to={ws.link({ ...ws.addr, place: { kind: "whole", view: "graph" } })}
                                         title="Open the full graph" aria-label="Open the full graph">Open full graph ›</Link></h2>
-          <div className="ws-mapgraph"><ReviewGraph board={d.board} /></div>
+          <div className="ws-mapgraph"><ReviewGraph board={d.board} embedded /></div>
         </section>
       )}
       {sideEffects.length > 0 && (

@@ -30,6 +30,9 @@ interface Props {
    * the selected node; "+N more changed functions" calls `onMore`. */
   quiet?: boolean;
   onMore?: () => void;
+  /** A map on a scrolling page: a plain wheel scrolls the page; the map takes the wheel with Ctrl, Meta or Shift held, or
+   * once clicked or focused, until the pointer leaves it. */
+  embedded?: boolean;
   /** Phones: two-finger pinch; a node moves only after a long press. */
   touch?: {
     onPinchStart: (mid: { x: number; y: number }) => void;
@@ -43,8 +46,9 @@ const KIND = { modified: "Δ modified", added: "Δ added", removed: "Δ removed"
 
 /** Layer bands, edges and nodes, all drawn through the lens; pans on drag, moves a node when dragged by it. */
 export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, panBy, flow, selected, lit, onSelect, onNeighbours,
-  touch, onHome, homeName, quiet, onMore }: Props) {
+  touch, onHome, homeName, quiet, onMore, embedded }: Props) {
   const root = useRef<HTMLDivElement>(null);
+  const engaged = useRef(false);                             // an embedded map, clicked or focused: it takes the wheel
   const down = useRef<{ x: number; y: number; px: number; py: number; id: number; node: string | null; act: string | null;
                         dragging: boolean; ox: number; oy: number; armed: boolean; timer: number } | null>(null);
   const pts = useRef(new Map<number, { x: number; y: number }>());     // touch: active pointers
@@ -69,12 +73,13 @@ export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, p
     const el = root.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
+      if (embedded && !engaged.current && !(e.ctrlKey || e.metaKey || e.shiftKey)) return;   // the page scrolls
       e.preventDefault();
       panBy(-(e.deltaX + (e.shiftKey ? e.deltaY : 0)), e.shiftKey ? 0 : -e.deltaY);
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [panBy]);
+  }, [panBy, embedded]);
 
   const graph = state.mode === "graph";
   const { onPath, pairs } = flowSets(flow, graph);
@@ -92,8 +97,12 @@ export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, p
 
   return (
     <div ref={root} className={`bd-canvas${panning ? " drag" : ""}`}
+      onFocus={() => { engaged.current = true; }}
+      onBlur={(e) => { if (!root.current?.contains(e.relatedTarget as Node | null)) engaged.current = false; }}
+      onPointerLeave={() => { if (!down.current) engaged.current = false; }}
       onPointerDown={(e) => {
         e.preventDefault();                                  // no text selection starting on the board
+        engaged.current = true;
         if (touch) {
           pts.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
           if (pts.current.size === 2) {                      // a second finger: pinch, never a drag or a tap
