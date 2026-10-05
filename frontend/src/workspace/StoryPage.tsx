@@ -69,7 +69,8 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
     return (
       <div className="ws-page graph">
         <div className="ws-story-bar">{header}</div>
-        <GraphView key={sid} board={detail.graph} prefKey={`${d.id}.${sid}`} flowIndex={index} onFlow={onFlow} quiet
+        <GraphView key={sid} board={detail.graph} prefKey={`${d.id}.${sid}`} flowIndex={index} onFlow={onFlow} quiet flows={flows}
+                   stepsHref={ws.link({ ...ws.addr, place: { kind: "story", sid, view: "steps" } })}
                    onMore={() => ws.go({ ...ws.addr, place: { kind: "story", sid, view: "steps" } }, true)} />
       </div>
     );

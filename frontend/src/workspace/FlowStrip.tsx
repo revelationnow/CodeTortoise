@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { Link } from "react-router-dom";
 import type { Board } from "../board/types";
 import Explain from "../components/Explain";
@@ -16,11 +16,13 @@ interface Props {
   steps: boolean;
   /** Leave the "what" out (the story's summary already tells it). */
   hideWhat?: boolean;
+  /** Shown in place of the flow's text: a flow the graph leaves out. */
+  note?: ReactNode;
 }
 
 /** The flow strip (spec 2026-10-04-review-workspace §3.6): fixed-width ‹ flow 2 of 5 ›, the tag, the title cut to the
  * width left, a ▾ menu of every flow; below it the flow's text, collapsible. Its controls never move between flows. */
-export default function FlowStrip({ board, flows, index, onFlow, steps, hideWhat }: Props) {
+export default function FlowStrip({ board, flows, index, onFlow, steps, hideWhat, note }: Props) {
   const ws = useWs();
   const [menu, setMenu] = useState(false);
   const [shut, setShut] = useState(false);
@@ -50,7 +52,8 @@ export default function FlowStrip({ board, flows, index, onFlow, steps, hideWhat
         <button className="bd-ibtn ws-flow-btn" aria-expanded={!shut} aria-label={shut ? "Show the flow's text" : "Hide the flow's text"}
                 title={shut ? "Show the flow's text" : "Hide the flow's text"} onClick={() => setShut(!shut)}>{shut ? "+" : "−"}</button>
       </div>
-      {!shut && (
+      {!shut && note && <div className="ws-flow-text"><p className="muted">{note}</p></div>}
+      {!shut && !note && (
         <div className="ws-flow-text">
           {!hideWhat && <p>{flow.what_source === "llm" && <span className="ai-label">AI</span>}<NameText text={flow.what} />{" "}
             <Explain kind="flow" target={flow.id} has={flow.what_source === "llm"} /></p>}

@@ -130,3 +130,39 @@ test.describe("phone", () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
   });
 });
+
+test.describe("a story's flows on its graph", () => {
+  test.use({ baseURL: "http://127.0.0.1:8796", viewport: { width: 1440, height: 900 } });
+
+  test("flow=N is the same flow on Steps and Graph; a flow too long to draw says so and links to Steps", async ({ page }) => {
+    const base = await startReview(page, "201 202");
+    const rid = base.split("/")[2];
+    const get = async (url: string) => (await page.request.get(`/api/reviews/${rid}/${url}`)).json();
+    let sid = "";
+    for (const st of (await get("stories")).stories as { id: string; kind: string }[]) {
+      const d = st.kind === "behaviour" ? await get(`stories/${st.id}`) : null;
+      if (d?.graph?.flows.length >= 3) { sid = st.id; break; }
+    }
+    expect(sid).not.toBe("");
+    await page.route(`**/api/reviews/${rid}/stories/${sid}`, async (route) => {     // the first flow is too long to draw
+      const res = await route.fetch(), j = await res.json();
+      j.graph.flows = j.graph.flows.slice(1);
+      await route.fulfill({ response: res, json: j });
+    });
+    await page.goto(`${base}/s/${sid}?flow=2`);
+    const strip = page.getByRole("region", { name: "Flow" }), title = strip.locator(".ws-flow-title");
+    await expect(title).not.toHaveText("");
+    const second = await title.innerText(), of = await strip.locator(".ws-flow-pos").innerText();
+    await page.getByRole("tab", { name: "Graph" }).click();
+    await expect(page).toHaveURL(/view=graph&flow=2$/);
+    await expect(page.locator(".ws-graph .bd-node").first()).toBeVisible();
+    await expect(title).toHaveText(second);
+    await expect(strip.locator(".ws-flow-pos")).toHaveText(of);
+    await strip.getByRole("button", { name: "Previous flow" }).click();
+    await expect(page).toHaveURL(/view=graph&flow=1$/);
+    await expect(strip).toContainText("This flow is too long to draw here");
+    await strip.getByRole("link", { name: "See it in Steps" }).click();
+    await expect(page).toHaveURL(new RegExp(`/s/${sid}\\?flow=1$`));
+    await expect(page.getByRole("tab", { name: "Steps" })).toHaveAttribute("aria-selected", "true");
+  });
+});
