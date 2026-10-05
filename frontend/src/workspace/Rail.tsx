@@ -25,7 +25,7 @@ export default function Rail({ show, onPick, hidden = false }: { show: string | 
   const [open, setOpen] = useState(loadOpen);
   const [width, setWidth] = useState(() => Math.min(600, Math.max(200, loadWidth(keys.railW, 280))));
   const [cl, setCl] = useState<number | null>(null);
-  const box = useRef<HTMLElement>(null);
+  const box = useRef<HTMLDivElement>(null);
   const refs = useRef(new Map<string, HTMLElement>());
   const toggle = (s: Section, to = !open[s]) => setOpen((o) => { const n = { ...o, [s]: to }; save(keys.railOpen, n); return n; });
 
@@ -72,8 +72,10 @@ export default function Rail({ show, onPick, hidden = false }: { show: string | 
   const shown = ws.addr.open && "file" in ws.addr.open ? ws.addr.open.file : null;
 
   return (
-    <aside className="ws-rail" ref={box} style={{ ["--w" as string]: `${width}px` }} aria-label="Review contents" inert={hidden}>
+    <aside className="ws-rail" style={{ ["--w" as string]: `${width}px` }} aria-label="Review contents" inert={hidden}>
+      {/* the grip sits on the frame, outside the scrolling box, so the scrollbar never covers it */}
       <Resizer size={width} edge="right" min={200} max={() => 600} onSize={setWidth} onDone={(w) => save(keys.railW, w)} />
+      <div className="ws-rail-scroll" ref={box}>
       <Link to={ws.base} state={{ page: true }} className="ws-row ws-home" aria-current={here({ kind: "whole" })}
             title="Go to the whole change" aria-label="Go to the whole change" onClick={onPick}>
         <span aria-hidden>⌂</span> Whole change {d.detail?.review.risk && <span className={`bd-pill ${d.detail.review.risk}`}>{d.detail.review.risk}</span>}
@@ -134,6 +136,7 @@ export default function Rail({ show, onPick, hidden = false }: { show: string | 
           ))}</ul></div>
         ))
       ))}
+      </div>
     </aside>
   );
 }

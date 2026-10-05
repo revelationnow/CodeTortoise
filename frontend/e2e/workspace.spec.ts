@@ -79,6 +79,21 @@ test.describe("desktop", () => {
     expect(Math.abs((await rail.boundingBox())!.width - wider)).toBeLessThan(2);
   });
 
+  test("the rail's grip straddles its border, clear of its scrollbar, and drags from there", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 420 });
+    await startReview(page);
+    const rail = page.locator(".ws-rail");
+    await rail.getByRole("button", { name: /^Files/ }).click();
+    expect(await rail.evaluate((e) => { const s = e.querySelector(".ws-rail-scroll") ?? e; return s.scrollHeight > s.clientHeight; })).toBe(true);
+    const r = (await rail.boundingBox())!, x = r.x + r.width + 3, y = r.y + r.height / 2;   // just past the border
+    expect(await page.evaluate(([px, py]) => !!document.elementFromPoint(px, py)?.closest(".bd-resizer"), [x, y])).toBe(true);
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 80, y, { steps: 5 });
+    await page.mouse.up();
+    await expect.poll(async () => (await rail.boundingBox())!.width).toBeGreaterThan(r.width + 60);
+  });
+
   test("Back from a review that does not exist shows the review before it", async ({ page }) => {
     const base = await startReview(page);
     const title = await page.locator(".ws-head h1").innerText();
