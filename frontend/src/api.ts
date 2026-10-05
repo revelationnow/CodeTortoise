@@ -81,16 +81,11 @@ export const api = {
   createReview: (cls: number[], title?: string) => call<ReviewRow>("POST", "/api/reviews", { cls, title }),
   review: (id: number) => call<ReviewDetail>("GET", `/api/reviews/${id}`),
   rerun: (id: number) => call("POST", `/api/reviews/${id}/rerun`),
-  board: (id: number, cluster?: string | null, expand?: string[]) => {
-    const q = new URLSearchParams();
-    if (cluster) q.set("cluster", cluster);
-    if (expand?.length) q.set("expand", expand.join(","));
-    return call<Board>("GET", `/api/reviews/${id}/board${q.size ? `?${q}` : ""}`);
-  },
+  board: (id: number, cluster?: string | null) =>
+    call<Board>("GET", `/api/reviews/${id}/board${cluster ? `?${new URLSearchParams({ cluster })}` : ""}`),
   overview: (id: number) => call<Overview>("GET", `/api/reviews/${id}/overview`),
   stories: (id: number) => call<StorySet>("GET", `/api/reviews/${id}/stories`),
-  story: (id: number, sid: string, expand?: string[]) =>
-    call<StoryDetail>("GET", `/api/reviews/${id}/stories/${sid}${expand?.length ? `?${new URLSearchParams({ expand: expand.join(",") })}` : ""}`),
+  story: (id: number, sid: string) => call<StoryDetail>("GET", `/api/reviews/${id}/stories/${sid}`),
   locate: (id: number, q: { node?: string; flow?: string; finding?: string }) =>
     call<{ cluster: string | null; story?: string | null }>("GET", `/api/reviews/${id}/locate?${new URLSearchParams(q)}`),
   source: (id: number, path: string, side: "before" | "after" = "after") =>

@@ -11,8 +11,6 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from codetortoise import boardstore
-from codetortoise.board import Board, expand_board
-from codetortoise.facts.model import Facts
 from codetortoise.health import run_health
 from codetortoise.impact import ImpactModel
 from codetortoise.llm import ondemand, tortoise
@@ -206,7 +204,7 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         return out
 
     @app.get("/api/reviews/{rid}/board")
-    def board(rid: int, cluster: str | None = None, expand: str | None = None, _: str = Depends(user_of)):
+    def board(rid: int, cluster: str | None = None, _: str = Depends(user_of)):
         review_or_404(rid)
         b = boardstore.board(store, rid, cluster)
         if b is None:
@@ -218,8 +216,6 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         # boards stored by an older version get current defaults and file tags (spec §14.3)
         tags = {f.id: f.files for f in store.list_findings(rid)}
         b = tag_board(b, tags)
-        if expand:
-            b = tag_board(expanded(rid, b, expand), tags)
         out = b.model_dump()
         named(out.get("layers", []))
         return out
@@ -236,8 +232,8 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         return ss.model_dump()
 
     @app.get("/api/reviews/{rid}/stories/{sid}")
-    def story(rid: int, sid: str, expand: str | None = None, _: str = Depends(user_of)):
-        """One story: its board (every node it mentions) and its graph, grown by `expand` as boards are."""
+    def story(rid: int, sid: str, _: str = Depends(user_of)):
+        """One story: its board (every node it mentions) and its graph."""
         review_or_404(rid)
         d = boardstore.story(store, rid, sid)
         if d is None:
@@ -248,41 +244,11 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         d.board = tag_board(d.board, tags)
         if d.graph is not None:
             d.graph = tag_board(d.graph, tags)
-            if expand:
-                d.graph = tag_board(expanded(rid, d.graph, expand), tags)
         out = d.model_dump()
         named(out["board"].get("layers", []))
         if out["graph"]:
             named(out["graph"].get("layers", []))
         return out
-
-    def expanded(rid: int, b: Board, expand: str) -> Board:
-        """`expand` is "N12:callers,N9:callees": up to `analysis.expand_step` neighbours each, in order."""
-        parts = expand.split(",")
-        if len(parts) > 50:
-            raise HTTPException(400, f"{len(parts)} expansions is too many (50 at most): press Reset and start again")
-        asks = []
-        for part in parts:
-            nid, _, way = part.strip().partition(":")
-            if way not in ("callers", "callees") or not nid:
-                raise HTTPException(400, f"bad expansion {part!r}: use <node>:callers or <node>:callees")
-            asks.append((nid, way))
-        im = ImpactModel.model_validate(store.get_blob(rid, "impact") or {})
-        ranges: dict[str, list[int]] = {}
-        for fx in store.get_blob(rid, "facts_after") or []:
-            facts = Facts.model_validate(fx)
-            ranges.update({f.usr: [f.start_line, f.end_line] for f in facts.functions})
-            ranges.update({f"field:{a.field}": [a.decl_line, a.decl_line] for a in facts.fields if a.decl_line})
-        lm = svc.layers.get()
-        root = canon(str(cfg.workspace.root)).rstrip("/") + "/"
-
-        def layer_name(lv: int) -> str:
-            layer = lm.layer(lv) if lm else None
-            return layer.name.split(": ", 1)[-1] if layer else f"L{lv}"
-
-        return expand_board(b, im, asks, step=cfg.analysis.expand_step, ranges=ranges,
-                            depot_of=store.get_blob(rid, "node_files") or {}, layer_name=layer_name, root=root,
-                            home=store.get_blob(rid, "node_cluster") or {})
 
     @app.get("/api/reviews/{rid}/locate")
     def locate(rid: int, node: str | None = None, flow: str | None = None, finding: str | None = None,

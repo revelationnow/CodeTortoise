@@ -106,26 +106,15 @@ def test_the_small_fixture_has_no_overview(fx, tmp_path):
     assert client.get(f"/api/reviews/{rid}/locate", params={"node": "N1"}).json()["cluster"] is None
 
 
-def test_expanding_adds_callers_past_the_budget_and_counts_what_is_left(api):
+def test_a_board_no_longer_grows_by_expand_the_neighbours_tab_lists_them_instead(api):
     svc, owner, rid = api
     ov = owner.get(f"/api/reviews/{rid}/overview").json()
     boards = {c["id"]: owner.get(f"/api/reviews/{rid}/board", params={"cluster": c["id"]}).json() for c in ov["clusters"]}
     cid, node = next((cid, n) for cid, b in boards.items() for n in b["nodes"] if n["more_callers"] > 0)
-    before = boards[cid]
-    after = owner.get(f"/api/reviews/{rid}/board", params={"cluster": cid, "expand": f"{node['id']}:callers"}).json()
-    added = len(after["nodes"]) - len(before["nodes"])
-    assert added == min(node["more_callers"], svc.cfg.analysis.expand_step) and added > 0
-    grown = next(n for n in after["nodes"] if n["id"] == node["id"])
-    assert grown["more_callers"] == node["more_callers"] - added
-    new = [n for n in after["nodes"] if n["id"] not in {m["id"] for m in before["nodes"]}]
-    assert all(any(e["src"] == n["id"] and e["dst"] == node["id"] for e in after["edges"]) for n in new)
-    bad = owner.get(f"/api/reviews/{rid}/board", params={"cluster": cid, "expand": "N1:sideways"})
-    assert bad.status_code == 400
-    twice = ",".join([f"{node['id']}:callers"] * 2)                                    # asking again adds the next ones
-    again = owner.get(f"/api/reviews/{rid}/board", params={"cluster": cid, "expand": twice}).json()
-    assert len(again["nodes"]) - len(before["nodes"]) == min(node["more_callers"], 2 * svc.cfg.analysis.expand_step)
-    many = owner.get(f"/api/reviews/{rid}/board", params={"cluster": cid, "expand": ",".join([f"{node['id']}:callers"] * 51)})
-    assert many.status_code == 400 and "Reset" in many.json()["detail"]                 # never dropped silently
+    asked = owner.get(f"/api/reviews/{rid}/board", params={"cluster": cid, "expand": f"{node['id']}:callers"}).json()
+    assert asked == boards[cid]
+    assert owner.get(f"/api/reviews/{rid}/board", params={"cluster": cid, "expand": "N1:sideways"}).status_code == 200
+    assert not hasattr(svc.cfg.analysis, "expand_step")
 
 
 def test_locate_finds_the_cluster_of_a_node_a_flow_and_a_finding(api):
