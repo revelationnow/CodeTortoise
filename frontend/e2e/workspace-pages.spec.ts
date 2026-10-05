@@ -33,4 +33,18 @@ test.describe("desktop", () => {
     await expectNoNodeIds(page);
     await expectNamed(page);
   });
+
+  test("a changelist: its Swarm card, its files filtered to it, the stories and findings drawn from it", async ({ page }) => {
+    const base = await startWorkspace(page);
+    await page.locator(".ws-rail").getByRole("link", { name: "Open CL 102" }).click();
+    await expect(page).toHaveURL(new RegExp(`${base}/cl/102$`));
+    await expect(page.locator(".ws-finding h2")).toHaveText("CL 102 · uart: add flags field; hal_write takes unsigned reg");
+    await expect(page.getByRole("region", { name: "Swarm" })).toContainText("No Swarm review.");
+    await expect(page.getByRole("region", { name: "Swarm" }).getByRole("button", { name: "Refresh" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Stories drawn from this CL" })).toContainText("hal_write");
+    await page.getByRole("link", { name: "Open regs.c's diff in CL 102" }).click();
+    await expect(page.getByRole("complementary", { name: "Code: regs.c" }).getByLabel("Changelist")).toHaveValue("102");
+    await expectNoNodeIds(page);
+    await expectNamed(page);
+  });
 });
