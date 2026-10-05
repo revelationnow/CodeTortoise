@@ -324,3 +324,33 @@ def test_locate_names_the_story_of_a_node_flow_or_finding(env):
     fid = ss["stories"][0]["findings"][0]
     assert owner.get(f"/api/reviews/{rid}/locate", params={"finding": fid}).json()["story"] == "S1"
     assert owner.get(f"/api/reviews/{rid}/locate", params={"node": "N999"}).json() == {"cluster": None, "story": None}
+
+
+def test_names_give_the_ui_a_name_for_every_node_it_can_show(env):
+    svc, app, _ = env
+    owner, rid = _review(app)
+    assert TestClient(app).get(f"/api/reviews/{rid}/names").status_code == 401
+    names = owner.get(f"/api/reviews/{rid}/names").json()
+    s1 = owner.get(f"/api/reviews/{rid}/stories/S1").json()
+    send = next(n["id"] for n in s1["board"]["nodes"] if n["label"] == "uart_send")
+    assert names[send] == {"label": "uart_send", "kind": "function", "path": "//fixture/driver/uart.c",
+                           "line": names[send]["line"], "story": "S1"}
+    findings = owner.get(f"/api/reviews/{rid}/findings").json()
+    assert {n for f in findings for n in f["nodes"]} <= set(names)
+    assert all(n.startswith("N") for n in names) and len(names) < 200        # what the UI shows, not the whole graph
+
+
+def test_neighbours_list_a_nodes_callers_and_callees(env):
+    svc, app, _ = env
+    owner, rid = _review(app)
+    names = owner.get(f"/api/reviews/{rid}/names").json()
+    send = next(k for k, v in names.items() if v["label"] == "uart_send")
+    assert TestClient(app).get(f"/api/reviews/{rid}/nodes/{send}/neighbours").status_code == 401
+    nb = owner.get(f"/api/reviews/{rid}/nodes/{send}/neighbours").json()
+    assert nb["node"]["label"] == "uart_send" and nb["node"]["changed"] is True
+    assert "logger_flush" in [i["label"] for i in nb["callers"]["items"]]
+    assert nb["callers"]["total"] >= len(nb["callers"]["items"])
+    one = owner.get(f"/api/reviews/{rid}/nodes/{send}/neighbours", params={"limit": 1}).json()
+    assert len(one["callers"]["items"]) == 1
+    r = owner.get(f"/api/reviews/{rid}/nodes/N99999/neighbours")
+    assert r.status_code == 404 and r.json()["detail"] == "no node N99999 in this review"

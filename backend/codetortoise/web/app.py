@@ -16,6 +16,7 @@ from codetortoise.facts.model import Facts
 from codetortoise.health import run_health
 from codetortoise.impact import ImpactModel
 from codetortoise.llm import ondemand, tortoise
+from codetortoise.names import cited, names, neighbours
 from codetortoise.paths import canon
 from codetortoise.pipeline import JobRunner
 from codetortoise.provenance import tag_board
@@ -314,6 +315,46 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         if sid:
             return {"cluster": None, "story": sid}
         raise HTTPException(404, "not on any board of this review")
+
+    def shown(rid: int) -> tuple[ImpactModel, dict, dict[str, str]]:
+        """The review's graph, node files and node stories, for names and neighbours."""
+        im = ImpactModel.model_validate(store.get_blob(rid, "impact") or {})
+        ss = boardstore.stories(store, rid)
+        return im, store.get_blob(rid, "node_files") or {}, ss.node_story if ss else {}
+
+    @app.get("/api/reviews/{rid}/names")
+    def node_names(rid: int, _: str = Depends(user_of)):
+        """A name for every node the UI can show (spec 2026-10-04-review-workspace §4.2): changed code, nodes on any
+        board or story, findings' nodes and the nodes cited in flow, story, finding and summary text."""
+        review_or_404(rid)
+        im, depot_of, node_story = shown(rid)
+        ids, texts = set(im.changed), []
+        for b in boardstore.boards(store, rid).values():
+            ids |= {n.id for n in b.nodes} | {n for fl in b.flows for n in fl.path}
+            texts += [t for fl in b.flows for t in (fl.what, fl.title, fl.text, fl.effect, fl.check)]
+            texts += [b.about.intent, *(w.text for w in b.about.why)]
+        ss = boardstore.stories(store, rid)
+        for st in ss.stories if ss else []:
+            texts += [st.title, st.summary]
+            d = boardstore.story(store, rid, st.id)
+            if d is not None:
+                ids |= {n.id for n in d.board.nodes} | {n.id for n in (d.graph.nodes if d.graph else [])}
+                texts += [f.note for f in d.functions]
+        for f in store.list_findings(rid):
+            ids |= set(f.nodes) | {n for e in f.evidence for n in e.nodes or []}
+            ids |= {n for h in f.hypotheses for n in h.cites}
+            texts += [f.summary, f.explanation, *f.verify_steps, *(h.text for h in f.hypotheses), *(e.text for e in f.evidence)]
+        return names(im, ids | cited(texts), depot_of, node_story)
+
+    @app.get("/api/reviews/{rid}/nodes/{nid}/neighbours")
+    def node_neighbours(rid: int, nid: str, limit: int = 20, _: str = Depends(user_of)):
+        """A node's callers and callees, the most affected first (spec 2026-10-04-review-workspace §4.3)."""
+        review_or_404(rid)
+        im, depot_of, node_story = shown(rid)
+        out = neighbours(im, nid, depot_of, node_story, root=canon(str(cfg.workspace.root)), limit=max(1, limit))
+        if out is None:
+            raise HTTPException(404, f"no node {nid} in this review")
+        return out
 
     @app.get("/api/reviews/{rid}/source")
     def source(rid: int, path: str, side: Literal["before", "after"] = "after", _: str = Depends(user_of)):
