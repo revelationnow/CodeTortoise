@@ -351,6 +351,25 @@ def test_depot_resolver_failure_keeps_changed_files_and_notes_why():
     assert notes == ["depot paths unavailable for context nodes: P4Error: p4 where: connect failed"]
 
 
+def test_an_endpoint_without_a_scheme_or_with_a_bare_name_is_still_judged():
+    from codetortoise.health import remote_host
+    assert remote_host("api.example.com/v1") == "api.example.com"
+    assert remote_host("127.0.0.1:1234/v1") is None and remote_host("192.168.1.20:8080") is None
+    assert remote_host("http://gpubox:8080/v1") == "gpubox"
+
+
+def test_health_says_a_bare_name_may_be_on_this_network(fx, tmp_path):
+    from codetortoise.config import StrongLlmConfig
+    from codetortoise.services import make_strong
+    svc = make_services(fx, tmp_path)
+    svc.cfg.llm.strong = StrongLlmConfig(base_url="http://gpubox:8080/v1", model="big")
+    svc.strong = make_strong(svc.cfg)
+    svc.strong.ping = lambda: False
+    check = {c.name: c for c in run_health(svc).checks}["strong model endpoint"]
+    assert check.detail.endswith("; code from reviewed changes is sent to gpubox (a bare name: check whether it is on "
+                                 "this network)")
+
+
 def test_health_checks_the_strong_model_and_says_where_code_is_sent(fx, tmp_path):
     from codetortoise.config import StrongLlmConfig
     from codetortoise.services import make_strong

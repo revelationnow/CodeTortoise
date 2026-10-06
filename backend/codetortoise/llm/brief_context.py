@@ -17,8 +17,9 @@ from codetortoise.store import Store
 from codetortoise.stories import Story
 
 BRIEF_CHARS = 3200                    # 800 tokens
-HEAD = ("BRIEF (worked out by the strong model and by code; build on it: never regroup the stories or overturn a "
-        "verdict, and if you disagree, say so in your answer):")
+_RULE = "build on it: never regroup the stories or overturn a verdict, and if you disagree, say so in your answer"
+HEAD = f"BRIEF (worked out by the strong model and by code; {_RULE}):"
+HEAD_RULES = f"BRIEF (worked out by code; {_RULE}):"           # no strong model formed this review's stories
 
 
 def _holding(stories: list[Story], story: str | None, finding: Finding | None, flow: str | None,
@@ -34,8 +35,10 @@ def _holding(stories: list[Story], story: str | None, finding: Finding | None, f
 def brief_context(store: Store, rid: int, *, story: str | None = None, finding: Finding | None = None,
                   flow: str | None = None, nodes: Iterable[str] = (), overview: bool = False) -> str:
     """The brief's lines for one target ("" when the brief knows nothing of it)."""
+    brief = store.get_brief(rid)
+    if brief is None:                   # a review stored before briefs existed: its prompts stay as they were
+        return ""
     ss = boardstore.stories(store, rid)
-    brief = store.get_brief(rid) or {}
     st = _holding(ss.stories if ss else [], story, finding, flow, nodes)
     rows: list[str] = []
     if st is not None:
@@ -53,5 +56,5 @@ def brief_context(store: Store, rid: int, *, story: str | None = None, finding: 
         rows += ["CHANGE OVERVIEW:", brief["overview"]]
     if not rows:
         return ""
-    text = "\n".join([HEAD] + rows)
+    text = "\n".join([HEAD if brief.get("model") else HEAD_RULES] + rows)
     return text if len(text) <= BRIEF_CHARS else text[:BRIEF_CHARS - 1] + "…"

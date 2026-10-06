@@ -280,7 +280,7 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
                 brief.pieces, brief.overview, plan = ps, ps.overview, brief.plan
             else:
                 plan = form_stories(svc.strong, svc.ledger, rid, ps, ctx["analysis"].x, strong, ctx["findings"])
-                brief = Brief(key=key, model=strong.model, complete=not plan.notes, overview=ps.overview, pieces=ps,
+                brief = Brief(key=key, model=strong.model, complete=plan.complete, overview=ps.overview, pieces=ps,
                               plan=plan)
             unsorted = sum(len(s.placements) for s in plan.stories if s.unsorted)
             formed = [s for s in plan.stories if not s.unsorted]
@@ -288,6 +288,7 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
                    + f", {sum(len(s.placements) for s in formed)} piece(s) placed, {unsorted} unsorted")
         ctx["plan"], ctx["brief"] = plan, brief
         store.put_brief(rid, brief.key, brief)
+        store.put_blob(rid, "story_findings", ctx["findings"])   # as tier 1 saw them, before the review renumbers them
         if plan.notes:
             raise Degraded(msg + "; " + "; ".join(plan.notes))
         return msg
@@ -377,12 +378,12 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
     def llm():
         findings = store.list_findings(rid)
 
-        def brief_for(job) -> str:
+        def brief_for(kind: str, target: str) -> str:
             """The brief's part for an up-front job's target (spec 2026-10-05-two-tier-stories §8)."""
-            if job.purpose == "finding":
-                f = next((f for f in findings if f.id == job.target), None)
+            if kind == "finding":
+                f = next((f for f in findings if f.id == target), None)
                 return brief_context(store, rid, finding=f) if f is not None else ""
-            return brief_context(store, rid, **{job.purpose: job.target}) if job.purpose in ("flow", "story") else ""
+            return brief_context(store, rid, **{kind: target})
         snippets = collect_snippets(ctx["impact"], ctx["cs"], ctx["after"])
         bs = ctx.get("boards")
         b = None if bs is None else bs.board or boardstore.merge(list(bs.clusters.values()), bs.overview.about)

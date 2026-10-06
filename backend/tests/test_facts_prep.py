@@ -94,3 +94,17 @@ def test_findings_of_same_named_functions_in_two_files_keep_their_own_key():
     assert finding_key(sig(f"{W}/drv/a.c")) != finding_key(sig(f"{W}/drv/b.c"))
     assert finding_key(sig(f"{W}/drv/a.c")) == finding_key(sig(f"{W}/drv/a.c"))
     assert finding_key(Finding(kind="contract", severity="medium", title="t", summary="s")) == "contract|t"
+
+
+def test_each_file_outside_the_change_is_read_once():
+    c = _world([("pd_get", "src/pd.c", ["a = 0;"], ["a = PD_DIR;"])])
+    h, other = f"{W}/src/sysdir.h", f"{W}/lib/use.c"
+    f = Finding(id="F2", kind="header_fanout", severity="low", title="sysdir.h: 3 change(s) reach 2 TU(s)", summary="s",
+                evidence=[Evidence(text=f"macro added: {n}", file=h) for n in ("PD_DIR", "OLD_DIR", "NEW_DIR")])
+    reads = []
+
+    def read(path):
+        reads.append(path)
+        return "int x;\n"
+    prepare_facts(_Ctx(c), [f, f.model_copy(update={"id": "F3"})], {}, includers=lambda hdr: {other}, read_text=read)
+    assert reads == [other]

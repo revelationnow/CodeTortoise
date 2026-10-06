@@ -213,10 +213,11 @@ class AiContext:
     snippets: dict[str, str]
     max_tokens: int = 64000
     node_files: dict[str, list[str] | None] | None = None
+    reserve: int = 0                   # tokens a brief in front of the prompt takes (briefed_job)
 
     @property
     def per_call(self) -> int:
-        return max(2000, self.max_tokens // 2)
+        return max(2000, self.max_tokens // 2) - self.reserve
 
     @property
     def known(self) -> set[str]:
@@ -414,8 +415,14 @@ def run_job(llm: LlmClient, job: Job, ledger: Ledger | None = None, rid: int | N
     return job.apply(out)
 
 
-def _briefed(job: Job, brief: str) -> Job:
-    """The job's prompt, starting with the brief's part for its target (spec 2026-10-05-two-tier-stories §8)."""
+def briefed_job(ctx: AiContext, brief: str, build: Callable[[], Job]) -> Job:
+    """The job `build` makes, its prompt starting with the brief's part for its target (spec 2026-10-05-two-tier-stories
+    §8). The brief's room comes out of the prompt's budget."""
+    ctx.reserve = -(-(len(brief) + 2) // 4) if brief else 0
+    try:
+        job = build()
+    finally:
+        ctx.reserve = 0
     if brief:
         job.prompt = brief + "\n\n" + job.prompt
     return job
@@ -427,7 +434,7 @@ def build_storyboard(impact: ImpactModel, findings: list[Finding], layers: Layer
                      node_files: dict[str, list[str] | None] | None = None, ledger: Ledger | None = None,
                      rid: int | None = None, stories: list[StoryDetail] | None = None,
                      upfront_stories: int = 3, upfront_findings: int = 0,
-                     brief_for: Callable[[Job], str] | None = None) -> Storyboard:
+                     brief_for: Callable[[str, str], str] | None = None) -> Storyboard:
     """The deterministic storyboard, then (with an LLM) the up-front pass of spec 2026-10-03 §3: narratives for the
     first `upfront_flows` flows, titles for the first `upfront_stories` stories given and explanations of the first
     `upfront_findings` high-severity findings (concurrently), then the change summary. Everything else is explained on demand.
@@ -438,11 +445,13 @@ def build_storyboard(impact: ImpactModel, findings: list[Finding], layers: Layer
     if llm is None:
         return sb
     ctx = AiContext(impact, findings, snippets, max_tokens, node_files)
-    jobs = [flow_job(ctx, fl) for fl in (board.flows[:upfront_flows] if board else [])]
-    jobs += [story_job(ctx, d) for d in (stories or [])[:upfront_stories]]
-    jobs += [finding_job(ctx, f) for f in [h for h in findings if h.severity == "high"][:upfront_findings]]
-    if brief_for is not None:                  # every tier-2 prompt starts from the brief (spec 2026-10-05 §8)
-        jobs = [_briefed(j, brief_for(j)) for j in jobs]
+    todo: list[tuple[str, str, Callable[[], Job]]] = [
+        ("flow", fl.id, lambda fl=fl: flow_job(ctx, fl)) for fl in (board.flows[:upfront_flows] if board else [])]
+    todo += [("story", d.story.id, lambda d=d: story_job(ctx, d)) for d in (stories or [])[:upfront_stories]]
+    todo += [("finding", f.id, lambda f=f: finding_job(ctx, f))
+             for f in [h for h in findings if h.severity == "high"][:upfront_findings]]
+    # every tier-2 prompt starts from the brief (spec 2026-10-05 §8)
+    jobs = [briefed_job(ctx, brief_for(kind, target) if brief_for else "", build) for kind, target, build in todo]
     pool = ThreadPoolExecutor(max(1, concurrency), thread_name_prefix="tortoise-llm")
     try:
         for dropped in pool.map(lambda j: run_job(llm, j, ledger, rid), jobs):

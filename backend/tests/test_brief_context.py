@@ -54,3 +54,18 @@ def test_a_review_without_a_brief_or_stories_adds_nothing(tmp_path):
     store = Store(tmp_path / "s.db")
     rid = store.create_review("t", "owner", [1])
     assert brief_context(store, rid, story="S1", overview=True) == ""
+
+
+def test_stories_stored_before_briefs_existed_add_nothing(tmp_path):
+    store, _, _ = _review(tmp_path)
+    old = store.create_review("t", "owner", [2])
+    st = Story(id="S1", kind="behaviour", title="Other changes in `src`", summary="s", nodes=["N1"], findings=["F1"])
+    store.put_blob(old, "stories", StorySet(summary="s", stories=[st]))
+    assert brief_context(store, old, story="S1") == "" and brief_context(store, old, nodes=["N1"]) == ""
+
+
+def test_the_brief_says_who_worked_it_out(tmp_path):
+    store, rid, _ = _review(tmp_path)                                  # stored without a model: the rules formed it
+    assert brief_context(store, rid, story="S1").startswith("BRIEF (worked out by code; build on it:")
+    store.put_brief(rid, "k", Brief(key="k", model="big", overview="CHANGE: 2 CLs"))
+    assert brief_context(store, rid, story="S1").startswith("BRIEF (worked out by the strong model and by code;")

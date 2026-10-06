@@ -22,8 +22,8 @@ from codetortoise.llm.brief_context import brief_context
 from codetortoise.llm.storyboard import (
     AiContext,
     Job,
-    _briefed,
     _facts_for_nodes,
+    briefed_job,
     budget,
     finding_job,
     flow_job,
@@ -120,7 +120,8 @@ def explain(svc: Services, rid: int, user: str, kind: str, target: str) -> None:
         if fl is None:
             raise NotFound(f"flow {target} not found")
         trial = fl.model_copy(update={"what_source": "template"})
-        run_job(svc.llm, _briefed(flow_job(ctx, trial), brief_context(svc.store, rid, flow=target)), svc.ledger, rid, user)
+        run_job(svc.llm, briefed_job(ctx, brief_context(svc.store, rid, flow=target), lambda: flow_job(ctx, trial)),
+                svc.ledger, rid, user)
         if trial.what_source != "llm":
             raise Unchecked(UNCHECKED)
         with _lock(rid):
@@ -137,7 +138,8 @@ def explain(svc: Services, rid: int, user: str, kind: str, target: str) -> None:
         if f is None:
             raise NotFound(f"finding {target} not found")
         trial = f.model_copy(update={"explanation": None})
-        run_job(svc.llm, _briefed(finding_job(ctx, trial), brief_context(svc.store, rid, finding=f)), svc.ledger, rid, user)
+        run_job(svc.llm, briefed_job(ctx, brief_context(svc.store, rid, finding=f), lambda: finding_job(ctx, trial)),
+                svc.ledger, rid, user)
         if not trial.explanation:
             raise Unchecked(UNCHECKED)
         with _lock(rid):
@@ -159,7 +161,8 @@ def explain(svc: Services, rid: int, user: str, kind: str, target: str) -> None:
             raise NotFound(f"story {target} was written by the strong model; ask about it in a thread instead")
         trial = d.model_copy(deep=True)
         trial.story.text_source, trial.story.text_files = "template", None
-        run_job(svc.llm, _briefed(story_job(ctx, trial), brief_context(svc.store, rid, story=target)), svc.ledger, rid, user)
+        run_job(svc.llm, briefed_job(ctx, brief_context(svc.store, rid, story=target), lambda: story_job(ctx, trial)),
+                svc.ledger, rid, user)
         if trial.story.text_source != "llm":
             raise Unchecked(UNCHECKED)
         with _lock(rid):
@@ -174,8 +177,8 @@ def explain(svc: Services, rid: int, user: str, kind: str, target: str) -> None:
         fresh: dict = {}
         change = next((c for c in cs.files if c.depot == target), None)
         nodes = [nid for nid, n in ctx.impact.nodes.items() if change and n.file == change.local and n.kind == "function"]
-        run_job(svc.llm, _briefed(file_job(ctx, board, cs, target, fresh, user), brief_context(svc.store, rid, nodes=nodes)),
-                svc.ledger, rid, user)
+        run_job(svc.llm, briefed_job(ctx, brief_context(svc.store, rid, nodes=nodes),
+                                     lambda: file_job(ctx, board, cs, target, fresh, user)), svc.ledger, rid, user)
         if not fresh.get(target, {}).get("summary"):
             raise Unchecked(UNCHECKED)
         with _lock(rid):

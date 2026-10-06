@@ -11,6 +11,7 @@ import itertools
 from collections.abc import Callable
 
 from codetortoise.board import BoardContext, analyse
+from codetortoise.detectors.base import Finding
 from codetortoise.diffmap import DiffMap
 from codetortoise.facts.model import Facts
 from codetortoise.grouping import StoryPlan
@@ -52,7 +53,9 @@ def stored_context(svc: Services, rid: int) -> tuple[BoardContext, PieceSet]:
     ctx = BoardContext(ChangeSet.model_validate(s.get_blob(rid, "changeset")), DiffMap.model_validate(s.get_blob(rid, "diffmap")),
                        [Facts.model_validate(f) for f in s.get_blob(rid, "facts_before") or []],
                        [Facts.model_validate(f) for f in s.get_blob(rid, "facts_after") or []],
-                       ImpactModel.model_validate(s.get_blob(rid, "impact")), s.list_findings(rid),
+                       ImpactModel.model_validate(s.get_blob(rid, "impact")),
+                       [Finding.model_validate(f) for f in s.get_blob(rid, "story_findings")]       # as tier 1 saw them
+                       if s.get_blob(rid, "story_findings") is not None else s.list_findings(rid),
                        LayerModel.model_validate(s.get_blob(rid, "layers")) if s.get_blob(rid, "layers") else None,
                        svc.cfg.analysis, lambda paths: {}, root=canon(str(svc.cfg.workspace.root)))
     return ctx, PieceSet.model_validate(s.get_blob(rid, "pieces"))

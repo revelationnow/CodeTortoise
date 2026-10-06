@@ -10,7 +10,9 @@ pieces they disagree on.
 from __future__ import annotations
 
 import difflib
+import json
 import posixpath
+import re
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -171,7 +173,8 @@ class Tools:
         if meta is None:
             return f"no CL {n} in this change"
         files = [f.depot for f in self.x.c.cs.files if any(p.cl == num for p in f.per_cl)]
-        return f"CL {num} ({meta.status}, {meta.user}):\n{meta.description}\nfiles: " + ", ".join(files)
+        return (f"CL {num} ({meta.status}" + (f", {meta.user}" if meta.user else "") + f"):\n{meta.description}\nfiles: "
+                + ", ".join(files))
 
     def run(self, tool: str, arg: str | int) -> str:
         fn = {"piece_code": self.piece_code, "diff": self.diff, "neighbours": self.neighbours, "cl": self.cl}.get(tool)
@@ -269,9 +272,11 @@ def ask(strong: LlmClient, parts: list[str], tools: Tools, rounds: int, limit: i
     """One chunk's (or story's) rounds (one AI call): reads until the model answers; the last round must answer. `seen`
     receives every prompt sent, so answers can be checked against what the model was shown."""
     convo = list(parts)
+    # the system prompt and the schema the client appends to it share the context with the prompt
+    room = limit - len(system) - len(json.dumps(schema.model_json_schema())) - len(tail) - 120
     for n in range(1, max(1, rounds) + 1):
         last = n == max(1, rounds)
-        prompt = _fit(convo, limit) + ('\n\nYou must answer now: reply with action "answer".' if last else "") + tail
+        prompt = _fit(convo, room) + ('\n\nYou must answer now: reply with action "answer".' if last else "") + tail
         if seen is not None:
             seen.append(prompt)
         step = strong.complete_json(system, prompt, schema)
@@ -314,6 +319,12 @@ def place(ps: PieceSet, cls: dict[int, str], members: list[str], first: Piece, p
     return None
 
 
+def _evidence(e: str) -> str:
+    """A CL however the model writes it ("CL 412", "cl412") as the cards name it: CL412."""
+    m = re.fullmatch(r"\s*[Cc][Ll]\s*(\d+)\s*", e)
+    return f"CL{m[1]}" if m else e.strip()
+
+
 def check_answer(step: _Step, chunk: list[str], ps: PieceSet, cls: dict[int, str], prefix: str = "") -> Got:
     """Each placement checked on its own; failures, unplaced pieces and the model's own unsorted go to unsorted."""
     allowed, placed, got = set(chunk), set(), Got()
@@ -329,7 +340,8 @@ def check_answer(step: _Step, chunk: list[str], ps: PieceSet, cls: dict[int, str
             p = ps.piece(raw.id) if raw.id in allowed else None
             if p is None or raw.id in placed:
                 continue                                         # unknown, another chunk's, or placed twice: dropped
-            pl = Placement(piece=raw.id, reason=raw.reason, evidence=list(raw.evidence), quote=list(raw.quote))
+            pl = Placement(piece=raw.id, reason=raw.reason, evidence=[_evidence(e) for e in raw.evidence],
+                           quote=list(raw.quote))
             why = place(ps, cls, [q.piece for q in ps_], first or p, p, pl, anchor)
             placed.add(raw.id)
             if why is None:
@@ -454,7 +466,7 @@ def form_stories(strong: LlmClient, ledger: Ledger | None, rid: int | None, ps: 
     stories: list[PlannedStory] = []
     unsorted: list[Placement] = []
     notes: list[str] = []
-    refused = unreachable = False
+    refused = unreachable = fell_back = False
 
     def call(purpose: str, target: str, fn):
         return ledger.call(strong, rid, None, purpose, target, fn) if ledger is not None else fn(strong)
@@ -467,19 +479,29 @@ def form_stories(strong: LlmClient, ledger: Ledger | None, rid: int | None, ps: 
                         lambda llm: ask(llm, parts, tools, cfg.rounds, int(cfg.context_tokens * 4 * 0.9)))
             return check_answer(step, ids, ps, cls, prefix)
         if unreachable:
+            fell_back = True
             notes.append(f"chunk {i}: the strong model is unreachable; the rules grouped its pieces")
             stories += rules_plan(ps, ids, prefix=f"r{i}_")
             continue
         try:
             if refused:
                 raise Refused("the tier-1 budget ran out")
-            got = agree(run(1), run(2), lambda: run(3), ps, cls) if cfg.agree >= 2 else run(1)
+            got = run(1)
+            if cfg.agree >= 2:
+                first = got
+                try:
+                    got = agree(first, run(2), lambda: run(3), ps, cls)
+                except Refused as e:          # the budget stopped the agreement runs: the first run's checked answer stands
+                    refused = fell_back = True
+                    notes.append(f"chunk {i}: AI budget: {e.reason}; its first run's answer stands")
+                    got = first
         except Refused as e:
-            refused = True
+            refused = fell_back = True
             notes.append(f"chunk {i}: AI budget: {e.reason}; the rules grouped its pieces")
             got = Got(stories=rules_plan(ps, ids, prefix=f"r{i}_"))
         except Exception as e:  # a chunk that fails falls back to the rules; the others stand
             unreachable = isinstance(e, LlmUnreachable)          # no point waiting on it again this run
+            fell_back = True
             notes.append(f"chunk {i}: {type(e).__name__}: {e}"[:300] + "; the rules grouped its pieces")
             got = Got(stories=rules_plan(ps, ids, prefix=f"r{i}_"))
         stories += got.stories
@@ -494,4 +516,4 @@ def form_stories(strong: LlmClient, ledger: Ledger | None, rid: int | None, ps: 
             notes.append(f"merge pass: {type(e).__name__}: {e}"[:300])
     if unsorted:
         stories.append(PlannedStory(key="unsorted", unsorted=True, source="tier1", placements=unsorted))
-    return StoryPlan(stories=stories, notes=notes)
+    return StoryPlan(stories=stories, notes=notes, complete=not fell_back)   # a failed merge pass leaves it complete
