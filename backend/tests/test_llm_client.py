@@ -123,3 +123,14 @@ def test_switches_to_json_schema_when_server_requires_it():
     assert rf["json_schema"]["schema"]["required"] == ["answer", "n"]
     c.complete_json("s", "u", Out)
     assert len(bodies) == 3  # the mode is remembered: no second rejected request
+
+
+def test_a_temperature_is_sent_only_when_set():
+    seen = []
+
+    def handler(req):
+        seen.append(json.loads(req.content))
+        return reply('{"answer": "ok", "n": 2}')
+    client(handler, temperature=0).complete_json("s", "u", Out)
+    client(handler).complete_json("s", "u", Out)
+    assert seen[0]["temperature"] == 0 and "temperature" not in seen[1]

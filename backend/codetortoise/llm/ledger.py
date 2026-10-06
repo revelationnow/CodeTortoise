@@ -17,6 +17,8 @@ from codetortoise.store import Store
 
 T = TypeVar("T")
 PIPELINE = "pipeline"
+TIER1 = ("stories", "stories_merge", "review")    # strong-model calls: their own budget (spec 2026-10-05 §9)
+_T1 = "(" + ",".join(f"'{p}'" for p in TIER1) + ")"
 
 
 class Refused(Exception):
@@ -52,16 +54,24 @@ class Ledger:
         self.store._exec("INSERT INTO llm_rounds VALUES(?,?,?,?)", (rid, int(rounds), by, _now()))
 
     def used(self, rid: int) -> int:
-        return self.store._all("SELECT COUNT(*) AS n FROM llm_calls WHERE review_id=? AND outcome != 'refused'",
-                               (rid,))[0]["n"]
+        """Tier-2 calls on the review: everyone's and the pipeline's, not the strong model's."""
+        return self.store._all("SELECT COUNT(*) AS n FROM llm_calls WHERE review_id=? AND outcome != 'refused' "
+                               f"AND purpose NOT IN {_T1}", (rid,))[0]["n"]
+
+    def tier1_used(self, rid: int) -> int:
+        return self.store._all("SELECT COUNT(*) AS n FROM llm_calls WHERE review_id=? AND outcome != 'refused' "
+                               f"AND purpose IN {_T1}", (rid,))[0]["n"]
 
     def person_today(self, user: str) -> int:
         day = datetime.now(UTC).date().isoformat()
         return self.store._all("SELECT COUNT(*) AS n FROM llm_calls WHERE user=? AND outcome != 'refused' "
                                "AND started_at >= ?", (user, day))[0]["n"]
 
-    def check(self, rid: int | None, user: str | None) -> str | None:
+    def check(self, rid: int | None, user: str | None, purpose: str | None = None) -> str | None:
         """Why a call by `user` on review `rid` would be refused now, or None."""
+        if rid is not None and purpose in TIER1:
+            n = self.limits.tier1_per_review
+            return f"this review has used its {n} tier-1 AI calls" if self.tier1_used(rid) >= n else None
         if rid is not None:
             budget = self.budget(rid)
             if self.used(rid) >= budget:
@@ -74,7 +84,7 @@ class Ledger:
     def reserve(self, rid: int | None, user: str | None, purpose: str, target: str) -> int:
         """Record a call about to be made and return its id, or raise Refused (recording the refusal)."""
         with self.store._lock:
-            reason = self.check(rid, user)
+            reason = self.check(rid, user, purpose)
             cur = self.store._exec(
                 "INSERT INTO llm_calls(review_id, user, purpose, target, started_at, outcome, error) VALUES(?,?,?,?,?,?,?)",
                 (rid, user or PIPELINE, purpose, target, _now(), "refused" if reason else "running", reason))
@@ -115,6 +125,8 @@ class Ledger:
         calls = self.store._all("SELECT id, user, purpose, target, started_at, finished_at, prompt_tokens, "
                                 "completion_tokens, outcome, error FROM llm_calls WHERE review_id=? ORDER BY id", (rid,))
         counted = [c for c in calls if c["outcome"] != "refused"]
-        return {"used": len(counted), "budget": self.budget(rid),
+        tier1 = [c for c in counted if c["purpose"] in TIER1]
+        return {"used": len(counted) - len(tier1), "budget": self.budget(rid),
+                "tier1": {"used": len(tier1), "budget": self.limits.tier1_per_review},
                 "by_person": dict(Counter(c["user"] for c in counted)),
                 "by_purpose": dict(Counter(c["purpose"] for c in counted)), "calls": calls}

@@ -1,8 +1,10 @@
 """Startup validation. Hard checks gate review creation."""
 from __future__ import annotations
 
+import ipaddress
 import os
 from datetime import UTC, datetime
+from urllib.parse import urlparse
 
 from pydantic import BaseModel
 
@@ -28,6 +30,18 @@ class HealthReport(BaseModel):
     strip_flags: list[str] = []
     p4_sources: dict[str, str] = {}    # where the owner, port and client came from (tortoise.yaml, P4CONFIG, environment)
     ai: dict = {}                      # AI call limits and today's total across reviews
+
+
+def remote_host(url: str) -> str | None:
+    """The endpoint's host when it is neither this machine nor a private address (code is sent off-site), else None."""
+    host = urlparse(url).hostname or ""
+    if host == "localhost" or host.endswith(".localhost"):
+        return None
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return host or None
+    return None if ip.is_private or ip.is_loopback or ip.is_link_local else host
 
 
 def run_health(svc: Services, deep: bool = False) -> HealthReport:
@@ -87,6 +101,14 @@ def run_health(svc: Services, deep: bool = False) -> HealthReport:
         checks.append(Check(name="llm endpoint", ok=svc.llm.ping(), hard=False, detail=cfg.llm.base_url or ""))
     else:
         checks.append(Check(name="llm endpoint", ok=False, hard=False, detail="not configured"))
+    strong = cfg.llm.strong
+    if strong is not None and svc.strong is not None:
+        away = remote_host(strong.base_url)
+        checks.append(Check(name="strong model endpoint", ok=svc.strong.ping(), hard=False,
+                            detail=f"{strong.base_url} ({strong.model})"
+                                   + (f"; code from reviewed changes is sent to {away}" if away else "")))
+    else:
+        checks.append(Check(name="strong model endpoint", ok=False, hard=False, detail="not configured (stories by rules)"))
     if cfg.swarm.url:
         client = svc.swarm()
         checks.append(Check(name="swarm", ok=client is not None, hard=False,

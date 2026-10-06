@@ -347,3 +347,19 @@ def test_depot_resolver_failure_keeps_changed_files_and_notes_why():
     notes: list[str] = []
     assert depot_resolver(Src(), cs, "/ws", notes)(["/ws/a.c", "/ws/b.c"]) == {"/ws/a.c": "//d/a.c"}
     assert notes == ["depot paths unavailable for context nodes: P4Error: p4 where: connect failed"]
+
+
+def test_health_checks_the_strong_model_and_says_where_code_is_sent(fx, tmp_path):
+    from codetortoise.config import StrongLlmConfig
+    from codetortoise.services import make_strong
+    for url, remote in (("https://api.example.com/v1", True), ("http://127.0.0.1:1234/v1", False),
+                        ("http://192.168.1.20:8080/v1", False), ("http://localhost:1/v1", False)):
+        svc = make_services(fx, tmp_path)
+        svc.cfg.llm.strong = StrongLlmConfig(base_url=url, model="big")
+        svc.strong = make_strong(svc.cfg)
+        svc.strong.ping = lambda: False                     # no network in tests
+        check = {c.name: c for c in run_health(svc).checks}["strong model endpoint"]
+        assert check.hard is False and check.detail.startswith(f"{url} (big)")
+        assert check.detail.endswith("; code from reviewed changes is sent to api.example.com") == remote
+    svc = make_services(fx, tmp_path)
+    assert {c.name: c for c in run_health(svc).checks}["strong model endpoint"].detail == "not configured (stories by rules)"

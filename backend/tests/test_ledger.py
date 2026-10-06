@@ -109,3 +109,15 @@ def test_workspace_calls_are_recorded_without_a_review_budget(tmp_path):
     ledger.call(_llm(), None, None, "layers", "generation 3", _ask)          # layer naming: once per index
     ledger.call(_llm(), rid, "bob", "flow", "FL1", _ask)                     # the review's one call is still free
     assert ledger.workspace_calls() == 1 and ledger.usage(rid)["used"] == 1
+
+
+def test_tier_1_calls_count_against_their_own_budget_not_the_review_s(tmp_path):
+    ledger, _, rid = _ledger(tmp_path, per_review=1, tier1_per_review=2)
+    for purpose in ("stories", "review"):
+        ledger.call(_llm(), rid, None, purpose, "x", _ask)
+    with pytest.raises(Refused, match="this review has used its 2 tier-1 AI calls"):
+        ledger.call(_llm(), rid, None, "stories_merge", "x", _ask)
+    ledger.call(_llm(), rid, "bob", "flow", "FL1", _ask)        # the tier-2 budget is untouched
+    u = ledger.usage(rid)
+    assert (u["used"], u["budget"], u["tier1"]) == (1, 1, {"used": 2, "budget": 2})
+    assert u["by_purpose"] == {"stories": 1, "review": 1, "flow": 1}
