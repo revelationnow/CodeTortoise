@@ -127,6 +127,10 @@ class CompileDb:
                 return hit
         return self._by_file.get(file)
 
+    def databases_of(self, file: str) -> list[str]:
+        """Every database holding a command for the file, in precedence order (none: a header, an unbuilt file)."""
+        return list(dict.fromkeys(e.db for e in self._all.get(canon(file), [])))
+
     def nearest_entry(self, file: str) -> CompileEntry | None:
         """Exact entry, else one in the same folder, else the nearest folder up, within the file's own database."""
         file = canon(file)

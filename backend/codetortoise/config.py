@@ -50,6 +50,11 @@ class ToolchainConfig(BaseModel):
     strip_flags: list[str] = Field(default_factory=list)
 
 
+class TargetRule(BaseModel):
+    match: str                       # glob on the workspace-relative path, e.g. "modem/**"
+    name: str                        # the target's name on stories (spec 2026-10-05-two-tier-stories §3.1)
+
+
 class SwarmConfig(BaseModel):
     url: str | None = None
 
@@ -109,6 +114,7 @@ class Config(BaseModel):
     llm: LlmConfig = Field(default_factory=LlmConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
     analysis: AnalysisConfig = Field(default_factory=AnalysisConfig)
+    targets: list[TargetRule] = Field(default_factory=list)   # first match names a file's build target
 
 
 class ConfigError(ValueError):
