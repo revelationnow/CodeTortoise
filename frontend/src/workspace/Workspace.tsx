@@ -6,7 +6,7 @@ import { driftSummary } from "../board/drift";
 import AiPill from "../components/AiPill";
 import { useSources } from "../board/useSources";
 import Stages from "../components/Stages";
-import { AiProvider } from "../lib/ai";
+import { AiProvider, useAi } from "../lib/ai";
 import { type Address, at, href, type Open, type Place, readAddress, type Tab } from "./address";
 import { useWs, type Ws, WsContext } from "./context";
 import Crumbs, { PhoneBar } from "./Crumbs";
@@ -115,7 +115,7 @@ function phoneBar(trail: Crumb[]): { back: Crumb; title: string; handle?: string
 }
 
 function Head({ onMenu, drawer }: { onMenu: () => void; drawer: boolean }) {
-  const ws = useWs(), me = useMe(), d = ws.data, r = d.detail!.review;
+  const ws = useWs(), me = useMe(), ai = useAi(), d = ws.data, r = d.detail!.review;
   const notes = d.detail!.stages.filter((s) => s.status === "failed" || s.status === "degraded");
   const drift = driftSummary(d.about?.drift ?? []).warn;
   return (
@@ -127,6 +127,10 @@ function Head({ onMenu, drawer }: { onMenu: () => void; drawer: boolean }) {
       {!d.ready && <span className="bd-pill ghost">{r.status}</span>}
       {d.ready && <AiPill />}
       {me?.is_owner && d.ready && <button className="link rerun" onClick={() => api.rerun(d.id).then(d.loadDetail)}>Re-run</button>}
+      {me?.is_owner && d.ready && ai?.view?.strong && (
+        <button className="link" title="Ask the strong model for new stories instead of reusing the ones it formed for this change"
+                onClick={() => api.rerun(d.id, true).then(d.loadDetail)}>Re-run stories (fresh)</button>
+      )}
       {drift.length > 0 && <span className="bd-pill high" title={drift.join("\n")}>⚠ workspace drift ({drift.length})</span>}
       {notes.length > 0 && (
         <details className="bd-notes">

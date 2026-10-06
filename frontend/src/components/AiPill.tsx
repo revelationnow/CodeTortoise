@@ -36,6 +36,8 @@ function Usage({ onClose }: { onClose: () => void }) {
     <div className="ai-usage" role="dialog" aria-label="AI usage">
       <div className="row"><b>AI calls</b><span className="sp" /><button className="link small" onClick={onClose}>Close</button></div>
       <p>This review: <b>{v.used}</b> of {v.budget}. You today: <b>{v.me_today}</b> of {v.me_limit}.</p>
+      {v.strong && v.tier1 && <p>Strong model ({v.strong}): <b>{v.tier1.used}</b> of {v.tier1.budget} calls for stories and
+        their risk review.</p>}
       <p className="muted small">By purpose: {counts(v.by_purpose)}<br />By person: {counts(v.by_person)}</p>
       <p className="muted small">One @tortoise answer is 1 AI call of up to {v.per_mention} rounds.</p>
       {v.is_owner && (

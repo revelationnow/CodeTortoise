@@ -55,7 +55,11 @@ export interface Overview {
 export interface SourceText { path: string; depot: string; rev: string; text: string; changed: boolean }
 
 /** Change stories (spec 2026-10-04-change-stories), as served by GET /api/reviews/{id}/stories[/{sid}]. */
-export type StoryKind = "behaviour" | "other" | "mechanical" | "tests";
+export type StoryKind = "behaviour" | "other" | "mechanical" | "tests" | "unsorted";
+/** Why a piece is in its story (spec 2026-10-05-two-tier-stories §4.3): a reason word, the pieces and CLs it relies on,
+ * quotes from CL descriptions; in the Unsorted story, `reason` is the check that failed. */
+export interface Placement { piece: string; reason: string; evidence: string[]; quote: string[] }
+export interface StoryPiece { id: string; kind: string; cl: number | null; files: string[]; names: string[] }
 export interface Story {
   id: string; kind: StoryKind; title: string; summary: string; text_source: "template" | "llm"; risk: string | null;
   /** AI text: the files whose code was in its prompt (null: unknown). */
@@ -65,6 +69,10 @@ export interface Story {
   /** The changelists of the files holding its code (review workspace §4.1; [] for stories stored before them). */
   cls: number[];
   sub: [string, string] | null; subs: [string, string][]; collapsed: boolean;
+  /** Two-tier stories (absent on stories stored before them): build targets, pieces and why each is here, and — when the
+   * strong model formed it — what it is for, what to check, open questions and related stories' ids. */
+  targets?: string[]; pieces?: string[]; placements?: Placement[]; purpose?: string; check?: string[]; questions?: string[];
+  related?: string[]; source?: "tier1" | "rules";
 }
 export interface StoryRef { node: string; label: string; story: string | null }
 export interface StoryFunction { node: string; label: string; note: string; on_flow: boolean; also: string[]; calls: StoryRef[] }
@@ -74,6 +82,7 @@ export interface StorySite {
 }
 export interface StoryDetail {
   story: Story; board: Board; graph: Board | null; functions: StoryFunction[]; sites: StorySite[]; also_in: StoryRef[];
+  pieces?: StoryPiece[];
 }
 export interface StorySet {
   summary: string; stories: Story[];

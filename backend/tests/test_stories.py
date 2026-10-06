@@ -563,3 +563,5 @@ def test_a_plan_from_tier_1_gives_titles_purposes_checks_related_stories_and_an_
     assert s2.title == "Other changes in `dsp`" and s2.purpose == "DSP side." and s2.targets == ["dsp"]   # its title failed
     assert (s3.kind, s3.title) == ("unsorted", "Unsorted: needs a person to place these")
     assert det[s3.id].graph is not None
+    assert [(p.id, p.files, p.names) for p in det[s1.id].pieces] == [
+        (pid["modem_tx"], ["//d/w/modem/tx.c"], ["modem_tx"]), (pid["modem_rx"], ["//d/w/modem/rx.c"], ["modem_rx"])]

@@ -4,7 +4,7 @@ import type { Story } from "../board/types";
 import { keys, load, loadWidth, save } from "../board/prefs";
 import Resizer from "../board/Resizer";
 import { plainTitle } from "../lib/markdown";
-import { sections } from "../stories/stories";
+import { reviewTargets, sections } from "../stories/stories";
 import { type Place, samePlace } from "./address";
 import { useWs } from "./context";
 import { short } from "./crumbs";
@@ -59,13 +59,15 @@ export default function Rail({ show, onPick, hidden = false }: { show: string | 
     </section>
   );
   const ss = d.stories, lit = ss ? litStories(ss, cl) : null;
+  const manyTargets = !!ss && reviewTargets(ss).length > 1;            // target chips only when the review spans targets
   const story = (st: Story) => row({ kind: "story", sid: st.id, view: "steps" }, `Go to story ${st.id}: ${short(st.title)}`, <>
     <span className="ws-row-top">
       {st.risk && <span className={`bd-pill ${st.risk}`}>{st.risk}</span>}
       <span className="ws-row-title"><Ticks text={st.title} /></span>
       <span className="ws-handle">{st.id}</span>
     </span>
-    {st.cls.length > 0 && <span className="ws-chips">{st.cls.map((c) => <span key={c} className="ws-chip">CL {c}</span>)}</span>}
+    {(st.cls.length > 0 || manyTargets) && <span className="ws-chips">{st.cls.map((c) => <span key={c} className="ws-chip">CL {c}</span>)}
+      {manyTargets && (st.targets ?? []).map((t) => <span key={t} className="ws-chip target">⌖ {t}</span>)}</span>}
   </>, `story${lit && !lit.has(st.id) ? " dim" : ""}`, st.id);
   const group = (title: string, list: Story[]) => list.length > 0 && (
     <div className="ws-group"><h3>{title}</h3><ul>{list.map((st) => <li key={st.id}>{story(st)}</li>)}</ul></div>
@@ -111,6 +113,7 @@ export default function Rail({ show, onPick, hidden = false }: { show: string | 
         {group("Other changes", of.other)}
         {group("Repeated edits", of.mechanical)}
         {group("Tests", of.tests)}
+        {group("Needs a person to place these", of.unsorted)}
         {!ss.stories.length && <p className="muted small">No changed functions.</p>}
       </>)}
       {d.ready && section("findings", `Findings (${d.findings.length})`, (

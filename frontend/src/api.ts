@@ -18,8 +18,10 @@ export interface Finding {
   explanation: string | null; verify_steps: string[]; hypotheses: Cited[]; state: "open" | "ack" | "dismissed";
   /** Depot paths behind the finding (null: unknown). */
   files: string[] | null;
-  /** A new field write: neutral until the AI judges it; `verdict` is that judgement (null: not assessed). */
-  side_effect?: boolean; verdict?: "hazard" | "no_hazard" | null; verdict_reason?: string | null;
+  /** A new field write: neutral until the AI judges it; `verdict` is that judgement (null: not assessed). The strong
+   * model's story review (`verdict_source` "tier1") judges any finding, citing node ids and file:line it was shown. */
+  side_effect?: boolean; verdict?: "hazard" | "needs_review" | "no_hazard" | null; verdict_reason?: string | null;
+  verdict_cites?: string[]; verdict_source?: "tier1" | "tier2" | null;
 }
 /** A node's name for the workspace (review workspace §4.2): the reader sees names, never node ids. */
 export interface NodeName { label: string; kind: string; path: string | null; line: number | null; story: string | null }
@@ -45,6 +47,8 @@ export interface AiView {
   used: number; budget: number; by_person: Record<string, number>; by_purpose: Record<string, number>;
   llm: boolean; me_today: number; me_limit: number; per_mention: number; is_owner: boolean; jobs: AiJob[];
   file_summaries: Record<string, FileSummary>;
+  /** The strong model's calls on this review (stories and risk review) and its name (null: not configured). */
+  tier1?: { used: number; budget: number }; strong?: string | null;
 }
 export interface HealthCheck { name: string; ok: boolean; hard: boolean; detail: string }
 export interface Health { checks: HealthCheck[]; ready: boolean; index_generation: number; libclang: string | null; strip_flags: string[]; index_building: boolean;
@@ -82,7 +86,7 @@ export const api = {
   reviews: () => call<ReviewRow[]>("GET", "/api/reviews"),
   createReview: (cls: number[], title?: string) => call<ReviewRow>("POST", "/api/reviews", { cls, title }),
   review: (id: number) => call<ReviewDetail>("GET", `/api/reviews/${id}`),
-  rerun: (id: number) => call("POST", `/api/reviews/${id}/rerun`),
+  rerun: (id: number, fresh = false) => call("POST", `/api/reviews/${id}/rerun${fresh ? "?fresh=true" : ""}`),
   board: (id: number, cluster?: string | null) =>
     call<Board>("GET", `/api/reviews/${id}/board${cluster ? `?${new URLSearchParams({ cluster })}` : ""}`),
   overview: (id: number) => call<Overview>("GET", `/api/reviews/${id}/overview`),

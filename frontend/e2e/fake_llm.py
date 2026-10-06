@@ -7,7 +7,61 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 CITES = [f"N{i}" for i in range(1, 80)] + [f"F{i}" for i in range(1, 20)]
 
 
+PURPOSE = {   # the fixture's targets (serve-strong.sh): what each one's story is for
+    "fw": ("UART driver counts transmit errors", "uart_send now counts transmit errors, so its callers see a new error value.",
+           "Check that logger_flush handles the new -2.", "Does any caller retry a send after -2?"),
+    "hal": ("HAL writes take an unsigned register", "hal_write now takes an unsigned register, so callers pass the new type.",
+            "Check every caller of hal_write passes an unsigned register.", "Do any callers still pass a negative register?"),
+}
+
+
+def tier1_stories(user: str) -> dict:
+    """One story per target, first piece first; a shared piece is put in the last target's story without the shared_code
+    reason, so its check fails and it lands in Unsorted (the e2e tests look for it)."""
+    cards = re.findall(r"^(P\d+)  [^·\n]+ · targets? ([^·\n]+?)( \(shared\))? · CL (\d+)", user, re.M)
+    by_target: dict[str, list[str]] = {}
+    shared = []
+    for pid, targets, is_shared, _ in cards:
+        if is_shared:
+            shared.append(pid)
+        else:
+            by_target.setdefault(targets.split(", ")[0], []).append(pid)
+    keys = {t: f"s{i}" for i, t in enumerate(sorted(by_target))}
+    stories = []
+    for t in sorted(by_target):
+        title, purpose, check, question = PURPOSE.get(t, (f"Changes built for {t}", f"This changes the code built for {t}.",
+                                                         "Check the changed functions' callers.", "Is any caller left behind?"))
+        ids = by_target[t] + (shared if t == sorted(by_target)[-1] else [])
+        stories.append({"key": keys[t], "title": title, "purpose": purpose, "check": [check], "questions": [question],
+                        "related": [k for u, k in keys.items() if u != t],
+                        "pieces": [{"id": p, "reason": "starts_purpose" if i == 0 else "same_feature",
+                                    "evidence": [] if i == 0 else [ids[0]], "quote": []} for i, p in enumerate(ids)]})
+    return {"action": "answer", "stories": stories, "unsorted": []}
+
+
+def tier1_review(user: str) -> dict:
+    """The new -2 is a hazard, the Uart::errors write needs a person to confirm, the rest is fine; each cites a node id or
+    file:line from its own facts."""
+    verdicts = []
+    for block in re.split(r"\n\n(?=F\d+ \[)", user.split("FINDINGS:\n", 1)[1]):
+        head = re.match(r"(F\d+) \[\w+\] ([\w_]+): (.*)", block)
+        cite = re.search(r"\b(N\d+)\b|(\S+\.[ch]:\d+)", block.split("FACTS:", 1)[-1])
+        if not head or not cite:
+            continue
+        title = head.group(3)
+        verdict, reason = (("hazard", "logger_flush ignores the new -2, so a failed send goes unnoticed.")
+                           if "new return value" in title else
+                           ("needs_review", "uart_errors now reports what uart_send counts, so its readers see new values.")
+                           if "Uart::errors" in title else ("no_hazard", "Every user of this change was updated with it."))
+        verdicts.append({"finding": head.group(1), "verdict": verdict, "reason": reason, "cites": [cite.group(0)]})
+    return {"action": "answer", "verdicts": verdicts}
+
+
 def answer(system: str, user: str) -> dict:
+    if "forming the stories of a change" in system:
+        return {"related": [], "merge": []} if "STORIES (key | title" in user else tier1_stories(user)
+    if "judging the risks of one story" in system:
+        return tier1_review(user)
     if "Give each level" in user:
         return {"layers": []}
     if "Judge each side effect" in user:      # Uart::errors is the hazard; every other side effect is fine

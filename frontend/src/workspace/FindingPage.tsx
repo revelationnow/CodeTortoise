@@ -5,6 +5,7 @@ import { SeverityBadge } from "../components/Badges";
 import Comments from "../components/Comments";
 import Explain from "../components/Explain";
 import { useAi } from "../lib/ai";
+import { citeTarget } from "../stories/stories";
 import type { Address } from "./address";
 import { useWs } from "./context";
 import { short } from "./crumbs";
@@ -12,6 +13,7 @@ import { depotFor } from "./evidence";
 import NameText from "./NameText";
 
 const STATE = { open: "open", ack: "acknowledged", dismissed: "dismissed" } as const;
+const VERDICT = { hazard: "hazard", needs_review: "needs review", no_hazard: "no hazard" } as const;
 
 /** A finding (spec 2026-10-04-review-workspace §3.3): where it lives, the AI analysis first, then the evidence, each
  * line opening the diff at that line. */
@@ -56,7 +58,18 @@ export default function FindingPage({ fid }: { fid: string }) {
               mark {STATE[s]}</button>
           ))}
         </p>
-        {f.side_effect && (
+        {f.verdict_source === "tier1" && f.verdict ? (
+          <p className={`ws-verdict ${f.verdict}`}>
+            <span className="ai-label">AI</span>AI review: {VERDICT[f.verdict]} — <NameText text={f.verdict_reason ?? ""} />
+            {(f.verdict_cites ?? []).length > 0 && <span className="ws-cites"> · cites {(f.verdict_cites ?? []).map((c, k) => {
+              const t = citeTarget(c), depot = t && "file" in t ? depotFor(t.file, depots) : null;
+              const link = t && "node" in t && d.names[c] ? <Link to={ws.link(ws.opened({ node: c }))} title={`Open ${d.names[c].label}'s code`}>{d.names[c].label}</Link>
+                : t && "file" in t && depot ? <Link className="mono" to={ws.link(ws.opened({ file: depot, line: t.line }))} title={`Open ${c}`}>{c}</Link>
+                : <span className="mono">{c}</span>;
+              return <span key={c}>{k > 0 && ", "}{link}</span>;
+            })}</span>}
+          </p>
+        ) : f.side_effect && (
           <p className={`ws-verdict${f.verdict === "hazard" ? " hazard" : ""}`}>
             {f.verdict === "hazard" ? <><span className="ai-label">AI</span>AI: hazard — <NameText text={f.verdict_reason ?? ""} /></>
               : f.verdict === "no_hazard" ? <><span className="ai-label">AI</span>AI: no clear hazard — <NameText text={f.verdict_reason ?? ""} /></>
