@@ -38,6 +38,8 @@ CREATE INDEX IF NOT EXISTS ix_llm_calls_review ON llm_calls(review_id);
 CREATE INDEX IF NOT EXISTS ix_llm_calls_user ON llm_calls(user, started_at);
 CREATE TABLE IF NOT EXISTS llm_budget(review_id INTEGER, budget INTEGER, set_by TEXT, set_at TEXT);
 CREATE TABLE IF NOT EXISTS llm_rounds(review_id INTEGER, rounds INTEGER, set_by TEXT, set_at TEXT);
+CREATE TABLE IF NOT EXISTS briefs(review_id INTEGER PRIMARY KEY, cache_key TEXT, json TEXT, created_at TEXT);
+CREATE INDEX IF NOT EXISTS ix_briefs_key ON briefs(cache_key);
 """
 
 ANCHOR_KINDS = {"line", "function", "finding", "chapter", "review", "story", "flow", "file"}
@@ -260,6 +262,23 @@ class Store:
 
     def swarm_posts(self, rid: int, cl: int) -> list[dict]:
         return self._all("SELECT kind, swarm_id, posted_at FROM swarm_posts WHERE review_id=? AND cl=?", (rid, cl))
+
+    # ---- briefs (spec 2026-10-05-two-tier-stories §7.2) ------------------------
+    def put_brief(self, rid: int, key: str, brief: BaseModel) -> None:
+        self._exec("INSERT INTO briefs VALUES(?,?,?,?) ON CONFLICT(review_id) DO UPDATE SET cache_key=excluded.cache_key, "
+                   "json=excluded.json, created_at=excluded.created_at", (rid, key, brief.model_dump_json(), _now()))
+
+    def get_brief(self, rid: int) -> dict | None:
+        rows = self._all("SELECT json FROM briefs WHERE review_id=?", (rid,))
+        return json.loads(rows[0]["json"]) if rows else None
+
+    def find_brief(self, key: str) -> dict | None:
+        """The newest complete brief stored under a cache key, from any review."""
+        for r in self._all("SELECT json FROM briefs WHERE cache_key=? ORDER BY created_at DESC", (key,)):
+            got = json.loads(r["json"])
+            if got.get("complete"):
+                return got
+        return None
 
     def kv_get(self, key: str) -> Any:
         rows = self._all("SELECT json FROM kv WHERE key=?", (key,))

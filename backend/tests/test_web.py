@@ -10,8 +10,8 @@ from codetortoise.web.app import create_app, make_authenticator
 class InlineRunner(JobRunner):
     """Runs jobs synchronously so tests are deterministic."""
 
-    def submit_review(self, rid):
-        run_review(rid, self.svc)
+    def submit_review(self, rid, fresh=False):
+        run_review(rid, self.svc, fresh=fresh)
 
     def submit_index(self):
         self.svc.build_index()

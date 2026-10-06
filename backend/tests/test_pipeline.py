@@ -20,7 +20,7 @@ def test_full_review_without_llm_or_swarm(fx, tmp_path):
                                 "stories": "ok", "verdicts": "ok", "board": "ok", "llm": "degraded", "finalize": "ok"}
     msgs = {s["name"]: s["message"] for s in svc.store.list_stages(rid)}
     assert msgs["pieces"].endswith("target(s): compile_commands")
-    assert msgs["stories"].endswith("by the rules")
+    assert msgs["stories"].endswith("by the rules (no strong model configured)")
     ss = svc.store.get_blob(rid, "stories")
     assert all(s["targets"] == ["compile_commands"] and s["pieces"] for s in ss["stories"])
     review = svc.store.get_review(rid)
@@ -363,3 +363,58 @@ def test_health_checks_the_strong_model_and_says_where_code_is_sent(fx, tmp_path
         assert check.detail.endswith("; code from reviewed changes is sent to api.example.com") == remote
     svc = make_services(fx, tmp_path)
     assert {c.name: c for c in run_health(svc).checks}["strong model endpoint"].detail == "not configured (stories by rules)"
+
+
+def _strong(svc, answer, model="big"):
+    from scripted_llm import ScriptedLlm
+
+    from codetortoise.config import StrongLlmConfig
+    svc.cfg.llm.strong = StrongLlmConfig(base_url="http://127.0.0.1:9/v1", model=model)
+    svc.strong = ScriptedLlm(answer, model)
+    return svc.strong
+
+
+def _one_story_per_cl(system, user):
+    """Every piece of a CL in one story (the pieces' cards name their CL)."""
+    import re
+    if "STORIES (key | title" in user:
+        return {"related": [], "merge": []}
+    by_cl: dict[str, list[str]] = {}
+    for pid, cl in re.findall(r"^(P\d+)  .*? · CL (\d+)", user, re.M):
+        by_cl.setdefault(cl, []).append(pid)
+    return {"action": "answer", "stories": [
+        {"key": f"cl{cl}", "title": f"Changes of CL {cl}", "purpose": "This changes the UART driver.",
+         "pieces": [{"id": p, "reason": "starts_purpose" if i == 0 else "same_feature"} for i, p in enumerate(ids)]}
+        for cl, ids in sorted(by_cl.items())]}
+
+
+def test_the_strong_model_forms_the_stories_and_a_rerun_of_the_same_change_reuses_them(fx, tmp_path):
+    svc = make_services(fx, tmp_path)
+    llm = _strong(svc, _one_story_per_cl)
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    msg = next(s for s in svc.store.list_stages(rid) if s["name"] == "stories")
+    assert msg["status"] == "ok" and msg["message"].startswith("2 stories formed by big, ")
+    assert msg["message"].endswith("piece(s) placed, 0 unsorted")
+    ss = svc.store.get_blob(rid, "stories")["stories"]
+    assert {s["title"] for s in ss if s["source"] == "tier1"} == {"Changes of CL 101", "Changes of CL 102"}
+    brief = svc.store.get_brief(rid)
+    assert brief["model"] == "big" and brief["complete"] and brief["overview"].startswith("CHANGE: 2 CLs")
+    calls = len(llm.prompts)
+    run_review(rid, svc)                                            # unchanged: the brief is reused
+    assert len(llm.prompts) == calls
+    assert "reused" in next(s["message"] for s in svc.store.list_stages(rid) if s["name"] == "stories")
+    run_review(rid, svc, fresh=True)                                # the owner asked for fresh stories
+    assert len(llm.prompts) == calls * 2
+
+
+def test_a_strong_model_that_fails_leaves_the_rules_stories_and_says_so(fx, tmp_path):
+    svc = make_services(fx, tmp_path)
+    _strong(svc, lambda s, u: RuntimeError("the endpoint is down"))
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    st = next(s for s in svc.store.list_stages(rid) if s["name"] == "stories")
+    assert st["status"] == "degraded"
+    assert "chunk 1: RuntimeError: the endpoint is down; the rules grouped its pieces" in st["message"]
+    assert {s["source"] for s in svc.store.get_blob(rid, "stories")["stories"]} == {"rules"}
+    assert svc.store.get_brief(rid)["complete"] is False
