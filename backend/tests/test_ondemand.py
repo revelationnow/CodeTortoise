@@ -301,3 +301,27 @@ def test_asking_for_an_item_already_being_explained_joins_that_job(ai):
     before = svc.ledger.used(rid)
     r = bob.post(f"/api/reviews/{rid}/explain", json={"kind": "flow", "target": flow})
     assert r.status_code == 202 and r.json()["id"] == 7 and svc.ledger.used(rid) == before   # no second call
+
+
+def test_tier_2_starts_from_the_brief_and_leaves_tier_1_verdicts_and_stories_alone(ai):
+    svc, app, owner, rid, seen = ai
+    assert owner.post(f"/api/reviews/{rid}/explain", json={"kind": "finding", "target": "F4"}).status_code == 202
+    prompt = next(u for u in reversed(seen) if "Explain the risk" in u)
+    assert prompt.startswith("BRIEF (") and "PREPARED FACTS:\ncallers of uart_send" in prompt
+    findings = svc.store.list_findings(rid)                            # as if the strong model had judged the side effect
+    errors = next(f for f in findings if f.title.startswith("uart_send now writes Uart::errors"))
+    errors.verdict, errors.verdict_reason, errors.verdict_source, errors.severity = (
+        "no_hazard", "Only the stats page reads it.", "tier1", "info")
+    svc.store.put_findings(rid, findings)
+    assert owner.post(f"/api/reviews/{rid}/explain", json={"kind": "finding", "target": errors.id}).status_code == 202
+    now = next(f for f in svc.store.list_findings(rid) if f.id == errors.id)
+    assert (now.severity, now.verdict, now.verdict_reason) == ("info", "no_hazard", "Only the stats page reads it.")
+    assert now.explanation.startswith("uart_send can now return -2")  # the explanation is still written
+    assert "VERDICT (strong model): no_hazard — Only the stats page reads it." in seen[-1]
+    from codetortoise import boardstore
+    sid = boardstore.stories(svc.store, rid).stories[0].id
+    d = boardstore.story(svc.store, rid, sid)
+    d.story.source = "tier1"
+    boardstore.put_story(svc.store, rid, d)
+    r = owner.post(f"/api/reviews/{rid}/explain", json={"kind": "story", "target": sid})
+    assert r.status_code == 404 and "written by the strong model" in r.json()["detail"]

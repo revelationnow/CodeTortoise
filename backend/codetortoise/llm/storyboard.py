@@ -257,6 +257,8 @@ def _titled(text: str) -> bool:
 def _judge(f: Finding, hazard: bool | None, reason: str) -> bool:
     """Record the AI's verdict on side effect `f` (severity follows it); False if there is no usable verdict."""
     reason = reason.strip()
+    if f.verdict_source == "tier1":            # the strong model's verdict stands; tier 2 disagrees in its answer only
+        return False
     if not f.side_effect or hazard is None or not reason or not _styled(reason, "explanation"):
         return False
     f.verdict, f.verdict_reason, f.severity = ("hazard" if hazard else "no_hazard"), reason, ("high" if hazard else "info")
