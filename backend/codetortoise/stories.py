@@ -34,7 +34,8 @@ from codetortoise.board import (
 from codetortoise.clusters import _shared, altered_access, cluster_change
 from codetortoise.detectors.base import SEVERITY_RANK
 from codetortoise.impact import ImpactModel
-from codetortoise.substitutions import Site, Sub, changed_pairs
+from codetortoise.repeated import _note, _plural, _q, find_repeated
+from codetortoise.substitutions import Site, Sub
 
 Kind = Literal["behaviour", "other", "mechanical", "tests"]
 RISK = {3: "high", 2: "medium", 1: "low"}
@@ -106,14 +107,6 @@ class StorySet(BaseModel):
     finding_story: dict[str, str] = Field(default_factory=dict)
 
 
-def _q(s: str) -> str:
-    return f"`{s}`"
-
-
-def _plural(n: int, one: str, many: str | None = None) -> str:
-    return f"{n} {one if n == 1 else (many or one + 's')}"
-
-
 class _Draft:
     """A story while it is being built."""
 
@@ -153,51 +146,8 @@ def build_stories(c: BoardContext, home: dict[str, str] | None = None,
     is_test = x.is_test_path
 
     # 1. substitutions: in each changed function, and outside functions
-    fn_sites: dict[str, list[Site]] = {}
-    fn_explained: dict[str, bool] = {}
-    for nid in changed:
-        if im.nodes[nid].kind != "function":
-            continue
-        spans = _spans(x, nid)
-        if not spans:
-            continue
-        all_sites, unexplained = [], 0
-        for fc, (b0, b1), (a0, a1) in spans:
-            sites, u = changed_pairs(fc.before.splitlines()[b0 - 1:b1], fc.after.splitlines()[a0 - 1:a1])
-            all_sites += [Site(s.sub, s.before_line + b0 - 1, s.after_line + a0 - 1, s.before, s.after) for s in sites]
-            unexplained += u
-        fn_sites[nid] = all_sites
-        fn_explained[nid] = bool(all_sites) and not unexplained
-    outside: list[tuple[Site, str]] = []
-    spans_a: dict[str, list[tuple[int, int]]] = defaultdict(list)     # file -> its functions' lines, after and before
-    spans_b: dict[str, list[tuple[int, int]]] = defaultdict(list)
-    for facts, spans in ((c.after, spans_a), (c.before, spans_b)):
-        for fx in facts:
-            for f in fx.functions:
-                spans[f.file].append((f.start_line, f.end_line))
-    for fc in c.cs.files:
-        if fc.action != "edit":
-            continue
-        inside_a, inside_b = spans_a[fc.local], spans_b[fc.local]
-        sites, _ = changed_pairs(fc.before.splitlines(), fc.after.splitlines())
-        for s in sites:
-            if not any(lo <= s.after_line <= hi for lo, hi in inside_a) and not any(lo <= s.before_line <= hi
-                                                                                   for lo, hi in inside_b):
-                outside.append((s, fc.local))
-
-    fns_of: dict[Sub, set[str]] = defaultdict(set)
-    for nid, sites in fn_sites.items():
-        if fn_explained[nid]:
-            for s in sites:
-                fns_of[s.sub].add(nid)
-    count: Counter[Sub] = Counter(s.sub for sites in fn_sites.values() for s in sites)
-    count.update(s.sub for s, _ in outside)
-    mech_subs = {s for s, fns in fns_of.items() if len(fns) >= 2}
-    mech_of: dict[str, Sub] = {}                              # mechanical function -> its story's substitution
-    for nid, sites in fn_sites.items():
-        subs = {s.sub for s in sites}
-        if fn_explained[nid] and subs <= mech_subs:
-            mech_of[nid] = max(subs, key=lambda s: (count[s], s.old, s.new))
+    rep = find_repeated(c, x)
+    fn_sites, outside, count, mech_subs, mech_of = rep.fn_sites, rep.outside, rep.count, rep.mech_subs, rep.mech_of
 
     mech = {s: _Draft("mechanical", sub=s) for s in sorted(mech_subs, key=lambda s: (-count[s], s.old, s.new))}
     for nid, s in mech_of.items():
@@ -378,24 +328,6 @@ def build_stories(c: BoardContext, home: dict[str, str] | None = None,
                     finding_story=finding_story), details
 
 
-def _spans(x: _Ctx, nid: str) -> list[tuple]:
-    """A changed function's (file, before lines, after lines), from the diff map: a function defined twice in one file
-    (under #ifdef) is the definition that changed, not the first the facts list."""
-    n = x.im.nodes[nid]
-    fb, fa = x.fb.get(n.key), x.fa.get(n.key)
-    if fb is None or fa is None:
-        return []
-    texts = x.texts
-    out = [(texts[d.file], d.before_lines, d.after_lines) for d in x.c.dm.functions
-           if d.qualname == fa.qualname and d.file in (fa.file, fb.file) and d.before_lines and d.after_lines
-           and d.file in texts]
-    own = [o for o in out if o[2][0] <= fa.start_line <= o[2][1]]     # overloads share a name: each reads its own span
-    out = own or out
-    if not out and fa.file in texts:
-        out = [(texts[fa.file], (fb.start_line, fb.end_line), (fa.start_line, fa.end_line))]
-    return out
-
-
 def _test_file(x: _Ctx, local: str) -> bool:
     """Test code by its workspace-relative path, as functions are (`is_test_path`)."""
     root = x.c.root.rstrip("/") + "/"
@@ -525,41 +457,6 @@ def _summary(mechs: list[_Draft], behaviour: list[_Draft], others: list[_Draft],
              _plural(sum(len(d.members) for d in others), "other changed function") if others else "",
              _plural(n_tests, "test change") if n_tests else ""]
     return (", ".join(p for p in parts if p) or "No changed functions") + "."
-
-
-def _note(x: _Ctx, nid: str, mech_of: dict[str, Sub], fn_sites: dict[str, list[Site]], mech_subs: set) -> str:
-    """What changed in a node, in a few words."""
-    n = x.im.nodes[nid]
-    if nid not in x.changed:
-        return ""
-    if nid in mech_of:
-        s = mech_of[nid]
-        return f"{_q(s.new)} instead of {_q(s.old)}"
-    fb, fa = x.fb.get(n.key), x.fa.get(n.key)
-    parts = []
-    if fb is None and fa is not None:
-        parts.append("new function")
-    elif fa is None and fb is not None:
-        parts.append("removed")
-    else:
-        ch = next((d for d in x.c.dm.functions if fa and d.file == fa.file and d.qualname == fa.qualname), None)
-        if ch is not None and ch.kind == "signature_changed":
-            parts.append("signature changed")
-    for status, verb in (("added", "now writes"), ("removed", "no longer writes")):
-        fields = [x.label(e.dst).split("::")[-1] for e in x.writes_from.get(nid, [])
-                  if e.status == status and e.dst in x.im.nodes]
-        if fields:
-            parts.append(f"{verb} {', '.join(dict.fromkeys(fields[:3]))}" + (f" +{len(fields) - 3}" if len(fields) > 3 else ""))
-    also = sorted({s.sub for s in fn_sites.get(nid, []) if s.sub in mech_subs}, key=lambda s: s.old)
-    if also:
-        parts.append("also " + ", ".join(f"{_q(s.old)} → {_q(s.new)}" for s in also[:2]))
-    if not parts:
-        add = rem = 0
-        for fc, _, (a0, a1) in _spans(x, nid):
-            a, r = _count(fc.before, fc.after, a0, a1)
-            add, rem = add + a, rem + r
-        parts.append(f"+{add} −{rem} lines" if add or rem else "layout only")
-    return "; ".join(parts)
 
 
 def _landing_note(impacts: list[Impact], nid: str) -> str:
