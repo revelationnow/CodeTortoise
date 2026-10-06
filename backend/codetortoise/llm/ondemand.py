@@ -22,6 +22,7 @@ from codetortoise.llm.brief_context import brief_context
 from codetortoise.llm.storyboard import (
     AiContext,
     Job,
+    _briefed,
     _facts_for_nodes,
     budget,
     finding_job,
@@ -104,13 +105,6 @@ def file_job(ctx: AiContext, board: Board, cs: ChangeSet, path: str, summaries: 
               "(check: a few steps). Cite the node ids you rely on, or the file's depot path.\n"
               f"Summary: {MODES['explanation']} Check: {MODES['how-to']}\n\n" + budget(parts, ctx.per_call))
     return Job("file", path, prompt, _FileOut, apply)
-
-
-def _briefed(job: Job, brief: str) -> Job:
-    """The job's prompt, starting with the brief's part for its target (spec 2026-10-05-two-tier-stories §8)."""
-    if brief:
-        job.prompt = brief + "\n\n" + job.prompt
-    return job
 
 
 def explain(svc: Services, rid: int, user: str, kind: str, target: str) -> None:

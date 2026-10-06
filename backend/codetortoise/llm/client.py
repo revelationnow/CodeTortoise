@@ -21,6 +21,10 @@ class LlmError(RuntimeError):
     pass
 
 
+class LlmUnreachable(LlmError):
+    """Every attempt failed to reach the endpoint or got a server error: later calls this run will fare no better."""
+
+
 def _extract_json(text: str) -> str:
     text = _FENCE.sub("", text.strip())
     start, end = text.find("{"), text.rfind("}")
@@ -85,7 +89,7 @@ class LlmClient:
                 last = LlmError(f"LLM HTTP {r.status_code}")
             if attempt < self.retries:
                 self._sleep(2 ** attempt)
-        raise LlmError(f"LLM request failed after {self.retries + 1} attempts: {last}")
+        raise LlmUnreachable(f"LLM request failed after {self.retries + 1} attempts: {last}")
 
     def complete_json(self, system: str, user: str, schema: type[T]) -> T:
         system = system + "\n\nReply with a single JSON object matching this JSON schema:\n" + \

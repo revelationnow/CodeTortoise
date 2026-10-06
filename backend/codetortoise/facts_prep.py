@@ -22,8 +22,10 @@ _ASSIGN = re.compile(r"(^|[^=!<>])=([^=]|$)")
 
 
 def finding_key(f: Finding) -> str:
-    """A finding's identity across renumbering and re-runs: its kind and title."""
-    return f"{f.kind}|{f.title}"
+    """A finding's identity across renumbering and re-runs: its kind, title and the first file its evidence names
+    (two drivers' static `probe` functions share a title)."""
+    file = next((e.file for e in f.evidence if e.file), None)
+    return f"{f.kind}|{f.title}" + (f"|{file}" if file else "")
 
 
 def _rel(x: _Ctx, path: str | None) -> str:
@@ -144,9 +146,14 @@ def header_facts(x: _Ctx, f: Finding, includers: Callable[[str], set[str]] | Non
 
 def prepare_facts(x: _Ctx, findings: list[Finding], targets: dict[str, list[str]],
                   includers: Callable[[str], set[str]] | None = None,
-                  read_text: Callable[[str], str | None] | None = None) -> dict[str, str]:
+                  read_text: Callable[[str], str | None] | None = None,
+                  resolve: Callable[[list[str]], dict[str, list[str]]] | None = None) -> dict[str, str]:
     """finding_key -> the facts the strong model checks for it. `read_text` reads files outside the change (the lines of
-    callers and readers there, and the header search)."""
+    callers and readers there, and the header search); `resolve` gives the targets of call-site files `targets` lacks
+    (files without a piece), so an unchanged caller is not taken for one outside every compile database."""
+    if resolve is not None:
+        missing = sorted({c.file for c in x.calls_after if c.file not in targets})
+        targets = {**targets, **resolve(missing)} if missing else targets
     read = {p: read_text(p) or "" for p in sorted({c.file for c in x.calls_after} | {a.file for a in x.fields_after})
             if p not in x.texts} if read_text is not None else {}
     out = {}

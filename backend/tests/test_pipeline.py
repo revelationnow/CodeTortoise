@@ -415,6 +415,25 @@ def test_the_strong_model_forms_the_stories_and_a_rerun_of_the_same_change_reuse
     assert len(llm.prompts) == calls * 2
 
 
+def test_the_upfront_ai_pass_starts_each_finding_s_prompt_from_the_brief(fx, tmp_path):
+    from scripted_llm import ScriptedLlm
+
+    from codetortoise.llm.brief_context import HEAD
+    weak = ScriptedLlm(lambda s, u: {})
+    svc = make_services(fx, tmp_path, llm=weak)
+
+    def hazard(system, user):
+        out = _one_story_per_cl(system, user)
+        for v in out.get("verdicts", []):
+            v["verdict"] = "hazard"
+        return out
+    _strong(svc, hazard)
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    explained = [p for p in weak.prompts if "Explain the risk of this finding" in p]
+    assert explained and all(p.startswith(HEAD) and "VERDICT (strong model): hazard" in p for p in explained)
+
+
 def test_a_strong_model_that_fails_leaves_the_rules_stories_and_says_so(fx, tmp_path):
     svc = make_services(fx, tmp_path)
     _strong(svc, lambda s, u: RuntimeError("the endpoint is down"))

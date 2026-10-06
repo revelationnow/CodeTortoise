@@ -8,6 +8,7 @@ from codetortoise.config import LlmBudget, StrongLlmConfig
 from codetortoise.detectors.base import Finding
 from codetortoise.facts_prep import finding_key, prepare_facts
 from codetortoise.grouping import Placement, PlannedStory, StoryPlan
+from codetortoise.llm.client import LlmUnreachable
 from codetortoise.llm.ledger import Ledger
 from codetortoise.llm.review import apply_verdicts, review_stories
 from codetortoise.pieces import build_pieces
@@ -152,6 +153,21 @@ def test_a_strong_model_that_fails_leaves_every_finding_as_the_detectors_left_it
     assert st["review"]["message"].startswith("0 finding(s) judged by big")
     assert all(f.verdict_source is None and f.verdict is None for f in svc.store.list_findings(rid))
     assert svc.store.get_review(rid)["status"] == "degraded"       # the review still finishes, on the rules' stories
+
+
+def test_call_sites_in_files_without_a_piece_are_marked_by_their_own_targets():
+    a, ps, plan, findings, facts = _change()
+    assert f"{W}/drv/old.c" not in ps.targets                     # old_user is unchanged: no piece holds its file
+    facts = prepare_facts(a.x, findings, ps.targets, resolve=lambda files: {f: ["fw"] for f in files})
+    old = next(r for r in facts[finding_key(findings[0])].splitlines() if "old_user" in r)
+    assert "not updated" in old and "not in any compile database" not in old
+
+
+def test_an_unreachable_strong_model_is_asked_once_and_the_rest_stay_as_the_detectors_left_them():
+    out, findings, llm = _review(lambda s, u: LlmUnreachable("LLM request failed after 3 attempts: ReadTimeout"))
+    assert len(llm.prompts) == 1 and out.verdicts == {} and out.reviewed == []
+    assert out.notes == ["story a: LlmUnreachable: LLM request failed after 3 attempts: ReadTimeout",
+                         "story b: the strong model is unreachable; its findings stay as the detectors left them"]
 
 
 @pytest.fixture(autouse=True)

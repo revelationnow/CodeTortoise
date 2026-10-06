@@ -85,3 +85,12 @@ def test_lines_in_files_outside_the_change_are_read_from_the_workspace():
     rows = prepare_facts(x, [f], {}, read_text=texts.get)[finding_key(f)].splitlines()
     assert rows[1] == "  y.c:3 in user (N2): result used: `if (core() < 0) return;`"
     assert prepare_facts(x, [f], {})[finding_key(f)].splitlines()[1] == "  y.c:3 in user (N2): result used: ``"
+
+
+def test_findings_of_same_named_functions_in_two_files_keep_their_own_key():
+    def sig(path):
+        return Finding(kind="contract", severity="medium", title="probe: signature changed", summary="s",
+                       evidence=[Evidence(text="probe's parameters changed", file=path, line=3)])
+    assert finding_key(sig(f"{W}/drv/a.c")) != finding_key(sig(f"{W}/drv/b.c"))
+    assert finding_key(sig(f"{W}/drv/a.c")) == finding_key(sig(f"{W}/drv/a.c"))
+    assert finding_key(Finding(kind="contract", severity="medium", title="t", summary="s")) == "contract|t"

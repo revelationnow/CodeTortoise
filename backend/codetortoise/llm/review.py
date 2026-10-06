@@ -19,7 +19,7 @@ from codetortoise.config import StrongLlmConfig
 from codetortoise.detectors.base import Finding, renumber
 from codetortoise.facts_prep import finding_key
 from codetortoise.grouping import PlannedStory, StoryPlan
-from codetortoise.llm.client import LlmClient
+from codetortoise.llm.client import LlmClient, LlmUnreachable
 from codetortoise.llm.ledger import Ledger, Refused
 from codetortoise.llm.stories import Tools, ask, pieces_of
 from codetortoise.llm.storyboard import _styled
@@ -110,7 +110,7 @@ def review_stories(strong: LlmClient, ledger: Ledger | None, rid: int | None, pl
     """Tier 1's verdicts on the findings of every story not in `skip`. The budget running out, or a call failing, leaves
     the remaining findings as the detectors left them; the notes say so."""
     tools, out, taken = Tools(x, ps), Reviewed(), set()
-    refused = False
+    refused = unreachable = False
     for s in plan.stories:
         mine = [f for f in findings if f.id not in taken and set(pieces_of(f, ps)) & set(s.pieces)]
         taken |= {f.id for f in mine}
@@ -119,6 +119,9 @@ def review_stories(strong: LlmClient, ledger: Ledger | None, rid: int | None, pl
             continue
         if refused:
             out.notes.append(f"story {s.key}: AI budget: the tier-1 budget ran out; its findings stay as the detectors left them")
+            continue
+        if unreachable:
+            out.notes.append(f"story {s.key}: the strong model is unreachable; its findings stay as the detectors left them")
             continue
         seen: list[str] = []
         parts = review_parts(s, ps, mine, facts)
@@ -133,6 +136,7 @@ def review_stories(strong: LlmClient, ledger: Ledger | None, rid: int | None, pl
             out.notes.append(f"story {s.key}: AI budget: {e.reason}; its findings stay as the detectors left them")
             continue
         except Exception as e:  # this story's findings stay as the detectors left them; the others go on
+            unreachable = isinstance(e, LlmUnreachable)          # no point waiting on it again this run
             out.notes.append(f"story {s.key}: {type(e).__name__}: {e}"[:300])
             continue
         out.reviewed.append(s.key)

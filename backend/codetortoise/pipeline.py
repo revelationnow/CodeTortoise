@@ -19,6 +19,7 @@ from codetortoise.facts.runner import build_requests, parse_summary, run_extract
 from codetortoise.facts_prep import prepare_facts
 from codetortoise.grouping import StoryPlan, rules_plan
 from codetortoise.impact import ImpactModel, build_impact
+from codetortoise.llm.brief_context import brief_context
 from codetortoise.llm.review import apply_verdicts, review_stories
 from codetortoise.llm.stories import STORY_RULES_VERSION, form_stories
 from codetortoise.llm.storyboard import AiContext, build_storyboard, judge_side_effects
@@ -251,8 +252,12 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
             g = svc.toolchain.group_of(f)
             return g.target if g else None
         ws = cfg.workspace
-        targets = resolve_targets(files, cfg.targets, bctx.root, svc.cdb, str(ws.build_root) if ws.build_root else None,
-                                  triple, svc.index.transitive_includers)
+
+        def resolve(paths: list[str]) -> dict[str, list[str]]:
+            return resolve_targets(paths, cfg.targets, bctx.root, svc.cdb, str(ws.build_root) if ws.build_root else None,
+                                   triple, svc.index.transitive_includers)
+        targets = resolve(files)
+        ctx["resolve_targets"] = resolve        # the review's facts resolve call sites in files without a piece
         ps = build_pieces(bctx, a, targets, svc.index.transitive_includers, rep)
         ctx["pieces"], ctx["repeated"], ctx["analysis"] = ps, rep, a
         store.put_blob(rid, "pieces", ps)
@@ -292,7 +297,8 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
         brings its verdicts. Findings take the verdicts' severities before the board is drawn."""
         brief, findings, ps, strong = ctx["brief"], ctx["findings"], ctx["pieces"], cfg.llm.strong
         x = ctx["analysis"].x
-        brief.facts = prepare_facts(x, findings, ps.targets, svc.index.transitive_includers, _read_text)
+        brief.facts = prepare_facts(x, findings, ps.targets, svc.index.transitive_includers, _read_text,
+                                    ctx.get("resolve_targets"))
         if svc.strong is None or strong is None:
             store.put_brief(rid, brief.key, brief)
             return f"no strong model: {len(findings)} finding(s) left to the detectors and the AI's side-effect pass"
@@ -370,6 +376,13 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
 
     def llm():
         findings = store.list_findings(rid)
+
+        def brief_for(job) -> str:
+            """The brief's part for an up-front job's target (spec 2026-10-05-two-tier-stories §8)."""
+            if job.purpose == "finding":
+                f = next((f for f in findings if f.id == job.target), None)
+                return brief_context(store, rid, finding=f) if f is not None else ""
+            return brief_context(store, rid, **{job.purpose: job.target}) if job.purpose in ("flow", "story") else ""
         snippets = collect_snippets(ctx["impact"], ctx["cs"], ctx["after"])
         bs = ctx.get("boards")
         b = None if bs is None else bs.board or boardstore.merge(list(bs.clusters.values()), bs.overview.about)
@@ -380,7 +393,7 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
                               board=b, concurrency=cfg.llm.concurrency, upfront_flows=cfg.llm.upfront_flows,
                               node_files=ctx.get("node_files"), ledger=svc.ledger, rid=rid, stories=top,
                               upfront_stories=cfg.llm.upfront_stories,
-                              upfront_findings=cfg.llm.upfront_findings)
+                              upfront_findings=cfg.llm.upfront_findings, brief_for=brief_for)
         if bs is not None and bs.stories is not None:          # the list shows the retold titles too
             bs.stories.stories = [bs.story_details[s.id].story for s in bs.stories.stories]
         store.put_findings(rid, findings)

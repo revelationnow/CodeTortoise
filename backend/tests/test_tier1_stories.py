@@ -6,6 +6,7 @@ from test_stories import W, _edit, _in_cls, _world
 from codetortoise.board import analyse
 from codetortoise.brief import cache_key
 from codetortoise.config import LlmBudget, StrongLlmConfig
+from codetortoise.llm.client import LlmUnreachable
 from codetortoise.llm.ledger import Ledger
 from codetortoise.llm.stories import STORY_RULES_VERSION, chunk_parts, form_stories
 from codetortoise.pieces import build_pieces
@@ -183,6 +184,42 @@ def test_only_a_brief_tier_1_formed_entirely_is_reused(tmp_path):
     assert store.find_brief("k") is None                     # a chunk fell back to the rules: the next run asks again
     store.put_brief(whole, "k", Brief(key="k", complete=True, overview="whole"))
     assert store.find_brief("k")["overview"] == "whole"
+
+
+def test_an_unreachable_strong_model_is_asked_once_and_the_rules_group_the_rest():
+    c, a, ps, pid = _change()
+    plan, llm = _form(ps, a.x, lambda s, u: LlmUnreachable("LLM request failed after 3 attempts: ReadTimeout"),
+                      context_tokens=_per_target(ps))
+    assert len(llm.prompts) == 1 and {s.source for s in plan.stories} == {"rules"}
+    assert plan.notes == ["chunk 1: LlmUnreachable: LLM request failed after 3 attempts: ReadTimeout; the rules grouped "
+                          "its pieces", "chunk 2: the strong model is unreachable; the rules grouped its pieces"]
+
+
+def test_a_shared_piece_placed_first_leaves_the_story_to_its_single_target_pieces():
+    c = _world([_edit("modem_tx", "modem/tx/a.c"), _edit("modem_rx", "modem/rx/b.c"), _edit("dsp_run", "dsp/run.c")],
+               calls=[("modem_tx", "modem_rx")])
+    a = analyse(c)
+    ps = build_pieces(c, a, {f"{W}/modem/tx/a.c": ["dsp", "modem"], f"{W}/modem/rx/b.c": ["modem"],
+                             f"{W}/dsp/run.c": ["dsp"]})
+    pid = {c.impact.nodes[p.nodes[0]].label: p.id for p in ps.pieces}
+    assert ps.piece(pid["modem_tx"]).shared
+    answer = {"action": "answer", "stories": [
+        _story("a", "Modem radio gains band 71", _p(pid["modem_tx"], "shared_code"),
+               _p(pid["modem_rx"], "starts_purpose", evidence=[pid["modem_tx"]])),
+        _story("b", "DSP runs a faster FFT", _p(pid["dsp_run"], "starts_purpose"), purpose="The DSP's FFT gets faster.")]}
+    plan, _ = _form(ps, a.x, lambda s, u: answer)
+    assert [(s.key, s.pieces) for s in plan.stories] == [("a", [pid["modem_tx"], pid["modem_rx"]]), ("b", [pid["dsp_run"]])]
+
+
+def test_two_stories_the_model_gives_one_key_keep_their_own_keys():
+    c, a, ps, pid = _change()
+    answer = {"action": "answer", "stories": [
+        _story("a", "Modem radio gains band 71", _p(pid["modem_tx"], "starts_purpose"),
+               _p(pid["modem_rx"], evidence=[pid["modem_tx"]])),
+        _story("a", "DSP runs a faster FFT", _p(pid["dsp_run"], "starts_purpose"), purpose="The DSP's FFT gets faster.",
+               related=["a"])]}
+    plan, _ = _form(ps, a.x, lambda s, u: answer)
+    assert [(s.key, s.related) for s in plan.stories] == [("a", []), ("a_2", ["a"])]
 
 
 @pytest.fixture(autouse=True)
