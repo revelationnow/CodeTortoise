@@ -43,16 +43,17 @@ Goals (agreed 2026-10-05):
 New and changed pipeline stages, in order:
 
 ```
-… impact → detectors → pieces → stories → board → review → verdicts → llm → finalize
+… impact → detectors → pieces → stories → review → verdicts → board → llm → finalize
 ```
 
 - **pieces** (rules, §3): target of every changed file; the change cut into conservative pieces; typed links between
-  pieces; an evidence card per piece; prepared facts per finding (§5.1).
+  pieces; an evidence card per piece.
 - **stories** (tier 1, §4; rules fallback §6): the strong model groups pieces into stories with reasons; code checks
   every placement.
-- **board**: unchanged, except that a story's board and graph are built from its pieces' nodes.
-- **review** (tier 1, §5): one pass per story answers fixed questions about each of its findings.
+- **review** (tier 1, §5): prepared facts per finding (§5.1), then one pass per story answers fixed questions about each
+  of its findings. It runs before the board so the board takes the verdicts' severities, as it does today's verdicts.
 - **verdicts** (tier 2, today's stage): only for side-effect findings tier 1 did not judge.
+- **board**: unchanged, except that a story's board and graph are built from its pieces' nodes.
 - **llm** (tier 2, today's stage): story text only for stories tier 1 did not name; flows, findings, summary as today.
 
 The validated tier-1 output is stored as the review's **brief** (§7.2): stories, per-story notes, per-piece reasons,
