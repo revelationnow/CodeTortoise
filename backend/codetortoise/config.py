@@ -63,6 +63,19 @@ class LlmBudget(BaseModel):
     per_review: int = 200          # AI calls per review: everyone and the pipeline together
     per_person_daily: int = 100    # AI calls one person can trigger per day (UTC), across reviews
     per_mention: int = 10          # rounds one @tortoise answer may take (one AI call however many); the owner sets it per review
+    tier1_per_review: int = 40     # strong-model calls per review: stories, merge and risk passes (spec 2026-10-05 §9)
+
+
+class StrongLlmConfig(BaseModel):
+    """The strong model that forms stories and reviews their risks (spec 2026-10-05-two-tier-stories §9)."""
+    base_url: str                  # any OpenAI-compatible endpoint
+    model: str
+    key_env: str = "TORTOISE_STRONG_KEY"
+    context_tokens: int = 64000
+    temperature: float | None = 0  # None for endpoints that reject it
+    rounds: int = 20               # reads one stories or review call may make (one AI call however many)
+    agree: Literal[1, 2] = 1       # 2: two runs (a third breaks ties) for stable stories
+    timeout_s: float = 300.0
 
 
 class LlmConfig(BaseModel):
@@ -77,6 +90,7 @@ class LlmConfig(BaseModel):
     upfront_findings: int = 5      # high-severity findings the AI explains when a review runs, not on first open
     upfront_side_effects: int = 36  # side effects (new field writes) the AI judges when a review runs, 12 to a call
     budget: LlmBudget = Field(default_factory=LlmBudget)
+    strong: StrongLlmConfig | None = None   # absent: the rules form the stories
 
 
 class AuthConfig(BaseModel):

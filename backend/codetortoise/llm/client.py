@@ -30,8 +30,9 @@ def _extract_json(text: str) -> str:
 class LlmClient:
     def __init__(self, base_url: str, api_key: str, model: str, timeout: float = 120,
                  transport: httpx.BaseTransport | None = None, retries: int = 2,
-                 sleep: Callable[[float], None] = time.sleep):
+                 sleep: Callable[[float], None] = time.sleep, temperature: float | None = None):
         self.model = model
+        self.temperature = temperature           # None: the model's own default (some servers reject it)
         self.retries = retries
         self._sleep = sleep
         self._format = "json_object"  # -> "json_schema" (e.g. LM Studio) or "none" as servers reject formats
@@ -50,6 +51,8 @@ class LlmClient:
     def chat(self, system: str, user: str, schema: type[BaseModel] | None = None) -> str:
         body = {"model": self.model,
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
+        if self.temperature is not None:
+            body["temperature"] = self.temperature
         last: Exception | None = None
         for attempt in range(self.retries + 1):
             rf = self._response_format(schema)

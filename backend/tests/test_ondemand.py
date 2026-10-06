@@ -152,7 +152,7 @@ def test_the_ai_view_reports_limits_and_calls(ai):
     assert all(c["prompt_tokens"] == 1000 for c in calls)
     h = owner.get("/api/health").json()                               # + layer naming, once per index
     assert h["ai"]["calls_today"] == 6 and h["ai"]["limits"] == {"per_review": 200, "per_person_daily": 100,
-                                                                 "per_mention": 6}
+                                                                 "per_mention": 6, "tier1_per_review": 40}
 
 
 def test_an_answer_that_fails_the_checks_changes_nothing_and_says_why(ai, monkeypatch):

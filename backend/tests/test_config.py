@@ -91,3 +91,14 @@ def test_a_missing_tls_file_is_a_config_error_not_a_startup_traceback(tmp_path):
     with pytest.raises(ConfigError, match="server.tls_key: no such file"):
         load_config(write(tmp_path, "owner: a\nworkspace: {vcs: git, root: /w, compile_commands: /w/cc.json}\n"
                                       "server: {tls_cert: ct.pem, tls_key: ct.key}\n"))
+
+
+def test_the_strong_model_and_its_budget_are_optional():
+    from codetortoise.config import Config
+    base = {"workspace": {"root": "/w", "compile_commands": "auto"}}
+    cfg = Config.model_validate(base)
+    assert cfg.llm.strong is None and cfg.llm.budget.tier1_per_review == 40
+    cfg = Config.model_validate({**base, "llm": {"strong": {"base_url": "https://x/v1", "model": "big", "temperature": None,
+                                                            "agree": 2}}})
+    s = cfg.llm.strong
+    assert (s.key_env, s.context_tokens, s.temperature, s.rounds, s.agree) == ("TORTOISE_STRONG_KEY", 64000, None, 20, 2)

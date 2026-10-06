@@ -76,6 +76,7 @@ class Services:
     p4: P4Runner | None = None
     owner_ticket: str | None = None
     ledger: Ledger | None = None                  # every AI call goes through it (spec 2026-10-03 §2)
+    strong: LlmClient | None = None               # tier 1: forms stories and reviews their risks (spec 2026-10-05)
     swarm_override: Callable[[], SwarmClient | None] | None = field(default=None, repr=False)
 
     def build_index(self, full: bool = False) -> int:
@@ -106,7 +107,15 @@ def make_llm(cfg: Config) -> LlmClient | None:
     return LlmClient(cfg.llm.base_url, key, cfg.llm.model, timeout=cfg.llm.timeout_s)
 
 
-def build_services(cfg: Config, llm: LlmClient | None = None, source: Source | None = None) -> Services:
+def make_strong(cfg: Config) -> LlmClient | None:
+    s = cfg.llm.strong
+    if s is None:
+        return None
+    return LlmClient(s.base_url, os.environ.get(s.key_env, ""), s.model, timeout=s.timeout_s, temperature=s.temperature)
+
+
+def build_services(cfg: Config, llm: LlmClient | None = None, source: Source | None = None,
+                   strong: LlmClient | None = None) -> Services:
     data = cfg.server.data_dir
     data.mkdir(parents=True, exist_ok=True)
     store = Store(data / "tortoise.db")
@@ -124,4 +133,5 @@ def build_services(cfg: Config, llm: LlmClient | None = None, source: Source | N
             source = P4Source(p4)
     ledger = Ledger(store, cfg.llm.budget)
     return Services(cfg=cfg, store=store, source=source, index=index, cdb=cdb, toolchain=tc, llm=llm,
-                    layers=LayersProvider(cfg, index, store, llm, ledger), p4=p4, ledger=ledger)
+                    layers=LayersProvider(cfg, index, store, llm, ledger), p4=p4, ledger=ledger,
+                    strong=strong if strong is not None else make_strong(cfg))
