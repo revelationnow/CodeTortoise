@@ -414,12 +414,20 @@ def run_job(llm: LlmClient, job: Job, ledger: Ledger | None = None, rid: int | N
     return job.apply(out)
 
 
+def _briefed(job: Job, brief: str) -> Job:
+    """The job's prompt, starting with the brief's part for its target (spec 2026-10-05-two-tier-stories §8)."""
+    if brief:
+        job.prompt = brief + "\n\n" + job.prompt
+    return job
+
+
 def build_storyboard(impact: ImpactModel, findings: list[Finding], layers: LayerModel | None,
                      snippets: dict[str, str], llm: LlmClient | None, max_tokens: int = 64000, *,
                      board: Board | None = None, concurrency: int = 1, upfront_flows: int = 3,
                      node_files: dict[str, list[str] | None] | None = None, ledger: Ledger | None = None,
                      rid: int | None = None, stories: list[StoryDetail] | None = None,
-                     upfront_stories: int = 3, upfront_findings: int = 0) -> Storyboard:
+                     upfront_stories: int = 3, upfront_findings: int = 0,
+                     brief_for: Callable[[Job], str] | None = None) -> Storyboard:
     """The deterministic storyboard, then (with an LLM) the up-front pass of spec 2026-10-03 §3: narratives for the
     first `upfront_flows` flows, titles for the first `upfront_stories` stories given and explanations of the first
     `upfront_findings` high-severity findings (concurrently), then the change summary. Everything else is explained on demand.
@@ -433,6 +441,8 @@ def build_storyboard(impact: ImpactModel, findings: list[Finding], layers: Layer
     jobs = [flow_job(ctx, fl) for fl in (board.flows[:upfront_flows] if board else [])]
     jobs += [story_job(ctx, d) for d in (stories or [])[:upfront_stories]]
     jobs += [finding_job(ctx, f) for f in [h for h in findings if h.severity == "high"][:upfront_findings]]
+    if brief_for is not None:                  # every tier-2 prompt starts from the brief (spec 2026-10-05 §8)
+        jobs = [_briefed(j, brief_for(j)) for j in jobs]
     pool = ThreadPoolExecutor(max(1, concurrency), thread_name_prefix="tortoise-llm")
     try:
         for dropped in pool.map(lambda j: run_job(llm, j, ledger, rid), jobs):

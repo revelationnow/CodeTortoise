@@ -22,13 +22,13 @@ from codetortoise.board import _Ctx
 from codetortoise.config import StrongLlmConfig
 from codetortoise.detectors.base import Finding
 from codetortoise.grouping import REASONS, Placement, PlannedStory, StoryPlan, rules_plan
-from codetortoise.llm.client import LlmClient
+from codetortoise.llm.client import LlmClient, LlmUnreachable
 from codetortoise.llm.ledger import Ledger, Refused
 from codetortoise.llm.storyboard import _styled, _titled
 from codetortoise.llm.style import MODES, STYLE
 from codetortoise.pieces import Piece, PieceSet
 
-STORY_RULES_VERSION = 1               # bump with every change to RULES or the prompts' wording
+STORY_RULES_VERSION = 2               # bump with every change to RULES or the prompts' wording
 CHUNK_SHARE = 0.6                     # a chunk's prompt stays within this share of the context
 JOINING = ("call", "field", "sub", "uses")   # links that let a piece of another CL join a story
 QUOTE_MIN = 8                         # a quote shorter than this proves nothing
@@ -295,16 +295,19 @@ def _quoted(quotes: list[str], one: str, other: str) -> bool:
     return any(q in one for q in good) and any(q in other for q in good)
 
 
-def place(ps: PieceSet, cls: dict[int, str], members: list[str], first: Piece, p: Piece, pl: Placement) -> str | None:
-    """Why a placement fails the checks (spec §4.4), or None when it stands."""
+def place(ps: PieceSet, cls: dict[int, str], members: list[str], first: Piece, p: Piece, pl: Placement,
+          anchor: Piece | None = None) -> str | None:
+    """Why a placement fails the checks (spec §4.4), or None when it stands. The story's target is `anchor`'s (its first
+    single-target piece), its CL `first`'s."""
+    anchor = anchor or first
     known = {q.id for q in ps.pieces}
     bad = [e for e in pl.evidence if e not in known and not (e.startswith("CL") and e[2:].isdigit() and int(e[2:]) in cls)]
     if bad:
         return f"unknown evidence {', '.join(bad)}"
     if pl.reason not in REASONS:
         return f"unknown reason {pl.reason!r}"
-    if p.targets != first.targets and not (pl.reason == "shared_code" and p.shared and set(first.targets) <= set(p.targets)):
-        return f"target {', '.join(p.targets)} differs from the story's ({', '.join(first.targets)})"
+    if p.targets != anchor.targets and not (pl.reason == "shared_code" and p.shared and set(anchor.targets) <= set(p.targets)):
+        return f"target {', '.join(p.targets)} differs from the story's ({', '.join(anchor.targets)})"
     if p.cl != first.cl and not _linked(ps, p.id, members) and not _quoted(pl.quote, cls.get(first.cl or 0, ""),
                                                                            cls.get(p.cl or 0, "")):
         return f"CL {p.cl} differs from the story's (CL {first.cl}) with no link or quote"
@@ -315,15 +318,19 @@ def check_answer(step: _Step, chunk: list[str], ps: PieceSet, cls: dict[int, str
     """Each placement checked on its own; failures, unplaced pieces and the model's own unsorted go to unsorted."""
     allowed, placed, got = set(chunk), set(), Got()
     keys = {s.key for s in step.stories}
+    used: set[str] = set()
     for s in step.stories:
         ps_: list[Placement] = []
         first: Piece | None = None
+        valid = [p for p in (ps.piece(r.id) for r in s.pieces if r.id in allowed) if p is not None]
+        # the story's target is its first single-target piece's: a shared header listed first does not decide it
+        anchor = next((p for p in valid if not p.shared), valid[0] if valid else None)
         for raw in s.pieces:
             p = ps.piece(raw.id) if raw.id in allowed else None
             if p is None or raw.id in placed:
                 continue                                         # unknown, another chunk's, or placed twice: dropped
             pl = Placement(piece=raw.id, reason=raw.reason, evidence=list(raw.evidence), quote=list(raw.quote))
-            why = place(ps, cls, [q.piece for q in ps_], first or p, p, pl)
+            why = place(ps, cls, [q.piece for q in ps_], first or p, p, pl, anchor)
             placed.add(raw.id)
             if why is None:
                 ps_.append(pl)
@@ -332,14 +339,19 @@ def check_answer(step: _Step, chunk: list[str], ps: PieceSet, cls: dict[int, str
                 got.unsorted.append(Placement(piece=raw.id, reason=why))
         if not ps_:
             continue
+        key, n = s.key, 1
+        while key in used:                                       # the model gave two stories one key
+            n += 1
+            key = f"{s.key}_{n}"
+        used.add(key)
         title = s.title.strip()
         got.stories.append(PlannedStory(
-            key=prefix + s.key, source="tier1", placements=ps_,
+            key=prefix + key, source="tier1", placements=ps_,
             title=title if 0 < len(title) <= 80 and _titled(title) else "",
             purpose=s.purpose.strip() if s.purpose.strip() and _styled(s.purpose, "explanation") else "",
             check=[c.strip() for c in s.check if c.strip() and _styled(c, "how-to")][:3],
             questions=[q.strip() for q in s.questions if q.strip() and _styled(q, "explanation")][:3],
-            related=[prefix + r for r in s.related if r in keys and r != s.key]))
+            related=[prefix + r for r in s.related if r in keys and r != key]))
     for u in step.unsorted:
         if u.id in allowed and u.id not in placed:
             placed.add(u.id)
@@ -442,7 +454,7 @@ def form_stories(strong: LlmClient, ledger: Ledger | None, rid: int | None, ps: 
     stories: list[PlannedStory] = []
     unsorted: list[Placement] = []
     notes: list[str] = []
-    refused = False
+    refused = unreachable = False
 
     def call(purpose: str, target: str, fn):
         return ledger.call(strong, rid, None, purpose, target, fn) if ledger is not None else fn(strong)
@@ -454,6 +466,10 @@ def form_stories(strong: LlmClient, ledger: Ledger | None, rid: int | None, ps: 
             step = call("stories", f"chunk {i}" + (f" run {n}" if n > 1 else ""),
                         lambda llm: ask(llm, parts, tools, cfg.rounds, int(cfg.context_tokens * 4 * 0.9)))
             return check_answer(step, ids, ps, cls, prefix)
+        if unreachable:
+            notes.append(f"chunk {i}: the strong model is unreachable; the rules grouped its pieces")
+            stories += rules_plan(ps, ids, prefix=f"r{i}_")
+            continue
         try:
             if refused:
                 raise Refused("the tier-1 budget ran out")
@@ -463,12 +479,13 @@ def form_stories(strong: LlmClient, ledger: Ledger | None, rid: int | None, ps: 
             notes.append(f"chunk {i}: AI budget: {e.reason}; the rules grouped its pieces")
             got = Got(stories=rules_plan(ps, ids, prefix=f"r{i}_"))
         except Exception as e:  # a chunk that fails falls back to the rules; the others stand
+            unreachable = isinstance(e, LlmUnreachable)          # no point waiting on it again this run
             notes.append(f"chunk {i}: {type(e).__name__}: {e}"[:300] + "; the rules grouped its pieces")
             got = Got(stories=rules_plan(ps, ids, prefix=f"r{i}_"))
         stories += got.stories
         unsorted += got.unsorted
     tier1 = [s for s in stories if s.source == "tier1"]
-    if len(groups) > 1 and len(tier1) > 1 and not refused:
+    if len(groups) > 1 and len(tier1) > 1 and not refused and not unreachable:
         try:
             merged = call("stories_merge", "merge", lambda llm: merge_pass(llm, tier1, ps, cls))
             stories = merged.stories + [s for s in stories if s.source != "tier1"]

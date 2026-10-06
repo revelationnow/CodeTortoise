@@ -4,7 +4,7 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
-from codetortoise.llm.client import LlmClient, LlmError
+from codetortoise.llm.client import LlmClient, LlmError, LlmUnreachable
 
 
 class Out(BaseModel):
@@ -71,6 +71,15 @@ def test_retries_5xx_then_succeeds():
 def test_gives_up_after_retries():
     with pytest.raises(LlmError, match="after 3 attempts"):
         client(lambda r: httpx.Response(502)).chat("s", "u")
+
+
+def test_an_endpoint_that_never_answers_is_unreachable():
+    def handler(req):
+        raise httpx.ReadTimeout("timed out", request=req)
+    with pytest.raises(LlmUnreachable, match="after 3 attempts: timed out"):
+        client(handler).chat("s", "u")
+    with pytest.raises(LlmUnreachable):
+        client(lambda r: httpx.Response(503)).chat("s", "u")
 
 
 def test_falls_back_when_response_format_unsupported():
