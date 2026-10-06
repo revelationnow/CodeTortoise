@@ -13,10 +13,12 @@ interface Props {
   label?: string;
   /** Where a question typed into Ask… goes: an @tortoise thread on this item (spec: explain with a question). */
   ask?: { kind: AnchorKind; anchor: Record<string, unknown>; onAsked: () => void };
+  /** Only Ask…: the item's text is the strong model's and tier 2 never rewrites it (two-tier stories §8). */
+  askOnly?: boolean;
 }
 
 /** ✦ Explain / ✦ Summarise (spec 2026-10-03 §4): one AI call, shown to everyone; a refusal or failure shows here. */
-export default function Explain({ kind, target, has, label = "Explain", ask }: Props) {
+export default function Explain({ kind, target, has, label = "Explain", ask, askOnly = false }: Props) {
   const ai = useAi();
   const [asking, setAsking] = useState(false);
   const [question, setQuestion] = useState("");
@@ -39,10 +41,12 @@ export default function Explain({ kind, target, has, label = "Explain", ask }: P
   const what = kind === "file" ? "summary" : "explanation";
   return (
     <span className="ai-ask" onClick={(e) => e.stopPropagation()}>
-      <button className="ai-btn" disabled={running} title={callTitle(ai.view)}
-              onClick={() => (!has || window.confirm(`Replace the current ${what}? It costs 1 AI call.`)) && ai.explain(kind, target)}>
-        ✦ {running ? `${label === "Explain" ? "Explaining" : "Summarising"}…` : has ? `${label} again` : label}
-      </button>
+      {!askOnly && (
+        <button className="ai-btn" disabled={running} title={callTitle(ai.view)}
+                onClick={() => (!has || window.confirm(`Replace the current ${what}? It costs 1 AI call.`)) && ai.explain(kind, target)}>
+          ✦ {running ? `${label === "Explain" ? "Explaining" : "Summarising"}…` : has ? `${label} again` : label}
+        </button>
+      )}
       {ask && (
         <button className="link small" aria-expanded={asking} title="Ask the AI something specific about this; it answers in a thread"
                 onClick={() => setAsking(!asking)}>Ask…</button>

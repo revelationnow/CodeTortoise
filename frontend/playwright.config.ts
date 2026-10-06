@@ -10,6 +10,8 @@ export default defineConfig({
     { command: "python3 e2e/fake_llm.py 8797", url: "http://127.0.0.1:8797/v1/models", timeout: 30_000, reuseExistingServer: false },
     { command: "bash e2e/serve-ai.sh", url: "http://127.0.0.1:8798/api/me", timeout: 120_000, reuseExistingServer: false },
     // large changes (the "a large change" tests in e2e/workspace*.spec.ts): the generated fixture whose CLs need several boards
+    // two-tier stories (e2e/workspace-tier1.spec.ts): the fake model as the strong model too, the fixture split into targets
+    { command: "bash e2e/serve-strong.sh", url: "http://127.0.0.1:8795/api/me", timeout: 120_000, reuseExistingServer: false },
     { command: "bash e2e/serve-large.sh", url: "http://127.0.0.1:8796/api/me", timeout: 120_000, reuseExistingServer: false },
   ],
 });

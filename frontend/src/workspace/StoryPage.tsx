@@ -4,7 +4,7 @@ import { ApiError } from "../api";
 import type { StoryDetail } from "../board/types";
 import Comments from "../components/Comments";
 import Explain from "../components/Explain";
-import { countLine, stepStory } from "../stories/stories";
+import { countLine, reviewTargets, stepStory } from "../stories/stories";
 import { type Address, at as addressAt } from "./address";
 import { useWs } from "./context";
 import { short } from "./crumbs";
@@ -13,6 +13,7 @@ import FlowStrip from "./FlowStrip";
 import GraphView from "./graph/GraphView";
 import NameText, { Ticks } from "./NameText";
 import { MechanicalStory, TestsStory } from "./StoryBodies";
+import { StoryChecks, StoryWhy } from "./StoryPlan";
 import StorySteps from "./StorySteps";
 
 /** A story (spec 2026-10-04-review-workspace §3.2): header with the Steps | Graph switch beside the title and ‹ S1 of 4 ›
@@ -33,7 +34,8 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
   const st = detail?.story ?? ss.stories.find((s) => s.id === sid)!;
   const at = ss.stories.findIndex((s) => s.id === sid);
   // known from the list, so the switch is there at once; gone if the story arrives without a graph after all
-  const hasGraph = (st.kind === "behaviour" || st.kind === "other") && (!detail || !!detail.graph);
+  const hasGraph = (st.kind === "behaviour" || st.kind === "other" || st.kind === "unsorted") && (!detail || !!detail.graph);
+  const targets = reviewTargets(ss).length > 1 ? st.targets ?? [] : [];      // chips only when the review spans targets
   const shown = hasGraph ? view : "steps";
   const flows = detail ? detail.board.flows.filter((f) => st.flows.includes(f.id)) : [];
   const open = ws.addr.open && "node" in ws.addr.open ? ws.addr.open.node : null;
@@ -63,11 +65,12 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
         )}
         <span className="ws-pos">{step(-1)}<span>{st.id} of {ss.stories.length}</span>{step(1)}</span>
       </div>
-      <p><NameText text={st.summary} /> {st.kind !== "mechanical" && <Explain kind="story" target={st.id} has={st.text_source === "llm"} ask={{ kind: "story", anchor: { id: st.id }, onAsked: d.loadComments }} />}</p>
+      <p><NameText text={st.summary} /> {st.kind !== "mechanical" && <Explain kind="story" target={st.id} has={st.text_source === "llm"} askOnly={st.source === "tier1"} ask={{ kind: "story", anchor: { id: st.id }, onAsked: d.loadComments }} />}</p>
       <p className="ws-story-meta"><span className="muted">{countLine(st)}</span>
         {st.cls.map((c) => (
           <Link key={c} className="ws-chip" to={ws.link(ws.item({ kind: "cl", cl: c }))} title={`Open CL ${c}`} aria-label={`Open CL ${c}`}>CL {c}</Link>
         ))}
+        {targets.map((t) => <span key={t} className="ws-chip target" title={`Build target ${t}`}>⌖ {t}</span>)}
         {map && <Link className="ws-chip ws-onmap" to={ws.link(map)} title={`Show ${st.id} on the map`} aria-label={`Show ${st.id} on the map`}>
           ◎ On the map</Link>}</p>
     </header>
@@ -88,11 +91,13 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
   return (
     <div className="ws-page"><div className="ws-text">
       {header}
+      <StoryChecks detail={detail} />
       {st.kind === "mechanical" ? <MechanicalStory detail={detail} /> : st.kind === "tests" ? <TestsStory detail={detail} /> : <>
         {flows.length > 0 && <FlowStrip board={detail.board} flows={flows} index={index} onFlow={onFlow} steps={false}
                                         hideWhat={!!flows[index] && st.summary.startsWith(flows[index].what)} />}
         <StorySteps detail={detail} flow={flows[index]} />
       </>}
+      <StoryWhy detail={detail} />
       {at < 0 && <p className="muted">This story isn't in the list.</p>}
       <section aria-labelledby="ws-talk" className="ws-talk">
         <h3 id="ws-talk">Questions and comments</h3>

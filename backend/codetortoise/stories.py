@@ -100,6 +100,15 @@ class Story(BaseModel):
     source: Literal["tier1", "rules"] = "rules"             # who grouped it
 
 
+class StoryPiece(BaseModel):
+    """One piece of a story, for "Why these belong together" (spec 2026-10-05-two-tier-stories §10)."""
+    id: str
+    kind: str
+    cl: int | None = None
+    files: list[str] = Field(default_factory=list)          # depot paths (workspace-relative when unknown)
+    names: list[str] = Field(default_factory=list)          # its changed functions, or a declaration piece's names
+
+
 class StoryDetail(BaseModel):
     story: Story
     board: Board                                            # every node the story mentions, for steps and code
@@ -107,6 +116,7 @@ class StoryDetail(BaseModel):
     functions: list[StoryFunction] = Field(default_factory=list)
     sites: list[StorySite] = Field(default_factory=list)
     also_in: list[StoryRef] = Field(default_factory=list)   # a mechanical story: functions with other edits too
+    pieces: list[StoryPiece] = Field(default_factory=list)
 
 
 class StorySet(BaseModel):
@@ -534,7 +544,10 @@ def _detail(x: _Ctx, d: _Draft, st: Story, impacts: list[Impact], depots: dict[s
                   if m in x.changed and not is_test(m)] if d.kind == "tests" else [])
         functions.append(StoryFunction(node=n, label=x.label(n), note=_note(x, n, mech_of, fn_sites, mech_subs),
                                        on_flow=n in on_flow, also=also, calls=calls))
-    detail = StoryDetail(story=st, board=board, functions=functions)
+    root = x.c.root.rstrip("/") + "/"
+    detail = StoryDetail(story=st, board=board, functions=functions, pieces=[
+        StoryPiece(id=p.id, kind=p.kind, cl=p.cl, names=(p.names or [x.label(n) for n in p.nodes])[:6],
+                   files=[depots.get(f) or f.removeprefix(root) for f in p.files]) for p in d.pieces])
     if d.kind == "mechanical":
         own = {d.sub} if d.sub else set(d.subs)
         for s, local, nid in sorted(d.sites, key=lambda t: (t[1], t[0].after_line)):

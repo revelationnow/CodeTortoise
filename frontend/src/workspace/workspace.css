@@ -421,6 +421,15 @@ a.ws-nb:hover { border-color: var(--accent); }
 .ws-flow-lands.warn b { color: var(--bad); }
 .ws-verdict { font-size: 13.5px; color: var(--muted); margin: 4px 0 0; }
 .ws-verdict.hazard { color: var(--bad); }
+.ws-verdict.needs_review { color: var(--warn); }
+.ws-cites { font-size: 12.5px; }
+.ws-chip.target { border-style: dashed; }
+.ws-pieces { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.ws-pieces li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.ws-reason { font-size: 12.5px; padding: 0 6px; border-radius: 999px; background: var(--gap-bg); }
+.ws-reason.failed { color: var(--warn); }
+.ws-evid { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.ws-related { display: flex; flex-wrap: wrap; gap: 10px; }
 .ws-flow-check { color: var(--muted); }
 .ws-flow-steps { line-height: 1.9; }
 .ws-flow-steps .arrow { color: var(--muted); }

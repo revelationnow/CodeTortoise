@@ -12,6 +12,10 @@ export default function Health() {
   return (
     <main className="page">
       <h1 className="hc-title">Health <span className={`hc-pill ${h.ready ? "ok" : "bad"}`}>● {h.ready ? "ready" : "not ready"}</span></h1>
+      {h.checks.flatMap((c) => /code from reviewed changes is sent to (\S+)/.exec(c.detail)?.[1] ?? []).map((host) => (
+        <div key={host} className="banner warn" role="note">Code from reviewed changes is sent to <b>{host}</b>, the strong
+          model's endpoint. Point <code>llm.strong.base_url</code> at a model on your network to keep it in house.</div>
+      ))}
       <div className="hc-list">
         {h.checks.map((c) => {
           const kind = c.ok ? "ok" : c.hard ? "bad" : "warn";
