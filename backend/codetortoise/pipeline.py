@@ -11,12 +11,14 @@ from pathlib import Path
 
 from codetortoise import boardstore
 from codetortoise.board import BoardContext, analyse, build_boards
+from codetortoise.brief import Brief, cache_key
 from codetortoise.detectors.base import DetectorContext, renumber, run_detectors
 from codetortoise.diffmap import map_changes
 from codetortoise.facts.model import Facts, relative_records
 from codetortoise.facts.runner import build_requests, parse_summary, run_extraction
 from codetortoise.grouping import StoryPlan, rules_plan
 from codetortoise.impact import ImpactModel, build_impact
+from codetortoise.llm.stories import STORY_RULES_VERSION, form_stories
 from codetortoise.llm.storyboard import AiContext, build_storyboard, judge_side_effects
 from codetortoise.paths import canon
 from codetortoise.pieces import build_pieces
@@ -100,7 +102,9 @@ def system_include_dirs(toolchain) -> list[str]:
         dirs += [*info.include_dirs, *([info.resource_dir] if info.resource_dir else [])]
     return dirs
 
-def run_review(rid: int, svc: Services) -> None:
+def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
+    """Run every stage of review `rid`. `fresh`: the strong model forms the stories again, even for a change it has
+    seen (no cached brief)."""
     store, cfg = svc.store, svc.cfg
     store.reset_stages(rid, STAGES)
     store.set_review_status(rid, "running")
@@ -240,17 +244,38 @@ def run_review(rid: int, svc: Services) -> None:
         targets = resolve_targets(files, cfg.targets, bctx.root, svc.cdb, str(ws.build_root) if ws.build_root else None,
                                   triple, svc.index.transitive_includers)
         ps = build_pieces(bctx, a, targets, svc.index.transitive_includers, rep)
-        ctx["pieces"], ctx["repeated"] = ps, rep
+        ctx["pieces"], ctx["repeated"], ctx["analysis"] = ps, rep, a
         store.put_blob(rid, "pieces", ps)
         names = sorted({t for p in ps.pieces for t in p.targets})
         return f"{len(ps.pieces)} piece(s), {len(ps.links)} link(s); target(s): {', '.join(names) or 'none'}"
 
     def stories():
-        """Which pieces form which story: the rules' grouping (spec §6)."""
-        ps = ctx["pieces"]
-        plan = StoryPlan(stories=rules_plan(ps))
-        ctx["plan"] = plan
-        return f"{len(plan.stories)} stories from {len(ps.pieces)} piece(s), by the rules"
+        """Which pieces form which story: the strong model's plan (spec §4), reused for a change it has seen, or the
+        rules' (§6). The plan is stored as the review's brief."""
+        ps, strong = ctx["pieces"], cfg.llm.strong
+        if svc.strong is None or strong is None:
+            plan = StoryPlan(stories=rules_plan(ps))
+            brief = Brief(overview=ps.overview, pieces=ps, plan=plan)
+            msg = f"{len(plan.stories)} stories from {len(ps.pieces)} piece(s), by the rules (no strong model configured)"
+        else:
+            key = cache_key(ps, strong.model, STORY_RULES_VERSION, strong.agree)
+            hit = None if fresh else store.find_brief(key)
+            if hit is not None:
+                brief = Brief.model_validate(hit)
+                brief.pieces, brief.overview, plan = ps, ps.overview, brief.plan
+            else:
+                plan = form_stories(svc.strong, svc.ledger, rid, ps, ctx["analysis"].x, strong, ctx["findings"])
+                brief = Brief(key=key, model=strong.model, complete=not plan.notes, overview=ps.overview, pieces=ps,
+                              plan=plan)
+            unsorted = sum(len(s.placements) for s in plan.stories if s.unsorted)
+            formed = [s for s in plan.stories if not s.unsorted]
+            msg = (f"{len(formed)} stories formed by {strong.model}" + (" (reused: this change was seen before)" if hit else "")
+                   + f", {sum(len(s.placements) for s in formed)} piece(s) placed, {unsorted} unsorted")
+        ctx["plan"], ctx["brief"] = plan, brief
+        store.put_brief(rid, brief.key, brief)
+        if plan.notes:
+            raise Degraded(msg + "; " + "; ".join(plan.notes))
+        return msg
 
     def verdicts():
         """The AI judges side effects before the board is drawn, so flows and stories take the verdicts' colours."""
@@ -398,9 +423,9 @@ class JobRunner:
     def start(self) -> None:
         self._thread.start()
 
-    def submit_review(self, rid: int) -> None:
+    def submit_review(self, rid: int, fresh: bool = False) -> None:
         self.svc.store.set_review_status(rid, "queued")
-        self._q.put(("review", rid))
+        self._q.put(("review", (rid, fresh)))
 
     def submit_index(self) -> None:
         self._q.put(("index", None))
@@ -416,7 +441,7 @@ class JobRunner:
             kind, arg = job
             try:
                 if kind == "review":
-                    run_review(arg, self.svc)
+                    run_review(arg[0], self.svc, fresh=arg[1])
                 elif kind == "index":
                     self.index_building = True
                     self.svc.build_index()
