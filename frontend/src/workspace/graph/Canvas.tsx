@@ -33,6 +33,8 @@ interface Props {
   /** A map on a scrolling page: a plain wheel scrolls the page; the map takes the wheel with Ctrl, Meta or Shift held, or
    * once clicked or focused, until the pointer leaves it. */
   embedded?: boolean;
+  /** Ctrl/⌘ + wheel (and a trackpad pinch, which arrives as one) zooms by factor `k` about the canvas point `at`. */
+  onZoom?: (k: number, at: { x: number; y: number }) => void;
   /** Phones: two-finger pinch; a node moves only after a long press. */
   touch?: {
     onPinchStart: (mid: { x: number; y: number }) => void;
@@ -46,7 +48,7 @@ const KIND = { modified: "Δ modified", added: "Δ added", removed: "Δ removed"
 
 /** Layer bands, edges and nodes, all drawn through the lens; pans on drag, moves a node when dragged by it. */
 export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, panBy, flow, selected, lit, onSelect, onNeighbours,
-  touch, onHome, homeName, quiet, onMore, embedded }: Props) {
+  touch, onHome, homeName, quiet, onMore, embedded, onZoom }: Props) {
   const root = useRef<HTMLDivElement>(null);
   const engaged = useRef(false);                             // an embedded map, clicked or focused: it takes the wheel
   const down = useRef<{ x: number; y: number; px: number; py: number; id: number; node: string | null; act: string | null;
@@ -75,13 +77,20 @@ export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, p
     const onWheel = (e: WheelEvent) => {
       if (embedded && !engaged.current && !(e.ctrlKey || e.metaKey || e.shiftKey)) return;   // the page scrolls
       e.preventDefault();
+      if ((e.ctrlKey || e.metaKey) && onZoom) {
+        const r = el.getBoundingClientRect(), dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
+        onZoom(Math.exp(-dy * 0.0025), { x: e.clientX - r.left, y: e.clientY - r.top });
+        return;
+      }
       panBy(-(e.deltaX + (e.shiftKey ? e.deltaY : 0)), e.shiftKey ? 0 : -e.deltaY);
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [panBy, embedded]);
+  }, [panBy, embedded, onZoom]);
 
   const graph = state.mode === "graph";
+  const layerNames = new Map(board.layers.map((l) => [l.level, l.name]));
+  const layer = (lv: number | null | undefined) => (lv != null && lv >= 0 ? ` · layer L${lv}${layerNames.get(lv) ? ` ${layerNames.get(lv)}` : ""}` : "");
   const { onPath, pairs } = flowSets(flow, graph);
   const landings = new Set(graph ? board.flows.map((f) => f.lands) : flow ? [flow.lands] : []);
   const front = selected;
@@ -224,7 +233,7 @@ export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, p
           sel ? "has-card front" : "", lit.has(n.id) ? "lit" : "", grab === n.id ? "grab" : ""].filter(Boolean).join(" ");
         const fx = badge.get(n.id);
         return (
-          <div key={n.id} data-id={n.id} className={cls} title={sel ? `Close ${n.label}'s code` : `Open ${n.label}'s code`}
+          <div key={n.id} data-id={n.id} className={cls} title={`${sel ? "Close" : "Open"} ${n.label}'s code${layer(n.layer)}`}
                role="group" aria-label={n.label}
                style={{ left: p.x, top: p.y, transform: `translate(-50%, -50%) scale(${p.s})`, zIndex: Math.round(p.s * 20),
                         ["--hit" as string]: `${40 / Math.max(p.s, 0.1)}px` }}>

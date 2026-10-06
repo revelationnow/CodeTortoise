@@ -1,4 +1,4 @@
-/** Phone-only zoom (spec §13.4): a scale z applied after the lens, about the canvas centre. */
+/** Graph zoom (spec §13.4; every graph since 2026-10-05): a scale z applied after the lens, about the canvas centre. */
 import { type Lens, makeLens, type View, type Viewport } from "./lens";
 
 export const ZOOM_MIN = 0.5, ZOOM_MAX = 2.5;
@@ -31,6 +31,9 @@ export function fitZoom(nodes: { x: number; y: number }[], vp: Viewport): number
 
 /** The zoom after one pinch update: fingers d0 → d1 apart, clamped to [ZOOM_MIN, ZOOM_MAX]. */
 export const pinchZoom = (z0: number, d0: number, d1: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z0 * (d1 / Math.max(1, d0))));
+
+/** The zoom after a wheel or button step of factor k, clamped to [ZOOM_MIN, ZOOM_MAX]. */
+export const stepZoom = (z0: number, k: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z0 * k));
 
 /** The pan that puts world point `anchor` (taken under the fingers when the pinch started) under the current pinch
  * midpoint at zoom z1. The lens is non-linear away from the centre, so solve through the real projection: screen x only

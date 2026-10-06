@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { bandsFor, centrePan, preferDepth, worldNodes } from "../../board/layout";
+import { bandsFor, centrePan, worldNodes } from "../../board/layout";
 import { makeLens, type Viewport } from "../../board/lens";
-import { keys, loadLayout, loadLens, loadMovedAll, save } from "../../board/prefs";
+import { keys, loadLens, loadMovedAll, save } from "../../board/prefs";
 import type { Board, BoardFlow } from "../../board/types";
-import { fitZoom, pinchView, pinchZoom, zoomLens } from "../../board/zoom";
+import { fitZoom, pinchView, pinchZoom, stepZoom, zoomLens } from "../../board/zoom";
 import { useWs } from "../context";
 import { drawnIndex } from "../flows";
 import FlowStrip from "../FlowStrip";
@@ -22,7 +22,7 @@ interface Props {
    * leaves out says so, with a link to `stepsHref`. */
   flows?: BoardFlow[];
   stepsHref?: string;
-  /** A story graph (change stories §3.1): opens whole, no lens, quiet field lines; "+N more" calls `onMore`. */
+  /** A story graph (change stories §3.1): opens whole with the lens off, quiet field lines; "+N more" calls `onMore`. */
   quiet?: boolean;
   onMore?: () => void;
   /** A cluster's visitors link to their own cluster. */
@@ -40,7 +40,7 @@ export default function GraphView({ board, prefKey, flowIndex, onFlow, flows, st
   const numbered = flows ?? board.flows, at = drawnIndex(numbered, flowIndex, board.flows);
   const drawn = at < 0 ? undefined : board.flows[at];
   const [state, dispatch] = useReducer(reduceGraph, undefined, () => {
-    const s = initialGraph(quiet ? 0 : loadLens(), loadMovedAll(prefKey), loadLayout(prefKey) ?? (preferDepth(board) ? "depth" : "layers"));
+    const s = initialGraph(quiet ? 0 : loadLens(), loadMovedAll(prefKey), "depth");     // one layout: rows by call depth
     return board.flows.length ? s : { ...s, mode: "graph" as const };
   });
   const stateRef = useRef(state);
@@ -59,7 +59,7 @@ export default function GraphView({ board, prefKey, flowIndex, onFlow, flows, st
   const bands = useMemo(() => bandsFor(board, state.layout), [board, state.layout]);
   const world = useMemo(() => worldNodes(board, state.layout, state.moved[state.layout]), [board, state.layout, state.moved]);
   const baseLens = useMemo(() => makeLens(state.view, vp, [...world.values()].map((n) => n.x)), [state.view, vp, world]);
-  const lens = useMemo(() => (phone || quiet ? zoomLens(baseLens, zoom, vp) : baseLens), [phone, quiet, baseLens, zoom, vp]);
+  const lens = useMemo(() => zoomLens(baseLens, zoom, vp), [baseLens, zoom, vp]);
   const pos = useMemo(() => new Map([...world.values()].map((n) => [n.id, lens.project(n.x, n.y)])), [world, lens]);
   const vpRef = useRef(vp);
   vpRef.current = vp;
@@ -118,15 +118,7 @@ export default function GraphView({ board, prefKey, flowIndex, onFlow, flows, st
     if (pos.get(selected) && (pos.get(selected)!.x < 0 || pos.get(selected)!.x > vp.W || pos.get(selected)!.y < 0 || pos.get(selected)!.y > vp.H))
       panTo([selected]);
   }, [selected, vp, pos, panTo]);
-  const relaid = useRef(state.layout);
-  useEffect(() => {
-    if (relaid.current === state.layout) return;
-    relaid.current = state.layout;
-    panTo(state.mode === "graph" ? board.nodes.map((n) => n.id) : drawn?.path ?? []);
-  }, [state.layout, state.mode, drawn, board, panTo]);
-
   const act = useCallback((a: GraphAction) => dispatch(a), []);
-  const setLayout = (layout: "layers" | "depth") => { if (layout !== state.layout) { save(keys.layout(prefKey), layout); act({ t: "layout", layout }); } };
   const setMode = (mode: "flows" | "graph") => {
     act({ t: "mode", mode });
     panTo(mode === "graph" ? board.nodes.map((n) => n.id) : drawn?.path ?? []);
@@ -142,8 +134,7 @@ export default function GraphView({ board, prefKey, flowIndex, onFlow, flows, st
   const onPinchStart = useCallback((mid: { x: number; y: number }) => {
     anchor.current = { x: lensRef.current.unprojectX(mid.x), y: lensRef.current.unprojectY(mid.x, mid.y) };
   }, []);
-  const onPinch = useCallback((d0: number, d1: number, mid: { x: number; y: number }) => {
-    const z1 = pinchZoom(zoomRef.current, d0, d1);
+  const zoomTo = useCallback((z1: number, mid: { x: number; y: number }) => {   // world point `anchor` stays under `mid`
     const next = pinchView(stateRef.current.view, z1, anchor.current, mid, vpRef.current, [...worldRef.current.values()].map((n) => n.x));
     zoomRef.current = z1;
     setZoom(z1);
@@ -151,6 +142,18 @@ export default function GraphView({ board, prefKey, flowIndex, onFlow, flows, st
     stateRef.current = { ...stateRef.current, view: next };
     dispatch({ t: "pan", panX: next.panX, panY: next.panY });
   }, []);
+  const onPinch = useCallback((d0: number, d1: number, mid: { x: number; y: number }) => zoomTo(pinchZoom(zoomRef.current, d0, d1), mid),
+                              [zoomTo]);
+  const onZoom = useCallback((k: number, at: { x: number; y: number }) => {      // Ctrl/⌘ + wheel or trackpad pinch
+    onPinchStart(at);
+    zoomTo(stepZoom(zoomRef.current, k), at);
+  }, [onPinchStart, zoomTo]);
+  const zoomBy = (k: number) => onZoom(k, { x: vp.W / 2, y: vp.H / 2 });
+  const fit = () => {
+    const ids = board.nodes.map((n) => n.id), t = centrePan(ids, worldRef.current, vp.W, vp.H);
+    if (t) { window.cancelAnimationFrame(anim.current); dispatch({ t: "pan", ...t }); }
+    setZoom(fitZoom([...worldRef.current.values()], vp));
+  };
 
   return (
     <div className="ws-graph">
@@ -164,7 +167,7 @@ export default function GraphView({ board, prefKey, flowIndex, onFlow, flows, st
           <Canvas board={board} lens={lens} pos={pos} vp={vp} bands={bands} state={state} dispatch={act} panBy={panBy}
                   flow={state.mode === "flows" ? drawn : undefined} selected={selected} lit={lit}
                   onSelect={onSelect} onNeighbours={onNeighbours} onHome={onHome} homeName={homeName} quiet={quiet} onMore={onMore}
-                  embedded={embedded} touch={phone ? { onPinchStart, onPinch } : undefined} />
+                  embedded={embedded} touch={phone ? { onPinchStart, onPinch } : undefined} onZoom={onZoom} />
         )}
         <div className="bd-tools">
           <div className="bd-toolbar">
@@ -176,21 +179,18 @@ export default function GraphView({ board, prefKey, flowIndex, onFlow, flows, st
                         onClick={() => setMode("graph")}>Whole graph</button>
               </span>
             )}
-            <span className="bd-seg">
-              <button className={`bd-ibtn${state.layout === "layers" ? " on" : ""}`} aria-pressed={state.layout === "layers"}
-                      onClick={() => setLayout("layers")}>Layers</button>
-              <button className={`bd-ibtn${state.layout === "depth" ? " on" : ""}`} aria-pressed={state.layout === "depth"}
-                      onClick={() => setLayout("depth")}>Call depth</button>
+            <span className="bd-seg" role="group" aria-label="Zoom">
+              <button className="bd-ibtn" title="Zoom out" aria-label="Zoom out" onClick={() => zoomBy(1 / 1.25)}>−</button>
+              <button className="bd-ibtn" title="Fit the graph" aria-label="Fit the graph" onClick={fit}>Fit</button>
+              <button className="bd-ibtn" title="Zoom in" aria-label="Zoom in" onClick={() => zoomBy(1.25)}>+</button>
             </span>
             {Object.keys(state.moved[state.layout]).length > 0 &&
               <button className="bd-ibtn float" onClick={() => act({ t: "layout.reset" })}>Reset layout</button>}
-            {!quiet && <>
-              <span className="lbl">Lens</span>
-              <span className="bd-seg">{([0, 2, 4] as const).map((m) => (
-                <button key={m} className={`bd-ibtn${state.view.lens === m ? " on" : ""}`} aria-pressed={state.view.lens === m}
-                        onClick={() => act({ t: "lens", lens: m })}>{m ? `${m}×` : "Off"}</button>
-              ))}</span>
-            </>}
+            <span className="lbl">Lens</span>
+            <span className="bd-seg">{([0, 2, 4] as const).map((m) => (
+              <button key={m} className={`bd-ibtn${state.view.lens === m ? " on" : ""}`} aria-pressed={state.view.lens === m}
+                      onClick={() => act({ t: "lens", lens: m })}>{m ? `${m}×` : "Off"}</button>
+            ))}</span>
           </div>
           <div className="bd-legend">
             <span className="sw chg" />changed<span className="sw flow" />selected flow<span className="sw field" />field<span className="sw fx" />side effect

@@ -93,13 +93,13 @@ test.describe("desktop", () => {
     await expect(page.locator(".bd-node")).toHaveCount(count);
   });
 
-  test("drag a node anywhere, reset; moves are kept per layout; panning never selects text", async ({ page }) => {
+  test("drag a node anywhere, reset; one layout, by call depth; panning never selects text", async ({ page }) => {
     const base = await startReview(page);
     await page.goto(`${base}?view=graph`);
     await page.getByRole("button", { name: "Whole graph" }).click();
     await expect(page.locator(".bd-node").first()).toBeVisible();
     await page.waitForTimeout(500);                                   // centring animation
-    let main = await reachable(page);
+    const main = await reachable(page);
     const drag = async (dx: number, dy: number) => {
       const a = (await main.boundingBox())!;
       await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
@@ -116,15 +116,9 @@ test.describe("desktop", () => {
     await page.getByRole("button", { name: "Reset layout" }).click();
     await expect(main).not.toHaveClass(/\bmoved\b/);
 
-    await page.getByRole("button", { name: "Call depth" }).click();
     await expect(page.locator(".bd-blabel", { hasText: "depth 0 · entry" })).toBeVisible();
-    await page.waitForTimeout(500);
-    main = await reachable(page);
-    await drag(120, 150);
-    await page.getByRole("button", { name: "Layers" }).click();
-    await expect(main).not.toHaveClass(/\bmoved\b/);
-    await page.getByRole("button", { name: "Call depth" }).click();
-    await expect(main).toHaveClass(/\bmoved\b/);
+    await expect(page.getByRole("button", { name: "Layers" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Call depth" })).toHaveCount(0);
 
     const stage = (await page.locator(".bd-stage").boundingBox())!;
     await page.mouse.move(stage.x + stage.width - 30, stage.y + stage.height - 40);
@@ -132,6 +126,52 @@ test.describe("desktop", () => {
     await page.mouse.move(stage.x + 30, stage.y + 120, { steps: 12 });
     await page.mouse.up();
     expect(await page.evaluate(() => window.getSelection()?.toString() ?? "")).toBe("");
+  });
+});
+
+test.describe("zoom and lens", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+  const scale = (n: ReturnType<Page["locator"]>) => n.evaluate((e) => e.getBoundingClientRect().width / (e as HTMLElement).offsetWidth);
+
+  test("a story's graph zooms with the buttons and Ctrl+wheel about the pointer, and has the lens", async ({ page }) => {
+    const base = await startReview(page);
+    await page.goto(`${base}/s/S1?view=graph`);
+    const n = page.locator(".bd-node").first();
+    await expect(n).toBeVisible();
+    await page.waitForTimeout(500);
+    const s0 = await scale(n);
+    await page.getByRole("button", { name: "Zoom in" }).click();
+    await expect.poll(() => scale(n)).toBeGreaterThan(s0 * 1.1);
+    await page.getByRole("button", { name: "Zoom out" }).click();
+    await page.getByRole("button", { name: "Zoom out" }).click();
+    await expect.poll(() => scale(n)).toBeLessThan(s0 * 0.95);
+    await page.getByRole("button", { name: "Fit the graph" }).click();
+    await expect.poll(() => scale(n)).toBeCloseTo(s0, 1);
+
+    const b = (await n.boundingBox())!, cx = b.x + b.width / 2, cy = b.y + b.height / 2;
+    await page.mouse.move(cx, cy);
+    await page.keyboard.down("Control");
+    await page.mouse.wheel(0, -300);
+    await page.keyboard.up("Control");
+    await expect.poll(() => scale(n)).toBeGreaterThan(s0 * 1.2);
+    const a = (await n.boundingBox())!;
+    expect(Math.abs(a.x + a.width / 2 - cx)).toBeLessThan(12);       // the node under the pointer stays under it
+    expect(Math.abs(a.y + a.height / 2 - cy)).toBeLessThan(12);
+
+    const lens = page.locator(".bd-toolbar");
+    await expect(lens.getByRole("button", { name: "Off" })).toHaveAttribute("aria-pressed", "true");   // a story opens whole
+    await lens.getByRole("button", { name: "2×" }).click();
+    await expect(lens.getByRole("button", { name: "2×" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  test("a cluster's graph zooms too", async ({ page }) => {
+    const base = await startReview(page);
+    await page.goto(`${base}?view=graph`);
+    const n = page.locator(".bd-node").first();
+    await expect(n).toBeVisible();
+    const s0 = await scale(n);
+    await page.getByRole("button", { name: "Zoom in" }).click();
+    await expect.poll(() => scale(n)).toBeGreaterThan(s0 * 1.1);
   });
 });
 
