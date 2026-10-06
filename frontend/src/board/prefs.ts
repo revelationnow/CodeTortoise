@@ -28,6 +28,8 @@ export const keys = {
   railW: "ct.ws.railW",
   detailW: "ct.ws.detailW",
   railOpen: "ct.ws.rail.open",
+  /** Neighbours drawn as tiles or as the call tree. */
+  nbView: "ct.ws.nb.view",
 };
 
 /* Typed readers: a value of the wrong shape (another app version, an extension, a manual edit) falls back to the

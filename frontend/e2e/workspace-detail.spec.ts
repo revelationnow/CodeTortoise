@@ -1,4 +1,4 @@
-import { devices, expect, test } from "@playwright/test";
+import { devices, expect, type Page, test } from "@playwright/test";
 import { expectIconsOnly, expectNamed, expectNoNodeIds, startReview } from "./helpers";
 
 /** The detail panel (spec 2026-10-04-review-workspace §3.7): a node's code or a file's diff, on demand. */
@@ -256,6 +256,80 @@ test.describe("neighbours", () => {
     expect(asked.at(-1)).toContain("callers=25");
     expect(asked.at(-1)).not.toContain("callees=");
     await expect(callers.getByRole("listitem").last().locator(".ws-nb.test")).toContainText("test");
+  });
+});
+
+test.describe("neighbours: tiles and the call tree", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+  const fn = (id: string, label: string) => ({ id, label, kind: "function", path: `//fixture/svc/${label}.c`, line: 3, story: null, changed: false, test: false });
+  const long = "a_function_with_a_name_long_enough_to_tear_out_of_any_box_it_is_put_in_unless_it_wraps";
+  // N1 ← N2 ← N3 ← N1 (a loop); N1 → N4 → N5
+  const graph: Record<string, { node: ReturnType<typeof fn>; callers: string[]; callees: string[] }> = {
+    N1: { node: fn("N1", "root_fn"), callers: ["N2", "N6"], callees: ["N4"] },
+    N2: { node: fn("N2", "mid_caller"), callers: ["N3"], callees: ["N1", "N7"] },
+    N3: { node: fn("N3", "top_caller"), callers: ["N1"], callees: ["N2"] },
+    N4: { node: fn("N4", "leaf_callee"), callers: ["N1"], callees: ["N5"] },
+    N5: { node: fn("N5", "deep_callee"), callers: ["N4"], callees: [] },
+    N6: { node: fn("N6", long), callers: [], callees: ["N1"] },
+    N7: { node: fn("N7", "mid_callers_other_callee"), callers: ["N2"], callees: [] },
+  };
+  async function serve(page: Page, rid: string, asked: string[]) {
+    await page.route(`**/api/reviews/${rid}/nodes/*/neighbours**`, (r) => {
+      const id = decodeURIComponent(new URL(r.request().url()).pathname.split("/").at(-2)!);
+      asked.push(id);
+      const g = graph[id], side = (ids: string[]) => ({ total: ids.length, items: ids.map((x) => graph[x].node) });
+      return r.fulfill({ json: { node: g.node, callers: side(g.callers), callees: side(g.callees) } });
+    });
+  }
+
+  test("tiles stack callers, the function and callees; a long name wraps inside its tile", async ({ page }) => {
+    const base = await startReview(page);
+    await serve(page, base.split("/")[2], []);
+    await page.goto(`${base}?open=N1&tab=neighbours`);
+    const callers = page.getByRole("region", { name: "Callers" }), me = page.getByRole("region", { name: "This function" });
+    const callees = page.getByRole("region", { name: "Callees" });
+    await expect(callers).toContainText("mid_caller");
+    const [a, b, c] = [await callers.boundingBox(), await me.boundingBox(), await callees.boundingBox()];
+    expect(a!.y + a!.height).toBeLessThanOrEqual(b!.y + 1);
+    expect(b!.y + b!.height).toBeLessThanOrEqual(c!.y + 1);
+    const tile = callers.getByRole("link", { name: `Open ${long}'s neighbours` });
+    const panel = (await page.locator(".ws-detail-body").boundingBox())!, t = (await tile.boundingBox())!;
+    expect(t.x + t.width).toBeLessThanOrEqual(panel.x + panel.width);
+    expect(await tile.evaluate((e) => [e, ...e.querySelectorAll("*")].filter((k) => k.scrollWidth > k.clientWidth + 1).map((k) => k.outerHTML.slice(0, 80)))).toEqual([]);
+  });
+
+  test("the call tree grows one level per click, only along the branch, marks a loop, and is kept across Back", async ({ page }) => {
+    const base = await startReview(page), asked: string[] = [];
+    await serve(page, base.split("/")[2], asked);
+    await page.goto(`${base}?open=N1&tab=neighbours`);
+    await page.getByRole("button", { name: "Tree" }).click();
+    const up = page.getByRole("tree", { name: "Called by" }), down = page.getByRole("tree", { name: "Calls" });
+    await expect(up.getByRole("treeitem", { name: "mid_caller" })).toBeVisible();
+    await expect(down.getByRole("treeitem", { name: "leaf_callee" })).toBeVisible();
+    expect([...new Set(asked)]).toEqual(["N1"]);                              // nothing grows by itself
+    await expect(up.getByRole("treeitem", { name: "top_caller" })).toHaveCount(0);
+
+    await up.getByRole("button", { name: "Show mid_caller's callers" }).click();
+    const mid = up.getByRole("treeitem", { name: "mid_caller" });
+    await expect(mid.getByRole("treeitem", { name: "top_caller" })).toBeVisible();
+    await expect(up).not.toContainText("mid_callers_other_callee");            // never a parent's other callees
+    await expect(mid.getByRole("treeitem", { name: "root_fn" })).toHaveCount(0); // one level only
+    await up.getByRole("button", { name: "Show top_caller's callers" }).click();
+    const loop = up.getByRole("treeitem", { name: "top_caller" }).getByRole("treeitem", { name: "root_fn" });
+    await expect(loop).toContainText("already above");
+    await expect(loop.getByRole("button", { name: /callers/ })).toHaveCount(0);
+
+    await down.getByRole("button", { name: "Show leaf_callee's callees" }).click();
+    await expect(down.getByRole("treeitem", { name: "deep_callee" })).toBeVisible();
+    await down.getByRole("button", { name: "Show deep_callee's callees" }).click();
+    await expect(down.getByRole("treeitem", { name: "deep_callee" })).toContainText("None");
+    await down.getByRole("button", { name: "Hide leaf_callee's callees" }).click();
+    await expect(down.getByRole("treeitem", { name: "deep_callee" })).toHaveCount(0);
+
+    await up.getByRole("link", { name: "Open top_caller's code" }).click();
+    await expect(page).toHaveURL(/open=N3/);
+    await page.goBack();
+    await expect(page.getByRole("tree", { name: "Called by" }).getByRole("treeitem", { name: "top_caller" })).toBeVisible();
   });
 });
 
