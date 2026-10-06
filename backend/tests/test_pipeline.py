@@ -16,8 +16,13 @@ def test_full_review_without_llm_or_swarm(fx, tmp_path):
     rid = svc.store.create_review("t", "owner", [101, 102])
     run_review(rid, svc)
     assert stages(svc, rid) == {"ingest": "ok", "swarm_read": "degraded", "diffmap": "ok", "tu_select": "ok",
-                                "layers": "ok", "facts": "ok", "impact": "ok", "detectors": "ok", "verdicts": "ok",
-                                "board": "ok", "llm": "degraded", "finalize": "ok"}
+                                "layers": "ok", "facts": "ok", "impact": "ok", "detectors": "ok", "pieces": "ok",
+                                "stories": "ok", "verdicts": "ok", "board": "ok", "llm": "degraded", "finalize": "ok"}
+    msgs = {s["name"]: s["message"] for s in svc.store.list_stages(rid)}
+    assert msgs["pieces"].endswith("target(s): compile_commands")
+    assert msgs["stories"].endswith("by the rules")
+    ss = svc.store.get_blob(rid, "stories")
+    assert all(s["targets"] == ["compile_commands"] and s["pieces"] for s in ss["stories"])
     review = svc.store.get_review(rid)
     assert review["status"] == "degraded" and review["risk"] == "high"
     assert len(svc.store.list_findings(rid)) == 6
