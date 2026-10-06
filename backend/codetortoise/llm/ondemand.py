@@ -18,6 +18,7 @@ from codetortoise.board import Board
 from codetortoise.detectors.base import Finding
 from codetortoise.facts.model import Facts
 from codetortoise.impact import ImpactModel
+from codetortoise.llm.brief_context import brief_context
 from codetortoise.llm.storyboard import (
     AiContext,
     Job,
@@ -105,6 +106,13 @@ def file_job(ctx: AiContext, board: Board, cs: ChangeSet, path: str, summaries: 
     return Job("file", path, prompt, _FileOut, apply)
 
 
+def _briefed(job: Job, brief: str) -> Job:
+    """The job's prompt, starting with the brief's part for its target (spec 2026-10-05-two-tier-stories §8)."""
+    if brief:
+        job.prompt = brief + "\n\n" + job.prompt
+    return job
+
+
 def explain(svc: Services, rid: int, user: str, kind: str, target: str) -> None:
     """Run one explanation as `user` and store it. Raises NotFound, Refused (over a limit), Unchecked, Changed or the
     LLM's error. The AI call runs without the review's lock (other explanations go on meanwhile); the result is
@@ -118,7 +126,7 @@ def explain(svc: Services, rid: int, user: str, kind: str, target: str) -> None:
         if fl is None:
             raise NotFound(f"flow {target} not found")
         trial = fl.model_copy(update={"what_source": "template"})
-        run_job(svc.llm, flow_job(ctx, trial), svc.ledger, rid, user)
+        run_job(svc.llm, _briefed(flow_job(ctx, trial), brief_context(svc.store, rid, flow=target)), svc.ledger, rid, user)
         if trial.what_source != "llm":
             raise Unchecked(UNCHECKED)
         with _lock(rid):
@@ -135,7 +143,7 @@ def explain(svc: Services, rid: int, user: str, kind: str, target: str) -> None:
         if f is None:
             raise NotFound(f"finding {target} not found")
         trial = f.model_copy(update={"explanation": None})
-        run_job(svc.llm, finding_job(ctx, trial), svc.ledger, rid, user)
+        run_job(svc.llm, _briefed(finding_job(ctx, trial), brief_context(svc.store, rid, finding=f)), svc.ledger, rid, user)
         if not trial.explanation:
             raise Unchecked(UNCHECKED)
         with _lock(rid):
@@ -153,9 +161,11 @@ def explain(svc: Services, rid: int, user: str, kind: str, target: str) -> None:
         d = boardstore.story(svc.store, rid, target)
         if d is None:
             raise NotFound(f"story {target} not found")
+        if d.story.source == "tier1":
+            raise NotFound(f"story {target} was written by the strong model; ask about it in a thread instead")
         trial = d.model_copy(deep=True)
         trial.story.text_source, trial.story.text_files = "template", None
-        run_job(svc.llm, story_job(ctx, trial), svc.ledger, rid, user)
+        run_job(svc.llm, _briefed(story_job(ctx, trial), brief_context(svc.store, rid, story=target)), svc.ledger, rid, user)
         if trial.story.text_source != "llm":
             raise Unchecked(UNCHECKED)
         with _lock(rid):
@@ -168,7 +178,10 @@ def explain(svc: Services, rid: int, user: str, kind: str, target: str) -> None:
             boardstore.put_story(svc.store, rid, now)
     elif kind == "file":
         fresh: dict = {}
-        run_job(svc.llm, file_job(ctx, board, cs, target, fresh, user), svc.ledger, rid, user)
+        change = next((c for c in cs.files if c.depot == target), None)
+        nodes = [nid for nid, n in ctx.impact.nodes.items() if change and n.file == change.local and n.kind == "function"]
+        run_job(svc.llm, _briefed(file_job(ctx, board, cs, target, fresh, user), brief_context(svc.store, rid, nodes=nodes)),
+                svc.ledger, rid, user)
         if not fresh.get(target, {}).get("summary"):
             raise Unchecked(UNCHECKED)
         with _lock(rid):
@@ -198,8 +211,11 @@ def check_target(svc: Services, rid: int, kind: str, target: str) -> None:
         if not any(f.id == target for f in svc.store.list_findings(rid)):
             raise NotFound(f"finding {target} not found")
     elif kind == "story":
-        if boardstore.story(svc.store, rid, target) is None:
+        d = boardstore.story(svc.store, rid, target)
+        if d is None:
             raise NotFound(f"story {target} not found")
+        if d.story.source == "tier1":          # spec 2026-10-05-two-tier-stories §8: tier 2 never retells them
+            raise NotFound(f"story {target} was written by the strong model; ask about it in a thread instead")
     elif kind == "file":
         cs = svc.store.get_blob(rid, "changeset") or {}
         if not any(f.get("depot") == target for f in cs.get("files", [])):

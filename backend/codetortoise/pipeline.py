@@ -374,7 +374,8 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
         bs = ctx.get("boards")
         b = None if bs is None else bs.board or boardstore.merge(list(bs.clusters.values()), bs.overview.about)
         top = [] if bs is None or bs.stories is None else [   # the riskiest behaviour stories get AI titles up front
-            bs.story_details[s.id] for s in bs.stories.stories if s.kind == "behaviour" and not s.collapsed]
+            bs.story_details[s.id] for s in bs.stories.stories
+            if s.kind == "behaviour" and not s.collapsed and s.source != "tier1"]      # tier 1 wrote its own
         sb = build_storyboard(ctx["impact"], findings, ctx.get("layers"), snippets, svc.llm, cfg.llm.max_context_tokens,
                               board=b, concurrency=cfg.llm.concurrency, upfront_flows=cfg.llm.upfront_flows,
                               node_files=ctx.get("node_files"), ledger=svc.ledger, rid=rid, stories=top,

@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from codetortoise import boardstore
 from codetortoise.board import Board, Flow
+from codetortoise.llm.brief_context import brief_context
 from codetortoise.llm.ledger import Refused
 from codetortoise.llm.ondemand import context_for
 from codetortoise.llm.storyboard import STYLE, AiContext, _facts_for_nodes, _finding_text, budget
@@ -252,6 +253,26 @@ def _anchor_context(svc: Services, rid: int, comment: dict, ctx: AiContext, boar
     return f"CHANGE: {board.about.intent}\nFLOWS:\n{flows}\nFINDINGS:\n{finds}"
 
 
+def _anchor_brief(svc: Services, rid: int, comment: dict, ctx: AiContext, board: Board) -> str:
+    """The brief's part for a question (spec 2026-10-05-two-tier-stories §8): the story of its anchor, if any, and the
+    change overview."""
+    kind, a = comment["anchor_kind"], comment["anchor"]
+    kw: dict = {}
+    if kind == "story":
+        kw["story"] = str(a.get("id"))
+    elif kind == "flow":
+        kw["flow"] = str(a.get("id"))
+    elif kind == "finding":
+        kw["finding"] = next((f for f in ctx.findings if f.kind == a.get("kind") and f.title == a.get("title")), None)
+    elif kind == "function":
+        kw["nodes"] = [i for i, n in ctx.impact.nodes.items() if n.key == a.get("key")]
+    elif kind in ("file", "line"):
+        path, line = a.get("path") or a.get("depot"), a.get("line")
+        kw["nodes"] = [n.id for n in board.nodes if n.path == path and n.change and (
+            line is None or kind == "file" or (n.range and n.range[0] <= int(line) <= n.range[1]))]
+    return brief_context(svc.store, rid, overview=True, **kw)
+
+
 def _flow_text(fl: Flow) -> str:
     return f"FLOW {fl.id}: {fl.title}\n{fl.what}\neffect: {fl.effect}\ncheck: {fl.check}"
 
@@ -298,7 +319,8 @@ def answer(svc: Services, rid: int, user: str, question: dict, reply_id: int) ->
         root = question["parent_id"] or question["id"]
         known = set(ctx.impact.nodes) | {f.id for f in findings}
         convo = [f"QUESTION: {question['body']}", "THREAD SO FAR:\n" + _thread(svc, rid, root, question["id"]),
-                 "CONTEXT:\n" + _anchor_context(svc, rid, question, ctx, board, reader)]
+                 "CONTEXT:\n" + "\n\n".join(t for t in (_anchor_brief(svc, rid, question, ctx, board),
+                                                         _anchor_context(svc, rid, question, ctx, board, reader)) if t)]
 
         def rounds(llm) -> str:            # the whole answer, every round of it, is one AI call
             fixed = False

@@ -298,3 +298,14 @@ def test_a_thread_longer_than_the_prompt_still_keeps_the_newest_read():
     out = _fit(head + ["READ callers uart_send ->\nuart_send(lg->uart"], 2000)
     assert out.startswith("QUESTION: q") and "uart_send(lg->uart" in out and len(out) <= 8000
 
+
+
+def test_a_question_starts_from_its_anchor_s_story_and_the_change_overview(world):
+    script = Script({"action": "answer", "text": "uart_send can now return -2.", "cites": ["N9"]})
+    svc, app, rid = world(script)
+    bob = login(app, "bob")
+    story = bob.get(f"/api/reviews/{rid}/stories/S1").json()["story"]
+    _ask(bob, rid, "@tortoise story?", "story", {"id": "S1"})
+    context = script.prompts[0].split("CONTEXT:\n", 1)[1]
+    assert context.startswith("BRIEF (") and f"STORY: {story['title']}" in context
+    assert "CHANGE OVERVIEW:\nCHANGE: 2 CLs" in context
