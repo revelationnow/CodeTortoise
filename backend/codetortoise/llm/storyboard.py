@@ -260,6 +260,7 @@ def _judge(f: Finding, hazard: bool | None, reason: str) -> bool:
     if not f.side_effect or hazard is None or not reason or not _styled(reason, "explanation"):
         return False
     f.verdict, f.verdict_reason, f.severity = ("hazard" if hazard else "no_hazard"), reason, ("high" if hazard else "info")
+    f.verdict_source = "tier2"
     return True
 
 

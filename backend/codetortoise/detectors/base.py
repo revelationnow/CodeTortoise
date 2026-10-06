@@ -45,8 +45,10 @@ class Finding(BaseModel):
     files: list[str] | None = None          # depot paths behind the finding (spec §14.3); None = unknown
     explain_files: list[str] | None = None  # files behind the LLM explanation, verify steps and hypotheses
     side_effect: bool = False               # a new field write: neutral until the AI judges it
-    verdict: Literal["hazard", "no_hazard"] | None = None   # the AI's judgement of a side effect (None: not assessed)
+    verdict: Literal["hazard", "needs_review", "no_hazard"] | None = None   # the AI's judgement (None: not assessed)
     verdict_reason: str | None = None
+    verdict_cites: list[str] = Field(default_factory=list)      # node ids and file:line the verdict relies on
+    verdict_source: Literal["tier1", "tier2"] | None = None     # the strong model's story review, or tier 2's side-effect pass
 
 
 @dataclass

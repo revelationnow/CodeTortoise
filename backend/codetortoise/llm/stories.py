@@ -191,11 +191,16 @@ def _chunk_target(p: Piece, ps: PieceSet) -> str:
     return max(p.targets, key=lambda t: (weight[t], -p.targets.index(t)))
 
 
+def pieces_of(f: Finding, ps: PieceSet) -> list[str]:
+    """The pieces a finding is about: those holding its nodes, or the declaration pieces of its evidence's files."""
+    return [p.id for p in ps.pieces if set(f.nodes) & set(p.nodes) or (
+        p.kind == "declarations" and any(e.file in p.files for e in f.evidence))]
+
+
 def _findings_of(ids: list[str], ps: PieceSet, findings: list[Finding]) -> list[str]:
     out = []
     for f in findings:
-        mine = [p.id for p in ps.pieces if p.id in ids and (set(f.nodes) & set(p.nodes) or (
-            p.kind == "declarations" and any(e.file in p.files for e in f.evidence)))]
+        mine = [pid for pid in pieces_of(f, ps) if pid in ids]
         if mine:
             out.append(f"{f.id} [{f.severity}] {f.kind}: {f.title} — {', '.join(mine)}")
     return out
@@ -256,15 +261,20 @@ def _fit(convo: list[str], limit: int) -> str:
     return head + "".join("\n\n" + r for r in kept)
 
 
-def ask(strong: LlmClient, parts: list[str], tools: Tools, rounds: int, limit: int) -> _Step:
-    """One chunk's rounds (one AI call): reads until the model answers; the last round must answer."""
+ASK_STYLE = f"\nPurposes and questions: {MODES['explanation']} Checks: {MODES['how-to']} Titles: {MODES['headline']}"
+
+
+def ask(strong: LlmClient, parts: list[str], tools: Tools, rounds: int, limit: int, system: str = SYSTEM,
+        schema: type[BaseModel] = _Step, tail: str = ASK_STYLE, seen: list[str] | None = None):
+    """One chunk's (or story's) rounds (one AI call): reads until the model answers; the last round must answer. `seen`
+    receives every prompt sent, so answers can be checked against what the model was shown."""
     convo = list(parts)
     for n in range(1, max(1, rounds) + 1):
         last = n == max(1, rounds)
-        step = strong.complete_json(SYSTEM, _fit(convo, limit) + (
-            '\n\nYou must answer now: reply with action "answer".' if last else "")
-            + f"\nPurposes and questions: {MODES['explanation']} Checks: {MODES['how-to']} Titles: {MODES['headline']}",
-            _Step)
+        prompt = _fit(convo, limit) + ('\n\nYou must answer now: reply with action "answer".' if last else "") + tail
+        if seen is not None:
+            seen.append(prompt)
+        step = strong.complete_json(system, prompt, schema)
         if step.action == "answer":
             return step
         if last:
