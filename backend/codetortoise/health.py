@@ -34,7 +34,7 @@ class HealthReport(BaseModel):
 
 def remote_host(url: str) -> str | None:
     """The endpoint's host when it is neither this machine nor a private address (code is sent off-site), else None."""
-    host = urlparse(url).hostname or ""
+    host = urlparse(url if "//" in url else "//" + url).hostname or ""     # "host:port/v1" has no scheme
     if host == "localhost" or host.endswith(".localhost"):
         return None
     try:
@@ -106,7 +106,9 @@ def run_health(svc: Services, deep: bool = False) -> HealthReport:
         away = remote_host(strong.base_url)
         checks.append(Check(name="strong model endpoint", ok=svc.strong.ping(), hard=False,
                             detail=f"{strong.base_url} ({strong.model})"
-                                   + (f"; code from reviewed changes is sent to {away}" if away else "")))
+                                   + (f"; code from reviewed changes is sent to {away}" if away else "")
+                                   + (" (a bare name: check whether it is on this network)" if away and "." not in away
+                                      else "")))
     else:
         checks.append(Check(name="strong model endpoint", ok=False, hard=False, detail="not configured (stories by rules)"))
     if cfg.swarm.url:

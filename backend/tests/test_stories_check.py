@@ -52,6 +52,16 @@ def test_stories_check_runs_tier_1_without_the_cache_and_changes_nothing_stored(
     assert svc.ledger is None or svc.ledger.tier1_used(rid) == 0
 
 
+def test_stories_check_shows_tier_1_the_findings_the_stories_stage_saw(fx, tmp_path):
+    svc = make_services(fx, tmp_path)
+    llm = _strong(svc, _one_story_per_cl)                       # every finding reviewed: no hazard, so severities change
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    n = len(llm.prompts)
+    stories_check(svc, rid, 1, out=lambda line: None)
+    assert llm.prompts[n].split("FINDINGS:", 1)[1] == llm.prompts[0].split("FINDINGS:", 1)[1]
+
+
 def test_stories_check_needs_a_strong_model(fx, tmp_path, capsys, monkeypatch):
     svc = make_services(fx, tmp_path)
     rid = svc.store.create_review("t", "owner", [101, 102])

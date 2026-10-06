@@ -41,6 +41,7 @@ class PlannedStory(BaseModel):
 class StoryPlan(BaseModel):
     stories: list[PlannedStory] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)          # why part of it fell back to the rules
+    complete: bool = True                                   # every chunk formed by tier 1 as asked (a brief to reuse)
 
 
 def rules_plan(ps: PieceSet, only: list[str] | None = None, prefix: str = "r") -> list[PlannedStory]:

@@ -94,9 +94,10 @@ def review_parts(s: PlannedStory, ps: PieceSet, mine: list[Finding], facts: dict
 
 
 def _shown(cite: str, text: str) -> bool:
-    """The cite appears in what the model was shown, or is a line inside a range it was shown (file:lo-hi)."""
+    """The cite is a node, finding or piece id or a file:line, and appears in what the model was shown, or is a line
+    inside a range it was shown (file:lo-hi)."""
     cite = cite.strip()
-    if not cite:
+    if not re.fullmatch(r"[NFP]\d+|\S+:\d+", cite):
         return False
     if re.search(rf"(?<![\w/.]){re.escape(cite)}(?![\w])", text):
         return True
@@ -143,7 +144,11 @@ def review_stories(strong: LlmClient, ledger: Ledger | None, rid: int | None, pl
         by_id, shown = {f.id: f for f in mine}, "\n".join(seen)
         for v in step.verdicts:
             f = by_id.get(v.finding)
-            if f is None or not v.reason.strip() or not _styled(v.reason, "explanation"):
+            if f is None or not v.reason.strip():
+                continue
+            if not _styled(v.reason, "explanation"):
+                out.notes.append(f"story {s.key}: {f.id}'s verdict broke the house style; the finding stays as the "
+                                 "detectors left it")
                 continue
             cites = [c.strip() for c in v.cites if _shown(c, shown)]
             if not cites:

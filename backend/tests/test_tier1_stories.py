@@ -8,7 +8,7 @@ from codetortoise.brief import cache_key
 from codetortoise.config import LlmBudget, StrongLlmConfig
 from codetortoise.llm.client import LlmUnreachable
 from codetortoise.llm.ledger import Ledger
-from codetortoise.llm.stories import STORY_RULES_VERSION, chunk_parts, form_stories
+from codetortoise.llm.stories import ASK_STYLE, STORY_RULES_VERSION, Tools, ask, chunk_parts, form_stories
 from codetortoise.pieces import build_pieces
 from codetortoise.store import Store
 
@@ -220,6 +220,59 @@ def test_two_stories_the_model_gives_one_key_keep_their_own_keys():
                related=["a"])]}
     plan, _ = _form(ps, a.x, lambda s, u: answer)
     assert [(s.key, s.related) for s in plan.stories] == [("a", []), ("a_2", ["a"])]
+
+
+def test_cl_evidence_is_read_however_the_model_writes_it():
+    c, a, ps, pid = _change({"modem/tx/a.c": 11, "modem/rx/b.c": 12, "dsp/run.c": 13})
+    tx, rx = pid["modem_tx"], pid["modem_rx"]
+    answer = {"action": "answer", "stories": [
+        _story("a", "Modem radio gains band 71", _p(tx, "starts_purpose"), _p(rx, evidence=[tx, "CL 12", "cl11"]))]}
+    plan, _ = _form(ps, a.x, lambda s, u: answer)
+    assert plan.stories[0].pieces == [tx, rx] and plan.stories[0].placements[1].evidence == [tx, "CL12", "CL11"]
+
+
+def test_reading_a_cl_without_a_user_leaves_the_user_out():
+    c, a, ps, pid = _change({"modem/tx/a.c": 11, "modem/rx/b.c": 11, "dsp/run.c": 13})
+    assert Tools(a.x, ps).cl("11").startswith("CL 11 (pending):\nmodem: add LTE band 71 support")
+
+
+def test_reads_are_kept_only_while_the_system_prompt_and_schema_still_fit():
+    c, a, ps, pid = _change({"modem/tx/a.c": 11, "modem/rx/b.c": 11, "dsp/run.c": 13})
+    parts, tools = chunk_parts([p.id for p in ps.pieces], ps, []), Tools(a.x, ps)
+    read = "READ cl 11 ->\n" + tools.run("cl", "11")
+    answer = {"action": "answer", "stories": [_story("a", "Modem radio gains band 71", _p(pid["modem_tx"], "starts_purpose"))]}
+    steps = iter([{"action": "read", "tool": "cl", "arg": "11"}, answer])
+    llm = ScriptedLlm(lambda s, u: next(steps))
+    ask(llm, parts, tools, 2, len("\n\n".join(parts)) + len(read) + 2 + len(ASK_STYLE) + 200)  # fits only without SYSTEM
+    assert "READ cl 11" not in llm.prompts[1]
+
+
+def test_a_failed_merge_pass_leaves_the_plan_complete_and_a_failed_chunk_does_not():
+    c, a, ps, pid = _change()
+
+    def answer(system, user):
+        if "STORIES (key | title" in user:
+            return RuntimeError("the merge timed out")
+        mine = [p.id for p in ps.pieces if p.card in user]
+        return {"action": "answer", "stories": [_story(f"s{i}", "Modem transmit", _p(m, "starts_purpose"))
+                                                for i, m in enumerate(mine)]}
+    plan, _ = _form(ps, a.x, answer, context_tokens=_per_target(ps))
+    assert plan.complete and plan.notes == ["merge pass: RuntimeError: the merge timed out"]
+    plan, _ = _form(ps, a.x, lambda s, u: {"action": "read", "tool": "cl", "arg": "11"}, rounds=2)
+    assert not plan.complete
+
+
+def test_agreement_mode_keeps_the_first_run_when_the_budget_stops_the_second(tmp_path):
+    c, a, ps, pid = _change()
+    store = Store(tmp_path / "s.db")
+    rid = store.create_review("t", "owner", [1])
+    llm = ScriptedLlm(lambda s, u: {"action": "answer", "stories": [
+        _story("a", "Modem radio gains band 71", _p(pid["modem_tx"], "starts_purpose"), _p(pid["modem_rx"])),
+        _story("b", "DSP runs a faster FFT", _p(pid["dsp_run"], "starts_purpose"), purpose="The DSP's FFT gets faster.")]})
+    plan = form_stories(llm, Ledger(store, LlmBudget(tier1_per_review=1)), rid, ps, a.x,
+                        StrongLlmConfig(base_url="http://x", model="big", agree=2), [])
+    assert [(s.key, s.source) for s in plan.stories] == [("a", "tier1"), ("b", "tier1")] and not plan.complete
+    assert plan.notes == ["chunk 1: AI budget: this review has used its 1 tier-1 AI calls; its first run's answer stands"]
 
 
 @pytest.fixture(autouse=True)

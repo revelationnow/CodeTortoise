@@ -9,6 +9,7 @@ from codetortoise.llm.client import LlmClient
 from codetortoise.llm.storyboard import (
     AiContext,
     Cited,
+    briefed_job,
     budget,
     build_storyboard,
     finding_job,
@@ -401,3 +402,13 @@ def test_explaining_a_side_effect_also_judges_it():
     out = {"explanation": "exp", "hazard": True, "reason": "logger_flush assumes errors only grows."}
     run_job(fake_llm(lambda s, u: out), finding_job(_ctx([f], im), f))
     assert (f.verdict, f.severity, f.verdict_reason) == ("hazard", "high", "logger_flush assumes errors only grows.")
+
+
+def test_a_brief_takes_its_room_from_the_prompt_budget_not_on_top_of_it():
+    im, findings, layers = model()
+    ctx = AiContext(impact=im, findings=findings, snippets={n: "int x = 1;\n" * 3000 for n in im.nodes}, max_tokens=8000)
+    plain = finding_job(ctx, findings[0]).prompt
+    brief = "BRIEF (worked out by code):\n" + "b" * 3000
+    briefed = briefed_job(ctx, brief, lambda: finding_job(ctx, findings[0])).prompt
+    assert briefed.startswith(brief + "\n\n") and len(briefed) <= len(plain) + 20
+    assert finding_job(ctx, findings[0]).prompt == plain                  # the room is given back afterwards

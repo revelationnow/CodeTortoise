@@ -398,7 +398,8 @@ def _dir_name(x: _Ctx, members: list[str], root: str, files: list[str] | None = 
         return _q("the workspace root")
     if common:
         return _q(common)
-    top = [d or "the workspace root" for d, _ in Counter(rel).most_common()]     # never an absolute path
+    top = [d or "the workspace root"                                  # never an absolute path; ties by name
+           for d, _ in sorted(Counter(rel).items(), key=lambda kv: (-kv[1], kv[0]))]
     if not top:
         return "the workspace"
     return ", ".join(_q(d) for d in top[:2]) + (f" and {_plural(len(top) - 2, 'more directory', 'more directories')}"

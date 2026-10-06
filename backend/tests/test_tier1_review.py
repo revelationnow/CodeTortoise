@@ -87,6 +87,26 @@ def test_needs_review_is_medium_and_a_verdict_citing_nothing_shown_is_rejected()
     assert next(f for f in findings if f.kind == "contract").severity == "medium"
 
 
+def test_a_verdict_citing_only_a_bare_number_is_rejected():
+    def answer(system, user):
+        if "F1" in user:
+            return _verdicts(("F1", "hazard", "old_user still calls hal_write the old way.", ["3"]))
+        return _verdicts(("F2", "no_hazard", "Nothing outside the DSP uses the result.", ["N4"]))
+    out, _, llm = _review(answer)
+    assert "3" in llm.prompts[0] and list(out.verdicts) == ["other_kind|dsp_run: something"]
+    assert out.notes == ["story a: F1's verdict cites nothing it was shown; the finding stays as the detectors left it"]
+
+
+def test_a_verdict_dropped_for_the_house_style_says_so():
+    def answer(system, user):
+        if "F1" in user:
+            return _verdicts(("F1", "hazard", "This is just an easy fix.", ["N1"]))
+        return _verdicts(("F2", "no_hazard", "Nothing outside the DSP uses the result.", ["N4"]))
+    out, _, _ = _review(answer)
+    assert list(out.verdicts) == ["other_kind|dsp_run: something"]
+    assert out.notes == ["story a: F1's verdict broke the house style; the finding stays as the detectors left it"]
+
+
 def test_a_line_inside_code_the_model_read_counts_as_shown():
     a, ps, plan, findings, facts = _change()
     hal = next(p.id for p in ps.pieces if p.nodes == ["N1"])

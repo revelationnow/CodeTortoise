@@ -151,6 +151,14 @@ def prepare_facts(x: _Ctx, findings: list[Finding], targets: dict[str, list[str]
     """finding_key -> the facts the strong model checks for it. `read_text` reads files outside the change (the lines of
     callers and readers there, and the header search); `resolve` gives the targets of call-site files `targets` lacks
     (files without a piece), so an unchanged caller is not taken for one outside every compile database."""
+    if read_text is not None:              # each file outside the change is read once, however many names it is searched for
+        texts: dict[str, str | None] = {}
+        source = read_text
+
+        def read_text(path: str) -> str | None:
+            if path not in texts:
+                texts[path] = source(path)
+            return texts[path]
     if resolve is not None:
         missing = sorted({c.file for c in x.calls_after if c.file not in targets})
         targets = {**targets, **resolve(missing)} if missing else targets
