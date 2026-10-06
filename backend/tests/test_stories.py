@@ -433,12 +433,12 @@ def test_a_finding_on_the_flows_of_two_stories_is_in_the_riskier_one_only():
 
 def test_other_changes_spread_over_the_workspace_are_named_by_their_main_directories():
     c = _world([_edit("a1", "deps/pcre/a.c"), _edit("a2", "deps/pcre/b.c"), _edit("b1", "src/util/c.c"),
-                _edit("top", "main.c")], calls=[("a1", "a2"), ("a2", "b1"), ("b1", "top")])
+                _edit("top", "main.c")], calls=[("a1", "a2"), ("a2", "b1"), ("b1", "top")] * 2)    # joined: 2 calls each
     ss, _ = build_stories(c)
     (o,) = ss.stories
-    assert o.title == "Other changes in `deps/pcre`, `src/util` and 1 more directory"
+    assert o.title == "Other changes in `deps/pcre`, `the workspace root` and 1 more directory"
     assert "/w" not in o.title
-    c = _world([_edit("top", "main.c"), _edit("top2", "main2.c")], calls=[("top", "top2")])
+    c = _world([_edit("top", "main.c"), _edit("top2", "main2.c")], calls=[("top", "top2")])     # one directory
     assert build_stories(c)[0].stories[0].title == "Other changes in `the workspace root`"
 
 
@@ -475,3 +475,91 @@ def test_a_story_names_the_changelists_of_the_code_behind_its_flows_and_of_sites
     (m,) = _by_kind(ss, "mechanical")
     assert b.nodes == [] and b.cls == [1]                  # no functions of its own: the CL of the edit behind its flows
     assert m.cls == [1, 2, 4]                              # the header holds a site and no function
+
+
+# ---- stories from pieces (spec 2026-10-05-two-tier-stories §6, §7.1)
+def _in_cls(c, by_file, descriptions=None):
+    from codetortoise.vcs.model import ClMeta, PerClText
+    for f in c.cs.files:
+        f.per_cl = [PerClText(cl=by_file[f.local[len(W) + 1:]], before=f.before, after=f.after)]
+    c.cs.cls = [ClMeta(cl=n, status="pending", description=(descriptions or {}).get(n, ""))
+                for n in sorted(set(by_file.values()))]
+    return c
+
+
+
+def test_the_rules_join_pieces_by_two_calls_or_a_field_within_one_target_and_cl():
+    c = _world([_edit("ref_add", "deps/ref/a.c"), _edit("ref_io", "deps/ref/io/b.c"), _edit("ref_log", "deps/ref/log/c.c"),
+                _edit("clar_path", "deps/clar/s.c"), _edit("clar_run", "deps/clar/r/t.c")],
+               calls=[("ref_add", "ref_io"), ("ref_add", "ref_io"), ("ref_add", "ref_log"), ("ref_add", "clar_path"),
+                      ("ref_add", "clar_path"), ("clar_run", "clar_path"), ("clar_run", "clar_path")])
+    _in_cls(c, {"deps/ref/a.c": 11, "deps/ref/io/b.c": 11, "deps/ref/log/c.c": 11, "deps/clar/s.c": 12,
+                "deps/clar/r/t.c": 12})
+    ss, _ = build_stories(c)
+    label = {n: x.label for n, x in c.impact.nodes.items()}
+    groups = sorted(sorted(label[n] for n in s.nodes) for s in ss.stories)
+    assert groups == [["clar_path", "clar_run"], ["ref_add", "ref_io"], ["ref_log"]]   # one call: apart; CL 12: apart
+    assert all(s.source == "rules" and s.targets == ["unknown"] for s in ss.stories)
+    s = next(s for s in ss.stories if "N2" in s.nodes)
+    assert [(p.reason, p.evidence) for p in s.placements] == [("starts_purpose", []), ("linked", [s.pieces[0]])]
+
+
+def test_a_header_joins_the_story_using_it_most_and_its_finding_goes_there_by_file():
+    from codetortoise.detectors.base import Evidence, Finding
+    from codetortoise.diffmap import TypeChange
+    from codetortoise.vcs.model import FileChange
+    c = _world([("pd_get", "src/pd.c", ["a = 0;"], ["a = 0;", "use(PD_DIR);"]),
+                ("pd_set", "src/pd.c", ["b = 1;"], ["b = 1;", "set(PD_DIR, b);"]), _edit("stack_add", "deps/ref/s.c")],
+               calls=[("pd_set", "pd_get")])
+    h = f"{W}/src/sysdir.h"
+    c.cs.files.append(FileChange(depot="//d" + h, local=h, action="edit", before="\n", after="#define PD_DIR 1\n"))
+    _in_cls(c, {"src/pd.c": 12, "deps/ref/s.c": 11, "src/sysdir.h": 12})
+    c.dm.types.append(TypeChange(file=h, depot="//d" + h, name="PD_DIR", kind="macro_added"))
+    c.findings = [Finding(id="F1", kind="header_fanout", severity="low", title="sysdir.h: 1 change(s) reach 0 TU(s)",
+                          summary="s", evidence=[Evidence(text="macro added: PD_DIR", file=h)]),
+                  Finding(id="F2", kind="k", severity="low", title="t", summary="s",
+                          evidence=[Evidence(text="x", file="/elsewhere.c")])]
+    ss, det = build_stories(c)
+    pd = next(s for s in ss.stories if "N1" in s.nodes)
+    assert pd.findings == ["F1"] and pd.cls == [12] and len(pd.pieces) == 2
+    assert pd.placements[-1].reason == "declaration_used"
+    assert "F2" not in ss.finding_story                       # no node and no file of the change: no story
+    assert all("F1" not in s.findings for s in ss.stories if s.id != pd.id)
+
+
+def test_other_changes_over_the_limit_merge_only_within_a_target_and_cl():
+    from codetortoise.config import AnalysisConfig
+    fns = [_edit(f"f{i}", f"d/x{i}.c") for i in range(6)]
+    c = _world(fns, cfg=AnalysisConfig(max_stories=2))
+    _in_cls(c, {f"d/x{i}.c": 11 if i < 3 else 12 for i in range(6)})
+    ss, _ = build_stories(c)
+    assert len(ss.stories) == 2 and sorted(s.cls for s in ss.stories) == [[11], [12]]
+
+
+def test_a_plan_from_tier_1_gives_titles_purposes_checks_related_stories_and_an_unsorted_story_last():
+    from codetortoise.board import analyse
+    from codetortoise.grouping import Placement, PlannedStory, StoryPlan
+    from codetortoise.pieces import build_pieces
+    c = _world([_edit("modem_tx", "modem/tx.c"), _edit("modem_rx", "modem/rx.c"), _edit("dsp_run", "dsp/run.c")])
+    a = analyse(c)
+    t = {f"{W}/modem/tx.c": ["modem"], f"{W}/modem/rx.c": ["modem"], f"{W}/dsp/run.c": ["dsp"]}
+    ps = build_pieces(c, a, t)
+    pid = {c.impact.nodes[p.nodes[0]].label: p.id for p in ps.pieces}
+    plan = StoryPlan(stories=[
+        PlannedStory(key="a", title="Modem radio gains band 71", purpose="Adds band 71 to the modem's radio.",
+                     check=["Check the band tables."], questions=["Is band 71 licensed here?"], related=["b"], source="tier1",
+                     placements=[Placement(piece=pid["modem_tx"], reason="starts_purpose"),
+                                 Placement(piece=pid["modem_rx"], reason="same_feature", evidence=[pid["modem_tx"]])]),
+        PlannedStory(key="b", title="", purpose="DSP side.", source="tier1",
+                     placements=[Placement(piece=pid["dsp_run"], reason="starts_purpose")]),
+        PlannedStory(key="u", unsorted=True, source="tier1", placements=[])])
+    ss, det = build_stories(c, analysis=a, plan=plan, pieces=ps)
+    s1, s2, s3 = ss.stories
+    assert (s1.kind, s1.title, s1.text_source, s1.summary) == ("other", "Modem radio gains band 71", "llm",
+                                                               "Adds band 71 to the modem's radio.")
+    assert s1.targets == ["modem"] and s1.check == ["Check the band tables."] and s1.questions == ["Is band 71 licensed here?"]
+    assert s1.related == [s2.id] and s1.source == "tier1"
+    assert [p.reason for p in s1.placements] == ["starts_purpose", "same_feature"]
+    assert s2.title == "Other changes in `dsp`" and s2.purpose == "DSP side." and s2.targets == ["dsp"]   # its title failed
+    assert (s3.kind, s3.title) == ("unsorted", "Unsorted: needs a person to place these")
+    assert det[s3.id].graph is not None

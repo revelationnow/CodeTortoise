@@ -14,14 +14,15 @@ test.describe("desktop", () => {
     const home = (await rail.locator(".ws-home").boundingBox())!, first = (await rail.locator(".ws-sec-t").first().boundingBox())!;
     expect(first.y - (home.y + home.height)).toBeLessThan(12);               // sections follow on: the grip takes no room
     const s1 = rail.getByRole("link", { name: /^Go to story S1/ });
-    await expect(s1.locator(".ws-chip")).toHaveText(["CL 101"]);
+    await expect(s1.locator(".ws-chip")).toHaveText(["CL 101", "CL 102"]);     // CL 102's uart.h is used most by S1
 
     // the CL filter lights the stories drawn from it and dims the rest; again clears it
-    await rail.getByRole("button", { name: "Highlight the stories drawn from CL 102" }).click();
-    await expect(s1).toHaveClass(/\bdim\b/);
-    await expect(rail.getByRole("link", { name: /^Go to story S2/ })).not.toHaveClass(/\bdim\b/);
-    await rail.getByRole("button", { name: "Show every story" }).click();
+    const s2 = rail.getByRole("link", { name: /^Go to story S2/ });
+    await rail.getByRole("button", { name: "Highlight the stories drawn from CL 101" }).click();
+    await expect(s2).toHaveClass(/\bdim\b/);
     await expect(s1).not.toHaveClass(/\bdim\b/);
+    await rail.getByRole("button", { name: "Show every story" }).click();
+    await expect(s2).not.toHaveClass(/\bdim\b/);
 
     await s1.click();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S1$`));

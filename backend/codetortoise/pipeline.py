@@ -10,28 +10,32 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from codetortoise import boardstore
-from codetortoise.board import BoardContext, build_boards
+from codetortoise.board import BoardContext, analyse, build_boards
 from codetortoise.detectors.base import DetectorContext, renumber, run_detectors
 from codetortoise.diffmap import map_changes
 from codetortoise.facts.model import Facts, relative_records
 from codetortoise.facts.runner import build_requests, parse_summary, run_extraction
+from codetortoise.grouping import StoryPlan, rules_plan
 from codetortoise.impact import ImpactModel, build_impact
 from codetortoise.llm.storyboard import AiContext, build_storyboard, judge_side_effects
 from codetortoise.paths import canon
+from codetortoise.pieces import build_pieces
 from codetortoise.provenance import finding_files, impact_node_files, local_files
+from codetortoise.repeated import find_repeated
 from codetortoise.services import Services
 from codetortoise.stories import build_stories
 from codetortoise.swarm import SwarmError
+from codetortoise.targets import resolve_targets
 from codetortoise.tu_select import TuSelection, field_follow_up, select_tus
 from codetortoise.vcs.model import ChangeSet
 
 log = logging.getLogger(__name__)
 
-STAGES = ["ingest", "swarm_read", "diffmap", "tu_select", "layers", "facts", "impact", "detectors", "verdicts", "board",
-          "llm", "finalize"]
+STAGES = ["ingest", "swarm_read", "diffmap", "tu_select", "layers", "facts", "impact", "detectors", "pieces", "stories",
+          "verdicts", "board", "llm", "finalize"]
 DEPS = {"swarm_read": ["ingest"], "diffmap": ["ingest"], "tu_select": ["diffmap"], "facts": ["tu_select"],
-        "impact": ["facts", "tu_select", "diffmap"], "detectors": ["impact"], "verdicts": ["detectors"],
-        "board": ["impact", "detectors"],
+        "impact": ["facts", "tu_select", "diffmap"], "detectors": ["impact"], "pieces": ["impact", "detectors"],
+        "stories": ["pieces"], "verdicts": ["detectors"], "board": ["impact", "detectors"],
         "llm": ["detectors"]}
 
 
@@ -217,6 +221,37 @@ def run_review(rid: int, svc: Services) -> None:
         store.put_findings(rid, findings)
         return f"{len(findings)} finding(s)"
 
+    def board_context(notes: list[str]) -> BoardContext:
+        resolve = depot_resolver(svc.source, ctx["cs"], cfg.workspace.root, notes)
+        return BoardContext(ctx["cs"], ctx["dm"], ctx["before"], ctx["after"], ctx["impact"], ctx["findings"],
+                            ctx.get("layers"), cfg.analysis, resolve, root=canon(str(cfg.workspace.root)))
+
+    def pieces():
+        """The change cut into pieces, by target and CL, with links and cards (spec 2026-10-05-two-tier-stories §3)."""
+        bctx = board_context([])
+        a = analyse(bctx)
+        rep = find_repeated(bctx, a.x)
+        files = sorted({f.local for f in ctx["cs"].files if f.local} | {t.file for t in ctx["dm"].types})
+
+        def triple(f: str) -> str | None:
+            g = svc.toolchain.group_of(f)
+            return g.target if g else None
+        ws = cfg.workspace
+        targets = resolve_targets(files, cfg.targets, bctx.root, svc.cdb, str(ws.build_root) if ws.build_root else None,
+                                  triple, svc.index.transitive_includers)
+        ps = build_pieces(bctx, a, targets, svc.index.transitive_includers, rep)
+        ctx["pieces"], ctx["repeated"] = ps, rep
+        store.put_blob(rid, "pieces", ps)
+        names = sorted({t for p in ps.pieces for t in p.targets})
+        return f"{len(ps.pieces)} piece(s), {len(ps.links)} link(s); target(s): {', '.join(names) or 'none'}"
+
+    def stories():
+        """Which pieces form which story: the rules' grouping (spec §6)."""
+        ps = ctx["pieces"]
+        plan = StoryPlan(stories=rules_plan(ps))
+        ctx["plan"] = plan
+        return f"{len(plan.stories)} stories from {len(ps.pieces)} piece(s), by the rules"
+
     def verdicts():
         """The AI judges side effects before the board is drawn, so flows and stories take the verdicts' colours."""
         findings = ctx["findings"]
@@ -238,12 +273,12 @@ def run_review(rid: int, svc: Services) -> None:
 
     def board():
         notes: list[str] = []
-        resolve = depot_resolver(svc.source, ctx["cs"], cfg.workspace.root, notes)
-        bctx = BoardContext(ctx["cs"], ctx["dm"], ctx["before"], ctx["after"], ctx["impact"], ctx["findings"],
-                            ctx.get("layers"), cfg.analysis, resolve, root=canon(str(cfg.workspace.root)))
+        bctx = board_context(notes)
+        resolve = bctx.depots_for
         bs = build_boards(bctx)
         try:                                   # change stories (spec 2026-10-04); the boards stand without them
-            bs.stories, bs.story_details = build_stories(bctx, bs.home or None, bs.analysis)
+            bs.stories, bs.story_details = build_stories(bctx, bs.home or None, bs.analysis, plan=ctx.get("plan"),
+                                                         pieces=ctx.get("pieces"), rep=ctx.get("repeated"))
         except Exception as e:
             notes.append(f"stories failed: {type(e).__name__}: {e}")
         # file tags (spec §14.3): every graph node and finding, from one more lookup of the files not yet resolved
@@ -311,7 +346,8 @@ def run_review(rid: int, svc: Services) -> None:
         store.put_blob(rid, "file_summaries", {})       # they describe the old diff
         for name, fn in [("ingest", ingest), ("swarm_read", swarm_read), ("diffmap", diffmap), ("tu_select", tu_select),
                          ("layers", layers), ("facts", facts), ("impact", impact), ("detectors", detectors),
-                         ("verdicts", verdicts), ("board", board), ("llm", llm), ("finalize", finalize)]:
+                         ("pieces", pieces), ("stories", stories), ("verdicts", verdicts), ("board", board), ("llm", llm),
+                         ("finalize", finalize)]:
             stage(name, fn)
 
 

@@ -2,7 +2,7 @@
 2026-10-05-two-tier-stories §3). Rules only, no AI: both tiers start from these.
 
 A piece is a few changed nodes that are almost never wrong to keep together; pieces never span two targets or two CLs.
-Cut in order, each node going to the first piece that takes it: tests, repeated edits, new code with its direct
+Cut in order, each node going to the first piece that takes it: repeated edits, tests, new code with its direct
 callers, connected edits (at most 2 hops wide), declarations (one per changed header and CL), singles. Ids P1… follow
 target, CL, first file and first line, so the same change always gives the same pieces.
 """
@@ -241,21 +241,22 @@ def build_pieces(c: BoardContext, a: Analysis, targets: dict[str, list[str]],
             for g in fns - {f}:
                 adj[f][g] += 1
 
-    # 1. tests, by target, CL and directory
+    # 1. repeated edits, by substitution, target and CL (a test with the edit is one of its sites)
     groups: dict[tuple, list[str]] = defaultdict(list)
     for n in changed:
-        if x.is_test_path(n):
-            groups[(tkey(n), cl_of[n], posixpath.dirname(x.local(n) or ""))].append(n)
-    for nodes in groups.values():
-        add("tests", nodes)
-    # 2. repeated edits, by substitution, target and CL
-    groups = defaultdict(list)
-    for n in changed:
-        if n not in taken and n in rep.mech_of:
+        if n in rep.mech_of:
             s = rep.mech_of[n]
             groups[(s.old, s.new, tkey(n), cl_of[n])].append(n)
     for (old, new, _, _), nodes in groups.items():
         add("repeated", nodes, sub=[old, new])
+    # 2. tests, by target, CL and directory; test code causing a flow is cut with the code it changes
+    causes = {fl.cause or fl.path[-1] for fl in a.flows}
+    groups = defaultdict(list)
+    for n in changed:
+        if n not in taken and n not in causes and x.is_test_path(n):
+            groups[(tkey(n), cl_of[n], posixpath.dirname(x.local(n) or ""))].append(n)
+    for nodes in groups.values():
+        add("tests", nodes)
     # 3. new code with the changed functions calling into it, within a target and CL
     added = [n for n in changed if n not in taken and im.nodes[n].key in x.fa and im.nodes[n].key not in x.fb]
     groups = defaultdict(list)
