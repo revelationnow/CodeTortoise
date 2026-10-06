@@ -14,7 +14,7 @@ test.describe("desktop", () => {
     await page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ }).click();
     await expect(page.locator(".ws-story-head h2")).toContainText("uart_send can now return -2");
     await expect(page.getByRole("tab", { name: "Steps" })).toHaveAttribute("aria-selected", "true");
-    await expect(page.locator(".ws-story-meta .ws-chip")).toHaveText(["CL 101"]);
+    await expect(page.locator(".ws-story-meta .ws-chip:not(.ws-onmap)")).toHaveText(["CL 101"]);
     await step(page, "uart_send").click();
     await expect(page).toHaveURL(/\/s\/S1\?open=N\d+$/);
     await expect(page.getByRole("complementary", { name: "Code: uart_send" })).toBeVisible();

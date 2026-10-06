@@ -5,7 +5,9 @@ import { type Address, at, type Open, type Place, placeKey } from "./address";
 export type Memory = Record<string, Address>;
 
 export function remember(m: Memory, a: Address): Memory {
-  return a.place.kind === "unknown" ? m : { ...m, [placeKey(a.place)]: a };
+  if (a.place.kind === "unknown") return m;
+  const { story: _lit, ...kept } = a;                       // a story lit on a map is for that visit only
+  return { ...m, [placeKey(a.place)]: kept };
 }
 
 export function recall(m: Memory, place: Place): Address {

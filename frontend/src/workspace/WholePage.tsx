@@ -15,7 +15,7 @@ export function ReviewGraph({ board, embedded }: { board: Board; embedded?: bool
   const ws = useWs(), open = ws.addr.open;
   const index = pickFlow(board.flows, ws.addr.flow, open && "node" in open ? open.node : null);
   return <GraphView board={board} prefKey={String(ws.data.id)} flowIndex={index}
-                    onFlow={(i) => ws.go({ ...ws.addr, flow: i + 1 }, true)} embedded={embedded} />;
+                    onFlow={(i) => ws.go({ ...ws.addr, flow: i + 1 }, true)} embedded={embedded} storyOf={ws.data.stories?.node_story} />;
 }
 
 /** The review's home (spec 2026-10-04-review-workspace §3.1): what the change is for and why it is risky first. */

@@ -33,6 +33,11 @@ interface Props {
   /** A map on a scrolling page: a plain wheel scrolls the page; the map takes the wheel with Ctrl, Meta or Shift held, or
    * once clicked or focused, until the pointer leaves it. */
   embedded?: boolean;
+  /** A map's nodes by story: a changed node shows its story's tag, which goes to the story. */
+  storyOf?: Record<string, string>;
+  /** The nodes of the story being shown: the rest fade. */
+  litStory?: Set<string> | null;
+  onStory?: (sid: string) => void;
   /** Ctrl/⌘ + wheel (and a trackpad pinch, which arrives as one) zooms by factor `k` about the canvas point `at`. */
   onZoom?: (k: number, at: { x: number; y: number }) => void;
   /** Phones: two-finger pinch; a node moves only after a long press. */
@@ -48,7 +53,7 @@ const KIND = { modified: "Δ modified", added: "Δ added", removed: "Δ removed"
 
 /** Layer bands, edges and nodes, all drawn through the lens; pans on drag, moves a node when dragged by it. */
 export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, panBy, flow, selected, lit, onSelect, onNeighbours,
-  touch, onHome, homeName, quiet, onMore, embedded, onZoom }: Props) {
+  touch, onHome, homeName, quiet, onMore, embedded, onZoom, storyOf, litStory, onStory }: Props) {
   const root = useRef<HTMLDivElement>(null);
   const engaged = useRef(false);                             // an embedded map, clicked or focused: it takes the wheel
   const down = useRef<{ x: number; y: number; px: number; py: number; id: number; node: string | null; act: string | null;
@@ -117,6 +122,7 @@ export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, p
         const n = byId.get(id), act = t.dataset.act;
         if (n?.kind === "more") onMore?.();
         else if (act === "home") { if (n?.home) onHome?.(n.home, id); }
+        else if (act === "story") { if (storyOf?.[id]) onStory?.(storyOf[id]); }
         else if (act === "callers" || act === "callees") onNeighbours?.(id);
         else onSelect(id);
       }}
@@ -184,6 +190,7 @@ export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, p
         if (n?.kind === "more") { onMore?.(); return; }
         if (d.act) {                                         // a badge or a visitor's home link, not the node
           if (d.act === "home" && n?.home) onHome?.(n.home, d.node);
+          else if (d.act === "story" && storyOf?.[d.node]) onStory?.(storyOf[d.node]);
           else if (d.act === "callers" || d.act === "callees") onNeighbours?.(d.node);
           return;
         }
@@ -220,7 +227,8 @@ export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, p
           if (quiet && !inFlow && e.src !== front && e.dst !== front && (data || !graph)) return null;
           const my = (p1.y + p2.y) / 2;
           return <path key={i} d={`M${p1.x} ${p1.y} C ${p1.x} ${my}, ${p2.x} ${my}, ${p2.x} ${p2.y}`}
-            className={`bd-edge${fx ? " fx" : data ? " data" : ""}${inFlow ? " flow" : ""}${!inFlow && !data && !graph ? " dim" : ""}`} />;
+            className={`bd-edge${fx ? " fx" : data ? " data" : ""}${inFlow ? " flow" : ""}${!inFlow && !data && !graph ? " dim" : ""}${
+              litStory && !(litStory.has(e.src) && litStory.has(e.dst)) ? " offstory" : ""}`} />;
         })}
       </svg>
       {board.nodes.map((n) => {
@@ -230,7 +238,9 @@ export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, p
         const cls = ["bd-node", n.change ? "chg" : "", n.kind === "field" || n.kind === "struct" ? "field" : "", n.kind === "more" ? "more" : "",
           n.note ? "noted" : "", on ? "onflow" : "", n.home ? "visitor" : "",
           !graph && !on && !n.change && !sel && !lit.has(n.id) ? "dim" : "", state.moved[state.layout][n.id] !== undefined ? "moved" : "",
-          sel ? "has-card front" : "", lit.has(n.id) ? "lit" : "", grab === n.id ? "grab" : ""].filter(Boolean).join(" ");
+          sel ? "has-card front" : "", lit.has(n.id) ? "lit" : "", grab === n.id ? "grab" : "",
+          litStory ? (litStory.has(n.id) ? "instory" : "offstory") : ""].filter(Boolean).join(" ");
+        const sid = n.change && onStory ? storyOf?.[n.id] : undefined;
         const fx = badge.get(n.id);
         return (
           <div key={n.id} data-id={n.id} className={cls} title={`${sel ? "Close" : "Open"} ${n.label}'s code${layer(n.layer)}`}
@@ -238,6 +248,8 @@ export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, p
                style={{ left: p.x, top: p.y, transform: `translate(-50%, -50%) scale(${p.s})`, zIndex: Math.round(p.s * 20),
                         ["--hit" as string]: `${40 / Math.max(p.s, 0.1)}px` }}>
             {n.change && <span className="kind">{KIND[n.change.kind]}</span>}
+            {sid && <span className="bd-story" data-act="story" role="button" tabIndex={0} title={`Go to story ${sid}`}
+                          aria-label={`Go to story ${sid}`}>{sid}</span>}
             <span className="lbl" role="button" tabIndex={0} aria-pressed={sel}
                   aria-label={sel ? `Close ${n.label}'s code` : `Open ${n.label}'s code`}>{n.label}</span>
             {n.note && <span className="note">{n.note.replace(/`/g, "")}</span>}

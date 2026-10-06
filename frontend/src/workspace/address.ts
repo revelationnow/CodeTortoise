@@ -19,6 +19,8 @@ export interface Address {
   flow: number | null;
   open: Open;
   tab: Tab;
+  /** A story lit on a map (the whole graph or a part's), from its "Show on the map". */
+  story?: string | null;
 }
 
 function readPlace(path: string, q: URLSearchParams): Place {
@@ -48,6 +50,7 @@ export function readAddress(path: string, q: URLSearchParams): Address {
     flow: Number.isInteger(flow) && flow > 0 ? flow : null,
     open: readOpen(q.get("open")),
     tab: q.get("tab") === "neighbours" ? "neighbours" : "diff",
+    ...(q.get("story") ? { story: q.get("story") } : {}),
   };
 }
 
@@ -66,6 +69,7 @@ function placePath(p: Place): string {
 export function href(base: string, a: Address): string {
   const q = new URLSearchParams();
   if ((a.place.kind === "story" || a.place.kind === "whole") && a.place.view === "graph") q.set("view", "graph");
+  if (a.story && (a.place.kind === "whole" || a.place.kind === "cluster")) q.set("story", a.story);
   if (a.flow) q.set("flow", String(a.flow));
   if (a.open) q.set("open", "node" in a.open ? a.open.node : `file:${a.open.file}${a.open.line ? `:${a.open.line}` : ""}`);
   if (a.tab !== "diff") q.set("tab", a.tab);
