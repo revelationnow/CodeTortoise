@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useMe } from "../App";
 import { SeverityBadge } from "../components/Badges";
+import Markdown from "../components/Markdown";
+import { plainTitle } from "../lib/markdown";
 import { useWs } from "./context";
 import { short } from "./crumbs";
 import { Ticks } from "./NameText";
@@ -26,9 +28,9 @@ export default function ClPage({ cl }: { cl: number }) {
   return (
     <div className="ws-page"><div className="ws-text ws-finding">
       <header className="ws-story-head">
-        <div className="ws-story-title"><h2>CL {c.cl} · {title || "(no description)"}</h2></div>
+        <div className="ws-story-title"><h2>CL {c.cl} · {plainTitle(title) || "(no description)"}</h2></div>
         <p className="ws-story-meta"><span className="muted">{c.user}</span><span className="ws-badge">{c.status}</span></p>
-        {rest && <pre className="ws-desc">{rest}</pre>}
+        {rest && <Markdown className="ws-desc" text={rest} />}
       </header>
       <section aria-labelledby="ws-swarm" className="ws-swarm">
         <h3 id="ws-swarm">Swarm</h3>

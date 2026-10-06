@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import type { Story } from "../board/types";
 import { keys, load, loadWidth, save } from "../board/prefs";
 import Resizer from "../board/Resizer";
+import { plainTitle } from "../lib/markdown";
 import { sections } from "../stories/stories";
 import { type Place, samePlace } from "./address";
 import { useWs } from "./context";
@@ -82,7 +83,7 @@ export default function Rail({ show, onPick, hidden = false }: { show: string | 
       </Link>
       {d.detail && section("changeset", `Change set (${d.detail.cls.length} CL${d.detail.cls.length === 1 ? "" : "s"})`, (
         <ul>{d.detail.cls.map((c) => {
-          const first = (c.description ?? "").trim().split("\n")[0];
+          const first = plainTitle((c.description ?? "").trim().split("\n")[0]);
           const count = d.about?.cls.find((x) => x.cl === c.cl)?.file_count;
           const on = cl === c.cl;
           return (
