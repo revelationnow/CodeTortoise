@@ -5,6 +5,7 @@ import type { StoryDetail } from "../board/types";
 import Comments from "../components/Comments";
 import Explain from "../components/Explain";
 import { countLine, stepStory } from "../stories/stories";
+import { type Address, at as addressAt } from "./address";
 import { useWs } from "./context";
 import { short } from "./crumbs";
 import { pickFlow } from "./flows";
@@ -45,6 +46,8 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
       {by < 0 ? "‹" : "›"}</Link>;
   };
 
+  const map: Address | null = st.board ? { ...addressAt({ kind: "cluster", cid: st.board }), story: st.id }   // the story lit on its map
+    : d.board ? { ...addressAt({ kind: "whole", view: "graph" }), story: st.id } : null;
   const header = (
     <header className="ws-story-head">
       <div className="ws-story-title">
@@ -64,7 +67,9 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
       <p className="ws-story-meta"><span className="muted">{countLine(st)}</span>
         {st.cls.map((c) => (
           <Link key={c} className="ws-chip" to={ws.link(ws.item({ kind: "cl", cl: c }))} title={`Open CL ${c}`} aria-label={`Open CL ${c}`}>CL {c}</Link>
-        ))}</p>
+        ))}
+        {map && <Link className="ws-chip ws-onmap" to={ws.link(map)} title={`Show ${st.id} on the map`} aria-label={`Show ${st.id} on the map`}>
+          ◎ On the map</Link>}</p>
     </header>
   );
   if (error) return <div className="ws-page"><div className="ws-text">{header}<div className="banner warn">{error}</div></div></div>;

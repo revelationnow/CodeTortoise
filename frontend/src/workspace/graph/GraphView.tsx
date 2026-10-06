@@ -30,12 +30,15 @@ interface Props {
   homeName?: (cluster: string) => string;
   /** A map on a scrolling page (the whole change's): a plain wheel scrolls the page. */
   embedded?: boolean;
+  /** A map's nodes by story (node id -> story id): each changed node is tagged with its story, and the story in the
+   * address (from "Show on the map") or under the pointer in the rail is lit. */
+  storyOf?: Record<string, string>;
 }
 
 /** A graph in the centre (spec 2026-10-04-review-workspace §5: Board.tsx rebuilt as canvas, flow strip and toolbar).
  * A node click opens its code in the detail panel and a second click closes it; "+N callers" opens Neighbours. */
 export default function GraphView({ board, prefKey, flowIndex, onFlow, flows, stepsHref, quiet, onMore, onHome, homeName,
-  embedded }: Props) {
+  embedded, storyOf }: Props) {
   const ws = useWs(), phone = ws.screen === "phone";
   const numbered = flows ?? board.flows, at = drawnIndex(numbered, flowIndex, board.flows);
   const drawn = at < 0 ? undefined : board.flows[at];
@@ -118,6 +121,19 @@ export default function GraphView({ board, prefKey, flowIndex, onFlow, flows, st
     if (pos.get(selected) && (pos.get(selected)!.x < 0 || pos.get(selected)!.x > vp.W || pos.get(selected)!.y < 0 || pos.get(selected)!.y > vp.H))
       panTo([selected]);
   }, [selected, vp, pos, panTo]);
+  const shownStory = storyOf ? ws.hover ?? ws.addr.story ?? null : null;
+  const litStory = useMemo(() => (shownStory && storyOf ? new Set(board.nodes.filter((n) => storyOf[n.id] === shownStory).map((n) => n.id))
+                                                        : null), [shownStory, storyOf, board]);
+  const centredStory = useRef<string | null>(null);      // a story from the address: bring its nodes into view once
+  useEffect(() => {
+    const sid = storyOf ? ws.addr.story ?? null : null;
+    if (!sid || sid === centredStory.current || !vp.W) return;
+    centredStory.current = sid;
+    const mine = board.nodes.filter((n) => storyOf![n.id] === sid).map((n) => n.id);
+    if (mine.length) { if (state.mode === "flows" && board.flows.length) dispatch({ t: "mode", mode: "graph" }); panTo(mine); }
+  }, [ws.addr.story, storyOf, vp.W, board, panTo, state.mode]);
+  const onStory = (sid: string) => ws.go(ws.item({ kind: "story", sid, view: "steps" }));
+
   const act = useCallback((a: GraphAction) => dispatch(a), []);
   const setMode = (mode: "flows" | "graph") => {
     act({ t: "mode", mode });
@@ -167,7 +183,8 @@ export default function GraphView({ board, prefKey, flowIndex, onFlow, flows, st
           <Canvas board={board} lens={lens} pos={pos} vp={vp} bands={bands} state={state} dispatch={act} panBy={panBy}
                   flow={state.mode === "flows" ? drawn : undefined} selected={selected} lit={lit}
                   onSelect={onSelect} onNeighbours={onNeighbours} onHome={onHome} homeName={homeName} quiet={quiet} onMore={onMore}
-                  embedded={embedded} touch={phone ? { onPinchStart, onPinch } : undefined} onZoom={onZoom} />
+                  embedded={embedded} touch={phone ? { onPinchStart, onPinch } : undefined} onZoom={onZoom}
+                  storyOf={storyOf} litStory={litStory} onStory={storyOf ? onStory : undefined} />
         )}
         <div className="bd-tools">
           <div className="bd-toolbar">
@@ -186,6 +203,11 @@ export default function GraphView({ board, prefKey, flowIndex, onFlow, flows, st
             </span>
             {Object.keys(state.moved[state.layout]).length > 0 &&
               <button className="bd-ibtn float" onClick={() => act({ t: "layout.reset" })}>Reset layout</button>}
+            {storyOf && ws.addr.story && (
+              <span className="bd-hl">Showing {ws.addr.story}
+                <button className="bd-ibtn" title={`Stop showing ${ws.addr.story}`} aria-label={`Stop showing ${ws.addr.story}`}
+                        onClick={() => ws.go({ ...ws.addr, story: null }, true)}>✕</button></span>
+            )}
             <span className="lbl">Lens</span>
             <span className="bd-seg">{([0, 2, 4] as const).map((m) => (
               <button key={m} className={`bd-ibtn${state.view.lens === m ? " on" : ""}`} aria-pressed={state.view.lens === m}

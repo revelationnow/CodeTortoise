@@ -48,8 +48,9 @@ export default function Workspace() {
   const go = useCallback((a: Address, replace = false) => navigate(href(root, a), { replace }), [navigate, root]);
   const item = useCallback((p: Place) => recall(memory, p), [memory]);
   const opened = useCallback((open: Open, tab: Tab = "diff") => ({ ...addr, open, tab }), [addr]);
-  const ws: Ws = useMemo(() => ({ base: root, data, addr, screen, sources, link, go, item, opened }),
-                         [root, data, addr, screen, sources, link, go, item, opened]);
+  const [hover, setHover] = useState<string | null>(null);
+  const ws: Ws = useMemo(() => ({ base: root, data, addr, screen, sources, link, go, item, opened, hover, setHover }),
+                         [root, data, addr, screen, sources, link, go, item, opened, hover]);
 
   const d = data.detail;
   const trail = useMemo(() => crumbs(addr.place, {

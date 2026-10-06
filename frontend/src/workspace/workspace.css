@@ -502,3 +502,14 @@ a.ws-chip { text-decoration: none; }
 .ws-desc blockquote { border-left: 3px solid var(--line); padding-left: 10px; color: var(--muted); }
 .ws-desc table { border-collapse: collapse; display: block; overflow-x: auto; }
 .ws-desc :is(th, td) { border: 1px solid var(--line); padding: 3px 8px; text-align: left; }
+
+/* the map and the stories: a changed node's story tag; a lit story fades the rest */
+.bd-node .bd-story { position: absolute; top: -9px; right: -6px; padding: 0 5px; border-radius: 8px; font: 600 10px/16px var(--bd-sans);
+  background: var(--bd-surface); color: var(--flow); border: 1px solid color-mix(in srgb, var(--flow) 45%, transparent); cursor: pointer; }
+.bd-node .bd-story:hover, .bd-node .bd-story:focus-visible { background: var(--flow); color: #fff; }
+.bd-node.offstory { opacity: .22; }
+.bd-node.instory { box-shadow: 0 0 0 3px var(--flow-glow); }
+.bd-edge.offstory { opacity: .12; }
+.bd-hl { display: inline-flex; align-items: center; gap: 4px; padding: 0 2px 0 10px; border-radius: 8px; font: 600 12px var(--bd-sans);
+  color: var(--flow); background: color-mix(in srgb, var(--flow) 12%, transparent); }
+.bd-hl .bd-ibtn { background: transparent !important; padding: 0 8px !important; }

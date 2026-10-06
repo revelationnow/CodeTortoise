@@ -28,6 +28,13 @@ describe("per-item memory", () => {
   });
 });
 
+describe("a lit story", () => {
+  it("is not remembered: the map opens plain next time", () => {
+    const a: Address = { place: { kind: "whole", view: "graph" }, flow: 2, open: null, tab: "diff", story: "S1" };
+    expect(recall(remember({}, a), { kind: "whole" })).toEqual({ place: { kind: "whole", view: "graph" }, flow: 2, open: null, tab: "diff" });
+  });
+});
+
 describe("stored memory", () => {
   afterEach(() => vi.unstubAllGlobals());
   const storage = (items: Record<string, string> = {}) => {

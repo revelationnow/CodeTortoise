@@ -47,6 +47,16 @@ describe("href", () => {
   });
 });
 
+describe("a story lit on a map", () => {
+  it("rides on the whole graph and a part, and nowhere else", () => {
+    const q = (s: string) => new URLSearchParams(s);
+    expect(readAddress("/", q("view=graph&story=S2")).story).toBe("S2");
+    expect(href("/r/7", { place: { kind: "whole", view: "graph" }, flow: null, open: null, tab: "diff", story: "S2" })).toBe("/r/7?view=graph&story=S2");
+    expect(href("/r/7", { place: { kind: "cluster", cid: "C1" }, flow: null, open: null, tab: "diff", story: "S2" })).toBe("/r/7/c/C1?story=S2");
+    expect(href("/r/7", { place: { kind: "story", sid: "S2", view: "steps" }, flow: null, open: null, tab: "diff", story: "S2" })).toBe("/r/7/s/S2");
+  });
+});
+
 describe("places", () => {
   it("have a key per item and compare by item, not view", () => {
     expect(placeKey({ kind: "story", sid: "S1", view: "graph" })).toBe("s:S1");

@@ -45,9 +45,11 @@ export default function Rail({ show, onPick, hidden = false }: { show: string | 
   }, [show]);                                              // eslint-disable-line react-hooks/exhaustive-deps
 
   const here = (p: Place) => (samePlace(p, ws.addr.place) ? "page" as const : undefined);
-  const row = (place: Place, label: string, body: ReactNode, cls = "") => (
+  const row = (place: Place, label: string, body: ReactNode, cls = "", lights?: string) => (
     <Link to={ws.link(ws.item(place))} className={`ws-row ${cls}`} aria-current={here(place)} title={label} aria-label={label}
-          onClick={onPick}>{body}</Link>
+          onClick={onPick} {...(lights && {                  // a story lights its nodes on the map while pointed at
+            onMouseEnter: () => ws.setHover(lights), onMouseLeave: () => ws.setHover(null),
+            onFocus: () => ws.setHover(lights), onBlur: () => ws.setHover(null) })}>{body}</Link>
   );
   const section = (s: Section, title: string, body: ReactNode) => (
     <section className="ws-sec" ref={(el) => { if (el) refs.current.set(s, el); }} aria-label={title}>
@@ -64,7 +66,7 @@ export default function Rail({ show, onPick, hidden = false }: { show: string | 
       <span className="ws-handle">{st.id}</span>
     </span>
     {st.cls.length > 0 && <span className="ws-chips">{st.cls.map((c) => <span key={c} className="ws-chip">CL {c}</span>)}</span>}
-  </>, `story${lit && !lit.has(st.id) ? " dim" : ""}`);
+  </>, `story${lit && !lit.has(st.id) ? " dim" : ""}`, st.id);
   const group = (title: string, list: Story[]) => list.length > 0 && (
     <div className="ws-group"><h3>{title}</h3><ul>{list.map((st) => <li key={st.id}>{story(st)}</li>)}</ul></div>
   );

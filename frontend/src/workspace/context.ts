@@ -19,6 +19,9 @@ export interface Ws {
   item: (place: Place) => Address;
   /** The detail panel on `open` at the current place. */
   opened: (open: Open, tab?: Tab) => Address;
+  /** The story the pointer (or focus) is on in the rail: maps light its nodes. */
+  hover: string | null;
+  setHover: (sid: string | null) => void;
 }
 
 export const WsContext = createContext<Ws | null>(null);
