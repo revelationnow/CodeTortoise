@@ -16,8 +16,10 @@ from codetortoise.detectors.base import DetectorContext, renumber, run_detectors
 from codetortoise.diffmap import map_changes
 from codetortoise.facts.model import Facts, relative_records
 from codetortoise.facts.runner import build_requests, parse_summary, run_extraction
+from codetortoise.facts_prep import prepare_facts
 from codetortoise.grouping import StoryPlan, rules_plan
 from codetortoise.impact import ImpactModel, build_impact
+from codetortoise.llm.review import apply_verdicts, review_stories
 from codetortoise.llm.stories import STORY_RULES_VERSION, form_stories
 from codetortoise.llm.storyboard import AiContext, build_storyboard, judge_side_effects
 from codetortoise.paths import canon
@@ -33,11 +35,19 @@ from codetortoise.vcs.model import ChangeSet
 
 log = logging.getLogger(__name__)
 
+
+def _read_text(path: str) -> str | None:
+    """A workspace file's text, for the header facts' search of files outside the change."""
+    try:
+        return Path(path).read_text(errors="replace")
+    except OSError:
+        return None
+
 STAGES = ["ingest", "swarm_read", "diffmap", "tu_select", "layers", "facts", "impact", "detectors", "pieces", "stories",
-          "verdicts", "board", "llm", "finalize"]
+          "review", "verdicts", "board", "llm", "finalize"]
 DEPS = {"swarm_read": ["ingest"], "diffmap": ["ingest"], "tu_select": ["diffmap"], "facts": ["tu_select"],
         "impact": ["facts", "tu_select", "diffmap"], "detectors": ["impact"], "pieces": ["impact", "detectors"],
-        "stories": ["pieces"], "verdicts": ["detectors"], "board": ["impact", "detectors"],
+        "stories": ["pieces"], "review": ["stories"], "verdicts": ["detectors"], "board": ["impact", "detectors"],
         "llm": ["detectors"]}
 
 
@@ -277,12 +287,40 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
             raise Degraded(msg + "; " + "; ".join(plan.notes))
         return msg
 
+    def review():
+        """The strong model judges each story's findings against facts code prepared for them (spec §5); a reused brief
+        brings its verdicts. Findings take the verdicts' severities before the board is drawn."""
+        brief, findings, ps, strong = ctx["brief"], ctx["findings"], ctx["pieces"], cfg.llm.strong
+        x = ctx["analysis"].x
+        brief.facts = prepare_facts(x, findings, ps.targets, svc.index.transitive_includers, _read_text)
+        if svc.strong is None or strong is None:
+            store.put_brief(rid, brief.key, brief)
+            return f"no strong model: {len(findings)} finding(s) left to the detectors and the AI's side-effect pass"
+        got = review_stories(svc.strong, svc.ledger, rid, ctx["plan"], ps, x, strong, findings, brief.facts,
+                             skip=set(brief.reviewed))
+        brief.verdicts.update(got.verdicts)
+        brief.reviewed = list(dict.fromkeys(brief.reviewed + got.reviewed))
+        apply_verdicts(findings, brief.verdicts)
+        store.put_findings(rid, findings)
+        store.put_brief(rid, brief.key, brief)
+        mine = [f for f in findings if f.verdict_source == "tier1"]
+        msg = (f"{len(mine)} finding(s) judged by {strong.model}: {sum(f.verdict == 'hazard' for f in mine)} hazard(s), "
+               f"{sum(f.verdict == 'needs_review' for f in mine)} to confirm, {sum(f.verdict == 'no_hazard' for f in mine)} "
+               "no hazard")
+        if got.notes:
+            raise Degraded(msg + "; " + "; ".join(got.notes))
+        return msg
+
     def verdicts():
-        """The AI judges side effects before the board is drawn, so flows and stories take the verdicts' colours."""
+        """The AI judges side effects before the board is drawn, so flows and stories take the verdicts' colours.
+        Side effects the strong model already judged are left alone."""
         findings = ctx["findings"]
-        todo = [f for f in findings if f.side_effect]
-        if not todo:
+        effects = [f for f in findings if f.side_effect]
+        todo = [f for f in effects if f.verdict_source != "tier1"]
+        if not effects:
             return "no side effects"
+        if not todo:
+            return f"all {len(effects)} side effect(s) judged by the strong model"
         if svc.llm is None:
             return f"no LLM: {len(todo)} side effect(s) not assessed (shown neutral)"
         snippets = collect_snippets(ctx["impact"], ctx["cs"], ctx["after"])
@@ -371,7 +409,8 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
         store.put_blob(rid, "file_summaries", {})       # they describe the old diff
         for name, fn in [("ingest", ingest), ("swarm_read", swarm_read), ("diffmap", diffmap), ("tu_select", tu_select),
                          ("layers", layers), ("facts", facts), ("impact", impact), ("detectors", detectors),
-                         ("pieces", pieces), ("stories", stories), ("verdicts", verdicts), ("board", board), ("llm", llm),
+                         ("pieces", pieces), ("stories", stories), ("review", review),
+                         ("verdicts", verdicts), ("board", board), ("llm", llm),
                          ("finalize", finalize)]:
             stage(name, fn)
 

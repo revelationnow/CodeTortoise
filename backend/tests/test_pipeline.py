@@ -17,10 +17,12 @@ def test_full_review_without_llm_or_swarm(fx, tmp_path):
     run_review(rid, svc)
     assert stages(svc, rid) == {"ingest": "ok", "swarm_read": "degraded", "diffmap": "ok", "tu_select": "ok",
                                 "layers": "ok", "facts": "ok", "impact": "ok", "detectors": "ok", "pieces": "ok",
-                                "stories": "ok", "verdicts": "ok", "board": "ok", "llm": "degraded", "finalize": "ok"}
+                                "stories": "ok", "review": "ok", "verdicts": "ok", "board": "ok", "llm": "degraded",
+                                "finalize": "ok"}
     msgs = {s["name"]: s["message"] for s in svc.store.list_stages(rid)}
     assert msgs["pieces"].endswith("target(s): compile_commands")
     assert msgs["stories"].endswith("by the rules (no strong model configured)")
+    assert msgs["review"] == "no strong model: 6 finding(s) left to the detectors and the AI's side-effect pass"
     ss = svc.store.get_blob(rid, "stories")
     assert all(s["targets"] == ["compile_commands"] and s["pieces"] for s in ss["stories"])
     review = svc.store.get_review(rid)
@@ -375,8 +377,13 @@ def _strong(svc, answer, model="big"):
 
 
 def _one_story_per_cl(system, user):
-    """Every piece of a CL in one story (the pieces' cards name their CL)."""
+    """Every piece of a CL in one story (the pieces' cards name their CL); every finding reviewed as no hazard, citing
+    the first node its prompt shows."""
     import re
+    if "QUESTION:" in user:
+        node = re.search(r"\bN\d+\b", user.split("FINDINGS:", 1)[1])[0]
+        return {"action": "answer", "verdicts": [{"finding": f, "verdict": "no_hazard", "reason": "Nothing reads it.",
+                                                  "cites": [node]} for f in re.findall(r"^(F\d+) \[", user, re.M)]}
     if "STORIES (key | title" in user:
         return {"related": [], "merge": []}
     by_cl: dict[str, list[str]] = {}
@@ -418,3 +425,21 @@ def test_a_strong_model_that_fails_leaves_the_rules_stories_and_says_so(fx, tmp_
     assert "chunk 1: RuntimeError: the endpoint is down; the rules grouped its pieces" in st["message"]
     assert {s["source"] for s in svc.store.get_blob(rid, "stories")["stories"]} == {"rules"}
     assert svc.store.get_brief(rid)["complete"] is False
+
+
+def test_the_strong_model_reviews_each_story_s_findings_and_tier_2_leaves_them_alone(fx, tmp_path):
+    svc = make_services(fx, tmp_path)
+    llm = _strong(svc, _one_story_per_cl)
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    msgs = {s["name"]: (s["status"], s["message"]) for s in svc.store.list_stages(rid)}
+    assert msgs["review"] == ("ok", "6 finding(s) judged by big: 0 hazard(s), 0 to confirm, 6 no hazard")
+    assert msgs["verdicts"] == ("ok", "all 2 side effect(s) judged by the strong model")
+    findings = svc.store.list_findings(rid)
+    assert {(f.severity, f.verdict, f.verdict_source) for f in findings} == {("info", "no_hazard", "tier1")}
+    assert all(f.verdict_cites for f in findings)
+    brief = svc.store.get_brief(rid)
+    assert len(brief["verdicts"]) == 6 and "drv" not in brief["facts"] and len(brief["facts"]) == 6
+    calls = len(llm.prompts)
+    run_review(rid, svc)                                            # the brief brings its verdicts: no call at all
+    assert len(llm.prompts) == calls and len(svc.store.get_brief(rid)["verdicts"]) == 6
