@@ -85,6 +85,27 @@ test.describe("desktop", () => {
     await expect(swarm.locator(".banner")).toHaveText("Swarm state refreshed");
   });
 
+  test("a changelist's description is Markdown: rendered on its page, plain text in the rail and its heading", async ({ page }) => {
+    const base = await startReview(page), rid = base.split("/")[2];
+    const md = "# uart: **flags** field\n\nWhy:\n\n- adds `flags`\n- see [the spec](https://example.invalid/spec)\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n<img src=x onerror=\"window.__pwned=1\">";
+    await page.route(`**/api/reviews/${rid}`, async (r) => {
+      const res = await r.fetch(), body = await res.json();
+      body.cls = body.cls.map((c: { cl: number; description: string }) => (c.cl === 102 ? { ...c, description: md } : c));
+      await r.fulfill({ response: res, json: body });
+    });
+    await page.goto(`${base}/cl/102`);
+    await expect(page.locator(".ws-finding h2")).toHaveText("CL 102 · uart: flags field");
+    await expect(page.locator(".ws-rail").getByRole("link", { name: "Open CL 102" })).toContainText("uart: flags field");
+    const desc = page.locator(".ws-desc");
+    await expect(desc.locator("li")).toHaveCount(2);
+    await expect(desc.locator("li code")).toHaveText("flags");
+    await expect(desc.getByRole("link", { name: "the spec" })).toHaveAttribute("target", "_blank");
+    await expect(desc.locator("table td")).toHaveCount(2);
+    await expect(desc.locator("img")).toHaveCount(0);                   // raw HTML is never rendered
+    expect(await page.evaluate(() => (window as unknown as { __pwned?: number }).__pwned)).toBeUndefined();
+    expect(await desc.innerText()).not.toContain("- adds");
+  });
+
   test("a changelist: its Swarm card, its files filtered to it, the stories and findings drawn from it", async ({ page }) => {
     const base = await startReview(page);
     await page.locator(".ws-rail").getByRole("link", { name: "Open CL 102" }).click();

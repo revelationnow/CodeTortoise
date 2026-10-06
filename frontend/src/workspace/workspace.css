@@ -491,4 +491,14 @@ a.ws-chip { text-decoration: none; }
 .ws-swarm p { margin: 4px 0; }
 .ws-swarm .banner { margin: 6px 0; }
 .ws-badge.state-ack { color: var(--warn); } .ws-badge.state-dismissed { color: var(--muted); }
-.ws-desc { white-space: pre-wrap; font: 13px/1.5 var(--sans); color: var(--muted); margin: 8px 0 0; }
+.ws-desc { font: 13.5px/1.55 var(--sans); color: var(--ink); margin: 8px 0 0; overflow-wrap: anywhere; }
+.ws-desc > :first-child { margin-top: 0; } .ws-desc > :last-child { margin-bottom: 0; }
+.ws-desc :is(p, ul, ol, pre, table, blockquote) { margin: 0 0 8px; }
+.ws-desc :is(h1, h2, h3, h4, h5, h6) { margin: 12px 0 6px; font-size: 14px; }
+.ws-desc :is(ul, ol) { padding-left: 22px; }
+.ws-desc code { font: 12.5px var(--mono); background: var(--gap-bg); padding: 1px 4px; border-radius: 4px; }
+.ws-desc pre { background: var(--gap-bg); padding: 8px 10px; border-radius: 6px; overflow-x: auto; }
+.ws-desc pre code { background: none; padding: 0; }
+.ws-desc blockquote { border-left: 3px solid var(--line); padding-left: 10px; color: var(--muted); }
+.ws-desc table { border-collapse: collapse; display: block; overflow-x: auto; }
+.ws-desc :is(th, td) { border: 1px solid var(--line); padding: 3px 8px; text-align: left; }
