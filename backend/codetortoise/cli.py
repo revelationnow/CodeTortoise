@@ -1,4 +1,4 @@
-"""Command line: serve, index, review (headless), fixture-demo."""
+"""Command line: serve, index, review (headless), stories-check, fixture-demo."""
 from __future__ import annotations
 
 import argparse
@@ -79,6 +79,16 @@ def cmd_review(args) -> int:
             print(f"       - {e.text}{loc}")
     print(f"review {rid}: {svc.store.get_review(rid)['status']}")
     return 0
+
+
+def cmd_stories_check(args) -> int:
+    from codetortoise.stories_check import stories_check
+    svc = _services(args.config)
+    try:
+        return stories_check(svc, args.review, args.runs)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 1
 
 
 def cmd_init(args) -> int:
@@ -191,6 +201,11 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--title")
     s.add_argument("cls", nargs="+", type=int)
     s.set_defaults(fn=cmd_review)
+    s = sub.add_parser("stories-check", help="run tier 1's stories N times on a review and print how often they agree")
+    s.add_argument("--config", required=True)
+    s.add_argument("review", type=int)
+    s.add_argument("--runs", type=int, default=3)
+    s.set_defaults(fn=cmd_stories_check)
     s = sub.add_parser("init", help="write a starter tortoise.yaml for the workspace you are in")
     s.add_argument("--root", default=".", help="a folder inside the workspace (default: the current folder)")
     s.add_argument("--out", default="tortoise.yaml")

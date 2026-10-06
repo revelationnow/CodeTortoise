@@ -168,9 +168,10 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         return {"review": review_or_404(rid), "cls": store.list_cls(rid), "stages": store.list_stages(rid)}
 
     @app.post("/api/reviews/{rid}/rerun")
-    def rerun(rid: int, _: str = Depends(owner_of)):
+    def rerun(rid: int, fresh: bool = False, _: str = Depends(owner_of)):
+        """Run the review again; `fresh` asks the strong model for new stories instead of reusing a brief."""
         review_or_404(rid)
-        runner.submit_review(rid)
+        runner.submit_review(rid, fresh=fresh)
         return {"queued": True}
 
     @app.get("/api/reviews/{rid}/events")
@@ -405,10 +406,12 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         review_or_404(rid)
         b = cfg.llm.budget
         u = svc.ledger.usage(rid) if svc.ledger else {"used": 0, "budget": b.per_review, "by_person": {},
-                                                      "by_purpose": {}, "calls": []}
+                                                      "by_purpose": {}, "calls": [],
+                                                      "tier1": {"used": 0, "budget": b.tier1_per_review}}
         u.pop("calls", None)                           # polled while work is pending; the list is /ai/calls
         rounds = svc.ledger.rounds(rid) if svc.ledger else b.per_mention
-        return {**u, "llm": svc.llm is not None, "me_today": svc.ledger.person_today(user) if svc.ledger else 0,
+        strong = cfg.llm.strong.model if svc.strong is not None and cfg.llm.strong else None
+        return {**u, "llm": svc.llm is not None, "strong": strong, "me_today": svc.ledger.person_today(user) if svc.ledger else 0,
                 "me_limit": b.per_person_daily, "per_mention": rounds, "is_owner": user == cfg.owner,
                 "jobs": runner.ai_jobs.get(rid, []), "file_summaries": store.get_blob(rid, "file_summaries") or {}}
 
