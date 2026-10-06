@@ -356,3 +356,19 @@ def test_neighbours_list_a_nodes_callers_and_callees(env):
     assert len(own["callers"]["items"]) == min(50, own["callers"]["total"]) and len(own["callees"]["items"]) <= 1
     r = owner.get(f"/api/reviews/{rid}/nodes/N99999/neighbours")
     assert r.status_code == 404 and r.json()["detail"] == "no node N99999 in this review"
+
+
+def test_the_owner_reruns_stories_fresh_and_the_ai_view_shows_tier_1(env):
+    from test_pipeline import _one_story_per_cl, _strong
+    svc, app, _ = env
+    llm = _strong(svc, _one_story_per_cl)
+    owner = login(app, "owner")
+    rid = owner.post("/api/reviews", json={"cls": [101, 102]}).json()["id"]
+    calls = len(llm.prompts)
+    assert owner.post(f"/api/reviews/{rid}/rerun").json() == {"queued": True}
+    assert len(llm.prompts) == calls                                   # the brief was reused
+    assert owner.post(f"/api/reviews/{rid}/rerun?fresh=true").json() == {"queued": True}
+    assert len(llm.prompts) == 2 * calls                               # fresh: the strong model was asked again
+    ai = owner.get(f"/api/reviews/{rid}/ai").json()
+    assert ai["strong"] == "big" and ai["tier1"]["budget"] == 40
+    assert login(app, "bob").post(f"/api/reviews/{rid}/rerun?fresh=true").status_code == 403
