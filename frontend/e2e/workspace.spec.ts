@@ -38,17 +38,13 @@ test.describe("desktop", () => {
     await expectNamed(page);
   });
 
-  test("the whole change: what it is for, why it is risky, then the rest", async ({ page }) => {
-    const base = await startReview(page);
-    const page_ = page.locator(".ws-whole");
-    await expect(page_.locator("h2")).toHaveText(["What this change is trying to do", "Why it is high risk",
-                                                  /^The map/, "Files with side effects", "Discussion"]);
-    await expect(page_.locator(".ws-summary")).toContainText("2 behaviour stories.");
-    await page_.getByRole("link", { name: /^Go to finding F1:/ }).click();
-    await expect(page).toHaveURL(new RegExp(`${base}/f/F1$`));
-    await page.goBack();
-    await page_.locator(".ws-fx").getByRole("link", { name: /^Open uart_errors at line/ }).click();
-    await expect(page).toHaveURL(/\?open=file%3A%2F%2Ffixture%2Fdriver%2Fuart\.c%3A\d+$/);
+  test("the overview: the change as a whole, its one thread and what to check", async ({ page }) => {
+    await startReview(page);
+    const left = page.locator(".ov2-left");
+    await expect(left.locator("h2")).toHaveText(["The change as a whole", "How the threads connect", "Threads", /^The map/, "Discussion"]);
+    await expect(left.locator(".ws-lead")).toHaveText("One thread: hal_write in hal.");
+    await expect(left).toContainText("One thread: all stories are connected by calls or shared data.");
+    await expect(page.getByRole("region", { name: "To check" }).locator(".ck-row")).toHaveCount(5);
     await expectNoNodeIds(page);
     await expectNamed(page);
   });

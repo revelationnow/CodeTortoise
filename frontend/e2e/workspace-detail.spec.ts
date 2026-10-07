@@ -149,10 +149,10 @@ test.describe("desktop", () => {
     await expect(panel.locator(".ws-file")).toHaveCount(0);
   });
 
-  test("a side effect on the whole change opens its file at a folded line, shown", async ({ page }) => {
+  test("a To check row opens its file at its line, folded away or not", async ({ page }) => {
     await startReview(page);
     await page.locator(".ws-rail").getByRole("link", { name: "Go to the whole change" }).click();
-    await page.getByRole("link", { name: "Open uart_init at line 8" }).click();       // line 8: outside the hunks
+    await page.getByRole("region", { name: "To check" }).getByRole("link", { name: "Open driver/uart.c at line 8" }).click();   // outside the hunks
     await expect(page.getByRole("complementary", { name: "Code: uart.c" }).locator('.focus[data-n="8"]')).toBeVisible();
   });
 
