@@ -360,6 +360,14 @@ def test_callers_that_share_a_caller_each_get_a_path_through_them():
     paths = call_paths(_set(["N1"]).stories[0], _x(c), [])
     assert [p.labels for p in paths] == [["main", "c1", "send"], ["main", "c2", "send"], ["main", "c3", "send"]]
 
+
+def test_a_caller_whose_own_caller_was_reached_another_way_still_climbs_to_it():
+    fns = [_edit("send", "drv/uart.c"), _same("main", "app/main.c"), _same("init", "drv/init.c"),
+           _same("put", "drv/put.c"), _same("flush", "svc/flush.c")]
+    c = _world(fns, calls=[("init", "send"), ("main", "init"), ("put", "send"), ("flush", "put"), ("main", "flush")])
+    paths = call_paths(_set(["N1"]).stories[0], _x(c), [])
+    assert [p.labels for p in paths] == [["main", "init", "send"], ["main", "flush", "put", "send"]]
+
 # ---- §7 To check
 def _f(fid, kind="contract", severity="medium", nodes=("N1",), verdict=None, reason=None, source=None, title=None):
     from codetortoise.detectors.base import Finding
