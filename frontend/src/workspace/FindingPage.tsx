@@ -5,6 +5,7 @@ import { SeverityBadge } from "../components/Badges";
 import Comments from "../components/Comments";
 import Explain from "../components/Explain";
 import { useAi } from "../lib/ai";
+import { tidy } from "../lib/tidy";
 import { citeTarget } from "../stories/stories";
 import type { Address } from "./address";
 import { useWs } from "./context";
@@ -33,7 +34,7 @@ export default function FindingPage({ fid }: { fid: string }) {
   const depots = [...(f.files ?? []), ...d.files.map((x) => x.depot), ...Object.values(d.names).flatMap((x) => (x.path ? [x.path] : []))];
   const step = (by: number) => {
     const to = d.findings[((i + by) % n + n) % n];
-    const label = `${by < 0 ? "Previous" : "Next"} finding: ${to.id} ${short(to.title)}`;
+    const label = `${by < 0 ? "Previous" : "Next"} finding: ${to.id} ${short(tidy(to.title))}`;
     return <Link className="bd-ibtn ws-step-btn" to={ws.link({ ...ws.item({ kind: "finding", fid: to.id }), details: true })} title={label} aria-label={label}>
       {by < 0 ? "‹" : "›"}</Link>;
   };
@@ -47,7 +48,7 @@ export default function FindingPage({ fid }: { fid: string }) {
     <div className="ws-page"><div className="ws-text ws-finding">
       <header className="ws-story-head">
         <div className="ws-story-title">
-          <h2><SeverityBadge severity={f.severity} /> {f.title}</h2>
+          <h2><SeverityBadge severity={f.severity} /> {tidy(f.title)}</h2>
           <span className="ws-pos">{step(-1)}<span>{f.id} of {n}</span>{step(1)}</span>
         </div>
         <p className="ws-story-meta">
@@ -99,12 +100,12 @@ export default function FindingPage({ fid }: { fid: string }) {
       </section>
       <section aria-labelledby="ws-ev">
         <h3 id="ws-ev">Evidence</h3>
-        <p><NameText text={f.summary} /></p>
+        <p><NameText text={tidy(f.summary)} /></p>
         <ul className="ws-evidence">{f.evidence.map((e, k) => {
           const depot = e.file ? depotFor(e.file, depots) : null, file = depot ?? e.file;
           const fileTail = file ? file.split("/").slice(-2).join("/") : null;
           return (
-            <li key={k} className={`sev-${e.severity}`}><NameText text={e.text} />
+            <li key={k} className={`sev-${e.severity}`}><NameText text={tidy(e.text)} />
               {depot ? <> <Link className="mono small" to={ws.link(ws.opened({ file: depot, line: e.line }))}
                                 title={`Open ${fileTail}${e.line ? ` at line ${e.line}` : ""}`}
                                 aria-label={`Open ${fileTail}${e.line ? ` at line ${e.line}` : ""}`}>{fileTail}{e.line ? `:${e.line}` : ""}</Link></>

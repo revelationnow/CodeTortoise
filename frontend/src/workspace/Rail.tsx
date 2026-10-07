@@ -5,6 +5,7 @@ import { keys, load, loadWidth, save } from "../board/prefs";
 import Resizer from "../board/Resizer";
 import HeadlinePill from "../components/HeadlinePill";
 import { plainTitle } from "../lib/markdown";
+import { tidy } from "../lib/tidy";
 import { isOpen, letter, openCount } from "../reading/checks";
 import { reviewTargets, sections } from "../stories/stories";
 import { INDEX_TABS, type Place, samePlace } from "./address";
@@ -172,9 +173,9 @@ export default function Rail({ show, onPick, hidden = false }: { show: string | 
       {d.ready && section("findings", `Findings (${d.findings.length})`, (
         bySeverity(d.findings).map((g) => (
           <div key={g.severity} className="ws-group"><h3>{g.severity}</h3><ul>{g.findings.map((f) => (
-            <li key={f.id}>{row({ kind: "finding", fid: f.id }, `Go to finding ${f.id}: ${short(f.title)}`, <span className="ws-row-top">
+            <li key={f.id}>{row({ kind: "finding", fid: f.id }, `Go to finding ${f.id}: ${short(tidy(f.title))}`, <span className="ws-row-top">
               <span className={`ws-sev ${f.severity}`} aria-hidden />
-              <span className="ws-row-title">{f.title}</span>
+              <span className="ws-row-title">{tidy(f.title)}</span>
               <span className="ws-handle">{f.id}</span>
               {ss?.finding_story[f.id] && <span className="ws-handle">{ss.finding_story[f.id]}</span>}
             </span>, f.state !== "open" ? "done" : "")}</li>

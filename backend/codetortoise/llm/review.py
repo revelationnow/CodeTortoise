@@ -25,6 +25,7 @@ from codetortoise.llm.stories import Tools, ask, pieces_of
 from codetortoise.llm.storyboard import _styled
 from codetortoise.llm.style import MODES, STYLE
 from codetortoise.pieces import PieceSet
+from codetortoise.tidy import tidy
 
 SEVERITY = {"hazard": "high", "needs_review": "medium", "no_hazard": "info"}
 
@@ -86,7 +87,8 @@ def question(f: Finding) -> str:
 
 def review_parts(s: PlannedStory, ps: PieceSet, mine: list[Finding], facts: dict[str, str]) -> list[str]:
     cards = "\n\n".join(p.card for p in ps.pieces if p.id in s.pieces)
-    rows = [f"{f.id} [{f.severity}] {f.kind}: {f.title}\n{f.summary}\nFACTS:\n{facts.get(finding_key(f), 'no prepared facts')}"
+    rows = [f"{f.id} [{f.severity}] {f.kind}: {tidy(f.title)}\n{tidy(f.summary)}\n"
+            f"FACTS:\n{facts.get(finding_key(f), 'no prepared facts')}"
             f"\nQUESTION: {question(f)}" for f in mine]
     return [RULES + "\n\nCHANGE OVERVIEW:\n" + ps.overview,
             f"STORY {s.key}: {s.title or '(untitled)'}" + (f"\nPurpose: {s.purpose}" if s.purpose else "") + "\nPIECES:\n" + cards,

@@ -5,6 +5,7 @@ import { bandsOf, linkLines } from "../board/overview";
 import { sideEffectFiles } from "../board/sideEffects";
 import type { Board } from "../board/types";
 import Comments from "../components/Comments";
+import { counted } from "../lib/tidy";
 import { useWs } from "./context";
 import { pickFlow } from "./flows";
 import GraphView from "./graph/GraphView";
@@ -47,8 +48,8 @@ export function MapSection() {
               <Link key={c.id} to={ws.link(ws.item({ kind: "cluster", cid: c.id }))} className={`ov-block ${c.risk ?? "none"}`}
                     title={`Open ${c.name}`} aria-label={`Open ${c.name}`}>
                 <div className="nm">{c.name} {c.risk && <span className={`sev ${c.risk}`}>{c.risk.toUpperCase()}</span>}</div>
-                <div className="ct">{c.files.length} files · {c.changed} changed · {c.flows} flows
-                  {c.findings > 0 && ` · ${c.findings} finding${c.findings === 1 ? "" : "s"}`}</div>
+                <div className="ct">{[counted(c.files.length, "file"), c.changed ? `${c.changed} changed` : "", counted(c.flows, "flow"),
+                                      counted(c.findings, "finding")].filter(Boolean).join(" · ")}</div>
                 {linkLines(ov, c.id, 3).map((l) => <div key={l} className="ln">{l}</div>)}
                 {c.also.length > 0 && <div className="also">also in {c.also.map((lv) => layerName(lv) ?? `L${lv}`).join(", ")}</div>}
               </Link>

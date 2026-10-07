@@ -21,6 +21,7 @@ from codetortoise.provenance import tag_board
 from codetortoise.reading import Check, Reading, with_marks
 from codetortoise.services import Services
 from codetortoise.swarm import SwarmError
+from codetortoise.tidy import tidy
 from codetortoise.vcs.p4runner import P4Error
 from codetortoise.vcs.source import SourceBinary, SourceNotAllowed, SourceTooLarge
 
@@ -402,7 +403,10 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
     @app.get("/api/reviews/{rid}/findings")
     def findings(rid: int, _: str = Depends(user_of)):
         review_or_404(rid)
-        return [f.model_dump() for f in store.list_findings(rid)]
+        root = canon(str(cfg.workspace.root))                     # text read by people; titles stay as stored (anchors)
+        return [f.model_copy(update={"summary": tidy(f.summary, root),
+                                     "evidence": [e.model_copy(update={"text": tidy(e.text, root)}) for e in f.evidence]})
+                .model_dump() for f in store.list_findings(rid)]
 
     @app.patch("/api/reviews/{rid}/findings/{fid}")
     def finding_state(rid: int, fid: str, body: FindingStateIn, _: str = Depends(owner_of)):

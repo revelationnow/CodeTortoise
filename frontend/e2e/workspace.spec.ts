@@ -160,6 +160,7 @@ test.describe("a large change", () => {
     await page.locator(".ws-rail").getByRole("link", { name: "Open the Index: Map" }).click();
     const map = page.getByRole("region", { name: "The map" });
     await expect(map.locator(".ov-block")).toHaveCount(7);
+    await expect(map.locator(".ov-block .ct").filter({ hasText: /\b0 \w/ })).toHaveCount(0);      // an empty count is never shown
     await expect(map.getByRole("region", { name: "Layer drv" })).toContainText("drv/dma");
     const tints = await map.locator(".ov-band").evaluateAll((els) => els.map((e) => getComputedStyle(e).backgroundColor));
     expect(new Set(tints).size).toBeGreaterThan(1);   // each layer band keeps its level tint
@@ -168,6 +169,7 @@ test.describe("a large change", () => {
     await map.getByRole("link", { name: "Open drv/uart" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}/c/C\\d+$`));
     await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toContainText("Map › drv/uart");
+    await expect(page.locator(".ws-story-meta")).not.toContainText(/\b0 \w/);
     await expect(page.locator(".bd-node").first()).toBeVisible();
     await expect(page.getByRole("region", { name: "Flow" })).toBeVisible();
     let visitor = page.locator(".bd-home").first();

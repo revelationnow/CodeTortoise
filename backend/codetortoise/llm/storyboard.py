@@ -18,6 +18,7 @@ from codetortoise.llm.ledger import Ledger, Refused
 from codetortoise.llm.style import MODES, STYLE, check_style
 from codetortoise.provenance import merge
 from codetortoise.stories import StoryDetail
+from codetortoise.tidy import tidy
 
 SYSTEM = ("You are a senior C/C++ code reviewer. You are given facts extracted by static analysis "
           "for a set of changes. Use ONLY these facts. Refer to functions/fields by their node id (e.g. N3) "
@@ -187,8 +188,8 @@ def _facts_for_nodes(impact: ImpactModel, nids: list[str]) -> str:
 
 
 def _finding_text(f: Finding) -> str:
-    ev = "\n".join(f"  - [{e.severity}] {e.text} ({e.file}:{e.line})" for e in f.evidence)
-    return f"{f.id} [{f.severity}] {f.kind}: {f.title}\n{f.summary}\nnodes: {f.nodes}\nevidence:\n{ev}"
+    ev = "\n".join(f"  - [{e.severity}] {tidy(e.text)} ({e.file}:{e.line})" for e in f.evidence)
+    return f"{f.id} [{f.severity}] {f.kind}: {tidy(f.title)}\n{tidy(f.summary)}\nnodes: {f.nodes}\nevidence:\n{ev}"
 
 
 def _flow_prompt(fl: Flow, impact: ImpactModel, findings: list[Finding], snippets: dict[str, str], per_call: int) -> str:

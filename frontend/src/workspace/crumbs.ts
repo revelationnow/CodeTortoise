@@ -1,6 +1,7 @@
 /** The centre's breadcrumb (spec 2026-10-04-review-workspace §2.4): every part but the current one is a link up. */
 import type { Finding } from "../api";
 import type { Story } from "../board/types";
+import { tidy } from "../lib/tidy";
 import { href, type Place } from "./address";
 
 export interface Crumb { label: string; to: string | null; handle?: string }
@@ -48,7 +49,7 @@ export function crumbs(place: Place, c: CrumbContext): Crumb[] {
     }
     case "finding": {
       const f = c.findings.find((x) => x.id === place.fid);
-      return [home, section("Findings", "findings"), f ? { label: short(f.title), handle: f.id, to: null } : missing()];
+      return [home, section("Findings", "findings"), f ? { label: short(tidy(f.title)), handle: f.id, to: null } : missing()];
     }
     case "cl": {
       const cl = c.cls.find((x) => x.cl === place.cl);

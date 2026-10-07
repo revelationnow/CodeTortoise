@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Board } from "../api";
 import { stepCluster } from "../board/overview";
+import { counted } from "../lib/tidy";
 import { useWs } from "./context";
 import { short } from "./crumbs";
 import { pickFlow } from "./flows";
@@ -39,8 +40,8 @@ export default function ClusterPage({ cid }: { cid: string }) {
             <h2>{c.risk && <span className={`bd-pill ${c.risk}`}>{c.risk}</span>}{c.name}</h2>
             <span className="ws-pos">{step(-1)}<span>{at + 1} of {ov.clusters.length}</span>{step(1)}</span>
           </div>
-          <p className="ws-story-meta"><span className="muted">{layer ? `${layer} · ` : ""}{c.files.length} files · {c.changed} changed ·{" "}
-            {c.flows} flows · {c.findings} finding{c.findings === 1 ? "" : "s"}</span>
+          <p className="ws-story-meta"><span className="muted">{[layer, counted(c.files.length, "file"), c.changed ? `${c.changed} changed` : "",
+                                                                 counted(c.flows, "flow"), counted(c.findings, "finding")].filter(Boolean).join(" · ")}</span>
             {stories.map((s) => (
               <Link key={s.id} className="ws-chip" to={ws.link(ws.item({ kind: "story", sid: s.id, view: "steps" }))}
                     title={`Go to story ${s.id}: ${short(s.title)}`} aria-label={`Go to story ${s.id}: ${short(s.title)}`}>

@@ -9,7 +9,8 @@ test.describe("desktop", () => {
   test("a finding: to its story and back, on the graph, evidence opens the diff at its line", async ({ page }) => {
     const base = await startReview(page);
     await page.goto(`${base}/f/F4?details=1`);
-    await expect(page.locator(".ws-finding h2")).toContainText("uart_send: new return value(s) -2");
+    await expect(page.locator(".ws-finding h2")).toContainText("uart_send: new return value -2");
+    await expect(page.locator(".ws-finding")).toContainText("returns before: 0; after: -2, 0");      // evidence as a list, not a repr
     await expect(page.getByRole("region", { name: "AI analysis" })).toContainText("AI analysis unavailable.");
     await page.getByRole("link", { name: /^Go to story S1/ }).first().click();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S1$`));
@@ -32,6 +33,17 @@ test.describe("desktop", () => {
     await expect(page.locator(".ws-finding .ws-badge")).toHaveText("acknowledged");
     await expectNoNodeIds(page);
     await expectNamed(page);
+  });
+
+  test("a header's reach reads as words: counts with their nouns, its layers as a list", async ({ page }) => {
+    const base = await startReview(page);
+    await page.goto(`${base}/f/F1?details=1`);
+    await expect(page.locator(".ws-finding h2")).toContainText("regs.h: 1 change reaches 4 TUs");
+    const finding = page.locator(".ws-finding");
+    await expect(finding).toContainText("Changes in include/hal/regs.h affect 4 translation units across 4 layers.");
+    await expect(finding).toContainText("included (transitively) by 4 TUs; by layer: ");
+    for (const layer of ["L1: hal (1)", "L2: driver (1)", "L3: service (1)", "L4: app (1)"]) await expect(finding).toContainText(layer);
+    await expect(finding).not.toContainText("{'");
   });
 
   test("a side effect is neutral until the AI judges it: no red, and it says it isn't assessed", async ({ page }) => {

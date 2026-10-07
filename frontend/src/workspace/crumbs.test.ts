@@ -30,7 +30,7 @@ describe("the breadcrumb", () => {
 
   it("names findings, changelists and clusters under their sections", () => {
     expect(crumbs({ kind: "finding", fid: "F2" }, ctx).slice(1)).toEqual([
-      { label: "Findings", to: "/r/7#findings" }, { label: "uart_send: new return value(s) -2", handle: "F2", to: null }]);
+      { label: "Findings", to: "/r/7#findings" }, { label: "uart_send: new return value -2", handle: "F2", to: null }]);
     expect(crumbs({ kind: "cl", cl: 101 }, ctx).slice(1)).toEqual([
       { label: "Change set", to: "/r/7#changeset" }, { label: "CL 101 · uart: count tx stats", to: null }]);
     expect(crumbs({ kind: "cluster", cid: "C1" }, ctx).slice(1)).toEqual([
@@ -46,7 +46,7 @@ describe("the breadcrumb", () => {
     expect(crumbs({ kind: "cl", cl: 101 }, r)).toEqual([home, { label: "CLs", to: "/r/7/i/cls" },
       { label: "CL 101 · uart: count tx stats", to: null }]);
     expect(crumbs({ kind: "finding", fid: "F2" }, r)).toEqual([home, { label: "Checks", to: "/r/7/i/checks" },
-      { label: "uart_send: new return value(s) -2", handle: "F2", to: null }]);
+      { label: "uart_send: new return value -2", handle: "F2", to: null }]);
     expect(crumbs({ kind: "index", tab: "files" }, r)).toEqual([home, { label: "Files", to: null }]);
   });
 

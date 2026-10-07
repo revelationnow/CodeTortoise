@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { flowSteps } from "../board/phone/flowSteps";
 import type { BoardFlow, StoryDetail } from "../board/types";
 import { SeverityBadge } from "../components/Badges";
+import { tidy } from "../lib/tidy";
 import { useWs } from "./context";
 import { short } from "./crumbs";
 import NameText from "./NameText";
@@ -57,8 +58,8 @@ export default function StorySteps({ detail, flow }: { detail: StoryDetail; flow
           <h3 id="ws-sf">Findings</h3>
           <ul className="ws-findings">{mine.map((f) => (
             <li key={f.id}><SeverityBadge severity={f.severity} />{" "}
-              <Link to={ws.link(ws.item({ kind: "finding", fid: f.id }))} title={`Go to finding ${f.id}: ${short(f.title)}`}
-                    aria-label={`Go to finding ${f.id}: ${short(f.title)}`}>{f.title}</Link><span className="ws-handle">{f.id}</span></li>
+              <Link to={ws.link(ws.item({ kind: "finding", fid: f.id }))} title={`Go to finding ${f.id}: ${short(tidy(f.title))}`}
+                    aria-label={`Go to finding ${f.id}: ${short(tidy(f.title))}`}>{tidy(f.title)}</Link><span className="ws-handle">{f.id}</span></li>
           ))}</ul>
         </section>
       )}

@@ -5,6 +5,7 @@ import { useMe } from "../App";
 import { SeverityBadge } from "../components/Badges";
 import Markdown from "../components/Markdown";
 import { descriptionParts, plainTitle } from "../lib/markdown";
+import { tidy } from "../lib/tidy";
 import { useWs } from "./context";
 import { short } from "./crumbs";
 import { Ticks } from "./NameText";
@@ -71,8 +72,8 @@ export default function ClPage({ cl }: { cl: number }) {
         <section aria-labelledby="ws-clfi"><h3 id="ws-clfi">Findings in its files</h3>
           <ul className="ws-findings">{findings.map((f) => (
             <li key={f.id}><SeverityBadge severity={f.severity} />{" "}
-              <Link to={ws.link(ws.item({ kind: "finding", fid: f.id }))} title={`Go to finding ${f.id}: ${short(f.title)}`}
-                    aria-label={`Go to finding ${f.id}: ${short(f.title)}`}>{f.title}</Link><span className="ws-handle">{f.id}</span></li>
+              <Link to={ws.link(ws.item({ kind: "finding", fid: f.id }))} title={`Go to finding ${f.id}: ${short(tidy(f.title))}`}
+                    aria-label={`Go to finding ${f.id}: ${short(tidy(f.title))}`}>{tidy(f.title)}</Link><span className="ws-handle">{f.id}</span></li>
           ))}</ul></section>
       )}
     </div></div>
