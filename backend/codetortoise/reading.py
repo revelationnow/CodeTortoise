@@ -20,6 +20,7 @@ from codetortoise.pieces import PieceSet, node_cl
 from codetortoise.stories import Story, StoryDetail, StorySet
 from codetortoise.targets import UNKNOWN
 
+READING_VERSION = 1                   # bump with every change to the thread text's prompt or checks (keys its cache)
 _KIND_RANK = {"calls": 0, "data": 1, "file": 2, "cl": 3}
 ConnKind = Literal["caller", "vocabulary", "condition", "place", "bundled"]
 _CONN_RANK = {"caller": 1, "vocabulary": 2, "condition": 3, "place": 4, "bundled": 5}
@@ -1070,3 +1071,19 @@ def build_reading(ss: StorySet, c: BoardContext, details: dict[str, StoryDetail]
                                  place_text=_place_text(s.id, t.stories, strong) if t else "",
                                  thread=t.id if t else None, position=t.stories.index(s.id) + 1 if t else None)
     return reading, per
+
+
+def with_marks(r: Reading, marks: dict[str, dict], findings: list[Finding]) -> dict:
+    """The reading as viewers see it (§7.4): each mark with `changed` when the source line at its place is no longer the
+    line it was marked at (the check is open again), and the headline and threads' open counts without the marked
+    checks."""
+    line = {k.key: k.source_line for k in r.checks + r.cleared}
+    view = {key: {**m, "changed": m["source_line"] != line.get(key, m["source_line"])}
+            for key, m in marks.items() if key in line}
+    marked = {key for key, m in view.items() if not m["changed"]}
+    out = r.model_dump()
+    out["marks"] = view
+    out["headline"] = headline(r.checks, marked, findings).model_dump()
+    for t in out["threads"]:
+        t["open_checks"] = sum(1 for k in r.checks if k.thread == t["id"] and k.key not in marked)
+    return out

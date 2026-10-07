@@ -18,11 +18,15 @@ def test_full_review_without_llm_or_swarm(fx, tmp_path):
     assert stages(svc, rid) == {"ingest": "ok", "swarm_read": "degraded", "diffmap": "ok", "tu_select": "ok",
                                 "layers": "ok", "facts": "ok", "impact": "ok", "detectors": "ok", "pieces": "ok",
                                 "stories": "ok", "review": "ok", "verdicts": "ok", "board": "ok", "llm": "degraded",
-                                "finalize": "ok"}
+                                "reading": "ok", "finalize": "ok"}
     msgs = {s["name"]: s["message"] for s in svc.store.list_stages(rid)}
     assert msgs["pieces"].endswith("target(s): compile_commands")
     assert msgs["stories"].endswith("by the rules (no strong model configured)")
     assert msgs["review"] == "no strong model: 6 finding(s) left to the detectors and the AI's side-effect pass"
+    assert msgs["reading"] == "1 thread(s), 0 connection(s) shown, 5 check(s); fixed thread text (no strong model)"
+    reading = svc.store.get_blob(rid, "reading")
+    assert [t["stories"] for t in reading["threads"]] == [["S2", "S1"]] and reading["headline"]["rules_only"]
+    assert svc.store.get_blob(rid, "story_reading:S1")["thread"] == "T1"
     ss = svc.store.get_blob(rid, "stories")
     assert all(s["targets"] == ["compile_commands"] and s["pieces"] for s in ss["stories"])
     review = svc.store.get_review(rid)
@@ -405,6 +409,12 @@ def _one_story_per_cl(system, user):
                                                   "cites": [node]} for f in re.findall(r"^(F\d+) \[", user, re.M)]}
     if "STORIES (key | title" in user:
         return {"related": [], "merge": []}
+    if "THREADS (id" in user:
+        rows = re.findall(r"^(T\d+) \|.*?\| (S\d+)", user, re.M)
+        return {"threads": [{"id": t, "name": "UART driver changes", "purpose": "This changes the UART driver.",
+                             "cites": [sid]} for t, sid in rows],
+                "whole": "The change reworks the UART driver. Its callers see new results.", "whole_cites": ["T1"],
+                "connections": []}
     by_cl: dict[str, list[str]] = {}
     for pid, cl in re.findall(r"^(P\d+)  .*? · CL (\d+)", user, re.M):
         by_cl.setdefault(cl, []).append(pid)
@@ -481,3 +491,18 @@ def test_the_strong_model_reviews_each_story_s_findings_and_tier_2_leaves_them_a
     calls = len(llm.prompts)
     run_review(rid, svc)                                            # the brief brings its verdicts: no call at all
     assert len(llm.prompts) == calls and len(svc.store.get_brief(rid)["verdicts"]) == 6
+
+
+def test_the_strong_model_names_the_threads_once_and_a_rerun_reuses_the_text(fx, tmp_path):
+    svc = make_services(fx, tmp_path)
+    llm = _strong(svc, _one_story_per_cl)
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    reading = svc.store.get_blob(rid, "reading")
+    assert {t["name"] for t in reading["threads"]} == {"UART driver changes"} and reading["whole_source"] == "llm"
+    msg = next(s["message"] for s in svc.store.list_stages(rid) if s["name"] == "reading")
+    assert msg.endswith("thread text by big")
+    asked = sum("THREADS (id" in p for p in llm.prompts)
+    run_review(rid, svc)
+    assert sum("THREADS (id" in p for p in llm.prompts) == asked == 1
+    assert svc.store.get_blob(rid, "reading")["whole_source"] == "llm"

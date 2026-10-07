@@ -1,6 +1,7 @@
 """Staged review pipeline and background job runner."""
 from __future__ import annotations
 
+import hashlib
 import logging
 import queue
 import threading
@@ -10,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from codetortoise import boardstore
-from codetortoise.board import BoardContext, analyse, build_boards
+from codetortoise.board import BoardContext, analyse, build_boards, is_test_path
 from codetortoise.brief import Brief, cache_key
 from codetortoise.detectors.base import DetectorContext, renumber, run_detectors
 from codetortoise.diffmap import map_changes
@@ -23,9 +24,12 @@ from codetortoise.llm.brief_context import brief_context
 from codetortoise.llm.review import apply_verdicts, review_stories
 from codetortoise.llm.stories import STORY_RULES_VERSION, form_stories
 from codetortoise.llm.storyboard import AiContext, build_storyboard, judge_side_effects
+from codetortoise.llm.threads import prompt as threads_prompt
+from codetortoise.llm.threads import write_threads
 from codetortoise.paths import canon
 from codetortoise.pieces import build_pieces
 from codetortoise.provenance import finding_files, impact_node_files, local_files
+from codetortoise.reading import READING_VERSION, build_reading
 from codetortoise.repeated import find_repeated
 from codetortoise.services import Services
 from codetortoise.stories import build_stories
@@ -45,11 +49,11 @@ def _read_text(path: str) -> str | None:
         return None
 
 STAGES = ["ingest", "swarm_read", "diffmap", "tu_select", "layers", "facts", "impact", "detectors", "pieces", "stories",
-          "review", "verdicts", "board", "llm", "finalize"]
+          "review", "verdicts", "board", "llm", "reading", "finalize"]
 DEPS = {"swarm_read": ["ingest"], "diffmap": ["ingest"], "tu_select": ["diffmap"], "facts": ["tu_select"],
         "impact": ["facts", "tu_select", "diffmap"], "detectors": ["impact"], "pieces": ["impact", "detectors"],
         "stories": ["pieces"], "review": ["stories"], "verdicts": ["detectors"], "board": ["impact", "detectors"],
-        "llm": ["detectors"]}
+        "llm": ["detectors"], "reading": ["board"]}
 
 
 class Degraded(Exception):
@@ -409,6 +413,67 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
         if sb.style_dropped:
             return f"{sb.style_dropped} AI output(s) broke the house style and were dropped"
 
+    def reading():
+        """How the review reads (spec 2026-10-07-review-reading): threads, connections, To check, each story's tiles."""
+        bs = ctx.get("boards")
+        if bs is None or bs.stories is None or bs.analysis is None:
+            raise Degraded("no stories to read")
+        x = bs.analysis.x
+        root = x.c.root.rstrip("/") + "/"
+
+        def rel(p: str) -> str:
+            return p[len(root):] if p.startswith(root) else p
+        ps = ctx.get("pieces")
+        targets = dict(ps.targets) if ps is not None else {}
+        resolve = ctx.get("resolve_targets")
+        missing = sorted({c.file for c in x.calls_after if c.file not in targets})
+        if resolve is not None and missing:
+            targets.update(resolve(missing))
+        texts: dict[str, str | None] = {}
+
+        def read_text(path: str) -> str | None:
+            if path not in texts:
+                texts[path] = _read_text(path)
+            return texts[path]
+        has_tests = any(is_test_path(rel(f)) for f in svc.index.files()) or \
+            any(is_test_path(rel(f.local)) for f in ctx["cs"].files)
+        r, per = build_reading(bs.stories, x.c, details=bs.story_details, analysis=bs.analysis, pieces=ps,
+                               targets=targets, has_tests=has_tests, includers=svc.index.transitive_includers,
+                               test_callers=lambda name: {c.path for c in svc.index.callers_of(name)
+                                                          if is_test_path(rel(c.path))},
+                               read_text=read_text)
+        notes: list[str] = []
+        strong = cfg.llm.strong
+        if svc.strong is None or strong is None:
+            told = "fixed thread text (no strong model)"
+        else:
+            cls_text = {m.cl: m.description for m in ctx["cs"].cls}
+            key = hashlib.sha256(f"{READING_VERSION}|{strong.model}|{threads_prompt(r, bs.stories, cls_text)}"
+                                 .encode()).hexdigest()
+            cached = store.get_blob(rid, "thread_text")
+            if cached and cached.get("key") == key and not fresh:
+                for t in r.threads:
+                    t.name, t.purpose, t.text_source = cached["threads"].get(t.id, (t.name, t.purpose, t.text_source))
+                r.whole, r.whole_source = cached["whole"], cached["whole_source"]
+                for k in r.connections:
+                    k.text = cached["connections"].get(f"{k.a}-{k.b}", k.text)
+            else:
+                notes = write_threads(svc.strong, svc.ledger, rid, r, bs.stories, cls_text)
+                if not notes:
+                    store.put_blob(rid, "thread_text", {
+                        "key": key, "threads": {t.id: (t.name, t.purpose, t.text_source) for t in r.threads},
+                        "whole": r.whole, "whole_source": r.whole_source,
+                        "connections": {f"{k.a}-{k.b}": k.text for k in r.connections}})
+            told = f"thread text by {strong.model}"
+        store.replace_blobs(rid, ["reading"], ["story_reading:"],
+                            {"reading": r, **{f"story_reading:{sid}": sr for sid, sr in per.items()}})
+        store.prune_marks(rid, {k.key for k in r.checks})
+        msg = (f"{len(r.threads)} thread(s), {sum(k.shown for k in r.connections)} connection(s) shown, "
+               f"{len(r.checks)} check(s); {told}")
+        if notes:
+            raise Degraded(msg + "; " + "; ".join(notes))
+        return msg
+
     def finalize():
         sb = ctx.get("storyboard")
         if status.get("ingest") not in ("ok", "degraded"):
@@ -425,7 +490,7 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
         for name, fn in [("ingest", ingest), ("swarm_read", swarm_read), ("diffmap", diffmap), ("tu_select", tu_select),
                          ("layers", layers), ("facts", facts), ("impact", impact), ("detectors", detectors),
                          ("pieces", pieces), ("stories", stories), ("review", review),
-                         ("verdicts", verdicts), ("board", board), ("llm", llm),
+                         ("verdicts", verdicts), ("board", board), ("llm", llm), ("reading", reading),
                          ("finalize", finalize)]:
             stage(name, fn)
 
