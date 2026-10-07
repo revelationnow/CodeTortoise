@@ -131,6 +131,8 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
         if any(status.get(d) not in ("ok", "degraded") for d in DEPS.get(name, [])):
             status[name] = "skipped"
             store.set_stage(rid, name, "skipped", "missing inputs")
+            if name == "reading":
+                drop_reading()
             return
         store.set_stage(rid, name, "running")
         try:
@@ -413,8 +415,20 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
         if sb.style_dropped:
             return f"{sb.style_dropped} AI output(s) broke the house style and were dropped"
 
+    def drop_reading() -> None:
+        """A run that builds no reading leaves none: the last run's would read as this one's."""
+        store.replace_blobs(rid, ["reading"], ["story_reading:"], {})
+
     def reading():
         """How the review reads (spec 2026-10-07-review-reading): threads, connections, To check, each story's tiles."""
+        try:
+            return read()
+        except Exception:                      # Degraded too, unless it only notes what the stored reading lacks
+            if not ctx.get("reading_stored"):
+                drop_reading()
+            raise
+
+    def read():
         bs = ctx.get("boards")
         if bs is None or bs.stories is None or bs.analysis is None:
             raise Degraded("no stories to read")
@@ -467,6 +481,7 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
             told = f"thread text by {strong.model}"
         store.replace_blobs(rid, ["reading"], ["story_reading:"],
                             {"reading": r, **{f"story_reading:{sid}": sr for sid, sr in per.items()}})
+        ctx["reading_stored"] = True
         store.prune_marks(rid, {k.key for k in r.checks})
         msg = (f"{len(r.threads)} thread(s), {sum(k.shown for k in r.connections)} connection(s) shown, "
                f"{len(r.checks)} check(s); {told}")
