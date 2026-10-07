@@ -586,6 +586,16 @@ def test_coverage_names_parse_problems_caps_files_outside_compile_databases_drif
     assert coverage(_x(c), has_tests=True) == ["1 file read by tree-sitter only"]
 
 
+
+def test_a_caller_in_a_file_the_build_targets_resolve_as_unknown_counts_as_outside_every_compile_database():
+    c, ss = _caller_world()
+    targets = {"/w/drv/uart.c": ["fw"], "/w/svc/log.c": ["fw"], "/w/svc/flush.c": ["unknown"]}
+    reading, _ = build_reading(ss, c, targets=targets, has_tests=True)
+    assert reading.coverage == ["1 file with callers is outside every compile database"]
+    targets["/w/svc/flush.c"] = ["host"]
+    reading, _ = build_reading(ss, c, targets=targets, has_tests=True)
+    assert reading.coverage == []
+
 # ---- the whole reading
 def test_the_reading_puts_threads_in_order_with_checks_counted_and_each_story_its_tiles():
     c, ss = _chain()
