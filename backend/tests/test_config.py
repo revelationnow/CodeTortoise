@@ -102,3 +102,20 @@ def test_the_strong_model_and_its_budget_are_optional():
                                                             "agree": 2}}})
     s = cfg.llm.strong
     assert (s.key_env, s.context_tokens, s.temperature, s.rounds, s.agree) == ("TORTOISE_STRONG_KEY", 64000, None, 20, 2)
+
+
+def test_each_model_names_the_api_its_endpoint_speaks():
+    import pydantic
+
+    from codetortoise.config import Config
+    from codetortoise.services import make_llm, make_strong
+    base = {"workspace": {"root": "/w", "compile_commands": "auto"}}
+    cfg = Config.model_validate(base)
+    assert cfg.llm.api == "chat" and cfg.llm.max_output_tokens is None
+    cfg = Config.model_validate({**base, "llm": {"base_url": "https://x/v1", "model": "m", "api": "responses",
+                                                 "strong": {"base_url": "https://a/v1", "model": "big", "api": "messages",
+                                                            "max_output_tokens": 4000}}})
+    assert (cfg.llm.api, cfg.llm.strong.api, cfg.llm.strong.max_output_tokens) == ("responses", "messages", 4000)
+    assert (make_llm(cfg).api, make_strong(cfg).api, make_strong(cfg).max_output_tokens) == ("responses", "messages", 4000)
+    with pytest.raises(pydantic.ValidationError, match="api"):
+        Config.model_validate({**base, "llm": {"api": "completions"}})
