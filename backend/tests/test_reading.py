@@ -2,7 +2,17 @@
 from test_stories import _edit, _in_cls, _same, _world
 
 from codetortoise.board import analyse
-from codetortoise.reading import Thread, build_threads, call_paths, connections, contract_rows, story_links, where
+from codetortoise.reading import (
+    Connection,
+    Thread,
+    build_checks,
+    build_threads,
+    call_paths,
+    connections,
+    contract_rows,
+    story_links,
+    where,
+)
 from codetortoise.stories import Story, StorySet
 
 
@@ -333,3 +343,140 @@ def test_call_paths_are_not_capped():
     c = _world(fns, calls=[(f"c{i}", "send") for i in range(30)])
     paths = call_paths(_set(["N1"]).stories[0], _x(c), [])
     assert len(paths) == 30 and paths[0].text == "calls `send`, whose body changed"
+
+
+# ---- §7 To check
+def _f(fid, kind="contract", severity="medium", nodes=("N1",), verdict=None, reason=None, source=None, title=None):
+    from codetortoise.detectors.base import Finding
+    return Finding(id=fid, kind=kind, severity=severity, title=title or f"{kind} {fid}", summary="s", nodes=list(nodes),
+                   verdict=verdict, verdict_reason=reason, verdict_source=source)
+
+
+def _checks(c, ss, threads=None, conns=(), **kw):
+    threads = threads or [Thread(id="T1", name="t", purpose="", stories=[s.id for s in ss.stories])]
+    return build_checks(ss, threads, list(conns), _x(c), **kw)
+
+
+def _rows(checks):
+    return [(k.kind, k.story, k.path, k.line, k.function, k.text) for k in checks]
+
+
+def test_hazards_and_confirms_come_from_verdicts_and_no_hazard_findings_are_set_aside():
+    c = _world([_edit("send", "drv/uart.c")])
+    ss = _set(["N1"])
+    ss.finding_story = {"F1": "S1", "F2": "S1", "F3": "S1"}
+    c.findings = [_f("F1", verdict="hazard", reason="drops data", source="tier1"),
+                  _f("F2", verdict="needs_review", reason="check the lock", source="tier1"),
+                  _f("F3", verdict="no_hazard", reason="fine", source="tier1")]
+    open_, cleared = _checks(c, ss)
+    assert _rows(open_) == [("hazard", "S1", "drv/uart.c", 1, "send", "drops data"),
+                            ("confirm", "S1", "drv/uart.c", 1, "send", "check the lock")]
+    assert [(k.kind, k.text, k.finding) for k in cleared] == [("cleared", "fine", "F3")]
+    assert open_[0].key == "hazard|drv/uart.c|send|send" and open_[0].thread == "T1"
+
+
+def test_without_verdicts_high_and_medium_findings_are_confirm_rows_except_header_fan_out():
+    c = _world([_edit("send", "drv/uart.c")])
+    ss = _set(["N1"])
+    ss.finding_story = {"F1": "S1", "F2": "S1", "F3": "S1"}
+    c.findings = [_f("F1", severity="high", title="send: signature changed"), _f("F2", severity="low"),
+                  _f("F3", kind="header_fanout", severity="high")]
+    open_, _ = _checks(c, ss)
+    assert _rows(open_) == [("confirm", "S1", "drv/uart.c", 1, "send", "send: signature changed")]
+
+
+def _caller_world(**kw):
+    """`send` (S1) changed its signature; `log` and `flush` call it, `log` is changed too (S2)."""
+    c = _world([_edit("send", "drv/uart.c"), _edit("log", "svc/log.c"), _same("flush", "svc/flush.c")],
+               calls=[("log", "send"), ("flush", "send")])
+    _sig(c, "send", "int send(int len)", "int send(unsigned len)", **kw)
+    return c, _set(["N1"], ["N2"])
+
+
+def test_an_unchanged_caller_of_a_changed_signature_is_a_caller_not_updated_with_its_source_line():
+    c, ss = _caller_world()
+    open_, _ = _checks(c, ss)
+    assert _rows(open_) == [("caller", "S1", "svc/flush.c", 3, "flush",
+                             "`flush` calls `send` and was not updated for its new signature")]
+    assert open_[0].source_line == "b = 0;" and open_[0].node == "N3"
+    assert open_[0].key == "caller|svc/flush.c|flush|send"
+
+
+def test_a_call_site_built_only_for_another_target_or_outside_every_compile_database_says_so():
+    c, ss = _caller_world()
+    targets = {"/w/drv/uart.c": ["fw"], "/w/svc/log.c": ["fw"], "/w/svc/flush.c": ["host"]}
+    open_, _ = _checks(c, ss, targets=targets)
+    assert [(k.kind, k.text) for k in open_] == [("target", "`flush` calls `send` but is built only for `host`")]
+    del targets["/w/svc/flush.c"]
+    open_, _ = _checks(c, ss, targets=targets)
+    assert [(k.kind, k.text) for k in open_] == [
+        ("unanalysed", "`flush` calls `send` from a file outside every compile database")]
+
+
+def test_a_caller_ignoring_or_comparing_only_old_values_of_a_new_return_value_is_result_handled_the_old_way():
+    c = _world([_edit("send", "drv/uart.c"), _same("a", "x/a.c"), _same("b", "x/b.c"), _same("ok", "x/c.c")],
+               calls=[("a", "send"), ("b", "send"), ("ok", "send")])
+    _sig(c, "send", returns=(["0"], ["0", "-2"]))
+    calls = {e.caller: e for e in c.after[0].calls}
+    calls["c:@F@a"].result_used = False
+    calls["c:@F@b"].compared = ["==0"]
+    calls["c:@F@ok"].compared = ["!=0"]
+    open_, _ = _checks(c, _set(["N1"]))
+    assert [(k.kind, k.function, k.text) for k in open_] == [
+        ("result", "a", "`a` ignores the result of `send`, which can now return -2"),
+        ("result", "b", "`b` compares the result of `send` only with 0; it can now return -2")]
+
+
+def test_an_unchanged_reader_of_a_field_the_change_now_writes_is_listed_at_its_access():
+    c = _world([_edit("config", "drv/cfg.c"), _same("report", "svc/rep.c"), _edit("dump", "svc/dump.c")],
+               fields=[("config", "Uart", "errors", "write", "added"), ("report", "Uart", "errors", "read", "unchanged"),
+                       ("dump", "Uart", "errors", "read", "unchanged")])
+    open_, _ = _checks(c, _set(["N1"], ["N3"]))
+    assert _rows(open_) == [("reader", "S1", "svc/rep.c", 3, "report", "`report` reads `Uart::errors`, which `config` now writes")]
+    assert open_[0].key == "reader|svc/rep.c|report|config"
+
+
+def test_a_changed_function_no_test_calls_or_mentions_is_no_test_touched_only_when_the_workspace_has_tests():
+    c = _world([_edit("send", "drv/uart.c"), _edit("init", "drv/init.c"), _edit("recv", "drv/recv.c"),
+                ("test_it", "tests/t.c", ["x;"], ["init_hw(); recv(1);"])])
+    ss = _set(["N1"], ["N2"], ["N3"], ["N4"], kinds={"S4": "tests"})
+    assert [k.kind for k in _checks(c, ss)[0]] == []
+    open_, _ = _checks(c, ss, has_tests=True, test_callers=lambda name: {"/w/tests/u.c"} if name == "init" else set())
+    assert [(k.kind, k.function, k.text) for k in open_] == [("untested", "send", "No test calls `send`")]
+
+
+def test_capped_fan_in_is_a_not_analysed_row():
+    c = _world([_edit("send", "drv/uart.c")])
+    c.impact.capped = {"send": 90}
+    (k,), _ = _checks(c, _set(["N1"]))
+    assert (k.kind, k.story, k.text) == ("unanalysed", "S1", "90 more callers of `send` found by name were not checked")
+
+
+def test_a_thread_connected_only_by_its_bundle_raises_ask_the_author_on_the_thread():
+    c = _world([_edit("a", "x/a.c"), _edit("b", "y/b.c")])
+    ss = _set(["N1"], ["N2"])
+    threads = [Thread(id="T1", name="a", purpose="", stories=["S1"]), Thread(id="T2", name="b", purpose="", stories=["S2"])]
+    conns = [Connection(a="T1", b="T2", kind="bundled", text="nothing besides arriving in CL 1", shown=True)]
+    open_, _ = _checks(c, ss, threads=threads, conns=conns)
+    assert [(k.kind, k.story, k.thread, k.text) for k in open_] == [
+        ("ask", None, "T2", "Ask the author how this thread relates to the rest of the change: nothing besides arriving "
+                            "in CL 1")]
+    assert open_[0].key == "ask|||b"
+
+
+def test_two_kinds_at_one_place_merge_into_one_row_listing_both_reasons():
+    c, ss = _caller_world(returns=(["0"], ["0", "-2"]))
+    next(e for e in c.after[0].calls if e.caller == "c:@F@flush").result_used = False
+    (k,), _ = _checks(c, ss)
+    assert (k.kind, k.function) == ("caller", "flush")
+    assert [(r.kind, r.text) for r in k.also] == [("result", "`flush` ignores the result of `send`, which can now return -2")]
+
+
+def test_a_header_included_only_by_files_of_another_target_is_a_check_across_the_change():
+    from codetortoise.vcs.model import FileChange
+    c = _world([_edit("send", "drv/uart.c")])
+    c.cs.files.append(FileChange(depot="//d/w/drv/uart.h", local="/w/drv/uart.h", action="edit", before="\n",
+                                 after="#define X 1\n"))
+    targets = {"/w/drv/uart.c": ["fw"], "/w/drv/uart.h": ["fw"], "/w/host/a.c": ["host"], "/w/host/b.c": ["host"]}
+    open_, _ = _checks(c, _set(["N1"]), targets=targets, includers=lambda h: {"/w/host/a.c", "/w/host/b.c", "/w/drv/uart.c"})
+    assert _rows(open_) == [("target", None, "host/a.c", None, None, "`drv/uart.h` is included by 2 files built only for `host`")]
