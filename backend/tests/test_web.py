@@ -447,3 +447,18 @@ def test_the_reviews_list_reads_only_each_reviews_small_headline_blob_and_surviv
     rid2 = owner.post("/api/reviews", json={"cls": [101]}).json()["id"]
     items = {i["id"]: i for i in owner.get("/api/reviews").json()}
     assert items[rid]["headline"] is None and items[rid2]["headline"]
+
+
+def test_a_mark_on_a_check_judged_no_hazard_survives_a_rerun(env):
+    from urllib.parse import quote
+
+    from test_pipeline import _one_story_per_cl, _strong
+    svc, app, _ = env
+    _strong(svc, _one_story_per_cl)
+    owner = login(app, "owner")
+    rid = owner.post("/api/reviews", json={"cls": [101, 102]}).json()["id"]
+    cleared = owner.get(f"/api/reviews/{rid}/reading").json()["cleared"]
+    assert cleared
+    assert owner.post(f"/api/reviews/{rid}/checks/{quote(cleared[0]['key'], safe='')}/mark").status_code == 200
+    owner.post(f"/api/reviews/{rid}/rerun")
+    assert set(owner.get(f"/api/reviews/{rid}/reading").json()["marks"]) == {cleared[0]["key"]}
