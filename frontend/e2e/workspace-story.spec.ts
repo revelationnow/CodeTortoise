@@ -112,6 +112,19 @@ test.describe("desktop", () => {
     await expectNoNodeIds(page);
   });
 
+  test("a story's To check ends with the checks of that story the strong model found no hazard in", async ({ page }) => {
+    const base = await startReview(page);
+    const rid = base.split("/")[2];
+    const real = await (await page.request.get(`/api/reviews/${rid}/reading`)).json();
+    const row = (story: string, text: string) => ({ ...real.checks[0], key: `cleared|${story}`, kind: "cleared", story, text, also: [] });
+    await page.route(`**/api/reviews/${rid}/reading`, (r) =>
+      r.fulfill({ json: { ...real, cleared: [row("S1", "`uart_send` callers all handle -2"), row("S2", "elsewhere")] } }));
+    await page.goto(`${base}/s/S1`);
+    const check = page.getByRole("region", { name: "To check" });
+    await check.getByText("1 check found no hazard").click();
+    await expect(check.locator(".ck-cleared li")).toHaveText([/uart_send callers all handle -2/]);
+  });
+
   test("a story the server sends without a graph drops the Graph tab and shows its steps", async ({ page }) => {
     const base = await startReview(page);
     const rid = base.split("/")[2];

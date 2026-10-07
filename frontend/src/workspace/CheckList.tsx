@@ -53,6 +53,19 @@ export interface CheckGroup { label: string | null; checks: Check[] }
 /** A To check tile: open rows first, marked ones below; the overview's grouped by thread with "5 open" (§5.2), a story's
  * with "3 of 5 open" (§6.2). On a phone it comes first, folded to its count, unless it holds the finding an old
  * address leads to: that row is lit. */
+/** The findings the strong model judged no hazard (§7.1), folded under their count with their reasons. */
+export function Cleared({ checks }: { checks: Check[] }) {
+  if (!checks.length) return null;
+  return (
+    <details className="ck-cleared">
+      <summary>{checks.length} check{checks.length === 1 ? "" : "s"} found no hazard</summary>
+      <ul>{checks.map((k) => (
+        <li key={k.key}><Ticks text={k.text} />{placeOf(k) && <span className="mono small"> · <Ticks text={placeOf(k)} /></span>}</li>
+      ))}</ul>
+    </details>
+  );
+}
+
 export default function CheckTile({ groups, ofTotal, footer, id }:
   { groups: CheckGroup[]; ofTotal: boolean; footer?: ReactNode; id?: string }) {
   const ws = useWs(), marks = ws.data.reading?.marks ?? {}, lit = ws.addr.check ?? null;
