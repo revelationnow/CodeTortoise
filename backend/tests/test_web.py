@@ -67,7 +67,7 @@ def test_owner_creates_review_others_view_and_comment(env):
     assert r.status_code == 200 and r.json()["title"] == "CLs 101, 102"
     rid = r.json()["id"]
     detail = bob.get(f"/api/reviews/{rid}").json()
-    assert detail["review"]["status"] == "degraded" and len(detail["stages"]) == 15
+    assert detail["review"]["status"] == "degraded" and len(detail["stages"]) == 16
     assert detail["review"]["risk"] == "high"
     # the raw storyboard and impact graph are not served: the board replaced them (spec §14.4)
     assert bob.get(f"/api/reviews/{rid}/storyboard").status_code == 404
@@ -372,3 +372,57 @@ def test_the_owner_reruns_stories_fresh_and_the_ai_view_shows_tier_1(env):
     ai = owner.get(f"/api/reviews/{rid}/ai").json()
     assert ai["strong"] == "big" and ai["tier1"]["budget"] == 40
     assert login(app, "bob").post(f"/api/reviews/{rid}/rerun?fresh=true").status_code == 403
+
+
+def test_the_reading_endpoint_serves_threads_checks_and_marks_and_the_story_its_tiles(env):
+    svc, app, _ = env
+    owner, rid = _review(app)
+    assert TestClient(app).get(f"/api/reviews/{rid}/reading").status_code == 401
+    r = owner.get(f"/api/reviews/{rid}/reading").json()
+    assert [t["stories"] for t in r["threads"]] == [["S2", "S1"]] and r["marks"] == {}
+    assert r["headline"] == {"text": "Medium risk", "tone": "confirm", "rules_only": True}
+    s1 = owner.get(f"/api/reviews/{rid}/stories/S1").json()
+    assert s1["reading"]["thread"] == "T1" and s1["reading"]["position"] == 2
+    assert {k["kind"] for k in s1["reading"]["checks"]} >= {"result", "reader"}
+
+
+def test_any_viewer_marks_a_check_and_a_rerun_keeps_drops_or_reopens_it(env):
+    from urllib.parse import quote
+    svc, app, _ = env
+    owner, rid = _review(app)
+    bob = login(app, "bob")
+    checks = owner.get(f"/api/reviews/{rid}/reading").json()["checks"]
+    caller = next(k for k in checks if k["kind"] == "caller")
+    reader = next(k for k in checks if k["kind"] == "reader")
+    for k in (caller, reader):
+        m = bob.post(f"/api/reviews/{rid}/checks/{quote(k['key'], safe='')}/mark").json()
+        assert m["user"] == "bob" and m["source_line"] == k["source_line"]
+    assert bob.post(f"/api/reviews/{rid}/checks/nope/mark").status_code == 404
+    r = owner.get(f"/api/reviews/{rid}/reading").json()
+    assert r["marks"][caller["key"]]["user"] == "bob" and not r["marks"][caller["key"]]["changed"]
+    t1 = r["threads"][0]
+    assert t1["open_checks"] == len(checks) - 2
+    svc.store.set_mark(rid, reader["key"], "bob", "an older line")             # the line changed since it was marked
+    svc.store.set_mark(rid, "caller|gone.c|f|g", "bob", "x")                   # a check the re-run will not find
+    owner.post(f"/api/reviews/{rid}/rerun")
+    r = owner.get(f"/api/reviews/{rid}/reading").json()
+    assert set(r["marks"]) == {caller["key"], reader["key"]}
+    assert r["marks"][reader["key"]]["changed"] and not r["marks"][caller["key"]]["changed"]
+    assert r["threads"][0]["open_checks"] == len(checks) - 1
+    assert bob.delete(f"/api/reviews/{rid}/checks/{quote(caller['key'], safe='')}/mark").json() == {"ok": True}
+    assert set(owner.get(f"/api/reviews/{rid}/reading").json()["marks"]) == {reader["key"]}
+    c = bob.post(f"/api/reviews/{rid}/comments", json={"body": "fine?", "anchor_kind": "check",
+                                                         "anchor": {"key": caller["key"]}})
+    assert c.status_code == 200 and c.json()["anchor"] == {"key": caller["key"]}
+
+
+def test_the_reviews_list_shows_each_reviews_headline(env):
+    svc, app, _ = env
+    owner, rid = _review(app)
+    (item,) = owner.get("/api/reviews").json()
+    assert item["headline"] == {"text": "Medium risk", "tone": "confirm", "rules_only": True}
+    svc.store.replace_blobs(rid, ["reading"], ["story_reading:"], {})        # a review run before the reading
+    assert owner.get("/api/reviews").json()[0]["headline"] is None
+    r = owner.get(f"/api/reviews/{rid}/reading")
+    assert r.status_code == 404 and r.json()["detail"] == "this review has no reading: re-run it"
+    assert owner.get(f"/api/reviews/{rid}/stories/S1").json()["reading"] is None

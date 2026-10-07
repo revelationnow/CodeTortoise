@@ -40,9 +40,11 @@ CREATE TABLE IF NOT EXISTS llm_budget(review_id INTEGER, budget INTEGER, set_by 
 CREATE TABLE IF NOT EXISTS llm_rounds(review_id INTEGER, rounds INTEGER, set_by TEXT, set_at TEXT);
 CREATE TABLE IF NOT EXISTS briefs(review_id INTEGER PRIMARY KEY, cache_key TEXT, json TEXT, created_at TEXT);
 CREATE INDEX IF NOT EXISTS ix_briefs_key ON briefs(cache_key);
+CREATE TABLE IF NOT EXISTS check_marks(review_id INTEGER, key TEXT, user TEXT, at TEXT, source_line TEXT,
+    PRIMARY KEY(review_id, key));
 """
 
-ANCHOR_KINDS = {"line", "function", "finding", "chapter", "review", "story", "flow", "file"}
+ANCHOR_KINDS = {"line", "function", "finding", "chapter", "review", "story", "flow", "file", "check"}
 
 
 def _now() -> str:
@@ -236,6 +238,26 @@ class Store:
 
     def delete_comment(self, cid: int) -> None:
         self._exec("DELETE FROM comments WHERE id=? OR parent_id=?", (cid, cid))
+
+    # ---- To check marks (spec 2026-10-07-review-reading §7.4) -------------
+    def set_mark(self, rid: int, key: str, user: str, source_line: str) -> dict:
+        """Mark a check "looks fine" for everyone viewing the review; `source_line` is the line it was marked at."""
+        at = _now()
+        self._exec("INSERT OR REPLACE INTO check_marks(review_id, key, user, at, source_line) VALUES(?,?,?,?,?)",
+                   (rid, key, user, at, source_line))
+        return {"key": key, "user": user, "at": at, "source_line": source_line}
+
+    def clear_mark(self, rid: int, key: str) -> None:
+        self._exec("DELETE FROM check_marks WHERE review_id=? AND key=?", (rid, key))
+
+    def list_marks(self, rid: int) -> dict[str, dict]:
+        return {r["key"]: r for r in self._all("SELECT key, user, at, source_line FROM check_marks WHERE review_id=? "
+                                               "ORDER BY key", (rid,))}
+
+    def prune_marks(self, rid: int, keep: set[str]) -> None:
+        """A re-run drops the marks of checks it no longer finds."""
+        for key in set(self.list_marks(rid)) - keep:
+            self.clear_mark(rid, key)
 
     # ---- sessions --------------------------------------------------------
     def create_session(self, user: str, ttl_days: int = 7) -> str:

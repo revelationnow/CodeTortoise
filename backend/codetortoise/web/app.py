@@ -18,6 +18,7 @@ from codetortoise.names import cited, names, neighbours
 from codetortoise.paths import canon
 from codetortoise.pipeline import JobRunner
 from codetortoise.provenance import tag_board
+from codetortoise.reading import Check, Reading, with_marks
 from codetortoise.services import Services
 from codetortoise.swarm import SwarmError
 from codetortoise.vcs.p4runner import P4Error
@@ -61,7 +62,7 @@ class RoundsIn(BaseModel):
 
 class CommentIn(BaseModel):
     body: str = Field(min_length=1, max_length=20000)
-    anchor_kind: Literal["line", "function", "finding", "chapter", "review", "story", "flow", "file"]
+    anchor_kind: Literal["line", "function", "finding", "chapter", "review", "story", "flow", "file", "check"]
     anchor: dict = Field(default_factory=dict)
     parent_id: int | None = None
 
@@ -150,9 +151,19 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         return {"queued": True}
 
     # ---- reviews ------------------------------------------------------------
+    def reading_view(rid: int) -> dict | None:
+        raw = store.get_blob(rid, "reading")
+        if not raw:
+            return None
+        return with_marks(Reading.model_validate(raw), store.list_marks(rid), store.list_findings(rid))
+
     @app.get("/api/reviews")
     def list_reviews(_: str = Depends(user_of)):
-        return store.list_reviews()
+        out = store.list_reviews()
+        for r in out:
+            view = reading_view(r["id"])
+            r["headline"] = view["headline"] if view else None
+        return out
 
     @app.post("/api/reviews")
     def create_review(body: ReviewIn, user: str = Depends(owner_of)):
@@ -253,7 +264,41 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         named(out["board"].get("layers", []))
         if out["graph"]:
             named(out["graph"].get("layers", []))
+        out["reading"] = store.get_blob(rid, f"story_reading:{sid}")
         return out
+
+    NO_READING = "this review has no reading: re-run it"
+
+    @app.get("/api/reviews/{rid}/reading")
+    def reading(rid: int, _: str = Depends(user_of)):
+        """Threads, connections, To check and the marks on it (spec 2026-10-07-review-reading §10.4)."""
+        review_or_404(rid)
+        view = reading_view(rid)
+        if view is None:
+            raise HTTPException(404, NO_READING)
+        return view
+
+    def check_or_404(rid: int, key: str) -> Check:
+        raw = store.get_blob(rid, "reading")
+        if not raw:
+            raise HTTPException(404, NO_READING)
+        r = Reading.model_validate(raw)
+        k = next((k for k in r.checks + r.cleared if k.key == key), None)
+        if k is None:
+            raise HTTPException(404, "That check no longer exists after the re-run.")
+        return k
+
+    @app.post("/api/reviews/{rid}/checks/{key:path}/mark")
+    def mark_check(rid: int, key: str, user: str = Depends(user_of)):
+        review_or_404(rid)
+        k = check_or_404(rid, key)
+        return store.set_mark(rid, k.key, user, k.source_line)
+
+    @app.delete("/api/reviews/{rid}/checks/{key:path}/mark")
+    def unmark_check(rid: int, key: str, _: str = Depends(user_of)):
+        review_or_404(rid)
+        store.clear_mark(rid, key)
+        return {"ok": True}
 
     @app.get("/api/reviews/{rid}/locate")
     def locate(rid: int, node: str | None = None, flow: str | None = None, finding: str | None = None,

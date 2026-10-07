@@ -96,3 +96,23 @@ def test_an_existing_database_gains_ai_meta(tmp_path):
     [c] = s.list_comments(rid)
     assert c["body"] == "a comment from before @tortoise" and c["ai_meta"] is None
     assert s.set_ai_reply(c["id"], "x", {"pending": False})["ai_meta"] == {"pending": False}
+
+
+def test_check_marks_are_per_review_shared_and_pruned_to_the_keys_found_again(store):
+    rid = store.create_review("t", "a", [1])
+    m = store.set_mark(rid, "caller|a.c|f|g", "bob", "g(1);")
+    assert (m["key"], m["user"], m["source_line"]) == ("caller|a.c|f|g", "bob", "g(1);") and m["at"]
+    store.set_mark(rid, "reader|b.c|r|w", "ana", "x = u->n;")
+    store.set_mark(rid, "caller|a.c|f|g", "ana", "g(2);")                      # marking again replaces the mark
+    assert {k: (v["user"], v["source_line"]) for k, v in store.list_marks(rid).items()} == {
+        "caller|a.c|f|g": ("ana", "g(2);"), "reader|b.c|r|w": ("ana", "x = u->n;")}
+    store.prune_marks(rid, {"reader|b.c|r|w", "new|c.c|h|h"})
+    assert list(store.list_marks(rid)) == ["reader|b.c|r|w"]
+    store.clear_mark(rid, "reader|b.c|r|w")
+    assert store.list_marks(rid) == {} and store.list_marks(rid + 1) == {}
+
+
+def test_comments_can_be_anchored_to_a_check(store):
+    rid = store.create_review("t", "a", [1])
+    c = store.add_comment(rid, "bob", "is this fine?", "check", {"key": "caller|a.c|f|g"})
+    assert c["anchor_kind"] == "check" and c["anchor"] == {"key": "caller|a.c|f|g"}
