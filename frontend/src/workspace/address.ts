@@ -7,7 +7,12 @@ export type Place =
   | { kind: "finding"; fid: string }
   | { kind: "cl"; cl: number }
   | { kind: "cluster"; cid: string }
+  | { kind: "index"; tab: IndexTab }
   | { kind: "unknown"; path: string };
+
+/** The Index's tabs (spec 2026-10-07-review-reading §11): what the rail no longer lists. */
+export const INDEX_TABS = ["cls", "files", "checks", "map"] as const;
+export type IndexTab = typeof INDEX_TABS[number];
 
 /** What the detail panel shows: a node's code, or a file's diff (at a line). */
 export type Open = { node: string } | { file: string; line: number | null } | null;
@@ -21,6 +26,10 @@ export interface Address {
   tab: Tab;
   /** A story lit on a map (the whole graph or a part's), from its "Show on the map". */
   story?: string | null;
+  /** The finding whose To check row is lit: where an old finding address leads. */
+  check?: string | null;
+  /** A finding's own page, from its row's Details, rather than its story. */
+  details?: boolean;
 }
 
 function readPlace(path: string, q: URLSearchParams): Place {
@@ -32,6 +41,7 @@ function readPlace(path: string, q: URLSearchParams): Place {
   if (kind === "f") return { kind: "finding", fid: id };
   if (kind === "cl" && /^\d+$/.test(id)) return { kind: "cl", cl: Number(id) };
   if (kind === "c") return { kind: "cluster", cid: id };
+  if (kind === "i" && (INDEX_TABS as readonly string[]).includes(id)) return { kind: "index", tab: id as IndexTab };
   return { kind: "unknown", path };
 }
 
@@ -51,6 +61,8 @@ export function readAddress(path: string, q: URLSearchParams): Address {
     open: readOpen(q.get("open")),
     tab: q.get("tab") === "neighbours" ? "neighbours" : "diff",
     ...(q.get("story") ? { story: q.get("story") } : {}),
+    ...(q.get("check") ? { check: q.get("check") } : {}),
+    ...(q.get("details") === "1" ? { details: true } : {}),
   };
 }
 
@@ -61,6 +73,7 @@ function placePath(p: Place): string {
     case "finding": return `/f/${p.fid}`;
     case "cl": return `/cl/${p.cl}`;
     case "cluster": return `/c/${p.cid}`;
+    case "index": return `/i/${p.tab}`;
     case "unknown": return p.path;
   }
 }
@@ -73,6 +86,8 @@ export function href(base: string, a: Address): string {
   if (a.flow) q.set("flow", String(a.flow));
   if (a.open) q.set("open", "node" in a.open ? a.open.node : `file:${a.open.file}${a.open.line ? `:${a.open.line}` : ""}`);
   if (a.tab !== "diff") q.set("tab", a.tab);
+  if (a.check) q.set("check", a.check);
+  if (a.details && a.place.kind === "finding") q.set("details", "1");
   return `${base}${placePath(a.place)}${q.size ? `?${q}` : ""}`;
 }
 
@@ -84,6 +99,7 @@ export function placeKey(p: Place): string {
     case "finding": return `f:${p.fid}`;
     case "cl": return `cl:${p.cl}`;
     case "cluster": return `c:${p.cid}`;
+    case "index": return `i:${p.tab}`;
     case "unknown": return `?:${p.path}`;
   }
 }

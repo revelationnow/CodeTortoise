@@ -28,7 +28,7 @@ test.describe("desktop", () => {
 
   test("names in text read as text: the sentence's colour and a faint dotted underline, the accent on hover", async ({ page }) => {
     const base = await startReview(page);
-    await page.goto(`${base}/f/F4`);
+    await page.goto(`${base}/f/F4?details=1`);
     const name = page.locator(".ws-where li .ws-name").first();
     await expect(name).toBeVisible();
     const look = () => name.evaluate((el) => {
@@ -72,7 +72,8 @@ test.describe("desktop", () => {
     await node(page, "uart_send").click();
     await expect(page).toHaveURL(/view=graph&flow=2&open=N\d+$/);
     const there = page.url();
-    await page.locator(".ws-rail").getByRole("link", { name: "Open CL 101" }).click();
+    await page.locator(".ws-rail").getByRole("link", { name: "Open the Index: CLs" }).click();
+    await page.getByRole("link", { name: "Open CL 101" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}/cl/101$`));
     await page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ }).click();
     await expect(page).toHaveURL(there);
@@ -80,10 +81,12 @@ test.describe("desktop", () => {
     await expect(page.locator(".ws-flow-pos")).toHaveText("flow 2 of 2");
   });
 
-  test("a review without stories (run before them) leaves Stories out of the rail", async ({ page }) => {
+  test("a review without stories or a reading (run before them) keeps the old rail and page", async ({ page }) => {
     const base = await startReview(page);
     await page.route(`**/api/reviews/${base.split("/")[2]}/stories`, (r) =>
       r.fulfill({ status: 404, json: { detail: "this review has no stories: re-run it" } }));
+    await page.route(`**/api/reviews/${base.split("/")[2]}/reading`, (r) =>
+      r.fulfill({ status: 404, json: { detail: "this review has no reading: re-run it" } }));
     await page.reload();
     await expect(page.locator(".ws-rail").getByRole("link", { name: /^Go to finding/ }).first()).toBeAttached();
     await expect(page.locator(".ws-rail").getByRole("button", { name: /^Stories/ })).toHaveCount(0);
@@ -184,13 +187,13 @@ test.describe("phone", () => {
   test("rail → story → detail sheet, each top bar naming the place", async ({ page }) => {
     await startReview(page);
     await page.getByRole("link", { name: /^Go to story S1/ }).click();
-    await expect(page.locator(".ws-phonebar")).toContainText("‹ Stories");
+    await expect(page.locator(".ws-phonebar")).toContainText("‹ Thread A");
     await page.getByRole("region", { name: "Where" }).getByRole("link", { name: /^Open uart_send in/ }).click();
     const bar = page.locator(".ws-detail .ws-phonebar");
     await expect(bar).toContainText("‹ Back");
     await expect(bar).toContainText("uart.c");
     await bar.getByRole("link", { name: "Close the code" }).click();
-    await expect(page.locator(".ws-centre .ws-phonebar")).toContainText("‹ Stories");
+    await expect(page.locator(".ws-centre .ws-phonebar")).toContainText("‹ Thread A");
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
   });
 });

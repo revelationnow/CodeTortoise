@@ -6,32 +6,23 @@ import { expectNamed, expectNoNodeIds, startReview } from "./helpers";
 test.describe("desktop", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test("the rail lists the review, its CLs, the stories drawn from them, findings and files", async ({ page }) => {
+  test("the rail lists the overview, the thread's stories, what may be missed and the Index", async ({ page }) => {
     const base = await startReview(page);
     const rail = page.locator(".ws-rail");
-    await expect(rail.locator(".ws-sec h2")).toHaveText([/Change set \(2 CLs\)/, /Stories \(from 2 CLs\)/, /Findings \(6\)/, /Files \(4\)/]);
-    await expect(rail.getByRole("link", { name: "Go to the whole change" })).toHaveAttribute("aria-current", "page");
+    await expect(rail.locator(".ws-sec h2")).toHaveText([/Threads \(1\)$/, "Index"]);
+    await expect(rail.getByRole("link", { name: "Go to the overview" })).toHaveAttribute("aria-current", "page");
     const home = (await rail.locator(".ws-home").boundingBox())!, first = (await rail.locator(".ws-sec-t").first().boundingBox())!;
     expect(first.y - (home.y + home.height)).toBeLessThan(12);               // sections follow on: the grip takes no room
+    await expect(rail.locator(".ws-index-row")).toHaveText(["CLs", "Files", "Checks", "Map"]);
     const s1 = rail.getByRole("link", { name: /^Go to story S1/ });
-    await expect(s1.locator(".ws-chip")).toHaveText(["CL 101", "CL 102"]);     // CL 102's uart.h is used most by S1
-
-    // the CL filter lights the stories drawn from it and dims the rest; again clears it
-    const s2 = rail.getByRole("link", { name: /^Go to story S2/ });
-    await rail.getByRole("button", { name: "Highlight the stories drawn from CL 101" }).click();
-    await expect(s2).toHaveClass(/\bdim\b/);
-    await expect(s1).not.toHaveClass(/\bdim\b/);
-    await rail.getByRole("button", { name: "Show every story" }).click();
-    await expect(s2).not.toHaveClass(/\bdim\b/);
-
     await s1.click();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S1$`));
     await expect(s1).toHaveAttribute("aria-current", "page");
     const crumbs = page.getByRole("navigation", { name: "Breadcrumb" });
-    await expect(crumbs).toContainText("Stories");
+    await expect(crumbs).toContainText("Thread A");
     await expect(crumbs.locator("[aria-current=page]")).toContainText("uart_send can now return -2");
-    await crumbs.getByRole("link", { name: "Go to Stories" }).click();
-    await expect(page).toHaveURL(new RegExp(`${base}#stories$`));
+    await crumbs.getByRole("link", { name: "Go to Thread A" }).click();
+    await expect(page).toHaveURL(new RegExp(`${base}$`));
     await page.goBack();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S1$`));
     await expectNoNodeIds(page);
@@ -41,7 +32,7 @@ test.describe("desktop", () => {
   test("the overview: the change as a whole, its one thread and what to check", async ({ page }) => {
     await startReview(page);
     const left = page.locator(".ov2-left");
-    await expect(left.locator("h2")).toHaveText(["The change as a whole", "How the threads connect", "Threads", /^The map/, "Discussion"]);
+    await expect(left.locator("h2")).toHaveText(["The change as a whole", "How the threads connect", "Threads", "Discussion"]);
     await expect(left.locator(".ws-lead")).toHaveText("One thread: hal_write in hal.");
     await expect(left).toContainText("One thread: all stories are connected by calls or shared data.");
     await expect(page.getByRole("region", { name: "To check" }).locator(".ck-row")).toHaveCount(5);
@@ -67,8 +58,8 @@ test.describe("desktop", () => {
   test("the rail keeps its closed sections and its width across a reload", async ({ page }) => {
     await startReview(page);
     const rail = page.locator(".ws-rail");
-    await rail.getByRole("button", { name: /^Findings/ }).click();
-    await expect(rail.getByRole("button", { name: /^Findings/ })).toHaveAttribute("aria-expanded", "false");
+    await rail.getByRole("button", { name: /^Threads/ }).click();
+    await expect(rail.getByRole("button", { name: /^Threads/ })).toHaveAttribute("aria-expanded", "false");
     const grip = rail.locator(".bd-resizer");
     const g = (await grip.boundingBox())!, w = (await rail.boundingBox())!.width;
     await page.mouse.move(g.x + g.width / 2, g.y + 200);
@@ -78,16 +69,14 @@ test.describe("desktop", () => {
     await expect.poll(async () => (await rail.boundingBox())!.width).toBeGreaterThan(w + 60);
     const wider = (await rail.boundingBox())!.width;
     await page.reload();
-    await expect(rail.getByRole("button", { name: /^Findings/ })).toHaveAttribute("aria-expanded", "false");
-    await expect(rail.getByRole("button", { name: /^Stories/ })).toHaveAttribute("aria-expanded", "true");
+    await expect(rail.getByRole("button", { name: /^Threads/ })).toHaveAttribute("aria-expanded", "false");
     expect(Math.abs((await rail.boundingBox())!.width - wider)).toBeLessThan(2);
   });
 
   test("the rail's grip straddles its border, clear of its scrollbar, and drags from there", async ({ page }) => {
-    await page.setViewportSize({ width: 1440, height: 420 });
+    await page.setViewportSize({ width: 1440, height: 300 });
     await startReview(page);
     const rail = page.locator(".ws-rail");
-    await rail.getByRole("button", { name: /^Files/ }).click();
     expect(await rail.evaluate((e) => { const s = e.querySelector(".ws-rail-scroll") ?? e; return s.scrollHeight > s.clientHeight; })).toBe(true);
     const r = (await rail.boundingBox())!, x = r.x + r.width + 3, y = r.y + r.height / 2;   // just past the border
     expect(await page.evaluate(([px, py]) => !!document.elementFromPoint(px, py)?.closest(".bd-resizer"), [x, y])).toBe(true);
@@ -130,7 +119,7 @@ test.describe("tablet", () => {
     await menu.focus();
     for (let i = 0; i < 4; i++) { await page.keyboard.press("Tab"); expect(await inRail()).toBe(false); }
     await menu.click();
-    await page.locator(".ws-rail").getByRole("link", { name: "Go to the whole change" }).focus();
+    await page.locator(".ws-rail").getByRole("link", { name: "Go to the overview" }).focus();
     expect(await inRail()).toBe(true);
   });
 });
@@ -146,17 +135,18 @@ test.describe("phone", () => {
     await page.getByRole("link", { name: /^Go to story S1/ }).click();
     await expect(page.locator(".ws-rail")).toHaveCount(0);
     const bar = page.locator(".ws-phonebar");
-    await expect(bar).toContainText("‹ Stories");
+    await expect(bar).toContainText("‹ Thread A");
     await expect(bar).toContainText("S1");
-    await bar.getByRole("link", { name: "Back to Stories" }).click();
-    await expect(page).toHaveURL(new RegExp(`${base}#stories$`));
+    await bar.getByRole("link", { name: "Back to Thread A" }).click();
+    await expect(page).toHaveURL(new RegExp(`${base}$`));
     await expect(page.locator(".ws-rail")).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
   });
 
-  test("#map opens the whole change at its map, not the rail", async ({ page }) => {
+  test("#map opens the Index at its map, not the rail", async ({ page }) => {
     const base = await startReview(page);
     await page.goto(`${base}#map`);
+    await expect(page).toHaveURL(new RegExp(`${base}/i/map$`));
     await expect(page.getByRole("region", { name: "The map" })).toBeInViewport();
     await expect(page.locator(".ws-rail")).toHaveCount(0);
   });
@@ -165,8 +155,9 @@ test.describe("phone", () => {
 test.describe("a large change", () => {
   test.use({ baseURL: "http://127.0.0.1:8796", viewport: { width: 1440, height: 900 } });
 
-  test("the whole change maps its parts; a part opens its page", async ({ page }) => {
+  test("the Index maps the change's parts; a part opens its page", async ({ page }) => {
     const base = await startReview(page, "201 202");
+    await page.locator(".ws-rail").getByRole("link", { name: "Open the Index: Map" }).click();
     const map = page.getByRole("region", { name: "The map" });
     await expect(map.locator(".ov-block")).toHaveCount(7);
     await expect(map.getByRole("region", { name: "Layer drv" })).toContainText("drv/dma");
@@ -199,7 +190,7 @@ test.describe("a large change on a phone", () => {
 
   test("the map stacks the parts; a part opens with its place among them", async ({ page }) => {
     await startReview(page, "201 202");
-    await page.locator(".ws-rail").getByRole("link", { name: "Go to the whole change" }).click();
+    await page.locator(".ws-rail").getByRole("link", { name: "Open the Index: Map" }).click();
     const first = page.locator(".ov-block").first(), second = page.locator(".ov-block").nth(1);
     const a = (await first.boundingBox())!, b = (await second.boundingBox())!;
     expect(b.y).toBeGreaterThan(a.y + a.height - 1);                      // stacked, not side by side

@@ -6,10 +6,10 @@ import { expectIconsOnly, expectNamed, expectNoNodeIds, startReview } from "./he
 test.describe("desktop", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test("a file from the rail opens its diff; ✕ closes it", async ({ page }) => {
+  test("a file from the Index opens its diff; ✕ closes it", async ({ page }) => {
     const base = await startReview(page);
-    await page.locator(".ws-rail").getByRole("button", { name: /Files/ }).click();
-    await page.locator(".ws-rail").getByRole("link", { name: "Open uart.c's diff" }).click();
+    await page.locator(".ws-rail").getByRole("link", { name: "Open the Index: Files" }).click();
+    await page.getByRole("link", { name: "Open uart.c's diff" }).click();
     await expect(page).toHaveURL(/\?open=file%3A%2F%2Ffixture%2Fdriver%2Fuart\.c$/);
     const panel = page.getByRole("complementary", { name: "Code: uart.c" });
     await expect(panel.locator(".ws-detail-path")).toHaveText("//fixture/driver/uart.c");
@@ -19,7 +19,7 @@ test.describe("desktop", () => {
     await expect(panel.locator(".bd-gap")).toHaveCount(0);
     await expectNamed(page);
     await panel.getByRole("link", { name: "Close the code" }).click();
-    await expect(page).toHaveURL(new RegExp(`${base}$`));
+    await expect(page).toHaveURL(new RegExp(`${base}/i/files$`));
     await expect(page.locator(".ws-detail")).toHaveCount(0);
   });
 
@@ -66,8 +66,8 @@ test.describe("desktop", () => {
 
   test("the diff colours added lines, highlights code and fills annotations, outside any graph", async ({ page }) => {
     await startReview(page);
-    await page.locator(".ws-rail").getByRole("button", { name: /Files/ }).click();
-    await page.locator(".ws-rail").getByRole("link", { name: "Open uart.c's diff" }).click();
+    await page.locator(".ws-rail").getByRole("link", { name: "Open the Index: Files" }).click();
+    await page.getByRole("link", { name: "Open uart.c's diff" }).click();
     const file = page.getByRole("complementary", { name: "Code: uart.c" });
     const css = (sel: string, prop: string) => file.locator(sel).first().evaluate((e, p) => getComputedStyle(e).getPropertyValue(p), prop);
     const clear = "rgba(0, 0, 0, 0)";
@@ -78,8 +78,8 @@ test.describe("desktop", () => {
 
   test("a line comment in a file's diff shows in that function's code", async ({ page }) => {
     const base = await startReview(page);
-    await page.locator(".ws-rail").getByRole("button", { name: /Files/ }).click();
-    await page.locator(".ws-rail").getByRole("link", { name: "Open uart.c's diff" }).click();
+    await page.locator(".ws-rail").getByRole("link", { name: "Open the Index: Files" }).click();
+    await page.getByRole("link", { name: "Open uart.c's diff" }).click();
     const file = page.getByRole("complementary", { name: "Code: uart.c" });
     await file.getByRole("button", { name: "Stacked" }).click();
     await file.locator(".bd-ln.a", { hasText: "return -2;" }).first().click();
@@ -94,8 +94,8 @@ test.describe("desktop", () => {
 
   test("one changelist's diff keeps the comments made on it", async ({ page }) => {
     await startReview(page);
-    await page.locator(".ws-rail").getByRole("button", { name: /Files/ }).click();
-    await page.locator(".ws-rail").getByRole("link", { name: "Open uart.c's diff" }).click();
+    await page.locator(".ws-rail").getByRole("link", { name: "Open the Index: Files" }).click();
+    await page.getByRole("link", { name: "Open uart.c's diff" }).click();
     const file = page.getByRole("complementary", { name: "Code: uart.c" });
     await expect(file.locator(".act")).toContainText("edit");
     await file.getByRole("button", { name: "Stacked" }).click();
@@ -113,8 +113,8 @@ test.describe("desktop", () => {
   test("the diff goes side by side when the panel is wide enough, until the reader picks", async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem("ct.ws.detailW", "600"));
     await startReview(page);
-    await page.locator(".ws-rail").getByRole("button", { name: /Files/ }).click();
-    await page.locator(".ws-rail").getByRole("link", { name: "Open uart.c's diff" }).click();
+    await page.locator(".ws-rail").getByRole("link", { name: "Open the Index: Files" }).click();
+    await page.getByRole("link", { name: "Open uart.c's diff" }).click();
     const panel = page.getByRole("complementary", { name: "Code: uart.c" });
     await expect(panel.getByRole("button", { name: "Stacked" })).toHaveAttribute("aria-pressed", "true");
     const drag = async (dx: number) => {
@@ -151,7 +151,7 @@ test.describe("desktop", () => {
 
   test("a To check row opens its file at its line, folded away or not", async ({ page }) => {
     await startReview(page);
-    await page.locator(".ws-rail").getByRole("link", { name: "Go to the whole change" }).click();
+    await page.locator(".ws-rail").getByRole("link", { name: "Go to the overview" }).click();
     await page.getByRole("region", { name: "To check" }).getByRole("link", { name: "Open driver/uart.c at line 8" }).click();   // outside the hunks
     await expect(page.getByRole("complementary", { name: "Code: uart.c" }).locator('.focus[data-n="8"]')).toBeVisible();
   });

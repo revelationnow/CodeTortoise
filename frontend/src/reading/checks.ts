@@ -8,6 +8,9 @@ export const KIND_LABEL: Record<CheckKind, string> = {
   ask: "Ask the author", cleared: "No hazard",
 };
 
+/** The kinds in the order the list shows them (§7.1). */
+export const CHECK_ORDER: CheckKind[] = ["hazard", "confirm", "caller", "result", "reader", "target", "untested", "unanalysed", "ask"];
+
 /** Open unless someone marked it and its line has not changed since (§7.4). */
 export const isOpen = (k: Check, marks: Record<string, Mark>) => !marks[k.key] || marks[k.key].changed;
 

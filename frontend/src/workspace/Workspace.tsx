@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useMe } from "../App";
 import { driftSummary } from "../board/drift";
@@ -18,9 +18,10 @@ import { loadMemory, recall, remember, saveMemory } from "./memory";
 import ClPage from "./ClPage";
 import ClusterPage from "./ClusterPage";
 import FindingPage from "./FindingPage";
+import IndexPage from "./IndexPage";
 import Rail from "./Rail";
 import StoryPage from "./StoryPage";
-import { legacy } from "./legacy";
+import { indexFor, legacy } from "./legacy";
 import { useReview } from "./useReview";
 import WholePage, { ReviewGraph } from "./WholePage";
 import "./workspace.css";
@@ -54,10 +55,15 @@ export default function Workspace() {
                          [root, data, addr, screen, sources, link, go, item, opened, hover]);
 
   const d = data.detail;
+  const r = data.reading;
+  const threadOf = useMemo(() => r ? (sid: string) => {
+    const i = r.threads.findIndex((t) => t.stories.includes(sid));
+    return i >= 0 ? `Thread ${String.fromCharCode(65 + Math.min(i, 25))}` : "Tests";
+  } : undefined, [r]);
   const trail = useMemo(() => crumbs(addr.place, {
     base: root, title: d?.review.title ?? `Review ${id}`, stories: data.stories?.stories ?? [], findings: data.findings,
-    cls: d?.cls ?? [], clusters: data.overview?.clusters ?? [],
-  }), [addr.place, root, d, id, data.stories, data.findings, data.overview]);
+    cls: d?.cls ?? [], clusters: data.overview?.clusters ?? [], threadOf,
+  }), [addr.place, root, d, id, data.stories, data.findings, data.overview, threadOf]);
   const hash = location.hash.slice(1) || null;
 
   // an address from before the workspace goes to where that thing lives now (§2.3)
@@ -75,17 +81,20 @@ export default function Workspace() {
       () => to(root));
     return () => { live = false; };
   }, [old, id, root, navigate]);
-  const scrolled = useRef(false);                          // #map scrolls once, when the map is there to scroll to
+  const scrolled = useRef(false);                          // #map or #checks scrolls once, when it is there to scroll to
   useEffect(() => {
-    if (hash !== "map") { scrolled.current = false; return; }
-    const map = document.getElementById("map");
-    if (map && !scrolled.current) { map.scrollIntoView({ block: "start" }); scrolled.current = true; }
+    if (hash !== "map" && hash !== "checks") { scrolled.current = false; return; }
+    const el = document.getElementById(hash);
+    if (el && !scrolled.current) { el.scrollIntoView({ block: "start" }); scrolled.current = true; }
   });
-  const page = (location.state as { page?: boolean } | null)?.page || hash === "map";
+  const page = (location.state as { page?: boolean } | null)?.page || hash === "map" || hash === "checks";
+  // with a reading, an old section's anchor (#map, #findings…) opens its Index tab (review reading §11)
+  const anchored = r && hash && addr.place.kind === "whole" && !addr.place.view ? indexFor(hash) : null;
   const level = addr.open ? "detail" : addr.place.kind === "whole" && !addr.place.view && !page ? "rail" : "item";
 
   if (data.error) return <main className="page error">{data.error}</main>;
   if (!d || old) return <main className="page muted">Loading…</main>;
+  if (anchored) return <Navigate replace to={href(root, at(anchored))} />;
   return (
     <AiProvider value={data.ai}>
       <WsContext.Provider value={ws}>
@@ -148,7 +157,8 @@ function Head({ onMenu, drawer }: { onMenu: () => void; drawer: boolean }) {
 function Centre() {
   const ws = useWs(), d = ws.data, p = ws.addr.place;
   if (!d.ready) return <div className="ws-page"><Stages stages={d.detail!.stages} /><p className="muted">Analysis in progress…</p></div>;
-  const exists = p.kind === "whole" || (p.kind === "story" && !!d.stories?.stories.some((s) => s.id === p.sid))
+  const r = d.reading;
+  const exists = p.kind === "whole" || (p.kind === "index" && !!r) || (p.kind === "story" && !!d.stories?.stories.some((s) => s.id === p.sid))
     || (p.kind === "finding" && d.findings.some((f) => f.id === p.fid)) || (p.kind === "cl" && !!d.detail?.cls.some((c) => c.cl === p.cl))
     || (p.kind === "cluster" && !!d.overview?.clusters.some((c) => c.id === p.cid));
   if (!exists) return <Missing what={p} />;
@@ -156,9 +166,16 @@ function Centre() {
     return d.board ? <div className="ws-page graph"><ReviewGraph board={d.board} /></div> : <Missing what={p} />;
   if (p.kind === "whole") return <WholePage />;
   if (p.kind === "story") return <StoryPage key={p.sid} sid={p.sid} view={p.view} />;
-  if (p.kind === "finding") return <FindingPage key={p.fid} fid={p.fid} />;
+  if (p.kind === "finding") {
+    // with a reading, an old finding address opens its story with its row lit (§11); its own page is Details
+    const k = r && !ws.addr.details ? r.checks.find((c) => c.finding === p.fid) : null;
+    const sid = k ? k.story ?? d.stories?.finding_story[p.fid] ?? null : null;
+    if (k) return <Navigate replace to={ws.link(at(sid ? { kind: "story", sid, view: "steps" } : { kind: "whole" }, { check: p.fid }))} />;
+    return <FindingPage key={p.fid} fid={p.fid} />;
+  }
   if (p.kind === "cl") return <ClPage key={p.cl} cl={p.cl} />;
-  if (p.kind === "cluster") return <ClusterPage key={p.cid} cid={p.cid} />;
+  if (p.kind === "cluster") return r ? <IndexPage key={p.cid} tab="map" cid={p.cid} /> : <ClusterPage key={p.cid} cid={p.cid} />;
+  if (p.kind === "index") return <IndexPage key={p.tab} tab={p.tab} />;
   return <Missing what={p} />;
 }
 

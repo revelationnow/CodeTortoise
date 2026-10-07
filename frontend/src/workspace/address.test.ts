@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type Address, href, placeKey, readAddress, samePlace } from "./address";
+import { type Address, at, href, placeKey, readAddress, samePlace } from "./address";
 
 const q = (s: string) => new URLSearchParams(s);
 
@@ -64,5 +64,23 @@ describe("places", () => {
     expect(placeKey({ kind: "whole", view: "graph" })).toBe("whole");
     expect(samePlace({ kind: "story", sid: "S1", view: "graph" }, { kind: "story", sid: "S1", view: "steps" })).toBe(true);
     expect(samePlace({ kind: "finding", fid: "F1" }, { kind: "finding", fid: "F2" })).toBe(false);
+  });
+});
+
+describe("the Index and lit checks", () => {
+  it("reads and writes the Index's tabs", () => {
+    expect(readAddress("/i/map", q("")).place).toEqual({ kind: "index", tab: "map" });
+    expect(readAddress("/i/cls", q("")).place).toEqual({ kind: "index", tab: "cls" });
+    expect(readAddress("/i/elsewhere", q("")).place).toEqual({ kind: "unknown", path: "/i/elsewhere" });
+    expect(href("/r/7", at({ kind: "index", tab: "checks" }))).toBe("/r/7/i/checks");
+    expect(placeKey({ kind: "index", tab: "files" })).toBe("i:files");
+  });
+
+  it("carries the finding whose row to light, and asks for a finding's own page", () => {
+    expect(readAddress("/s/S1", q("check=F2")).check).toBe("F2");
+    expect(href("/r/7", at({ kind: "story", sid: "S1", view: "steps" }, { check: "F2" }))).toBe("/r/7/s/S1?check=F2");
+    expect(readAddress("/f/F2", q("details=1")).details).toBe(true);
+    expect(href("/r/7", at({ kind: "finding", fid: "F2" }, { details: true }))).toBe("/r/7/f/F2?details=1");
+    expect(readAddress("/f/F2", q("")).details).toBeUndefined();
   });
 });

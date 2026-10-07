@@ -83,7 +83,7 @@ test.describe("with an AI", () => {
     const findings: { id: string; severity: string }[] = await (await page.request.get(`/api/reviews/${rid}/findings`)).json();
     const high = findings.find((f) => f.severity === "high")!;
     expect(high, "the fixture has a high finding").toBeTruthy();
-    await page.goto(`${base}/f/${high.id}`);
+    await page.goto(`${base}/f/${high.id}?details=1`);
     const ai = page.getByRole("region", { name: "AI analysis" });
     await expect(ai).toContainText("uart_send can now return -2, and logger_flush drops it.", { timeout: 30_000 });
     await expect(ai.locator(".ai-label")).toBeVisible();
@@ -95,10 +95,10 @@ test.describe("with an AI", () => {
     const findings = await (await page.request.get(`/api/reviews/${base.split("/")[2]}/findings`)).json() as { id: string; title: string }[];
     const errors = findings.find((f) => f.title.startsWith("uart_send now writes Uart::errors"))!;
     const tx = findings.find((f) => f.title.startsWith("uart_send now writes Stats::tx"))!;
-    await page.goto(`${base}/f/${errors.id}`);
+    await page.goto(`${base}/f/${errors.id}?details=1`);
     await expect(page.locator(".ws-finding h2 .badge")).toHaveText("high");
     await expect(page.locator(".ws-verdict")).toContainText("AI: hazard — uart_errors assumes only uart_init writes Uart::errors.");
-    await page.goto(`${base}/f/${tx.id}`);
+    await page.goto(`${base}/f/${tx.id}?details=1`);
     await expect(page.locator(".ws-finding h2 .badge")).toHaveText("info");
     await expect(page.locator(".ws-verdict")).toContainText("AI: no clear hazard — Nothing else depends on the value it writes.");
     await page.goto(`${base}/s/S1?view=graph`);                              // a story's flows are on its graph
@@ -109,8 +109,8 @@ test.describe("with an AI", () => {
 
   test("✦ Summarise sums up a file in its diff", async ({ page }) => {
     await startReview(page);
-    await page.locator(".ws-rail").getByRole("button", { name: /Files/ }).click();
-    await page.locator(".ws-rail").getByRole("link", { name: "Open uart.c's diff" }).click();
+    await page.locator(".ws-rail").getByRole("link", { name: "Open the Index: Files" }).click();
+    await page.getByRole("link", { name: "Open uart.c's diff" }).click();
     const panel = page.getByRole("complementary", { name: "Code: uart.c" });
     await panel.getByRole("button", { name: /Summarise/ }).click();
     await expect(panel).toContainText("This file now counts transmit errors.", { timeout: 30_000 });

@@ -5,8 +5,8 @@ const AI = "http://127.0.0.1:8798";      // e2e/serve-ai.sh: CodeTortoise with t
 
 /** Open uart.c's diff in the detail panel and start a comment on its new `return -2;` line. */
 async function commentOnReturn(page: Page): Promise<{ viewer: Locator; box: Locator }> {
-  await page.locator(".ws-rail").getByRole("button", { name: /Files/ }).click();
-  await page.locator(".ws-rail").getByRole("link", { name: "Open uart.c's diff" }).click();
+  await page.locator(".ws-rail").getByRole("link", { name: "Open the Index: Files" }).click();
+  await page.getByRole("link", { name: "Open uart.c's diff" }).click();
   const viewer = page.getByRole("complementary", { name: "Code: uart.c" });
   await viewer.getByRole("button", { name: "Stacked" }).click();
   await viewer.locator(".bd-ln.a", { hasText: "return -2;" }).first().click();
@@ -52,7 +52,7 @@ test.describe("with an AI", () => {
     };
     const answer = "logger_flush drops the -2 that uart_send now returns.";
 
-    await page.goto(`${base}/f/F1`);
+    await page.goto(`${base}/f/F1?details=1`);
     const finding = page.locator(".ws-finding");
     await ask(finding.locator("#ws-ai").locator(".."), "why is this risky for the logger?");
     await expect(finding.locator(".comment", { hasText: "@tortoise why is this risky for the logger?" })).toBeVisible();
