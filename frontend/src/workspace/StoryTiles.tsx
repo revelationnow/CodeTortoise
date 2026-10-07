@@ -4,7 +4,7 @@ import type { StoryDetail } from "../board/types";
 import Comments from "../components/Comments";
 import { byEntry, codeOrder, foldPath, whereTree } from "../reading/story";
 import type { CallPath, ContractRow, StoryReading } from "../reading/types";
-import CheckTile from "./CheckList";
+import CheckTile, { Cleared } from "./CheckList";
 import { useWs } from "./context";
 import FunctionCode from "./FunctionCode";
 import NameText, { Ticks } from "./NameText";
@@ -172,10 +172,13 @@ export default function StoryTiles({ detail, sr }: { detail: StoryDetail; sr: St
         </section>
       </div>
       <aside className="ov2-right" aria-label="What to check in this story">
-        <CheckTile groups={[{ label: null, checks: sr.checks }]} ofTotal footer={suggested.length > 0 && (
-          <div className="st-suggested"><h4><span className="ai-label">AI</span>The strong model also suggests</h4>
-            <ul>{suggested.map((c, k) => <li key={k}><NameText text={c} /></li>)}</ul></div>
-        )} />
+        <CheckTile groups={[{ label: null, checks: sr.checks }]} ofTotal footer={<>
+          {suggested.length > 0 && (
+            <div className="st-suggested"><h4><span className="ai-label">AI</span>The strong model also suggests</h4>
+              <ul>{suggested.map((c, k) => <li key={k}><NameText text={c} /></li>)}</ul></div>
+          )}
+          <Cleared checks={(d.reading?.cleared ?? []).filter((k) => k.story === st.id)} />
+        </>} />
       </aside>
     </div>
   );

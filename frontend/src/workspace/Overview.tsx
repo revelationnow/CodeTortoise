@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { byThread, letter, placeOf } from "../reading/checks";
+import { byThread, letter } from "../reading/checks";
 import { arcLayout, connectionRows, testsLine } from "../reading/overview";
 import type { Reading, Thread } from "../reading/types";
-import CheckTile from "./CheckList";
+import CheckTile, { Cleared } from "./CheckList";
 import { useWs } from "./context";
 import { short } from "./crumbs";
 import { Ticks } from "./NameText";
@@ -119,14 +119,7 @@ export default function Overview({ r }: { r: Reading }) {
       <aside className="ov2-right" aria-label="What to check">
         <CheckTile id="checks" groups={byThread(r)} ofTotal={false} footer={<>
           {r.rules_only && <p className="muted small">Risks judged by rules only.</p>}
-          {r.cleared.length > 0 && (
-            <details className="ck-cleared">
-              <summary>{r.cleared.length} check{r.cleared.length === 1 ? "" : "s"} found no hazard</summary>
-              <ul>{r.cleared.map((k) => (
-                <li key={k.key}><Ticks text={k.text} />{placeOf(k) && <span className="mono small"> · <Ticks text={placeOf(k)} /></span>}</li>
-              ))}</ul>
-            </details>
-          )}
+          <Cleared checks={r.cleared} />
         </>} />
         {r.build_impact.length > 0 && (
           <section className="ws-tile" aria-label="Build impact">
