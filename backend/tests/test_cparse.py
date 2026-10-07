@@ -1,4 +1,4 @@
-from codetortoise.cparse import is_header, is_source, parse_source
+from codetortoise.cparse import is_header, is_source, parse_source, preproc_spans
 
 CPP = """
 #include "cpp/engine.h"
@@ -70,3 +70,29 @@ def test_large_files_parse_without_crashing(tmp_path):
     r = subprocess.run([sys.executable, "-c", code, str(tmp_path / "big.c")], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr[-500:]
     assert r.stdout.split() == ["400", "3193", "3199"]
+
+
+GUARDED = """#ifndef UART_H
+#define UART_H
+#ifdef CONFIG_WIN
+int f(void) { return 1; }
+#elif defined(X)
+int g;
+#else
+int h;
+#endif
+#if FOO > 1
+int k;
+#endif
+#endif
+"""
+
+
+def test_preproc_spans_give_each_branch_its_condition_and_skip_include_guards():
+    assert preproc_spans("a.h", GUARDED) == [(3, 4, "defined(CONFIG_WIN)"), (5, 6, "defined(X)"), (7, 8, "!defined(X)"),
+                                             (10, 12, "FOO > 1")]
+
+
+def test_preproc_spans_negate_an_ifndef_in_its_else_branch():
+    text = "#ifndef NO_LOG\nint a;\n#else\nint b;\n#endif\n"
+    assert preproc_spans("a.c", text) == [(1, 2, "!defined(NO_LOG)"), (3, 4, "defined(NO_LOG)")]

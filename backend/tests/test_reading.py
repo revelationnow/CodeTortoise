@@ -1,8 +1,8 @@
 """How a review reads (spec 2026-10-07-review-reading §4–§8): story links, threads, connections, reading order."""
-from test_stories import _edit, _world
+from test_stories import _edit, _in_cls, _same, _world
 
 from codetortoise.board import analyse
-from codetortoise.reading import build_threads, story_links
+from codetortoise.reading import Thread, build_threads, connections, story_links
 from codetortoise.stories import Story, StorySet
 
 
@@ -126,3 +126,113 @@ def test_cl_links_name_each_shared_changelist():
     c = _world([_edit("p", "src/a.c"), _edit("q", "lib/b.c")])
     (lk,) = story_links(_set(["N1"], ["N2"], cls={"S1": [11, 12], "S2": [11, 12]}), _x(c))
     assert lk.text == "both arrive in CL 11 and CL 12" and lk.facts == ["CL 11", "CL 12"]
+
+
+# ---- §4.3 thread connections
+def _threads(*groups):
+    """One thread per group of story ids."""
+    return [Thread(id=f"T{i}", name=f"t{i}", purpose="", stories=list(g)) for i, g in enumerate(groups, 1)]
+
+
+def _conn(conns, a, b):
+    return next(k for k in conns if {k.a, k.b} == {a, b})
+
+
+def test_threads_whose_changes_share_a_caller_within_three_hops_meet_there_preferring_an_entry_point():
+    c = _world([_edit("send", "drv/uart.c"), _edit("init", "drv/init.c"), _same("helper", "app/h.c"),
+                _same("main", "app/main.c")],
+               calls=[("helper", "send"), ("helper", "init"), ("main", "helper")])
+    ss = _set(["N1"], ["N2"], cls={"S1": [1], "S2": [2]})
+    k = _conn(connections(_threads(["S1"], ["S2"]), ss, _x(c)), "T1", "T2")
+    assert (k.kind, k.text, k.facts, k.shown) == ("caller", "both run inside `main`", ["N4", "N1", "N2"], True)
+    c.cfg.entrypoint_patterns = []
+    k = _conn(connections(_threads(["S1"], ["S2"]), ss, _x(c)), "T1", "T2")
+    assert k.text == "both run inside `helper`"
+
+
+def test_a_caller_four_hops_away_is_not_shared():
+    c = _world([_edit("send", "drv/uart.c"), _edit("init", "drv/init.c"), _same("a", "x/a.c"), _same("b", "x/b.c"),
+                _same("cc", "x/c.c"), _same("main", "app/main.c")],
+               calls=[("a", "send"), ("b", "a"), ("cc", "b"), ("main", "cc"), ("main", "init")])
+    ss = _set(["N1"], ["N2"], cls={"S1": [1], "S2": [2]})
+    k = _conn(connections(_threads(["S1"], ["S2"]), ss, _x(c)), "T1", "T2")
+    assert k.kind != "caller"
+    c.impact.edges.append(c.impact.edges[0].model_copy(update={"id": "E9", "src": "N6", "dst": "N3"}))   # main → a too
+    k = _conn(connections(_threads(["S1"], ["S2"]), ss, _x(c)), "T1", "T2")
+    assert (k.kind, k.facts) == ("caller", ["N6", "N1", "N2"])
+
+
+def test_threads_using_one_struct_share_vocabulary():
+    c = _world([_edit("cfg", "drv/a.c"), _edit("rep", "svc/b.c")],
+               fields=[("cfg", "Uart", "baud", "write", "unchanged"), ("rep", "Uart", "errors", "read", "unchanged")])
+    ss = _set(["N1"], ["N2"], cls={"S1": [1], "S2": [2]})
+    k = _conn(connections(_threads(["S1"], ["S2"]), ss, _x(c)), "T1", "T2")
+    assert (k.kind, k.text, k.facts) == ("vocabulary", "both use `struct Uart`", ["N3", "N4"])
+
+
+def test_threads_using_a_changed_macro_or_including_a_changed_header_share_vocabulary():
+    from codetortoise.diffmap import TypeChange
+    from codetortoise.vcs.model import FileChange
+    c = _world([("cfg", "drv/a.c", ["a = 0;"], ["a = UART_MAX;"]), ("rep", "svc/b.c", ["b = 0;"], ["b = UART_MAX + 1;"])])
+    c.dm.types.append(TypeChange(file="/w/drv/uart.h", depot="//d/w/drv/uart.h", name="UART_MAX", kind="macro_changed"))
+    ss = _set(["N1"], ["N2"], cls={"S1": [1], "S2": [2]})
+    k = _conn(connections(_threads(["S1"], ["S2"]), ss, _x(c)), "T1", "T2")
+    assert (k.kind, k.text, k.facts) == ("vocabulary", "both use `UART_MAX`", ["drv/uart.h"])
+    c = _world([_edit("cfg", "drv/a.c"), _edit("rep", "svc/b.c")])
+    for f in c.cs.files:
+        f.after = '#include "uart.h"\n' + f.after
+    c.cs.files.append(FileChange(depot="//d/w/drv/uart.h", local="/w/drv/uart.h", action="edit", before="\n",
+                                 after="#define UART_MAX 4\n"))
+    k = _conn(connections(_threads(["S1"], ["S2"]), ss, _x(c)), "T1", "T2")
+    assert (k.kind, k.text, k.facts) == ("vocabulary", "both include `drv/uart.h`", ["drv/uart.h"])
+
+
+def test_threads_built_only_for_one_target_of_several_or_under_one_condition_share_it():
+    c = _world([_edit("a", "x/a.c"), _edit("b", "y/b.c"), _edit("h", "z/h.c")])
+    ss = _set(["N1"], ["N2"], ["N3"], cls={"S1": [1], "S2": [2], "S3": [3]})
+    for s, t in zip(ss.stories, (["fw"], ["fw"], ["host"]), strict=True):
+        s.targets = t
+    conns = connections(_threads(["S1"], ["S2"], ["S3"]), ss, _x(c))
+    assert (_conn(conns, "T1", "T2").kind, _conn(conns, "T1", "T2").text) == ("condition", "both build only for `fw`")
+    c = _world([_edit("a", "x/a.c"), _edit("b", "y/b.c")])
+    for f in c.cs.files:
+        f.after = "#ifdef CONFIG_WIN\n" + f.after + "#endif\n"
+    ss = _set(["N1"], ["N2"], cls={"S1": [1], "S2": [2]})
+    k = _conn(connections(_threads(["S1"], ["S2"]), ss, _x(c)), "T1", "T2")
+    assert (k.kind, k.text, k.facts) == ("condition", "both sit under `#if defined(CONFIG_WIN)`", ["x/a.c", "y/b.c"])
+
+
+def test_threads_alone_in_a_folder_share_the_place_and_otherwise_only_their_bundle():
+    c = _world([_edit("a", "src/util/win32/a.c"), _edit("b", "src/util/win32/b.c"), _edit("c", "src/util/c.c"),
+                _edit("d", "lib/d.c")])
+    _in_cls(c, {"src/util/win32/a.c": 11, "src/util/win32/b.c": 11, "src/util/c.c": 11, "lib/d.c": 12})
+    c.cs.cls[1].user = c.cs.cls[0].user = "ana"
+    ss = _set(["N1"], ["N2"], ["N3"], ["N4"], cls={"S1": [11], "S2": [11], "S3": [11], "S4": [12]})
+    conns = connections(_threads(["S1"], ["S2"], ["S3"], ["S4"]), ss, _x(c))
+    assert (_conn(conns, "T1", "T2").kind, _conn(conns, "T1", "T2").text) == ("place", "both live under `src/util/win32`")
+    assert _conn(conns, "T1", "T3").text == "nothing besides arriving in CL 11"      # src/util holds T2's files too
+    assert (_conn(conns, "T1", "T4").kind, _conn(conns, "T1", "T4").text) == ("bundled", "nothing besides their author ana")
+    c.cs.cls[1].user = "bo"
+    conns = connections(_threads(["S1"], ["S2"], ["S3"], ["S4"]), ss, _x(c))
+    assert _conn(conns, "T1", "T4").text == "nothing besides arriving in this review"
+    ss.stories[3].cls = [11, 12]
+    conns = connections(_threads(["S1"], ["S2"], ["S3"], ["S4"]), ss, _x(c))
+    assert _conn(conns, "T1", "T4").text == "nothing besides arriving in CL 11"
+
+
+def test_a_lone_threads_arc_goes_to_a_thread_sharing_its_cl_when_folders_tie():
+    c = _world([_edit("a", "p/a.c"), _edit("b", "q/b.c"), _edit("c", "r/c.c")])
+    ss = _set(["N1"], ["N2"], ["N3"], cls={"S1": [1], "S2": [2], "S3": [2]})
+    conns = connections(_threads(["S1"], ["S2"], ["S3"]), ss, _x(c))
+    assert sorted((k.a, k.b) for k in conns if k.shown) == [("T1", "T2"), ("T2", "T3")]
+
+
+def test_only_pairs_not_already_joined_by_as_strong_a_connection_are_shown_and_a_lone_thread_gets_one_bundled_arc():
+    c = _world([_edit("a", "src/a.c"), _edit("b", "src/k/b.c"), _edit("c", "src/k/c.c"), _edit("d", "src/k/d/d.c"),
+                _same("main", "app/main.c")],
+               calls=[("main", "a"), ("main", "b"), ("main", "c")])
+    ss = _set(["N1"], ["N2"], ["N3"], ["N4"], cls={"S1": [1], "S2": [2], "S3": [3], "S4": [4]})
+    conns = connections(_threads(["S1"], ["S2"], ["S3"], ["S4"]), ss, _x(c))
+    shown = sorted((k.a, k.b, k.kind) for k in conns if k.shown)
+    assert shown == [("T1", "T2", "caller"), ("T1", "T3", "caller"), ("T2", "T4", "bundled")]
+    assert len(conns) == 6
