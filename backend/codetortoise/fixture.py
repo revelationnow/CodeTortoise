@@ -11,6 +11,8 @@ FIXTURE_SRC = Path(__file__).parent / "fixtures" / "cfixture"
 CL_DESCRIPTIONS = {
     101: "uart: count tx stats and report overflow",
     102: "uart: add flags field; hal_write takes unsigned reg",
+    103: "logger: start at log level 1",
+    104: "logger: read the level back; engine: step by three",
 }
 
 
