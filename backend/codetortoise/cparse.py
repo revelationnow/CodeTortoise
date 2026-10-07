@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass, field
 from pathlib import PurePath
 
@@ -198,3 +199,48 @@ def parse_source(path: str, text: str) -> ParsedFile:
         for ch in reversed(node.children):
             stack.append((ch, child_scope, child_fn))
     return out
+
+
+_GUARD = re.compile(r"(_H|_HH|_HPP|_HXX|_INCLUDED)_*$")
+
+
+def _negate(cond: str) -> str:
+    if cond.startswith("!defined(") and cond.endswith(")"):
+        return cond[1:]
+    if cond.startswith("defined(") and cond.endswith(")") and cond.count("(") == 1:
+        return "!" + cond
+    return f"!({cond})"
+
+
+def preproc_spans(path: str, text: str) -> list[tuple[int, int, str]]:
+    """(first line, last line, condition) for each branch of each `#if`/`#ifdef`/`#ifndef` (`#elif` and `#else`
+    included), in source order; include guards are left out. `#ifdef X` is `defined(X)`, `#ifndef X` is
+    `!defined(X)` and an `#else` negates the branch before it."""
+    src = text.encode("utf-8", errors="replace")
+    tree = _parser_for(path).parse(src)
+    out: list[tuple[int, int, str]] = []
+
+    def branch(node: ts.Node, cond: str) -> None:
+        alt = node.child_by_field_name("alternative")
+        end = alt.start_point.row if alt is not None else node.end_point.row + 1
+        out.append((node.start_point.row + 1, end, cond))
+        if alt is not None:
+            if alt.type == "preproc_elif":
+                c = alt.child_by_field_name("condition")
+                branch(alt, norm_ws(_txt(src, c)) if c is not None else "")
+            else:
+                out.append((alt.start_point.row + 1, alt.end_point.row + 1, _negate(cond)))
+
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        if node.type == "preproc_ifdef":
+            neg = any(ch.type == "#ifndef" for ch in node.children)
+            name = _txt(src, node.child_by_field_name("name"))
+            if not (neg and _GUARD.search(name)):
+                branch(node, f"{'!' if neg else ''}defined({name})")
+        elif node.type == "preproc_if":
+            c = node.child_by_field_name("condition")
+            branch(node, norm_ws(_txt(src, c)) if c is not None else "")
+        stack.extend(reversed(node.children))
+    return sorted(out)
