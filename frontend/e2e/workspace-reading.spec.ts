@@ -87,7 +87,8 @@ test.describe("desktop", () => {
     await expect(contract).toContainText("hal_write: gained unsigned");
     await expect(contract.locator("mark")).toHaveText("unsigned");                  // the part of the signature that differs
     const paths = page.getByRole("region", { name: /^Call paths/ });
-    await expect(paths.locator(".st-steps")).toHaveText(["contractmain→uart_init→hal_write"]);
+    await expect(paths.locator(".st-steps")).toHaveText(["contractmain→uart_init→hal_write",     // every caller has a path
+      "callmain→logger_flush→uart_send→hal_write", "callmain→logger_write→uart_send→hal_write"]);
     await expect(page.getByRole("region", { name: "To check" }).locator("h3 .ck-count")).toHaveText("2 of 2 open");
     await page.getByRole("region", { name: "Where" }).getByRole("link", { name: "Open hal_write in hal/regs.c at line 10" }).click();
     await expect(page.getByRole("complementary", { name: "Code: regs.c" })).toBeVisible();

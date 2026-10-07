@@ -741,14 +741,18 @@ def call_paths(story: Story, x: _Ctx, flows: list[Flow]) -> list[CallPath]:
     for c, n in [(c, None) for c, _ in order if c in starts] + order:
         if n is not None and (c, n) in used:
             continue
-        steps = [c]
-        while steps[0] not in starts and up.get(steps[0]):
-            steps.insert(0, pick(up[steps[0]], lambda o: (o, steps[0])))
-        if n is not None:
-            steps.append(n)
+        steps = [c] if n is None else [c, n]
         while steps[-1] not in seeds:
-            steps.append(pick(down[steps[-1]], lambda o: (steps[-1], o)))
-        used.update(zip(steps, steps[1:]))
+            last = steps[-1]
+            steps.append(pick(down[last], lambda o, last=last: (last, o)))
+        while steps[0] not in starts:              # up a hop; else through a caller reached by another way
+            first = steps[0]
+            options = [p for p in up.get(first, []) if p not in steps] or \
+                [p for p in sorted(set(rev.get(first, [])), key=lambda m: x.label(m)) if layer.get(p) and p not in steps]
+            if not options:
+                break
+            steps.insert(0, pick(options, lambda o, first=first: (o, first)))
+        used.update(zip(steps, steps[1:], strict=False))
         if tuple(steps) not in seen:
             seen.add(tuple(steps))
             calls.append(_path(steps, "call", x, f"calls `{x.label(steps[-1])}`, {_change_text(x, steps[-1])}"))
