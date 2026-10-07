@@ -93,6 +93,25 @@ test.describe("desktop", () => {
     await expect(page.getByRole("region", { name: "The map" })).toBeVisible();
   });
 
+  test("a review with stories but no reading (run between them) keeps the stories rail and the old story page", async ({ page }) => {
+    const base = await startReview(page);
+    const rid = base.split("/")[2];
+    await page.route(`**/api/reviews/${rid}/reading`, (r) =>
+      r.fulfill({ status: 404, json: { detail: "this review has no reading: re-run it" } }));
+    const real = await (await page.request.get(`/api/reviews/${rid}/stories/S1`)).json();
+    await page.route(`**/api/reviews/${rid}/stories/S1`, (r) => r.fulfill({ json: { ...real, reading: null } }));
+    await page.reload();
+    const rail = page.locator(".ws-rail");
+    await expect(rail.getByRole("link", { name: "Go to the whole change" })).toBeVisible();
+    await expect(rail.getByRole("button", { name: /^Stories \(from/ })).toBeVisible();
+    await expect(rail.getByRole("link", { name: "Go to the overview" })).toHaveCount(0);
+    await rail.getByRole("link", { name: /^Go to story S1/ }).click();
+    await expect(page.getByRole("tab", { name: "Steps" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("region", { name: /^Call paths/ })).toHaveCount(0);
+    await expect(page.locator(".ws-story-head .st-crumb")).toHaveCount(0);
+    await expectNoNodeIds(page);
+  });
+
   test("a story the server sends without a graph drops the Graph tab and shows its steps", async ({ page }) => {
     const base = await startReview(page);
     const rid = base.split("/")[2];
