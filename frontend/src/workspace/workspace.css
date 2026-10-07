@@ -595,3 +595,41 @@ a.ws-chip { text-decoration: none; }
   .ov2 { grid-template-columns: minmax(0, 1fr); }
   .ov2-right { order: -1; position: static; max-height: none; }
 }
+.st-page { max-width: 1280px; margin: 0 auto; }
+.st-crumb { margin: 0 0 4px; font-size: 13px; }
+.st-crumb a { text-decoration: none; font-weight: 600; }
+.st-tiles .ov2-left > section { margin: 0 0 22px; }
+.st-tiles .ov2-left h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 8px; }
+.st-place { color: var(--muted); }
+.st-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin: 0 0 22px; }
+.st-contracts { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+.st-contract { padding: 5px 0; border-top: 1px solid var(--line); }
+.st-contract:first-child { border-top: 0; }
+.st-contract button { margin-left: 8px; }
+.st-sig { margin-top: 4px; font-size: 12px; }
+.st-sig .del { color: var(--del-ink); } .st-sig .add { color: var(--add-ink); }
+.st-sig mark { background: var(--chg-bg); color: inherit; border-radius: 2px; }
+.st-names { margin: 4px 0 0; padding-left: 18px; font-size: 12px; }
+.st-dir + .st-dir { margin-top: 8px; }
+.st-dir-name { font-size: 12px; color: var(--muted); }
+.st-file { margin: 2px 0 0 12px; font-size: 13px; }
+.st-file ul { list-style: none; margin: 0; padding: 0 0 0 14px; }
+.st-file li { display: flex; gap: 8px; align-items: baseline; padding: 1px 0; }
+.st-file a { text-decoration: none; }
+.st-entry { margin: 0 0 8px; }
+.st-entry > summary { cursor: pointer; font-size: 13px; }
+.st-paths { list-style: none; margin: 4px 0 0; padding: 0 0 0 14px; }
+.st-path { padding: 5px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.st-path:first-child { border-top: 0; }
+.st-steps { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px; font-size: 12px; }
+.st-steps .bd-tag { margin-right: 6px; }
+.st-steps .sep { color: var(--muted); padding: 0 5px; }
+.st-path-text { margin-top: 2px; }
+.st-fn { border-top: 1px solid var(--line); padding: 5px 0; }
+.st-fn > summary { cursor: pointer; font-size: 13px; }
+.st-questions { margin: 0 0 8px; padding-left: 18px; font-size: 14px; }
+.st-suggested { margin-top: 10px; font-size: 13px; }
+.st-suggested h4 { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: none; letter-spacing: 0; }
+.st-suggested ul { margin: 0; padding-left: 18px; }
+.st-tiles .cnt { font: 11px var(--mono); } .st-tiles .cnt .p { color: var(--ok); } .st-tiles .cnt .m { color: var(--bad); }
+.bd-tag.call { background: var(--gap-bg); color: var(--ink); }

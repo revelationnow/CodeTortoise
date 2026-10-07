@@ -3,31 +3,26 @@ import { expectNamed, expectNoNodeIds, flowStripHolds, startReview } from "./hel
 
 /** A story in the workspace (spec 2026-10-04-review-workspace §3.2, §2.4). */
 
-const step = (page: Page, label: string) => page.getByRole("list", { name: "Flow steps" }).getByRole("link", { name: `Open ${label}'s code` });
 const node = (page: Page, label: string) => page.locator(".bd-node", { has: page.locator(".lbl", { hasText: new RegExp(`^${label}$`) }) });
 
 test.describe("desktop", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test("steps open the detail panel and mark the step; flows replace history; findings link to their pages", async ({ page }) => {
+  test("Where opens a function's diff in the side panel and Code opens it in place", async ({ page }) => {
     const base = await startReview(page);
     await page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ }).click();
     await expect(page.locator(".ws-story-head h2")).toContainText("uart_send can now return -2");
     await expect(page.getByRole("tab", { name: "Steps" })).toHaveAttribute("aria-selected", "true");
-    await expect(page.locator(".ws-story-meta .ws-chip:not(.ws-onmap)")).toHaveText(["CL 101", "CL 102"]);
-    await step(page, "uart_send").click();
-    await expect(page).toHaveURL(/\/s\/S1\?open=N\d+$/);
-    await expect(page.getByRole("complementary", { name: "Code: uart_send" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Close uart_send's code" })).toHaveAttribute("aria-current", "true");
-    await page.getByRole("link", { name: "Close uart_send's code" }).click();
+    await expect(page.locator(".ws-story-meta .ws-chip:not(.ws-onmap)")).toHaveText(["CL 101 · 1 function"]);   // its functions by CL
+    await page.getByRole("region", { name: "Where" }).getByRole("link", { name: "Open uart_send in driver/uart.c at line 11" }).click();
+    await expect(page).toHaveURL(/\/s\/S1\?open=file%3A%2F%2Ffixture%2Fdriver%2Fuart\.c%3A11$/);
+    await expect(page.getByRole("complementary", { name: "Code: uart.c" })).toBeVisible();
+    await page.getByRole("link", { name: "Close the code" }).click();
     await expect(page.locator(".ws-detail")).toHaveCount(0);
-
-    await flowStripHolds(page);
-    await page.goBack();                                       // flows replaced the entry: Back undoes the close
-    await expect(page.locator(".ws-detail")).toBeVisible();
-    await page.goForward();
-    await page.getByRole("link", { name: /^Go to finding F1:/ }).first().click();
-    await expect(page).toHaveURL(new RegExp(`${base}/f/F1$`));
+    const code = page.getByRole("region", { name: "Code" });
+    await code.locator("summary", { hasText: "uart_send" }).click();
+    await expect(code.locator(".bd-code").first()).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`${base}/s/S1$`));                  // in place: the address stays
     await expectNoNodeIds(page);
   });
 
@@ -61,7 +56,7 @@ test.describe("desktop", () => {
     await expectNamed(page);
 
     await page.getByRole("tab", { name: "Steps" }).click();
-    await expect(page.getByRole("list", { name: "Flow steps" })).toBeVisible();     // measure in the Steps layout
+    await expect(page.getByRole("region", { name: "To check" })).toBeVisible();     // measure in the Steps layout
     const next = page.getByRole("link", { name: /^Next story/ });
     const x = (await next.boundingBox())!.x;
     await next.click();
@@ -101,7 +96,7 @@ test.describe("desktop", () => {
     const real = await (await page.request.get(`/api/reviews/${rid}/stories/S1`)).json();
     await page.route(`**/api/reviews/${rid}/stories/S1`, (r) => r.fulfill({ json: { ...real, graph: null } }));
     await page.goto(`${base}/s/S1?view=graph`);
-    await expect(page.getByRole("list", { name: "Flow steps" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Before → after" })).toBeVisible();
     await expect(page.getByRole("tab", { name: "Graph" })).toHaveCount(0);
   });
 
@@ -190,10 +185,10 @@ test.describe("phone", () => {
     await startReview(page);
     await page.getByRole("link", { name: /^Go to story S1/ }).click();
     await expect(page.locator(".ws-phonebar")).toContainText("‹ Stories");
-    await step(page, "uart_send").click();
+    await page.getByRole("region", { name: "Where" }).getByRole("link", { name: /^Open uart_send in/ }).click();
     const bar = page.locator(".ws-detail .ws-phonebar");
-    await expect(bar).toContainText("‹ S1");
-    await expect(bar).toContainText("uart_send");
+    await expect(bar).toContainText("‹ Back");
+    await expect(bar).toContainText("uart.c");
     await bar.getByRole("link", { name: "Close the code" }).click();
     await expect(page.locator(".ws-centre .ws-phonebar")).toContainText("‹ Stories");
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
@@ -203,7 +198,7 @@ test.describe("phone", () => {
 test.describe("a story's flows on its graph", () => {
   test.use({ baseURL: "http://127.0.0.1:8796", viewport: { width: 1440, height: 900 } });
 
-  test("flow=N is the same flow on Steps and Graph; a flow too long to draw says so and links to Steps", async ({ page }) => {
+  test("a flow too long to draw says so on the graph and links to the story's call paths", async ({ page }) => {
     const base = await startReview(page, "201 202");
     const rid = base.split("/")[2];
     const get = async (url: string) => (await page.request.get(`/api/reviews/${rid}/${url}`)).json();
@@ -218,20 +213,16 @@ test.describe("a story's flows on its graph", () => {
       j.graph.flows = j.graph.flows.slice(1);
       await route.fulfill({ response: res, json: j });
     });
-    await page.goto(`${base}/s/${sid}?flow=2`);
-    const strip = page.getByRole("region", { name: "Flow" }), title = strip.locator(".ws-flow-title");
-    await expect(title).not.toHaveText("");
-    const second = await title.innerText(), of = await strip.locator(".ws-flow-pos").innerText();
-    await page.getByRole("tab", { name: "Graph" }).click();
-    await expect(page).toHaveURL(/view=graph&flow=2$/);
+    await page.goto(`${base}/s/${sid}?view=graph&flow=2`);
+    const strip = page.getByRole("region", { name: "Flow" });
     await expect(page.locator(".ws-graph .bd-node").first()).toBeVisible();
-    await expect(title).toHaveText(second);
-    await expect(strip.locator(".ws-flow-pos")).toHaveText(of);
+    await expect(strip.locator(".ws-flow-pos")).toHaveText(/^flow 2 of \d+$/);
     await strip.getByRole("button", { name: "Previous flow" }).click();
     await expect(page).toHaveURL(/view=graph&flow=1$/);
     await expect(strip).toContainText("This flow is too long to draw here");
     await strip.getByRole("link", { name: "See it in Steps" }).click();
     await expect(page).toHaveURL(new RegExp(`/s/${sid}\\?flow=1$`));
     await expect(page.getByRole("tab", { name: "Steps" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("region", { name: /^Call paths/ })).toBeVisible();
   });
 });

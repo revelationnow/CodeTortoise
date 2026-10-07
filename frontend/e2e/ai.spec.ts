@@ -62,14 +62,14 @@ test.describe("with an AI", () => {
     const told = board.flows.find((f: { what_source: string }) => f.what_source === "llm");
     const sid = ss.flow_story[told.id];
     const s = ss.stories.find((x: { id: string }) => x.id === sid);
-    await page.goto(`${base}/s/${sid}?flow=${s.flows.indexOf(told.id) + 1}`);
+    await page.goto(`${base}/s/${sid}?view=graph&flow=${s.flows.indexOf(told.id) + 1}`);
     const what = page.getByRole("region", { name: "Flow" }).locator(".ws-flow-text p").first();
     await expect(what.locator(".ai-label")).toBeVisible();                     // the board's narrative, on the story
     await expect(what.getByRole("button", { name: /Explain/ })).toHaveText("✦ Explain again");
     const other = ss.stories.flatMap((x: { id: string; flows: string[] }) => x.flows.map((f) => [x.id, f]))
       .find(([, f]: string[]) => f !== told.id)!;
     const st = ss.stories.find((x: { id: string }) => x.id === other[0]);
-    await page.goto(`${base}/s/${other[0]}?flow=${st.flows.indexOf(other[1]) + 1}`);
+    await page.goto(`${base}/s/${other[0]}?view=graph&flow=${st.flows.indexOf(other[1]) + 1}`);
     const ask = what.getByRole("button", { name: /Explain/ });
     await expect(ask).toHaveText("✦ Explain");
     await ask.click();
@@ -101,7 +101,7 @@ test.describe("with an AI", () => {
     await page.goto(`${base}/f/${tx.id}`);
     await expect(page.locator(".ws-finding h2 .badge")).toHaveText("info");
     await expect(page.locator(".ws-verdict")).toContainText("AI: no clear hazard — Nothing else depends on the value it writes.");
-    await page.goto(`${base}/s/S1`);
+    await page.goto(`${base}/s/S1?view=graph`);                              // a story's flows are on its graph
     const lands = page.getByRole("region", { name: "Flow" }).locator(".ws-flow-lands");
     await expect(lands).toContainText("⚠ Side effect lands on uart_errors.");
     await expect(lands).toContainText("AI: uart_errors assumes only uart_init writes Uart::errors.");
