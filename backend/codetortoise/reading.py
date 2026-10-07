@@ -1105,7 +1105,9 @@ def build_reading(ss: StorySet, c: BoardContext, details: dict[str, StoryDetail]
     order = [s for t in threads for s in t.stories] + [s.id for s in ss.stories if s.kind == "tests"]
     outside = 0
     if targets is not None:
-        outside = len({cl.file for cl in x.calls_after if not targets.get(cl.file) and cl.file not in x.texts})
+        mine = {x.im.nodes[n].key for n in x.changed if n in x.im.nodes}
+        outside = len({cl.file for cl in x.calls_after if cl.callee in mine and not is_test_path(rel_path(x, cl.file))
+                       and set(targets.get(cl.file, [])) <= {UNKNOWN}})
     reading = Reading(threads=threads, connections=conns, order=order, reasons=reasons, links=links, checks=rows,
                       cleared=cleared, build_impact=build_impact(x), coverage=coverage(x, has_tests, outside),
                       headline=headline(rows, set(), x.c.findings),
