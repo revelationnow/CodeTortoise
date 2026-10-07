@@ -155,6 +155,7 @@ def render(s: Scan) -> str:
             "# llm:                               # optional: AI-written narratives (code is sent to this endpoint)\n",
             "#   base_url: https://llm.example.com/v1\n",
             "#   model: your-model\n",
+            "#   api: chat                        # or responses (OpenAI Responses API), messages (Anthropic Messages)\n",
             "#   api_key_env: TORTOISE_LLM_KEY\n",
             "auth:\n",
             "  mode: p4                        # sign in with Perforce credentials\n"]

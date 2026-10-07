@@ -68,8 +68,10 @@ class LlmBudget(BaseModel):
 
 class StrongLlmConfig(BaseModel):
     """The strong model that forms stories and reviews their risks (spec 2026-10-05-two-tier-stories §9)."""
-    base_url: str                  # any OpenAI-compatible endpoint
+    base_url: str                  # the endpoint, e.g. https://api.openai.com/v1 or https://api.anthropic.com/v1
     model: str
+    api: Literal["chat", "responses", "messages"] = "chat"   # chat completions, OpenAI Responses or Anthropic Messages
+    max_output_tokens: int | None = None   # the reply's token limit (Messages needs one: 8192 when unset)
     key_env: str = "TORTOISE_STRONG_KEY"
     context_tokens: int = 64000
     temperature: float | None = 0  # None for endpoints that reject it
@@ -82,6 +84,8 @@ class LlmConfig(BaseModel):
     base_url: str | None = None
     api_key_env: str = "TORTOISE_LLM_KEY"
     model: str = "gpt-4o-mini"
+    api: Literal["chat", "responses", "messages"] = "chat"   # chat completions, OpenAI Responses or Anthropic Messages
+    max_output_tokens: int | None = None   # the reply's token limit (Messages needs one: 8192 when unset)
     max_context_tokens: int = 64000
     timeout_s: float = 120.0
     concurrency: int = 4           # parallel LLM calls (finding explanations, chapter and flow narratives)

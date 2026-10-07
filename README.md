@@ -5,7 +5,7 @@ a lensed map of the call graph, by architectural layer or by call depth, with nu
 *entry → change → where the side effect lands*. The board covers contract changes (new return values a caller
 ignores), state changes (fields written through local pointer/reference aliases and who reads them) and signature
 changes. Changed functions open as diffs with inline annotations and comment threads. Any other function's code is
-fetched on demand from your workspace. An OpenAI-compatible LLM (your endpoint, your key) can rewrite the narratives,
+fetched on demand from your workspace. An LLM (your endpoint, your key) can rewrite the narratives,
 and every claim it makes must cite analysis facts.
 
 The web app is the system of record for review discussion. P4 Swarm is a side channel: CodeTortoise reads review state,
@@ -126,7 +126,7 @@ Whether you start from `init` or from scratch, check these values in order.
 6. **`server`: how people reach the app.** `host: 127.0.0.1` keeps it on this machine. To share it, use `0.0.0.0`,
    set `public_url` to the address colleagues open, and set `tls_cert` and `tls_key` so sign-ins aren't sent in plain
    text. `data_dir` holds the database and caches; back it up.
-7. **Optional: `swarm.url` and `llm`.** Add Swarm to read and post Swarm reviews. Add an OpenAI-compatible `llm`
+7. **Optional: `swarm.url` and `llm`.** Add Swarm to read and post Swarm reviews. Add an `llm`
    endpoint for AI-written narratives; code is sent to it (see [LLM and data egress](#llm-and-data-egress)).
 
 #### Minimal example
@@ -176,6 +176,9 @@ swarm:
 llm:                                # optional; without it, narratives use built-in templates
   base_url: "https://llm.example.com/v1"
   model: "your-model"
+  api: chat                         # chat (OpenAI-compatible /chat/completions), responses (OpenAI Responses API)
+                                    #   or messages (Anthropic Messages API, e.g. base_url https://api.anthropic.com/v1)
+  # max_output_tokens: 8192         # reply token limit; messages needs one (8192 when unset), others send it only if set
   api_key_env: TORTOISE_LLM_KEY     # name of the environment variable holding the key
   max_context_tokens: 64000
   concurrency: 4                    # parallel LLM calls
@@ -342,8 +345,9 @@ another host.
 ### LLM and data egress
 
 With `llm` configured, snippets of changed functions and their callers, plus the analysis findings, are sent to that
-endpoint. Use an on-prem or contractually approved endpoint (any OpenAI-compatible server: vLLM, LM Studio, Azure
-OpenAI, …). Leave `llm` out to keep everything on the host. Reviews then use deterministic text and still show every
+endpoint. Use an on-prem or contractually approved endpoint: any OpenAI-compatible server (vLLM, LM Studio, Azure
+OpenAI, …) with `api: chat`, the OpenAI Responses API with `api: responses`, or the Anthropic Messages API with
+`api: messages`. `llm.strong` takes the same `api` and `max_output_tokens` keys. Leave `llm` out to keep everything on the host. Reviews then use deterministic text and still show every
 flow and annotation.
 
 LLM text follows a house style: the Microsoft Writing Style Guide (you, active voice, short sentences, plain words) and
