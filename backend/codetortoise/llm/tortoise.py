@@ -22,6 +22,7 @@ from codetortoise.llm.storyboard import STYLE, AiContext, _facts_for_nodes, _fin
 from codetortoise.llm.style import MODES, check_style
 from codetortoise.provenance import merge
 from codetortoise.services import Services
+from codetortoise.tidy import tidy
 from codetortoise.vcs.model import ChangeSet
 
 AUTHOR = "tortoise"
@@ -248,7 +249,7 @@ def _anchor_context(svc: Services, rid: int, comment: dict, ctx: AiContext, boar
         reader.ids.update(nodes)
         return "LAYER FUNCTIONS:\n" + _facts_for_nodes(im, nodes)
     flows = "\n".join(f"{f.id}: {f.title} — {f.what}" for f in board.flows)
-    finds = "\n".join(f"{f.id} [{f.severity}] {f.title}" for f in ctx.findings)
+    finds = "\n".join(f"{f.id} [{f.severity}] {tidy(f.title)}" for f in ctx.findings)
     reader.ids.update(f.id for f in ctx.findings)
     return f"CHANGE: {board.about.intent}\nFLOWS:\n{flows}\nFINDINGS:\n{finds}"
 

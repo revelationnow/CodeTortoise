@@ -19,6 +19,7 @@ from codetortoise.detectors.base import SEVERITY_RANK, Finding
 from codetortoise.pieces import PieceSet, node_cl
 from codetortoise.stories import Story, StoryDetail, StorySet
 from codetortoise.targets import UNKNOWN
+from codetortoise.tidy import tidy
 
 READING_VERSION = 1                   # bump with every change to the thread text's prompt or checks (keys its cache)
 _KIND_RANK = {"calls": 0, "data": 1, "file": 2, "cl": 3}
@@ -777,7 +778,7 @@ def build_checks(ss: StorySet, threads: list[Thread], conns: list[Connection], x
         story = story if story is not None else (home.get(related) if related else None)
         rows.append(Check(key=f"{kind}|{rel_path(x, path)}|{func or ''}|{_qual(x, related) if related else kw.pop('rel', '')}",
                           kind=kind, story=story, thread=thread_of.get(story) if story else kw.pop("thread", None),
-                          path=rel_path(x, path), line=line, function=func, node=place, text=text,
+                          path=rel_path(x, path), line=line, function=func, node=place, text=tidy(text),
                           source_line=_source(x, path, line, read_text), **kw))
 
     # 1–2: the strong model's verdicts; without one, high and medium findings (not header fan-out) to confirm

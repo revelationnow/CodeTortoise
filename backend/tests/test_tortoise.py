@@ -173,7 +173,7 @@ def test_each_anchor_kind_brings_its_context(world):
     _ask(bob, rid, "@tortoise finding?", "finding", {"kind": "contract", "title": "uart_send: new return value(s) -2"})
     _ask(bob, rid, "@tortoise review?", "review", {})
     assert "int uart_send" in script.prompts[0]
-    assert "new return value(s) -2" in script.prompts[1]
+    assert "new return value -2" in script.prompts[1]                   # the model reads the finding tidied
     assert "FLOWS" in script.prompts[2] and "FINDINGS" in script.prompts[2]
 
 

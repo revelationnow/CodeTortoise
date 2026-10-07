@@ -392,6 +392,15 @@ def test_without_verdicts_high_and_medium_findings_are_confirm_rows_except_heade
     assert _rows(open_) == [("confirm", "S1", "drv/uart.c", 1, "send", "send: signature changed")]
 
 
+def test_a_check_reads_its_finding_tidied():
+    c = _world([_edit("send", "drv/uart.c")])
+    ss = _set(["N1"])
+    ss.finding_story = {"F1": "S1"}
+    c.findings = [_f("F1", severity="medium", title="send: new return value(s) -2")]
+    open_, _ = _checks(c, ss)
+    assert [k.text for k in open_] == ["send: new return value -2"]
+
+
 def _caller_world(**kw):
     """`send` (S1) changed its signature; `log` and `flush` call it, `log` is changed too (S2)."""
     c = _world([_edit("send", "drv/uart.c"), _edit("log", "svc/log.c"), _same("flush", "svc/flush.c")],

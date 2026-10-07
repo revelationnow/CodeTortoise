@@ -72,7 +72,10 @@ def test_owner_creates_review_others_view_and_comment(env):
     # the raw storyboard and impact graph are not served: the board replaced them (spec §14.4)
     assert bob.get(f"/api/reviews/{rid}/storyboard").status_code == 404
     assert bob.get(f"/api/reviews/{rid}/impact").status_code == 404
-    assert len(bob.get(f"/api/reviews/{rid}/findings").json()) == 6
+    found = bob.get(f"/api/reviews/{rid}/findings").json()
+    assert len(found) == 6
+    fan = next(f for f in found if f["kind"] == "header_fanout")                # paths in the text are workspace-relative
+    assert fan["summary"].startswith("Changes in include/") and "{'" not in str([e["text"] for e in fan["evidence"]])
     assert [f["depot"] for f in bob.get(f"/api/reviews/{rid}/files").json()][0] == "//fixture/driver/uart.c"
     ev = bob.get(f"/api/reviews/{rid}/events")
     assert ev.status_code == 200 and ev.text.startswith("data: ")

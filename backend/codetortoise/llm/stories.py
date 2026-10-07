@@ -29,6 +29,7 @@ from codetortoise.llm.ledger import Ledger, Refused
 from codetortoise.llm.storyboard import _styled, _titled
 from codetortoise.llm.style import MODES, STYLE
 from codetortoise.pieces import Piece, PieceSet
+from codetortoise.tidy import tidy
 
 STORY_RULES_VERSION = 2               # bump with every change to RULES or the prompts' wording
 CHUNK_SHARE = 0.6                     # a chunk's prompt stays within this share of the context
@@ -205,7 +206,7 @@ def _findings_of(ids: list[str], ps: PieceSet, findings: list[Finding]) -> list[
     for f in findings:
         mine = [pid for pid in pieces_of(f, ps) if pid in ids]
         if mine:
-            out.append(f"{f.id} [{f.severity}] {f.kind}: {f.title} — {', '.join(mine)}")
+            out.append(f"{f.id} [{f.severity}] {f.kind}: {tidy(f.title)} — {', '.join(mine)}")
     return out
 
 
