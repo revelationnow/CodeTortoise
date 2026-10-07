@@ -54,7 +54,7 @@ layer) stays, reachable from the Index (§11). Code keeps its names; only what t
 
 ## 4. Threads and connections (analysis, no AI)
 
-Runs in a new pipeline stage `reading` after `review` (§10). Inputs: the story set, pieces and their links, the
+Runs in a new pipeline stage `reading` after `llm` (§10.2). Inputs: the story set, pieces and their links, the
 impact model, targets, the prepared facts.
 
 ### 4.1 Story links
@@ -194,7 +194,7 @@ flow strip (replaced by Call paths).
 | 4 | Result handled the old way | returns facts: caller ignores the result, or compares only with values that existed before |
 | 5 | Unchanged reader | field facts: a reader of a field the change now writes, in a function the change did not touch |
 | 6 | Other build target | a call site or including file compiled only in another target |
-| 7 | No test touched | a changed function no test file calls (symbol index callers in test files) and no test file in the change mentions |
+| 7 | No test touched | a changed function no test file calls (symbol index callers in test files) and no test file in the change mentions; only when the workspace has test code, otherwise Coverage says "No test code found in the workspace" |
 | 8 | Not analysed | capped fan-in; call sites outside any compile database |
 | 9 | Ask the author | a thread connected only by "only bundled" (§4.3) |
 
@@ -283,8 +283,9 @@ A and C share only their CLs").
 
 ### 10.2 Pipeline
 
-New stage `reading` after `review`, depending on `stories` (it runs when `review` is degraded or skipped; it uses
-verdicts when present). It stores blobs `reading` and `story_reading:<sid>`. `STORY_RULES_VERSION` is unchanged; a
+New stage `reading` after `llm`, depending on `board`: the stories are built in the `board` stage and the `llm`
+stage retitles the rules' stories, so `reading` sees the titles the reader sees. It runs when `review` or `llm` is
+degraded or skipped, and uses tier 1's verdicts when present. It stores blobs `reading` and `story_reading:<sid>`. `STORY_RULES_VERSION` is unchanged; a
 `READING_VERSION` keys the cached thread text.
 
 ### 10.3 Store
@@ -323,7 +324,8 @@ Applied in every view and AI prompt:
   rule; reading order; contract rows; call-path folding; each check kind, merging and keys; marks kept, dropped and
   reopened across a re-run; the headline; the thread-text checks and the fixed-text fallback.
 - Fixture: a multi-CL e2e review with two features joined by a shared caller, one feature connected only by its CL,
-  a caller left behind, a field reader left behind and a changed function without a test.
+  a caller left behind and a field reader left behind (the bundled fixture has no test code, so No test touched is
+  covered by unit tests).
 - Playwright: overview and story page on desktop and phone; arcs; marking a check and seeing it after a re-run; old
   finding and cluster addresses.
 - Lab: review 19 with and without the strong model; the owner's work review when the branch is ready.
