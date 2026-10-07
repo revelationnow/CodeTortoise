@@ -2,7 +2,7 @@
 from test_stories import _edit, _in_cls, _same, _world
 
 from codetortoise.board import analyse
-from codetortoise.reading import Thread, build_threads, connections, story_links
+from codetortoise.reading import Thread, build_threads, call_paths, connections, contract_rows, story_links, where
 from codetortoise.stories import Story, StorySet
 
 
@@ -236,3 +236,100 @@ def test_only_pairs_not_already_joined_by_as_strong_a_connection_are_shown_and_a
     shown = sorted((k.a, k.b, k.kind) for k in conns if k.shown)
     assert shown == [("T1", "T2", "caller"), ("T1", "T3", "caller"), ("T2", "T4", "bundled")]
     assert len(conns) == 6
+
+
+# ---- §8.1 contract rows
+def _sig(c, name, before=None, after=None, returns=None, names=None):
+    """Give `name` a signature (before / after side) and, after, return values."""
+    for fx, sig in ((c.before[0], before), (c.after[0], after)):
+        f = next(f for f in fx.functions if f.name == name)
+        if sig:
+            f.signature = sig
+    if returns:
+        b, a = returns
+        next(f for f in c.before[0].functions if f.name == name).returns = b
+        fa = next(f for f in c.after[0].functions if f.name == name)
+        fa.returns, fa.return_names = a, names or {}
+
+
+def test_a_signature_row_marks_the_part_that_differs():
+    c = _world([_edit("send", "drv/uart.c")])
+    _sig(c, "send", "int send(int len)", "int send(unsigned len)")
+    (row,) = contract_rows(_set(["N1"]).stories[0], _x(c))
+    assert (row.kind, row.node, row.before, row.after, row.mark) == ("signature", "N1", "int send(int len)",
+                                                                     "int send(unsigned len)", [9, 17])
+    assert row.text == "`send`: `int` → `unsigned`"
+
+
+def test_the_same_signature_edit_in_two_functions_is_one_repeated_row():
+    c = _world([_edit("a", "x/a.c"), _edit("b", "x/b.c"), _edit("solo", "x/c.c")])
+    _sig(c, "a", "void a(int x)", "void a(int x, const opts *o)")
+    _sig(c, "b", "void b(char *s)", "void b(char *s, const opts *o)")
+    _sig(c, "solo", "void solo(void)", "int solo(void)")
+    rows = contract_rows(_set(["N1", "N2", "N3"]).stories[0], _x(c))
+    assert [(r.kind, r.text, r.nodes) for r in rows] == [
+        ("repeated", "2 signatures gained `const opts *o`", ["N1", "N2"]),
+        ("signature", "`solo`: `void` → `int`", ["N3"])]
+
+
+def test_return_values_fields_and_body_only_changes_each_get_a_row():
+    c = _world([_edit("send", "drv/uart.c"), _edit("config", "drv/cfg.c"), _edit("p", "x/p.c"), _edit("q", "x/q.c")],
+               fields=[("config", "Uart", "errors", "write", "added")])
+    _sig(c, "send", returns=(["0"], ["0", "-2"]), names={"-2": "UART_EBUSY"})
+    c.impact.edges.append(c.impact.edges[0].model_copy(update={"id": "E9", "status": "removed", "dst": "N6"}))
+    c.impact.nodes["N6"] = c.impact.nodes["N5"].model_copy(update={"id": "N6", "key": "field:c:@S@Uart@FI@old",
+                                                                    "label": "Uart::old"})
+    rows = contract_rows(_set(["N1", "N2", "N3", "N4"]).stories[0], _x(c))
+    assert [(r.kind, r.text, r.added, r.removed, r.nodes) for r in rows] == [
+        ("returns", "`send` can now return UART_EBUSY (-2)", ["UART_EBUSY (-2)"], [], ["N1"]),
+        ("fields", "`config` now writes `Uart::errors`; no longer writes `Uart::old`", ["Uart::errors"], ["Uart::old"],
+         ["N2"]),
+        ("body", "2 functions changed only inside the body", [], [], ["N3", "N4"])]
+
+
+def test_a_mechanical_story_is_one_repeated_row_and_added_or_removed_functions_say_so():
+    from test_stories import _mech
+
+    from codetortoise.stories import build_stories
+    c = _world([_mech("free_a", "src/a.c"), _mech("free_b", "src/b.c", var="b"), ("fresh", "src/n.c", None, ["x = 1;"])])
+    ss, _ = build_stories(c)
+    m = next(s for s in ss.stories if s.kind == "mechanical")
+    assert [(r.kind, r.text, r.nodes) for r in contract_rows(m, _x(c))] == [
+        ("repeated", "`git_vector_free` → `git_vector_dispose` at 2 sites", ["N1", "N2"])]
+    (row,) = contract_rows(_set(["N3"]).stories[0], _x(c))
+    assert (row.kind, row.text, row.before, row.after) == ("signature", "`fresh` added", "", "void fresh(void)")
+
+
+# ---- §6.1 where
+def test_where_lists_each_file_and_its_functions_with_edit_size_and_cl():
+    c = _world([_edit("a", "drv/uart.c"), ("b", "drv/uart.c", ["x;"], ["y;", "z;"]), _edit("c", "svc/log.c")])
+    _in_cls(c, {"drv/uart.c": 11, "svc/log.c": 12})
+    got = where(_set(["N1", "N2", "N3"]).stories[0], _x(c))
+    assert [(f.path, f.depot, [(fn.label, fn.add, fn.rem, fn.cl, fn.line) for fn in f.functions]) for f in got] == [
+        ("drv/uart.c", "//d/w/drv/uart.c", [("a", 1, 0, 11, 1), ("b", 2, 1, 11, 6)]),
+        ("svc/log.c", "//d/w/svc/log.c", [("c", 1, 0, 12, 1)])]
+
+
+# ---- §8.2 call paths
+def test_every_caller_chain_up_to_an_entry_point_is_a_call_path_long_ones_folded_flows_first():
+    from codetortoise.board import Flow
+    c = _world([_edit("send", "drv/uart.c"), _same("low", "a/l.c"), _same("mid", "a/m.c"), _same("app", "a/a.c"),
+                _same("main", "a/main.c"), _same("other", "b/o.c")],
+               calls=[("low", "send"), ("mid", "low"), ("app", "mid"), ("main", "app"), ("other", "send")])
+    _sig(c, "send", "int send(int len)", "int send(unsigned len)")
+    fl = Flow(id="FL1", path=["N6", "N1"], tag="contract", lands="N6", severity="medium", text="", what="",
+              effect="Arguments other passes to send are converted.", check="")
+    story = _set(["N1"]).stories[0]
+    story.flows = ["FL1"]
+    paths = call_paths(story, _x(c), [fl])
+    assert [(p.steps, p.kind, p.entry, p.hidden, p.text, p.flow) for p in paths] == [
+        (["N6", "N1"], "contract", None, [], "Arguments other passes to send are converted.", "FL1"),
+        (["N5", "N4", "N3", "N2", "N1"], "call", "N5", ["N4", "N3"], "calls `send`, whose signature changed", None)]
+    assert paths[1].labels == ["main", "app", "mid", "low", "send"]
+
+
+def test_call_paths_are_not_capped():
+    fns = [_edit("send", "drv/uart.c")] + [_same(f"c{i}", f"k/c{i}.c") for i in range(30)]
+    c = _world(fns, calls=[(f"c{i}", "send") for i in range(30)])
+    paths = call_paths(_set(["N1"]).stories[0], _x(c), [])
+    assert len(paths) == 30 and paths[0].text == "calls `send`, whose body changed"

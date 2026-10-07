@@ -12,9 +12,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from codetortoise.board import _Ctx
+from codetortoise.board import Flow, _count, _Ctx
 from codetortoise.cparse import is_header, preproc_spans
-from codetortoise.pieces import PieceSet
+from codetortoise.pieces import PieceSet, node_cl
 from codetortoise.stories import Story, StorySet
 
 _KIND_RANK = {"calls": 0, "data": 1, "file": 2, "cl": 3}
@@ -53,6 +53,45 @@ class Connection(BaseModel):
     text: str
     facts: list[str] = Field(default_factory=list)   # node ids, workspace-relative paths, targets, "CL n" or authors
     shown: bool = False
+
+
+class ContractRow(BaseModel):
+    """One line of a story's Before → after (§8.1)."""
+    kind: Literal["signature", "returns", "fields", "repeated", "body"]
+    text: str
+    node: str | None = None
+    before: str = ""
+    after: str = ""
+    mark: list[int] = Field(default_factory=list)    # [start, end) of the part of `after` that differs
+    added: list[str] = Field(default_factory=list)   # return values now returned, fields now written
+    removed: list[str] = Field(default_factory=list)
+    nodes: list[str] = Field(default_factory=list)   # the functions it is about
+
+
+class WhereFn(BaseModel):
+    node: str
+    label: str
+    add: int = 0
+    rem: int = 0
+    cl: int | None = None
+    line: int | None = None           # new side (old side for a removed function)
+
+
+class WhereFile(BaseModel):
+    path: str                         # workspace-relative
+    depot: str | None = None
+    functions: list[WhereFn] = Field(default_factory=list)
+
+
+class CallPath(BaseModel):
+    """A caller chain ending at a story's changed code (§8.2): a flow's path, or calls up to an entry point."""
+    steps: list[str]                  # node ids, entry first
+    labels: list[str]
+    kind: Literal["contract", "state", "call"]
+    entry: str | None = None          # the first step, when it is an entry point
+    hidden: list[str] = Field(default_factory=list)   # folded steps (a path of more than four steps)
+    text: str
+    flow: str | None = None
 
 
 def rel_path(x: _Ctx, path: str | None) -> str:
@@ -439,3 +478,173 @@ def connections(threads: list[Thread], ss: StorySet, x: _Ctx, pieces: PieceSet |
                                         bool(prof[k.a].authors & prof[k.b].authors), -pos[k.b if k.a == t.id else k.a]))
         best.shown = True
     return out
+
+
+# ------------------------------------------------------------------ contract rows (§8.1), where (§6.1), paths (§8.2)
+_IDENT = re.compile(r"\w")
+
+
+def _differ(before: str, after: str) -> tuple[str, str, int, int]:
+    """The differing middle of two signatures, widened to whole words: (old part, new part, start, end in after)."""
+    i = 0
+    while i < min(len(before), len(after)) and before[i] == after[i]:
+        i += 1
+    j = 0
+    while j < min(len(before), len(after)) - i and before[-1 - j] == after[-1 - j]:
+        j += 1
+    while i > 0 and _IDENT.match(after[i - 1]) and (i < len(after) - j and _IDENT.match(after[i])
+                                                    or i < len(before) - j and _IDENT.match(before[i])):
+        i -= 1
+    while j > 0 and _IDENT.match(after[-j]) and (len(after) - j > i and _IDENT.match(after[-j - 1])
+                                                 or len(before) - j > i and _IDENT.match(before[-j - 1])):
+        j -= 1
+    return before[i:len(before) - j], after[i:len(after) - j], i, len(after) - j
+
+
+def _vals(fn, vals) -> list[str]:
+    return [f"{fn.return_names[v]} ({v})" if v in fn.return_names else v for v in vals]
+
+
+def _story_fns(story: Story, x: _Ctx) -> list[str]:
+    return [n for n in story.nodes if n in x.im.nodes and x.im.nodes[n].kind == "function"]
+
+
+def contract_rows(story: Story, x: _Ctx) -> list[ContractRow]:
+    """Signatures (one row per repeated signature edit), return values, field writes, a mechanical story's repeated
+    edit, then the functions changed only inside their body."""
+    fns = _story_fns(story, x)
+    if story.kind == "mechanical":
+        subs = [story.sub] if story.sub else story.subs
+        sites = story.counts.get("sites", 0)
+        return [ContractRow(kind="repeated", nodes=fns,
+                            text=f"`{old}` → `{new}`" + (f" at {sites} sites" if len(subs) == 1 and sites else ""))
+                for old, new in subs]
+    sigs, singles, rets, flds, body = defaultdict(list), [], [], [], []
+    for n in fns:
+        key, label = x.im.nodes[n].key, x.label(n)
+        fb, fa = x.fb.get(key), x.fa.get(key)
+        touched = False
+        if fb is None or fa is None:
+            singles.append(ContractRow(kind="signature", node=n, nodes=[n], before=fb.signature if fb else "",
+                                       after=fa.signature if fa else "", text=f"`{label}` {'added' if fb is None else 'removed'}"))
+            continue
+        if fb.signature != fa.signature:
+            old, new, i, j = _differ(fb.signature, fa.signature)
+            sigs[(old.strip(" ,;"), new.strip(" ,;"))].append((n, fb.signature, fa.signature, [i, j]))
+            touched = True
+        added, removed = [v for v in fa.returns if v not in fb.returns], [v for v in fb.returns if v not in fa.returns]
+        if added or removed:
+            parts = ([f"can now return {', '.join(_vals(fa, added))}"] if added else []) + \
+                    ([f"no longer returns {', '.join(_vals(fb, removed))}"] if removed else [])
+            rets.append(ContractRow(kind="returns", node=n, nodes=[n], added=_vals(fa, added), removed=_vals(fb, removed),
+                                    text=f"`{label}` " + "; ".join(parts)))
+            touched = True
+        writes = [e for e in x.im.edges if e.src == n and e.kind == "writes" and e.status in ("added", "removed")]
+        now = [x.label(e.dst) for e in writes if e.status == "added"]
+        gone = [x.label(e.dst) for e in writes if e.status == "removed"]
+        if now or gone:
+            parts = ([f"now writes {', '.join(f'`{f}`' for f in now)}"] if now else []) + \
+                    ([f"no longer writes {', '.join(f'`{f}`' for f in gone)}"] if gone else [])
+            flds.append(ContractRow(kind="fields", node=n, nodes=[n], added=now, removed=gone,
+                                    text=f"`{label}` " + "; ".join(parts)))
+            touched = True
+        if not touched:
+            body.append(n)
+    repeated = []
+    for (old, new), got in sigs.items():
+        if len(got) >= 2:
+            what = (f"gained `{new}`" if not old else f"lost `{old}`" if not new else f"changed `{old}` → `{new}`")
+            repeated.append(ContractRow(kind="repeated", nodes=[g[0] for g in got], text=f"{len(got)} signatures {what}"))
+        else:
+            n, b, a, mark = got[0]
+            singles.insert(0, ContractRow(kind="signature", node=n, nodes=[n], before=b, after=a, mark=mark,
+                                          text=f"`{x.label(n)}`: `{old}` → `{new}`"))
+    rows = repeated + singles + rets + flds
+    if body:
+        rows.append(ContractRow(kind="body", nodes=body, text=f"{len(body)} function{'s' if len(body) > 1 else ''} "
+                                                             "changed only inside the body"))
+    return rows
+
+
+def where(story: Story, x: _Ctx) -> list[WhereFile]:
+    """The story's files (workspace-relative, in path order), each with its changed functions, edit sizes and CL."""
+    files: dict[str, WhereFile] = {}
+    for n in _story_fns(story, x):
+        key = x.im.nodes[n].key
+        fb, fa = x.fb.get(key), x.fa.get(key)
+        fn = fa or fb
+        local = x.local(n)
+        if not fn or not local:
+            continue
+        fc = x.texts.get(local)
+        if fa is not None and fc is not None:
+            add, rem = _count(fc.before, fc.after, fa.start_line, fa.end_line)
+        else:
+            add, rem = 0, fn.end_line - fn.start_line + 1
+        wf = files.setdefault(local, WhereFile(path=rel_path(x, local), depot=fc.depot if fc else None))
+        wf.functions.append(WhereFn(node=n, label=x.label(n), add=add, rem=rem, cl=node_cl(x, n), line=fn.start_line))
+    for wf in files.values():
+        wf.functions.sort(key=lambda f: (f.line or 0, f.label))
+    return sorted(files.values(), key=lambda f: f.path)
+
+
+def _change_text(x: _Ctx, n: str) -> str:
+    """What changed in a function, as the end of "calls `f`, …"."""
+    key = x.im.nodes[n].key
+    fb, fa = x.fb.get(key), x.fa.get(key)
+    if fb is None:
+        return "which is new"
+    if fa is None:
+        return "which was removed"
+    if fb.signature != fa.signature:
+        return "whose signature changed"
+    added = [v for v in fa.returns if v not in fb.returns]
+    if added:
+        return f"which can now return {', '.join(_vals(fa, added))}"
+    now = [x.label(e.dst) for e in x.im.edges if e.src == n and e.kind == "writes" and e.status == "added"]
+    if now:
+        return f"which now writes `{now[0]}`"
+    return "whose body changed"
+
+
+def _path(steps: list[str], kind: str, x: _Ctx, text: str, flow: str | None = None) -> CallPath:
+    return CallPath(steps=steps, labels=[x.label(n) for n in steps], kind=kind,
+                    entry=steps[0] if _is_entry(x, steps[0]) else None,
+                    hidden=steps[1:-2] if len(steps) > 4 else [], text=text, flow=flow)
+
+
+def call_paths(story: Story, x: _Ctx, flows: list[Flow]) -> list[CallPath]:
+    """Every path ending at the story's changed functions, uncapped: its flows first (their effect is the line), then
+    each caller chain up to an entry point, a function nobody calls or `blast_hops` calls away, entry points first."""
+    mine = [f for f in flows if f.id in story.flows]
+    out = [_path(list(f.path), f.tag, x, f.effect, f.id) for f in mine]
+    seen = {tuple(p.steps) for p in out}
+    seeds = set(_story_fns(story, x))
+    rev: dict[str, list[str]] = defaultdict(list)
+    for e in _live(x, {"call", "virtual"}):
+        if not x.is_test(e.src):
+            rev[e.dst].append(e.src)
+    pred: dict[str, str] = {}
+    frontier, starts = sorted(seeds), []
+    for hop in range(1, x.c.cfg.blast_hops + 1):
+        nxt = []
+        for n in frontier:
+            for c in sorted(set(rev.get(n, [])), key=lambda m: x.label(m)):
+                if c in seeds or c in pred:
+                    continue
+                pred[c] = n
+                if _is_entry(x, c) or not rev.get(c) or hop == x.c.cfg.blast_hops:
+                    starts.append(c)
+                else:
+                    nxt.append(c)
+        frontier = nxt
+    calls = []
+    for s in starts:
+        steps = [s]
+        while steps[-1] in pred:
+            steps.append(pred[steps[-1]])
+        if tuple(steps) not in seen:
+            seen.add(tuple(steps))
+            calls.append(_path(steps, "call", x, f"calls `{x.label(steps[-1])}`, {_change_text(x, steps[-1])}"))
+    calls.sort(key=lambda p: (p.entry is None, len(p.steps), p.labels))
+    return out + calls
