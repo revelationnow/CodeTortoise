@@ -3,11 +3,13 @@ import { Link } from "react-router-dom";
 import type { Story } from "../board/types";
 import { keys, load, loadWidth, save } from "../board/prefs";
 import Resizer from "../board/Resizer";
+import HeadlinePill from "../components/HeadlinePill";
 import { plainTitle } from "../lib/markdown";
+import { isOpen, letter, openCount } from "../reading/checks";
 import { reviewTargets, sections } from "../stories/stories";
-import { type Place, samePlace } from "./address";
+import { INDEX_TABS, type Place, samePlace } from "./address";
 import { useWs } from "./context";
-import { short } from "./crumbs";
+import { INDEX_LABEL, short } from "./crumbs";
 import { Ticks } from "./NameText";
 import { bySeverity, litStories, storyCls } from "./rail";
 
@@ -75,6 +77,57 @@ export default function Rail({ show, onPick, hidden = false }: { show: string | 
   const nFiles = d.about?.tree.reduce((n, t) => n + t.files.length, 0) ?? 0;
   const of = d.stories ? sections(d.stories) : null;
   const shown = ws.addr.open && "file" in ws.addr.open ? ws.addr.open.file : null;
+
+  const r = d.reading;
+  if (r && ss) {                                         // the reading's rail (spec 2026-10-07-review-reading §11)
+    const byId = new Map(ss.stories.map((st) => [st.id, st]));
+    const open = r.checks.filter((k) => isOpen(k, r.marks)).length;
+    const tests = ss.stories.filter((st) => st.kind === "tests");
+    const storyRow = (st: Story, why?: string) => { const reason = st.kind === "unsorted" ? "Needs a person to place it" : why; return row({ kind: "story", sid: st.id, view: "steps" }, `Go to story ${st.id}: ${short(st.title)}`, <>
+      <span className="ws-row-top">
+        <span className="ws-row-title"><Ticks text={st.title} /></span>
+        <span className="ws-handle">{st.id}</span>
+      </span>
+      {(reason || (manyTargets && (st.targets ?? []).length > 0)) && <span className="ws-chips">
+        {reason && <span className="ws-row-sub">{reason}</span>}
+        {manyTargets && (st.targets ?? []).map((t) => <span key={t} className="ws-chip target">⌖ {t}</span>)}</span>}
+    </>, "story", st.id); };
+    return (
+      <aside className="ws-rail" style={{ ["--w" as string]: `${width}px` }} aria-label="Review contents" inert={hidden}>
+        <Resizer size={width} edge="right" min={200} max={() => 600} onSize={setWidth} onDone={(w) => save(keys.railW, w)} />
+        <div className="ws-rail-scroll" ref={box}>
+        <Link to={ws.base} state={{ page: true }} className="ws-row ws-home" aria-current={here({ kind: "whole" })}
+              title="Go to the overview" aria-label="Go to the overview" onClick={onPick}>
+          <span aria-hidden>⌂</span> Overview <HeadlinePill h={r.headline} />
+        </Link>
+        {section("stories", `Threads (${r.threads.length})`, <>
+          {r.threads.map((t, i) => (
+            <div key={t.id} className="ws-group ws-thread">
+              <h3><span className="ov-letter">{letter(i, t.id)}</span> <Ticks text={t.name} />
+                {t.open_checks > 0 && <span className="ck-count">{t.open_checks}</span>}</h3>
+              <ul>{t.stories.map((sid) => byId.get(sid) && <li key={sid}>{storyRow(byId.get(sid)!, r.reasons[sid])}</li>)}</ul>
+            </div>
+          ))}
+          {tests.length > 0 && <div className="ws-group"><h3>Tests</h3><ul>{tests.map((st) => <li key={st.id}>{storyRow(st)}</li>)}</ul></div>}
+          {!r.threads.length && !tests.length && <p className="muted small">No changed functions.</p>}
+        </>)}
+        <hr className="ws-divider" />
+        <Link to={`${ws.base}#checks`} state={{ page: true }} className="ws-row ws-missed" onClick={onPick}
+              title="Go to what may have been missed: the review's To check" aria-label="Go to what may have been missed: the review's To check">
+          <span className="ws-row-top"><span className="ws-row-title">Possibly missed</span>
+            {r.checks.length > 0 && <span className="ck-count">{openCount(open, r.checks.length, false)}</span>}</span>
+        </Link>
+        <section className="ws-sec ws-index" aria-label="Index">
+          <h2 className="ws-sec-t">Index</h2>
+          <ul>{INDEX_TABS.map((t) => (
+            <li key={t}>{row({ kind: "index", tab: t }, `Open the Index: ${INDEX_LABEL[t]}`, <span className="ws-row-top">{INDEX_LABEL[t]}</span>,
+                             "ws-index-row")}</li>
+          ))}</ul>
+        </section>
+        </div>
+      </aside>
+    );
+  }
 
   return (
     <aside className="ws-rail" style={{ ["--w" as string]: `${width}px` }} aria-label="Review contents" inert={hidden}>

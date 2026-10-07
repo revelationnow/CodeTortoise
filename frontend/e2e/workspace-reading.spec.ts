@@ -24,7 +24,7 @@ test.describe("desktop", () => {
   test("the overview tells the change as threads, how they connect and what to check", async ({ page }) => {
     await startReview(page, FOUR);
     const left = page.locator(".ov2-left");
-    await expect(left.locator("h2")).toHaveText(["The change as a whole", "How the threads connect", "Threads", /^The map/, "Discussion"]);
+    await expect(left.locator("h2")).toHaveText(["The change as a whole", "How the threads connect", "Threads", "Discussion"]);
     await expect(left.locator(".ws-lead")).toHaveText("3 threads: A and B: both run inside main; B and C: nothing besides arriving in CL 104.");
     const conn = page.locator(".ov-conn");
     await expect(conn.locator(".ov-box")).toHaveCount(3);
@@ -103,6 +103,49 @@ test.describe("desktop", () => {
     await expect(page).toHaveURL(/\/s\/S1\?view=graph&flow=1/);
     await expect(page.locator(".bd-node").first()).toBeVisible();
   });
+  test("the rail: the overview, each thread with its stories in reading order, what may be missed and the Index", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    const rail = page.locator(".ws-rail");
+    await expect(rail.getByRole("link", { name: "Go to the overview" })).toContainText("Medium risk · rules only");
+    await expect(rail.locator(".ws-thread h3")).toHaveText(["A hal_write in hal5", "B logger_init in service", "C svc::Engine::step in cpp1"]);
+    await expect(rail.locator(".ws-thread").first().getByRole("link", { name: /^Go to story/ })).toHaveCount(2);
+    await expect(rail.locator(".ws-thread").first().getByRole("link").nth(1)).toHaveAccessibleName(/^Go to story S1/);
+    await expect(rail.locator(".ws-missed .ck-count")).toHaveText("6 open");
+    await rail.getByRole("link", { name: /^Go to story S1/ }).click();
+    const crumbs = page.getByRole("navigation", { name: "Breadcrumb" });
+    await expect(crumbs).toContainText("Thread A");
+    await rail.getByRole("link", { name: "Open the Index: Files" }).click();
+    await expect(page).toHaveURL(new RegExp(`${base}/i/files$`));
+    await expect(page.getByRole("tab", { name: /^Files/ })).toHaveAttribute("aria-selected", "true");
+    await page.getByRole("link", { name: "Open logger.c's diff" }).click();
+    await expect(page.getByRole("complementary", { name: "Code: logger.c" })).toBeVisible();
+    await page.getByRole("tab", { name: /^CLs/ }).click();
+    await page.getByRole("link", { name: "Open CL 104" }).click();
+    await expect(page).toHaveURL(new RegExp(`${base}/cl/104$`));
+    await expect(crumbs).toContainText("CLs");
+    await rail.getByRole("link", { name: /^Go to what may have been missed/ }).click();
+    await expect(page.getByRole("region", { name: "To check" })).toBeInViewport();
+    await expectNamed(page);
+  });
+
+  test("old addresses: a finding opens its story with its row lit, #map the Index's map", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    const findings = await (await page.request.get(`/api/reviews/${base.split("/")[2]}/findings`)).json() as { id: string; title: string; severity: string }[];
+    const sig = findings.find((f) => f.title === "hal_write: signature changed")!;
+    await page.goto(`${base}/f/${sig.id}`);
+    await expect(page).toHaveURL(new RegExp(`${base}/s/S2\\?check=${sig.id}$`));
+    const lit = page.getByRole("region", { name: "To check" }).locator(".ck-row.lit");
+    await expect(lit).toContainText("hal_write: signature changed");
+    await lit.getByRole("link", { name: `Finding ${sig.id}'s details` }).click();     // the finding's own page stays one click away
+    await expect(page).toHaveURL(new RegExp(`${base}/f/${sig.id}\\?details=1$`));
+    await expect(page.locator(".ws-finding h2")).toContainText("hal_write: signature changed");
+    const info = findings.find((f) => f.severity === "info")!;                      // no row for it: its own page
+    await page.goto(`${base}/f/${info.id}`);
+    await expect(page.locator(".ws-finding h2")).toBeVisible();
+    await page.goto(`${base}#map`);
+    await expect(page).toHaveURL(new RegExp(`${base}/i/map$`));
+    await expect(page.getByRole("region", { name: "The map" })).toBeVisible();
+  });
 });
 
 test.describe("phone", () => {
@@ -111,7 +154,7 @@ test.describe("phone", () => {
 
   test("To check comes first, folded to its count, and the connections are sentences", async ({ page }) => {
     await startReview(page, FOUR);
-    await page.getByRole("link", { name: "Go to the whole change" }).click();
+    await page.getByRole("link", { name: "Go to the overview" }).click();
     const check = page.locator("details.ck-tile");
     await expect(check).not.toHaveAttribute("open");
     await expect(check.locator("summary .ck-count")).toHaveText("6 open");

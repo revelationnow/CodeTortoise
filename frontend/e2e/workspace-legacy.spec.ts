@@ -11,7 +11,7 @@ test.describe("desktop", () => {
     const rid = base.split("/")[2];
     const ss = await (await page.request.get(`/api/reviews/${rid}/stories`)).json();
     const [nid, sid] = Object.entries(ss.node_story as Record<string, string>)[0];
-    for (const [old, now] of [["/files", "#files"], ["/findings", "#findings"], ["/cls", "#changeset"], ["/overview", "#map"],
+    for (const [old, now] of [["/files", "/i/files"], ["/findings", "/i/checks"], ["/cls", "/i/cls"], ["/overview", "/i/map"],
                               ["/board", "?view=graph"]]) {
       await page.goto(`${base}${old}`);
       await expect(page).toHaveURL(new RegExp(`${base}${now.replace("?", "\\?")}$`));
@@ -56,7 +56,7 @@ test.describe("a large change", () => {
     // a reader who leaves before the server answers stays where they went
     await page.route(`**/api/reviews/${rid}/locate**`, async (r) => { await new Promise((ok) => setTimeout(ok, 1500)); await r.continue(); });
     await page.goto(base);
-    await expect(page.getByRole("region", { name: "The map" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "To check" })).toBeVisible();
     await page.evaluate((u) => { history.pushState(null, "", u); dispatchEvent(new PopStateEvent("popstate")); }, `${base}?node=${nid}`);
     await expect(page.locator("main.page")).toContainText("Loading");
     await page.goBack();

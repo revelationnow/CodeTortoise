@@ -27,8 +27,10 @@ async function offset(canvas: ReturnType<Page["locator"]>) {
 test.describe("the wheel", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test("over the whole change's map a plain wheel scrolls the page; Shift pans it; the full graph pans on the wheel", async ({ page }) => {
+  test("over the Index's map a plain wheel scrolls the page; Shift pans it; the full graph pans on the wheel", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 560 });              // the map runs past the page's foot
     const base = await startReview(page);
+    await page.goto(`${base}/i/map`);
     const map = page.locator(".ws-mapgraph .bd-canvas"), scroller = page.locator(".ws-page").first();
     await expect(map.locator(".bd-node").first()).toBeVisible();
     await page.locator(".ws-mapgraph").evaluate((e) => e.scrollIntoView({ block: "center" }));
@@ -64,6 +66,7 @@ test.describe("desktop", () => {
 
   test("the review's graph: open full graph, select and deselect a node, flows keep their controls", async ({ page }) => {
     const base = await startReview(page);
+    await page.goto(`${base}/i/map`);
     await page.getByRole("link", { name: "Open the full graph" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}\\?view=graph$`));
     await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toContainText("Graph");
@@ -82,13 +85,12 @@ test.describe("desktop", () => {
     await expectNamed(page);
   });
 
-  test("a file from the rail highlights its functions on the graph and never refilters it", async ({ page }) => {
+  test("a file opened over the graph highlights its functions and never refilters it", async ({ page }) => {
     const base = await startReview(page);
     await page.goto(`${base}?view=graph`);
     await expect(page.locator(".bd-node").first()).toBeVisible();
     const count = await page.locator(".bd-node").count();
-    await page.locator(".ws-rail").getByRole("button", { name: /Files/ }).click();
-    await page.locator(".ws-rail").getByRole("link", { name: "Open uart.c's diff" }).click();
+    await page.goto(`${base}?view=graph&open=${encodeURIComponent("file://fixture/driver/uart.c")}`);
     await expect(page.locator(".bd-node.lit").first()).toBeVisible();
     await expect(page.locator(".bd-node")).toHaveCount(count);
   });

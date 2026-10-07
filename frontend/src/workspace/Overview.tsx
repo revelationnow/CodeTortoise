@@ -7,7 +7,7 @@ import CheckTile from "./CheckList";
 import { useWs } from "./context";
 import { short } from "./crumbs";
 import { Ticks } from "./NameText";
-import { Discussion, MapSection } from "./WholePage";
+import { Discussion } from "./WholePage";
 
 const ROW = 56;                       // one thread box and the room around it in the connections tile
 
@@ -114,11 +114,10 @@ export default function Overview({ r }: { r: Reading }) {
             )}
           </section>
         )}
-        <MapSection />
         <Discussion />
       </div>
       <aside className="ov2-right" aria-label="What to check">
-        <CheckTile groups={byThread(r)} ofTotal={false} footer={<>
+        <CheckTile id="checks" groups={byThread(r)} ofTotal={false} footer={<>
           {r.rules_only && <p className="muted small">Risks judged by rules only.</p>}
           {r.cleared.length > 0 && (
             <details className="ck-cleared">

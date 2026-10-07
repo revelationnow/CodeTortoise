@@ -1,5 +1,5 @@
 /** Addresses from before the workspace (spec 2026-10-04-review-workspace §2.3) and where they go now. */
-import { at, href, readAddress } from "./address";
+import { at, href, type Place, readAddress } from "./address";
 
 interface Ctx {
   base: string;
@@ -32,4 +32,15 @@ export function legacy(path: string, q: URLSearchParams, c: Ctx): { to: string }
     return { to: href(c.base, file ? { ...a, open: { file, line: null } } : a) };
   }
   return null;
+}
+
+const ANCHORS: Record<string, Place> = {
+  map: { kind: "index", tab: "map" }, findings: { kind: "index", tab: "checks" }, changeset: { kind: "index", tab: "cls" },
+  files: { kind: "index", tab: "files" },
+};
+
+/** Where an old section anchor (#map, #findings…) leads once the review has a reading: the Index's tab (spec
+ * 2026-10-07-review-reading §11); null for anchors the rail still has. */
+export function indexFor(hash: string): Place | null {
+  return ANCHORS[hash] ?? null;
 }

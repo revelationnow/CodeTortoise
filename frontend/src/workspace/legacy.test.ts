@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { legacy } from "./legacy";
+import { indexFor, legacy } from "./legacy";
 
 const q = (s: string) => new URLSearchParams(s);
 const ctx = { base: "/r/7", nodeStory: { N9: "S1" } as Record<string, string>, oneBoard: true };
@@ -32,5 +32,13 @@ describe("old addresses", () => {
   it("leave current addresses alone", () => {
     expect(legacy("/s/S1", q("view=graph&open=N9&tab=neighbours"), ctx)).toBeNull();
     expect(legacy("", q(""), ctx)).toBeNull();
+  });
+});
+
+describe("the old sections' anchors", () => {
+  it("open the Index's tabs once the review has a reading", () => {
+    expect(["map", "findings", "changeset", "files", "stories", "x"].map(indexFor)).toEqual([
+      { kind: "index", tab: "map" }, { kind: "index", tab: "checks" }, { kind: "index", tab: "cls" }, { kind: "index", tab: "files" },
+      null, null]);
   });
 });

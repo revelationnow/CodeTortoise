@@ -30,7 +30,7 @@ test.describe("one board", () => {
     await page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ }).hover();
     await expect.poll(() => ids(page, "instory")).toEqual(s1);
     expect((await ids(page, "offstory")).length).toBe(drawn.length - s1.length);
-    await page.mouse.move(5, 300);                                      // off the rail
+    await page.locator(".ws-head h1").hover();                         // off the rail
     await expect.poll(() => ids(page, "offstory")).toEqual([]);
 
     const tagged = s1.find((n) => changed.includes(n))!;

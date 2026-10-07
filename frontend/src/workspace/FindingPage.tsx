@@ -34,7 +34,7 @@ export default function FindingPage({ fid }: { fid: string }) {
   const step = (by: number) => {
     const to = d.findings[((i + by) % n + n) % n];
     const label = `${by < 0 ? "Previous" : "Next"} finding: ${to.id} ${short(to.title)}`;
-    return <Link className="bd-ibtn ws-step-btn" to={ws.link(ws.item({ kind: "finding", fid: to.id }))} title={label} aria-label={label}>
+    return <Link className="bd-ibtn ws-step-btn" to={ws.link({ ...ws.item({ kind: "finding", fid: to.id }), details: true })} title={label} aria-label={label}>
       {by < 0 ? "‹" : "›"}</Link>;
   };
   const name = (nid: string) => {
