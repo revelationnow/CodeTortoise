@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import fnmatch
 from collections import deque
+from collections.abc import Callable
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -85,6 +86,25 @@ def _overlaps(fn: Function, file: str, lines: tuple[int, int] | None) -> bool:
             and fn.start_line <= lines[1] and lines[0] <= fn.end_line)
 
 
+def _name_resolver(fns: dict[str, Function]) -> Callable[[str, str], str]:
+    """A call tree-sitter knows only by name ("name:foo") goes to the one function called foo: the one in the caller's
+    own file, else the one non-static function of that name. A clang parse of a function wins over tree-sitter's.
+    Anything else keeps its name."""
+    named: dict[str, list[Function]] = {}
+    for f in fns.values():
+        named.setdefault(f.name, []).append(f)
+
+    def resolve(callee: str, file: str) -> str:
+        if not callee.startswith("name:"):
+            return callee
+        cands = named.get(callee[5:], [])
+        real = {(f.file, f.qualname) for f in cands if not f.usr.startswith("ts:")}
+        cands = [f for f in cands if not f.usr.startswith("ts:") or (f.file, f.qualname) not in real]
+        pick = [f for f in cands if f.file == file] or [f for f in cands if not f.is_static]
+        return pick[0].usr if len(pick) == 1 else callee
+    return resolve
+
+
 class _Builder:
     def __init__(self) -> None:
         self.nodes: dict[str, dict] = {}                 # key -> node attrs
@@ -108,6 +128,7 @@ def build_impact(before: list[Facts], after: list[Facts], dm: DiffMap, sel: TuSe
                  index: SymbolIndex | None, layers: LayerModel | None, cfg: AnalysisConfig) -> ImpactModel:
     fb = {f.usr: f for facts in before for f in facts.functions}
     fa = {f.usr: f for facts in after for f in facts.functions}
+    resolve = _name_resolver({**fb, **fa})
     b = _Builder()
 
     # 1. changed functions
@@ -133,8 +154,9 @@ def build_impact(before: list[Facts], after: list[Facts], dm: DiffMap, sel: TuSe
                 b.node(f.usr, kind="function", label=f.qualname, file=f.file, line=f.start_line,
                        confidence="heuristic" if heuristic else "precise")
             for c in facts.calls:
-                b.node(c.callee, kind="function", label=c.callee_name)
-                b.edge(c.caller, c.callee, c.kind if c.kind == "virtual" else "call", variant,
+                callee = resolve(c.callee, c.file)
+                b.node(callee, kind="function", label=c.callee_name)
+                b.edge(c.caller, callee, c.kind if c.kind == "virtual" else "call", variant,
                        "heuristic" if heuristic else c.confidence, c.file, c.line)
                 if c.kind == "virtual":
                     mkey = c.callee.split("@F@", 1)[-1]
@@ -147,7 +169,8 @@ def build_impact(before: list[Facts], after: list[Facts], dm: DiffMap, sel: TuSe
                 fkey = f"field:{a.field}"
                 b.node(fkey, kind="field", label=f"{a.record}::{a.field_name}" if a.record else a.field_name)
                 kind = "reads" if a.mode == "read" else "writes"
-                conf = "heuristic" if heuristic else ("may" if a.confidence == "may" or a.mode == "may_write" else "precise")
+                conf = "heuristic" if heuristic or a.confidence == "heuristic" else \
+                    ("may" if a.confidence == "may" or a.mode == "may_write" else "precise")
                 b.edge(a.fn, fkey, kind, variant, conf, a.file, a.line)
 
     # 3. heuristic edges from the symbol index for code outside the parsed TUs

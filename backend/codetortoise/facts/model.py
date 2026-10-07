@@ -79,6 +79,7 @@ class TuInfo(BaseModel):
     confidence: Literal["precise", "degraded", "failed"] = "precise"
     extractor: Literal["clang", "treesitter"] = "clang"
     stripped_flags: list[str] = Field(default_factory=list)
+    supplemented: int = 0  # calls and field accesses tree-sitter added to a degraded parse
 
 
 class Facts(BaseModel):
