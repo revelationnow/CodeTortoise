@@ -21,6 +21,7 @@ from codetortoise.llm.ondemand import context_for
 from codetortoise.llm.storyboard import STYLE, AiContext, _facts_for_nodes, _finding_text, budget
 from codetortoise.llm.style import MODES, check_style
 from codetortoise.provenance import merge
+from codetortoise.reading import KIND_LABEL, Check, Reading
 from codetortoise.services import Services
 from codetortoise.tidy import tidy
 from codetortoise.vcs.model import ChangeSet
@@ -232,6 +233,27 @@ def _anchor_context(svc: Services, rid: int, comment: dict, ctx: AiContext, boar
         reader.files.update(fl.files or [])
         return _flow_text(fl) + "\nFUNCTIONS ON IT:\n" + _facts_for_nodes(im, path) + "\n" + "\n".join(
             ctx.snippets.get(n, "") for n in path)
+    if kind == "check":
+        k = _check(svc, rid, str(a.get("key") or ""))
+        if k is None:
+            return ""
+        parts = [f"CHECK ({KIND_LABEL[k.kind]}): {k.text}"
+                 + "".join(f"\nALSO ({KIND_LABEL[r.kind]}): {r.text}" for r in k.also)
+                 + (f"\nAT {k.path}:{k.line}" if k.path and k.line else f"\nAT {k.path}" if k.path else "")
+                 + (f" in {k.function}" if k.function else "")
+                 + (f"\nSOURCE LINE: {k.source_line}" if k.source_line else "")]
+        got = reader.text_of(depot=k.depot) if k.depot else None
+        if got and k.line:
+            reader.files.add(got[0])
+            parts.append(f"FILE {got[0]} around line {k.line}:\n" + reader.lines(got[1], k.line - 20, k.line + 20))
+        if k.node and k.node in im.nodes:
+            reader.ids.add(k.node)
+            parts.append("FUNCTION:\n" + _facts_for_nodes(im, [k.node]) + "\n" + ctx.snippets.get(k.node, ""))
+        f = next((f for f in ctx.findings if f.id == k.finding), None) if k.finding else None
+        if f is not None:
+            reader.ids.add(f.id)
+            parts.append("FINDING:\n" + _finding_text(f))
+        return "\n\n".join(parts)
     if kind == "file":
         path = str(a.get("path") or "")
         got = reader.text_of(depot=path) if path else None
@@ -254,6 +276,13 @@ def _anchor_context(svc: Services, rid: int, comment: dict, ctx: AiContext, boar
     return f"CHANGE: {board.about.intent}\nFLOWS:\n{flows}\nFINDINGS:\n{finds}"
 
 
+def _check(svc: Services, rid: int, key: str) -> Check | None:
+    """The To check row a comment is anchored on (spec 2026-10-07-review-reading §7.4), if the reading still has it."""
+    raw = svc.store.get_blob(rid, "reading")
+    r = Reading.model_validate(raw) if raw else None
+    return next((k for k in r.checks + r.cleared if k.key == key), None) if r else None
+
+
 def _anchor_brief(svc: Services, rid: int, comment: dict, ctx: AiContext, board: Board) -> str:
     """The brief's part for a question (spec 2026-10-05-two-tier-stories §8): the story of its anchor, if any, and the
     change overview."""
@@ -261,6 +290,12 @@ def _anchor_brief(svc: Services, rid: int, comment: dict, ctx: AiContext, board:
     kw: dict = {}
     if kind == "story":
         kw["story"] = str(a.get("id"))
+    elif kind == "check":
+        k = _check(svc, rid, str(a.get("key") or ""))
+        if k is not None and k.story:
+            kw["story"] = k.story
+        elif k is not None and k.node:
+            kw["nodes"] = [k.node]
     elif kind == "flow":
         kw["flow"] = str(a.get("id"))
     elif kind == "finding":
