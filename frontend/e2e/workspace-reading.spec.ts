@@ -77,6 +77,32 @@ test.describe("desktop", () => {
     await expect(row.locator(".comments")).toContainText("flush should retry");
     await expect(row.getByRole("button", { name: "Comment (1)" })).toBeVisible();
   });
+  test("a story: its thread, what it does, before → after beside where, its call paths and its own To check", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S2`);
+    const head = page.locator(".ws-story-head");
+    await expect(head.locator(".st-crumb")).toHaveText("Thread A › hal_write in hal · story 1 of 2");
+    await expect(head.locator(".ws-story-meta .ws-chip").first()).toHaveText("CL 102 · 1 function");
+    const contract = page.getByRole("region", { name: "Before → after" });
+    await expect(contract).toContainText("hal_write: gained unsigned");
+    await expect(contract.locator("mark")).toHaveText("unsigned");                  // the part of the signature that differs
+    const paths = page.getByRole("region", { name: /^Call paths/ });
+    await expect(paths.locator(".st-steps")).toHaveText(["contractmain→uart_init→hal_write"]);
+    await expect(page.getByRole("region", { name: "To check" }).locator("h3 .ck-count")).toHaveText("2 of 2 open");
+    await page.getByRole("region", { name: "Where" }).getByRole("link", { name: "Open hal_write in hal/regs.c at line 10" }).click();
+    await expect(page.getByRole("complementary", { name: "Code: regs.c" })).toBeVisible();
+    await head.getByRole("link", { name: /^Next story: S1/ }).click();               // reading order: what S1 uses comes first
+    await expect(head.locator(".st-crumb")).toHaveText("Thread A › hal_write in hal · story 2 of 2");
+    await expect(page.locator(".st-place")).toHaveText("Uses what story 1 adds.");
+    await expect(paths.locator(".st-steps").nth(1)).toHaveText("statemain→… 2 more→Uart::errors→uart_errors");
+    await paths.getByRole("button", { name: "Show the 2 folded steps" }).click();
+    await expect(paths.locator(".st-steps").nth(1)).toHaveText("statemain→logger_write→uart_send→Uart::errors→uart_errors");
+    await expectNoNodeIds(page);
+    await expectNamed(page);
+    await paths.getByRole("link", { name: /On the graph/ }).first().click();
+    await expect(page).toHaveURL(/\/s\/S1\?view=graph&flow=1/);
+    await expect(page.locator(".bd-node").first()).toBeVisible();
+  });
 });
 
 test.describe("phone", () => {
@@ -95,6 +121,16 @@ test.describe("phone", () => {
                                                                "B and C: nothing besides arriving in CL 104 — ask the author"]);
     await check.locator("summary").click();
     await expect(check.locator(".ck-row")).toHaveCount(6);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+  });
+
+  test("a story's To check comes first, folded to its count", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const check = page.locator("details.ck-tile");
+    await expect(check.locator("summary .ck-count")).toHaveText("3 of 3 open");
+    const tile = (await check.boundingBox())!, what = (await page.getByRole("heading", { name: "What it does" }).boundingBox())!;
+    expect(tile.y).toBeLessThan(what.y);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
   });
 });

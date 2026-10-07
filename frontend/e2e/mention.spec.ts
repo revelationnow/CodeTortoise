@@ -64,8 +64,9 @@ test.describe("with an AI", () => {
     await expect(talk.locator(".comment", { hasText: "what does this story change for callers?" })).toBeVisible();
     await expect(talk.locator(".comment.ai")).toContainText(answer, { timeout: 30_000 });
 
+    await page.goto(`${base}/s/S1?view=graph`);                              // a story's flows are on its graph
     const strip = page.getByRole("region", { name: "Flow" });
-    await strip.getByRole("button", { name: "Next flow" }).click();          // flow 1's text is the story's summary
+    await strip.getByRole("button", { name: "Next flow" }).click();
     await ask(strip, "is the new writer safe?");
     await expect(strip.locator(".comment.ai")).toContainText(answer, { timeout: 30_000 });
 

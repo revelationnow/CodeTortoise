@@ -4,6 +4,8 @@ import { ApiError } from "../api";
 import type { StoryDetail } from "../board/types";
 import Comments from "../components/Comments";
 import Explain from "../components/Explain";
+import { isOpen } from "../reading/checks";
+import { clCounts, stepIn, threadCrumb } from "../reading/story";
 import { countLine, reviewTargets, stepStory } from "../stories/stories";
 import { type Address, at as addressAt } from "./address";
 import { useWs } from "./context";
@@ -15,9 +17,11 @@ import NameText, { Ticks } from "./NameText";
 import { MechanicalStory, TestsStory } from "./StoryBodies";
 import { StoryChecks, StoryWhy } from "./StoryPlan";
 import StorySteps from "./StorySteps";
+import StoryTiles from "./StoryTiles";
 
-/** A story (spec 2026-10-04-review-workspace §3.2): header with the Steps | Graph switch beside the title and ‹ S1 of 4 ›
- * in a fixed-width group; its steps or its graph, with the flow strip. */
+/** A story (spec 2026-10-04-review-workspace §3.2): header with the Steps | Graph switch beside the title and ‹ › in a
+ * fixed-width group; its tiles (spec 2026-10-07-review-reading §6) or its graph with the flow strip. A review run before
+ * the reading keeps ‹ S1 of 4 › and the steps with the flow strip. */
 export default function StoryPage({ sid, view }: { sid: string; view: "steps" | "graph" }) {
   const ws = useWs(), d = ws.data, ss = d.stories!;
   // held with its story: another story starts loading, while a refreshed one (AI text) replaces it in place
@@ -41,19 +45,29 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
   const open = ws.addr.open && "node" in ws.addr.open ? ws.addr.open.node : null;
   const index = pickFlow(flows, ws.addr.flow, open);
   const onFlow = (i: number) => ws.go({ ...ws.addr, flow: i + 1 }, true);
+  const r = d.reading, crumb = r ? threadCrumb(r, sid) : null, sr = detail?.reading ?? null;
   const step = (by: number) => {
-    const to = stepStory(ss, sid, by), other = ss.stories.find((s) => s.id === to);
+    const to = r ? stepIn(r.order, sid, by) : stepStory(ss, sid, by), other = ss.stories.find((s) => s.id === to);
     const label = `${by < 0 ? "Previous" : "Next"} story: ${to}${other ? ` ${short(other.title)}` : ""}`;
     return <Link className="bd-ibtn ws-step-btn" to={ws.link(ws.item({ kind: "story", sid: to, view: "steps" }))} title={label} aria-label={label}>
       {by < 0 ? "‹" : "›"}</Link>;
   };
 
+  const hazards = sr ? sr.checks.filter((k) => k.kind === "hazard" && isOpen(k, r?.marks ?? {})).length : 0;
   const map: Address | null = st.board ? { ...addressAt({ kind: "cluster", cid: st.board }), story: st.id }   // the story lit on its map
     : d.board ? { ...addressAt({ kind: "whole", view: "graph" }), story: st.id } : null;
   const header = (
     <header className="ws-story-head">
+      {crumb && (
+        <p className="st-crumb">
+          <Link to={ws.link({ ...addressAt({ kind: "whole" }) })} state={{ page: true }} title={`Go to thread ${crumb.letter} on the overview`}
+                aria-label={`Go to thread ${crumb.letter} on the overview`}>Thread {crumb.letter}</Link>
+          <span className="sep" aria-hidden> › </span><Ticks text={crumb.name} /><span className="muted"> · {crumb.text}</span>
+        </p>
+      )}
       <div className="ws-story-title">
-        <h2>{st.risk && <span className={`bd-pill ${st.risk}`}>{st.risk}</span>}
+        <h2>{!r && st.risk && <span className={`bd-pill ${st.risk}`}>{st.risk}</span>}
+          {hazards > 0 && <span className="ct-headline hazard">{hazards} hazard{hazards === 1 ? "" : "s"}</span>}
           {st.text_source === "llm" && <span className="ai-label">AI</span>}<Ticks text={st.title} /></h2>
         {hasGraph && (
           <span className="ws-switch" role="tablist" aria-label="View">
@@ -63,22 +77,24 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
             ))}
           </span>
         )}
-        <span className="ws-pos">{step(-1)}<span>{st.id} of {ss.stories.length}</span>{step(1)}</span>
+        <span className="ws-pos">{step(-1)}<span>{r ? (crumb?.text ?? st.id) : `${st.id} of ${ss.stories.length}`}</span>{step(1)}</span>
       </div>
-      <p><NameText text={st.summary} /> {st.kind !== "mechanical" && <Explain kind="story" target={st.id} has={st.text_source === "llm"} askOnly={st.source === "tier1"} ask={{ kind: "story", anchor: { id: st.id }, onAsked: d.loadComments }} />}</p>
-      <p className="ws-story-meta"><span className="muted">{countLine(st)}</span>
-        {st.cls.map((c) => (
-          <Link key={c} className="ws-chip" to={ws.link(ws.item({ kind: "cl", cl: c }))} title={`Open CL ${c}`} aria-label={`Open CL ${c}`}>CL {c}</Link>
+      <p>{!r && <NameText text={st.summary} />} {st.kind !== "mechanical" && <Explain kind="story" target={st.id} has={st.text_source === "llm"} askOnly={st.source === "tier1"} ask={{ kind: "story", anchor: { id: st.id }, onAsked: d.loadComments }} />}</p>
+      <p className="ws-story-meta">{!r && <span className="muted">{countLine(st)}</span>}
+        {(sr ? clCounts(sr.where) : st.cls.map((cl) => ({ cl, functions: 0 }))).map(({ cl: c, functions: n }) => (
+          <Link key={c} className="ws-chip" to={ws.link(ws.item({ kind: "cl", cl: c }))} title={`Open CL ${c}`} aria-label={`Open CL ${c}`}>
+            CL {c}{n > 0 && ` · ${n} function${n === 1 ? "" : "s"}`}</Link>
         ))}
         {targets.map((t) => <span key={t} className="ws-chip target" title={`Build target ${t}`}>⌖ {t}</span>)}
         {map && <Link className="ws-chip ws-onmap" to={ws.link(map)} title={`Show ${st.id} on the map`} aria-label={`Show ${st.id} on the map`}>
           ◎ On the map</Link>}</p>
     </header>
   );
-  if (error) return <div className="ws-page"><div className="ws-text">{header}<div className="banner warn">{error}</div></div></div>;
+  const frame = r ? "st-page" : "ws-text";                 // the header keeps its place while the story loads
+  if (error) return <div className="ws-page"><div className={frame}>{header}<div className="banner warn">{error}</div></div></div>;
   if (shown === "graph" && !detail)
     return <div className="ws-page graph"><div className="ws-story-bar">{header}</div><p className="muted ws-page">Loading {st.id}…</p></div>;
-  if (!detail) return <div className="ws-page"><div className="ws-text">{header}<p className="muted">Loading {st.id}…</p></div></div>;
+  if (!detail) return <div className="ws-page"><div className={frame}>{header}<p className="muted">Loading {st.id}…</p></div></div>;
   if (shown === "graph" && detail.graph)
     return (
       <div className="ws-page graph">
@@ -88,6 +104,8 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
                    onMore={() => ws.go({ ...ws.addr, place: { kind: "story", sid, view: "steps" } }, true)} />
       </div>
     );
+  if (r && sr)
+    return <div className="ws-page"><div className="st-page">{header}<StoryTiles detail={detail} sr={sr} /></div></div>;
   return (
     <div className="ws-page"><div className="ws-text">
       {header}

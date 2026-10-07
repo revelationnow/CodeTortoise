@@ -6,7 +6,7 @@ const STRONG = "http://127.0.0.1:8795";  // e2e/serve-strong.sh: stories and ris
 test.describe("stories formed by a strong model", () => {
   test.use({ baseURL: STRONG });
 
-  test("a story shows its targets, why its pieces belong together, what to check, questions and related stories", async ({ page }) => {
+  test("a story shows its targets, its hazard, what the strong model suggests checking and its open questions", async ({ page }) => {
     const base = await startReview(page);
     const rail = page.locator(".ws-rail");
     const s1 = rail.getByRole("link", { name: /^Go to story S1/ });
@@ -15,18 +15,14 @@ test.describe("stories formed by a strong model", () => {
     await page.goto(`${base}/s/S1`);
     const head = page.locator(".ws-story-head");
     await expect(head.locator(".ws-chip.target")).toHaveText("⌖ fw");
+    await expect(head.locator(".ct-headline.hazard")).toHaveText("1 hazard");
     await expect(head.getByRole("button", { name: /Explain/ })).toHaveCount(0);       // tier 2 never retells it
     await expect(head.getByRole("button", { name: "Ask…" })).toBeVisible();
-    await expect(page.getByRole("region", { name: "What to check" })).toContainText("Check that logger_flush handles the new -2.");
-    await expect(page.getByRole("region", { name: "Open questions" })).toContainText("Does any caller retry a send after -2?");
-    const why = page.getByRole("region", { name: "Why these belong together" });
-    await expect(why.locator("li")).toHaveCount(2);
-    await expect(why.locator("li").first()).toContainText("starts the story");
-    await expect(why.locator("li").nth(1)).toContainText("same feature");
-    await expect(why.getByRole("link", { name: "Open //fixture/driver/uart.c" })).toBeVisible();
-    const related = page.getByRole("region", { name: "Related" });
-    await related.getByRole("link", { name: "see S2 · hal" }).click();
-    await expect(page.locator(".ws-story-head h2")).toContainText("HAL writes take an unsigned register");
+    const check = page.getByRole("region", { name: "To check" });
+    await expect(check.locator(".ck-row").first().locator(".ck-tag").first()).toHaveText("Hazard");
+    await expect(check.locator(".st-suggested")).toContainText("Check that logger_flush handles the new -2.");
+    await expect(page.getByRole("region", { name: "Questions and comments" })).toContainText("Does any caller retry a send after -2?");
+    await expect(page.getByRole("region", { name: "Why these belong together" })).toHaveCount(0);   // folded into the tiles
     await expectNamed(page);
   });
 

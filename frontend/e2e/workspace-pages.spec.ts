@@ -42,6 +42,7 @@ test.describe("desktop", () => {
     await expect(page.locator(".ws-finding h2 .badge")).toHaveText("info");
     await expect(page.locator(".ws-verdict")).toContainText("Side effect · not yet assessed");
     await page.locator(".ws-where").getByRole("link", { name: /^Go to story/ }).click();
+    await page.getByRole("tab", { name: "Graph" }).click();                  // a story's flows are on its graph
     const strip = page.getByRole("region", { name: "Flow" });
     await strip.getByRole("button", { name: "Every flow" }).click();
     await strip.getByRole("menuitemradio", { name: /uart_errors sees a new writer of Uart::errors/ }).click();
