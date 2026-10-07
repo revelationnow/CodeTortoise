@@ -161,8 +161,8 @@ contribution chips ("CL 11 · 14 functions", "CL 12 · 4 functions"), build targ
    - Before → after: contract rows (§8.1), repeated edits folded with "show N", body-only changes as a count.
    - Where: folder › file › functions, each function with its edit size and CL; clicking opens the diff in the side
      panel; a file edited in several CLs shows each function's CL.
-3. **Call paths** — up to three paths (§8.2), each one line saying what changes for whoever runs it; "+N more" and
-   "Graph view" (the existing story graph).
+3. **Call paths** — every path the analysis found (§8.2), ranked, grouped under their entry point, each with one line
+   saying what changes for whoever runs it; "Graph view" (the existing story graph).
 
 ### 6.2 Right column (pinned)
 
@@ -245,9 +245,10 @@ From the diff map, the facts and repeated-edit detection, per story:
 
 ### 8.2 Call paths
 
-Up to three paths ending at the story's changed functions, preferring paths that start at an entry point and paths
-that carry a contract or state flow. A path longer than four steps keeps its first step and its last two, with "…"
-between. Each path's line comes from the flow's effect text where one exists, else a fixed sentence ("calls
+Every path ending at the story's changed functions, with no cap on how many. They are ranked: paths that carry a
+contract or state flow first, then paths that start at an entry point, then the rest; paths sharing an entry point
+are grouped under it. A path longer than four steps keeps its first step and its last two, with "…" between (the
+folded steps open on click). Each path's line comes from the flow's effect text where one exists, else a fixed sentence ("calls
 `reftable_new_stack`, whose signature changed").
 
 ## 9. AI text
