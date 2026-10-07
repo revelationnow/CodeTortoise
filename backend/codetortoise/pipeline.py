@@ -483,7 +483,7 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
                             {"reading": r, "reading_head": headline_facts(r, x.c.findings),
                              **{f"story_reading:{sid}": sr for sid, sr in per.items()}})
         ctx["reading_stored"] = True
-        store.prune_marks(rid, {k.key for k in r.checks})
+        store.prune_marks(rid, {k.key for k in r.checks + r.cleared})
         msg = (f"{len(r.threads)} thread(s), {sum(k.shown for k in r.connections)} connection(s) shown, "
                f"{len(r.checks)} check(s); {told}")
         if notes:
