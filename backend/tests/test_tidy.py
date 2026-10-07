@@ -33,3 +33,9 @@ def test_paths_under_the_workspace_read_relative_to_it():
 def test_anything_else_is_left_as_it_was():
     for text in ("[medium] flush drops it", "{not a dict}", "a set {1, 2} of ids", "plain text", ""):
         assert tidy(text) == text
+
+
+def test_a_subscript_or_initialiser_after_a_name_is_code_not_a_list():
+    for text in ("writes buf[0] after the lock", "reads x[-1]", "f(a)[2] and m[1][3]", "Regs{0} stays"):
+        assert tidy(text) == text
+    assert tidy("can return [0, -2]; buf[1] too") == "can return 0, -2; buf[1] too"

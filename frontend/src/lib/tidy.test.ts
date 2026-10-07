@@ -31,6 +31,15 @@ describe("tidy", () => {
   });
 });
 
+describe("tidy and code", () => {
+  it("leaves a subscript or initialiser after a name as it was", () => {
+    for (const text of ["writes buf[0] after the lock", "reads x[-1]", "f(a)[2] and m[1][3]", "Regs{0} stays"]) {
+      expect(tidy(text)).toBe(text);
+    }
+    expect(tidy("can return [0, -2]; buf[1] too")).toBe("can return 0, -2; buf[1] too");
+  });
+});
+
 describe("counted", () => {
   it("names a count with its noun and never shows an empty one", () => {
     expect(counted(0, "flow")).toBe("");
