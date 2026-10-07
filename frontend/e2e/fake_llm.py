@@ -57,7 +57,18 @@ def tier1_review(user: str) -> dict:
     return {"action": "answer", "verdicts": verdicts}
 
 
+def threads(user: str) -> dict:
+    """Each thread named after its first story; the whole cites the first thread; connections keep their text."""
+    rows = re.findall(r"^(T\d+) \|.*?\| (S\d+) ", user, re.M)
+    return {"threads": [{"id": t, "name": f"Thread of {sid}", "purpose": f"This thread holds {sid} and what builds on it.",
+                         "cites": [sid]} for t, sid in rows],
+            "whole": "The change reworks the UART driver and what calls it. Each thread says what it adds.",
+            "whole_cites": [rows[0][0]] if rows else [], "connections": []}
+
+
 def answer(system: str, user: str) -> dict:
+    if "THREADS (id" in user:
+        return threads(user)
     if "forming the stories of a change" in system:
         return {"related": [], "merge": []} if "STORIES (key | title" in user else tier1_stories(user)
     if "judging the risks of one story" in system:

@@ -506,3 +506,25 @@ def test_the_strong_model_names_the_threads_once_and_a_rerun_reuses_the_text(fx,
     run_review(rid, svc)
     assert sum("THREADS (id" in p for p in llm.prompts) == asked == 1
     assert svc.store.get_blob(rid, "reading")["whole_source"] == "llm"
+
+
+def test_a_four_cl_review_reads_as_three_connected_threads(fx, tmp_path):
+    """CLs 103–104 add a logger level across two CLs (one thread meeting the UART thread in `main`) and an engine
+    change tied to the rest only by CL 104 (spec 2026-10-07-review-reading §13)."""
+    svc = make_services(fx, tmp_path)
+    rid = svc.store.create_review("t", "owner", [101, 102, 103, 104])
+    run_review(rid, svc)
+    r = svc.store.get_blob(rid, "reading")
+    titles = {s["id"]: s["title"] for s in svc.store.get_blob(rid, "stories")["stories"]}
+    assert [[titles[s] for s in t["stories"]] for t in r["threads"]] == [
+        ["`hal_write`'s signature changed; `uart_init` calls it",
+         "`uart_send` can now return -2; `logger_flush` ignores it (1 more effect)"],
+        ["Other changes in `service` (`logger_init`)", "Other changes in `service` (`logger_level`)"],
+        ["Other changes in `cpp`"]]
+    assert [t["cls"] for t in r["threads"]] == [[101, 102], [103, 104], [104]]
+    assert [(k["a"], k["b"], k["kind"], k["text"]) for k in r["connections"] if k["shown"]] == [
+        ("T1", "T2", "caller", "both run inside `main`"), ("T2", "T3", "bundled", "nothing besides arriving in CL 104")]
+    assert [(k["kind"], k["thread"]) for k in r["checks"]] == [
+        ("confirm", "T1"), ("confirm", "T1"), ("caller", "T1"), ("result", "T1"), ("reader", "T1"), ("ask", "T3")]
+    assert r["whole"] == "3 threads: A and B: both run inside `main`; B and C: nothing besides arriving in CL 104."
+    assert "`service/logger.h` header change → 2 files rebuild" in [b["text"] for b in r["build_impact"]]
