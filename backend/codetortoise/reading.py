@@ -7,15 +7,17 @@ import fnmatch
 import posixpath
 import re
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from codetortoise.board import Flow, _count, _Ctx
+from codetortoise.board import Flow, _count, _covered, _Ctx, is_test_path
 from codetortoise.cparse import is_header, preproc_spans
 from codetortoise.pieces import PieceSet, node_cl
 from codetortoise.stories import Story, StorySet
+from codetortoise.targets import UNKNOWN
 
 _KIND_RANK = {"calls": 0, "data": 1, "file": 2, "cl": 3}
 ConnKind = Literal["caller", "vocabulary", "condition", "place", "bundled"]
@@ -92,6 +94,32 @@ class CallPath(BaseModel):
     hidden: list[str] = Field(default_factory=list)   # folded steps (a path of more than four steps)
     text: str
     flow: str | None = None
+
+
+CheckKind = Literal["hazard", "confirm", "caller", "result", "reader", "target", "untested", "unanalysed", "ask", "cleared"]
+CHECK_ORDER = ["hazard", "confirm", "caller", "result", "reader", "target", "untested", "unanalysed", "ask", "cleared"]
+
+
+class Reason(BaseModel):
+    kind: CheckKind
+    text: str
+
+
+class Check(BaseModel):
+    """One row of To check (§7): a place the reviewer should look at, and why."""
+    key: str                          # kind|file|function|related changed function's qualified name (no line numbers)
+    kind: CheckKind
+    story: str | None = None
+    thread: str | None = None
+    path: str = ""                    # workspace-relative
+    line: int | None = None
+    function: str | None = None
+    node: str | None = None           # the place's function
+    text: str
+    source_line: str = ""
+    finding: str | None = None
+    cites: list[str] = Field(default_factory=list)
+    also: list[Reason] = Field(default_factory=list)   # other kinds at the same place
 
 
 def rel_path(x: _Ctx, path: str | None) -> str:
@@ -648,3 +676,184 @@ def call_paths(story: Story, x: _Ctx, flows: list[Flow]) -> list[CallPath]:
             calls.append(_path(steps, "call", x, f"calls `{x.label(steps[-1])}`, {_change_text(x, steps[-1])}"))
     calls.sort(key=lambda p: (p.entry is None, len(p.steps), p.labels))
     return out + calls
+
+
+# ------------------------------------------------------------------ To check (§7)
+def _qual(x: _Ctx, n: str) -> str:
+    key = x.im.nodes[n].key
+    fn = x.fa.get(key) or x.fb.get(key)
+    return fn.qualname if fn else x.label(n)
+
+
+def _source(x: _Ctx, path: str | None, line: int | None, read_text: Callable[[str], str | None] | None) -> str:
+    if not path or not line:
+        return ""
+    fc = x.texts.get(path)
+    text = fc.after if fc else (read_text(path) if read_text else None) or ""
+    rows = text.splitlines()
+    return rows[line - 1].strip() if 0 < line <= len(rows) else ""
+
+
+def _def_place(x: _Ctx, n: str) -> tuple[str | None, int | None]:
+    key = x.im.nodes[n].key
+    fn = x.fa.get(key) or x.fb.get(key)
+    return (fn.file, fn.start_line) if fn else (x.local(n), x.im.nodes[n].line)
+
+
+def _cmp_text(c) -> str:
+    return ", ".join(c.compared_names.get(v[2:], v[2:]) if v.startswith("==") else v for v in c.compared)
+
+
+def build_checks(ss: StorySet, threads: list[Thread], conns: list[Connection], x: _Ctx,
+                 targets: dict[str, list[str]] | None = None, has_tests: bool = False,
+                 test_callers: Callable[[str], set[str]] | None = None,
+                 includers: Callable[[str], set[str]] | None = None,
+                 read_text: Callable[[str], str | None] | None = None) -> tuple[list[Check], list[Check]]:
+    """The review's To check rows in kind order (§7.1), rows at one place merged, and the findings judged no hazard.
+    `targets` maps local files to build targets (None: one target); `has_tests`: the workspace has test code;
+    `test_callers` gives the test files calling a name (the symbol index); `includers` the files including a header."""
+    findings = x.c.findings
+    thread_of = {s: t.id for t in threads for s in t.stories}
+    home = _home(ss)
+    rows: list[Check] = []
+
+    def add(kind: str, related: str | None, place: str | None, path: str | None, line: int | None, text: str,
+            story: str | None = None, **kw) -> None:
+        func = x.label(place) if place else None
+        story = story if story is not None else (home.get(related) if related else None)
+        rows.append(Check(key=f"{kind}|{rel_path(x, path)}|{func or ''}|{_qual(x, related) if related else kw.pop('rel', '')}",
+                          kind=kind, story=story, thread=thread_of.get(story) if story else kw.pop("thread", None),
+                          path=rel_path(x, path), line=line, function=func, node=place, text=text,
+                          source_line=_source(x, path, line, read_text), **kw))
+
+    # 1–2: the strong model's verdicts; without one, high and medium findings (not header fan-out) to confirm
+    cleared: list[Check] = []
+    for f in findings:
+        n = next((m for m in f.nodes if m in x.im.nodes and x.im.nodes[m].kind == "function"), None)
+        ev = next((e for e in f.evidence if e.file and e.line), None)
+        path, line = (ev.file, ev.line) if ev else (_def_place(x, n) if n else (None, None))
+        story = ss.finding_story.get(f.id)
+        common = dict(story=story, finding=f.id, cites=f.verdict_cites)
+        if f.verdict == "hazard":
+            add("hazard", n, n, path, line, f.verdict_reason or f.title, **common)
+        elif f.verdict == "needs_review":
+            add("confirm", n, n, path, line, f.verdict_reason or f.title, **common)
+        elif f.verdict == "no_hazard":
+            add("cleared", n, n, path, line, f.verdict_reason or f.title, **common)
+            cleared.append(rows.pop())
+        elif f.severity in ("high", "medium") and f.kind != "header_fanout":
+            add("confirm", n, n, path, line, f.title, **common)
+
+    def tg(path: str | None) -> set[str]:
+        return set((targets or {}).get(path or "", [])) or {UNKNOWN}
+
+    changed = [n for s in ss.stories for n in _story_fns(s, x)]
+    for n in changed:
+        key, callee = x.im.nodes[n].key, x.label(n)
+        fb, fa = x.fb.get(key), x.fa.get(key)
+        if not fb or not fa:
+            continue
+        sig = fb.signature != fa.signature
+        new = [v for v in fa.returns if v not in fb.returns]
+        mine = tg(fa.file)
+        for c in sorted((c for c in x.calls_after if c.callee == key), key=lambda c: (c.file, c.line)):
+            caller = x.id_of.get(c.caller)
+            if not caller or x.is_test_path(caller):
+                continue
+            who = x.label(caller)
+            if sig or new:
+                where_ = tg(c.file)
+                if targets is not None and where_ == {UNKNOWN} and mine != {UNKNOWN}:
+                    add("unanalysed", n, caller, c.file, c.line, f"`{who}` calls `{callee}` from a file outside every "
+                                                                  "compile database")
+                    continue
+                if targets is not None and UNKNOWN not in where_ | mine and not where_ & mine:
+                    add("target", n, caller, c.file, c.line,
+                        f"`{who}` calls `{callee}` but is built only for {', '.join(f'`{t}`' for t in sorted(where_))}")
+                    continue
+            if sig and caller not in x.changed:
+                add("caller", n, caller, c.file, c.line, f"`{who}` calls `{callee}` and was not updated for its new "
+                                                         "signature")
+            if new:
+                vals = ", ".join(_vals(fa, new))
+                if not c.result_used:
+                    add("result", n, caller, c.file, c.line, f"`{who}` ignores the result of `{callee}`, which can now "
+                                                             f"return {vals}")
+                elif c.compared and not _covered(c.compared, new):
+                    add("result", n, caller, c.file, c.line, f"`{who}` compares the result of `{callee}` only with "
+                                                             f"{_cmp_text(c)}; it can now return {vals}")
+    # 5: unchanged readers of fields the change now writes
+    for n in changed:
+        for w in (e for e in x.im.edges if e.src == n and e.kind == "writes" and e.status == "added"):
+            for r in sorted({e.src for e in _live(x, {"reads"}) if e.dst == w.dst}, key=lambda m: x.label(m)):
+                if r in x.changed or x.is_test_path(r):
+                    continue
+                acc = next((a for a in x.fields_after if f"field:{a.field}" == x.im.nodes[w.dst].key
+                            and a.fn == x.im.nodes[r].key and a.mode == "read"), None)
+                path, line = (acc.file, acc.line) if acc else _def_place(x, r)
+                add("reader", n, r, path, line, f"`{x.label(r)}` reads `{x.label(w.dst)}`, which `{x.label(n)}` now writes")
+    # 6: a changed header included only by files of another target
+    if targets is not None and includers is not None:
+        mine = {t for f in x.c.cs.files if not is_header(f.local) for t in targets.get(f.local, [])} - {UNKNOWN}
+        for h in sorted(f.local for f in x.c.cs.files if is_header(f.local)):
+            other: dict[str, list[str]] = defaultdict(list)
+            for inc in sorted(includers(h)):
+                where_ = set(targets.get(inc, [])) - {UNKNOWN}
+                if mine and where_ and not where_ & mine:
+                    other[", ".join(f"`{t}`" for t in sorted(where_))].append(inc)
+            for names, files in other.items():
+                add("target", None, None, files[0], None,
+                    f"`{rel_path(x, h)}` is included by {len(files)} file{'s' if len(files) > 1 else ''} built only for "
+                    f"{names}", rel=rel_path(x, h))
+    # 7: changed functions no test calls or mentions (only when the workspace has test code)
+    if has_tests:
+        mentions = "\n".join(f.after for f in x.c.cs.files if is_test_path(rel_path(x, f.local)))
+        for s in ss.stories:
+            if s.kind == "tests":
+                continue
+            for n in _story_fns(s, x):
+                if x.is_test_path(n) or n not in x.changed:
+                    continue
+                name = x.label(n).split("::")[-1]
+                by_test = any(x.is_test_path(e.src) for e in _live(x, {"call", "virtual"}) if e.dst == n)
+                if by_test or re.search(rf"\b{re.escape(name)}\b", mentions) or (test_callers and test_callers(name)):
+                    continue
+                add("untested", n, n, *_def_place(x, n), f"No test calls `{x.label(n)}`")
+    # 8: callers found by name over the fan-in cap
+    for name, skipped in sorted(x.im.capped.items()):
+        n = next((m for m in changed if x.label(m) == name or x.label(m).split("::")[-1] == name), None)
+        if n:
+            add("unanalysed", n, n, *_def_place(x, n), f"{skipped} more callers of `{x.label(n)}` found by name were not "
+                                                       "checked")
+    # 9: threads tied to the rest only by their bundle
+    lone = [t for t in threads if not any(k.kind != "bundled" and t.id in (k.a, k.b) for k in conns)]
+    by = {s.id: s for s in ss.stories}
+    for t in lone:
+        if t is threads[0] and len(lone) == len(threads):
+            continue
+        k = next((k for k in conns if k.shown and t.id in (k.a, k.b)), None) or \
+            next((k for k in conns if t.id in (k.a, k.b)), None)
+        fns = _story_fns(by[t.stories[0]], x)
+        add("ask", None, None, None, None, "Ask the author how this thread relates to the rest of the change"
+            + (f": {k.text}" if k else ""), thread=t.id, rel=_qual(x, fns[0]) if fns else t.name)
+    return _merge(rows), cleared
+
+
+def _merge(rows: list[Check]) -> list[Check]:
+    """One row per place: the first kind leads, the others become its `also`; then kind order, then place. Rows of
+    findings stay apart (each has its own verdict)."""
+    rank = {k: i for i, k in enumerate(CHECK_ORDER)}
+    rows = sorted(rows, key=lambda k: (rank[k.kind], k.path, k.line or 0))
+    out: list[Check] = []
+    at: dict[tuple, Check] = {}
+    for k in rows:
+        place = (k.path, k.line, k.function) if k.path and k.line and not k.finding else None
+        if place and place in at:
+            lead = at[place]
+            if all(r.text != k.text for r in lead.also) and lead.text != k.text:
+                lead.also.append(Reason(kind=k.kind, text=k.text))
+            continue
+        if place:
+            at[place] = k
+        out.append(k)
+    return out
