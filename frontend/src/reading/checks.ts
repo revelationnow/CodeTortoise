@@ -29,6 +29,12 @@ export function openCount(open: number, total: number, ofTotal: boolean): string
 /** "A" … "Z", then the thread's id. */
 export const letter = (i: number, id = "") => (i < 26 ? String.fromCharCode(65 + i) : id);
 
+/** A story's thread for its breadcrumb, lettered as the rail letters it ("Thread A", "Thread T27"); "Tests" outside. */
+export function threadLabel(threads: { id: string; stories: string[] }[], sid: string): string {
+  const i = threads.findIndex((t) => t.stories.includes(sid));
+  return i >= 0 ? `Thread ${letter(i, threads[i].id)}` : "Tests";
+}
+
 /** Checks by thread in reading order, then those with no thread under "Across the change" (§7.3); empty groups left out. */
 export function byThread(r: Reading): { id: string | null; label: string; checks: Check[] }[] {
   const groups = r.threads.map((t, i) => ({ id: t.id as string | null, label: `${letter(i, t.id)} · ${t.name}`,
