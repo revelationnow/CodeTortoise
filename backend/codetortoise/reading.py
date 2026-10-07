@@ -114,6 +114,7 @@ class Check(BaseModel):
     story: str | None = None
     thread: str | None = None
     path: str = ""                    # workspace-relative
+    depot: str | None = None          # the file the side panel opens
     line: int | None = None
     function: str | None = None
     node: str | None = None           # the place's function
@@ -1024,6 +1025,15 @@ def _tests_row(ss: StorySet, threads: list[Thread], x: _Ctx) -> TestsRow | None:
                     covers=[t.id for t in threads if t.id in covered], untested=[t.id for t in threads if t.id not in covered])
 
 
+def _set_depots(c: BoardContext, checks: list[Check]) -> None:
+    """Each check's depot file, which its Open button shows in the side panel (§7.2)."""
+    root = c.root.rstrip("/")
+    local = {k.path: k.path if k.path.startswith("/") or not root else f"{root}/{k.path}" for k in checks if k.path}
+    depots = c.depots_for(sorted(set(local.values()))) if local else {}
+    for k in checks:
+        k.depot = depots.get(local.get(k.path, ""))
+
+
 def build_reading(ss: StorySet, c: BoardContext, details: dict[str, StoryDetail] | None = None, analysis=None,
                   pieces: PieceSet | None = None, targets: dict[str, list[str]] | None = None, has_tests: bool = False,
                   test_callers: Callable[[str], set[str]] | None = None, includers: Callable[[str], set[str]] | None = None,
@@ -1051,6 +1061,7 @@ def build_reading(ss: StorySet, c: BoardContext, details: dict[str, StoryDetail]
     conns, (rows, cleared) = checks_for(threads)
     for t in threads:
         t.open_checks = sum(1 for k in rows if k.thread == t.id)
+    _set_depots(c, rows + cleared)
     strong = [lk for lk in links if lk.strength == "strong"]
     order = [s for t in threads for s in t.stories] + [s.id for s in ss.stories if s.kind == "tests"]
     outside = 0

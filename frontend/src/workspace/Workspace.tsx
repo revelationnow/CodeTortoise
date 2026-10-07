@@ -4,6 +4,7 @@ import { api } from "../api";
 import { useMe } from "../App";
 import { driftSummary } from "../board/drift";
 import AiPill from "../components/AiPill";
+import HeadlinePill from "../components/HeadlinePill";
 import { useSources } from "../board/useSources";
 import Stages from "../components/Stages";
 import { AiProvider, useAi } from "../lib/ai";
@@ -123,7 +124,8 @@ function Head({ onMenu, drawer }: { onMenu: () => void; drawer: boolean }) {
       <button className="ws-menu" aria-label="Review contents" aria-expanded={drawer} title="Show the review's contents"
               onClick={onMenu}>☰</button>
       <h1><Link to={ws.base} state={{ page: true }} title="Go to the whole change">{r.title}</Link></h1>
-      {r.risk && <span className={`bd-pill ${r.risk}`}>{r.risk.toUpperCase()} RISK</span>}
+      {d.reading ? <HeadlinePill h={d.reading.headline} />
+        : r.risk && <span className={`bd-pill ${r.risk}`}>{r.risk.toUpperCase()} RISK</span>}
       {!d.ready && <span className="bd-pill ghost">{r.status}</span>}
       {d.ready && <AiPill />}
       {me?.is_owner && d.ready && <button className="link rerun" onClick={() => api.rerun(d.id).then(d.loadDetail)}>Re-run</button>}

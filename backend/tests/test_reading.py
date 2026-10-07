@@ -1,5 +1,5 @@
 """How a review reads (spec 2026-10-07-review-reading §4–§8): story links, threads, connections, reading order."""
-from test_stories import _edit, _in_cls, _same, _world
+from test_stories import W, _edit, _in_cls, _same, _world
 
 from codetortoise.board import analyse
 from codetortoise.reading import (
@@ -568,6 +568,12 @@ def test_the_reading_puts_threads_in_order_with_checks_counted_and_each_story_it
     assert reading.whole_source == "template"
 
 
+def test_each_check_names_the_depot_file_the_side_panel_opens():
+    c, ss = _caller_world()
+    reading, per = build_reading(ss, c)
+    assert [(k.kind, k.path, k.depot) for k in reading.checks] == [("caller", "svc/flush.c", f"//d{W}/svc/flush.c")]
+    assert per["S1"].checks[0].depot == f"//d{W}/svc/flush.c"
+
 def test_ask_the_author_does_not_move_a_thread_up_the_reading_order():
     c, ss = _chain()
     reading, _ = build_reading(ss, c)
@@ -587,4 +593,5 @@ def test_the_fixture_reads_as_threads_with_checks(fx, analysed, fx_source):
     assert sorted(s for t in reading.threads for s in t.stories) == sorted(s.id for s in ss.stories)
     assert set(per) == {s.id for s in ss.stories}
     assert all(not k.path.startswith("/") for k in reading.checks)
+    assert all(k.depot.startswith("//") for k in reading.checks if k.path)
     assert {k.kind for k in reading.checks} >= {"confirm"}

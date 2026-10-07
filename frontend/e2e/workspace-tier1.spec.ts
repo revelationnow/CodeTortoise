@@ -30,6 +30,12 @@ test.describe("stories formed by a strong model", () => {
     await expectNamed(page);
   });
 
+  test("the header counts the open hazards the strong model found", async ({ page }) => {
+    await startReview(page);
+    await expect(page.locator(".ws-head .ct-headline")).toHaveText("1 hazard");
+    await expect(page.locator(".ws-head .ct-headline")).toHaveClass(/\bhazard\b/);
+  });
+
   test("the pieces it could not place are listed last, each with the check that failed", async ({ page }) => {
     const base = await startReview(page);
     const group = page.getByRole("region", { name: /^Stories/ }).locator(".ws-group").last();
