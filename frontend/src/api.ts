@@ -5,6 +5,8 @@ export interface Me { user: string; is_owner: boolean; swarm_ready: boolean }
 export interface ReviewRow {
   id: number; title: string; created_by: string; created_at: string;
   status: string; risk: "low" | "medium" | "high" | null; cls: number[];
+  /** What to act on (spec 2026-10-07-review-reading §5.4); null: run before the reading existed. */
+  headline?: Headline | null;
 }
 export interface Stage { name: string; status: StageStatus; message: string; started_at: string | null; finished_at: string | null }
 export interface SwarmInfo { id: number; state: string; state_label?: string; url: string; votes: Record<string, number>; author?: string }
@@ -30,7 +32,7 @@ export interface Neighbour extends NodeName { id: string; changed: boolean; test
 export interface Neighbours { node: Neighbour; callers: { total: number; items: Neighbour[] }; callees: { total: number; items: Neighbour[] } }
 export interface PerCl { cl: number; before: string; after: string }
 export interface FileChange { depot: string; local: string; action: string; before: string; after: string; base_rev: string | null; per_cl: PerCl[] }
-export type AnchorKind = "line" | "function" | "finding" | "chapter" | "review" | "story" | "flow" | "file";
+export type AnchorKind = "line" | "function" | "finding" | "chapter" | "review" | "story" | "flow" | "file" | "check";
 export interface Comment {
   id: number; review_id: number; parent_id: number | null; author: string; body: string;
   anchor_kind: AnchorKind; anchor: Record<string, unknown>; resolved: boolean; created_at: string; edited_at: string | null;
@@ -57,6 +59,8 @@ export interface Health { checks: HealthCheck[]; ready: boolean; index_generatio
 
 export type { Board, Overview, SourceText, StoryDetail, StorySet } from "./board/types";
 import type { Board, Overview, SourceText, StoryDetail, StorySet } from "./board/types";
+import type { Headline, Mark, Reading } from "./reading/types";
+export type { Headline, Mark, Reading } from "./reading/types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -92,6 +96,10 @@ export const api = {
   overview: (id: number) => call<Overview>("GET", `/api/reviews/${id}/overview`),
   stories: (id: number) => call<StorySet>("GET", `/api/reviews/${id}/stories`),
   story: (id: number, sid: string) => call<StoryDetail>("GET", `/api/reviews/${id}/stories/${sid}`),
+  reading: (id: number) => call<Reading>("GET", `/api/reviews/${id}/reading`),
+  /** "Looks fine" on a To check row, for everyone viewing the review; its key holds "|", so it is encoded. */
+  markCheck: (id: number, key: string) => call<Mark>("POST", `/api/reviews/${id}/checks/${encodeURIComponent(key)}/mark`),
+  unmarkCheck: (id: number, key: string) => call("DELETE", `/api/reviews/${id}/checks/${encodeURIComponent(key)}/mark`),
   locate: (id: number, q: { node?: string; flow?: string; finding?: string }) =>
     call<{ cluster: string | null; story?: string | null }>("GET", `/api/reviews/${id}/locate?${new URLSearchParams(q)}`),
   source: (id: number, path: string, side: "before" | "after" = "after") =>

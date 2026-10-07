@@ -147,6 +147,11 @@ button.go:disabled { opacity: .55; }
 .rv-risk { font: 700 10.5px var(--sans); padding: 2px 9px; border-radius: 99px; letter-spacing: .03em; }
 .rv-risk.high { background: #ff4d6d; color: #ffffff; } .rv-risk.medium { background: #ffcf66; color: #5a3a00; }
 .rv-risk.low { background: #b9f0cc; color: #13692f; }
+.ct-headline { font: 600 11px/1.6 var(--sans); padding: 1px 9px; border-radius: 99px; white-space: nowrap;
+  background: var(--gap-bg); color: var(--muted); }
+.ct-headline.hazard { background: color-mix(in srgb, var(--bad) 14%, var(--surface)); color: var(--bad); }
+.ct-headline.confirm { background: color-mix(in srgb, var(--warn) 10%, var(--surface)); color: var(--warn); }
+.ct-headline .ct-rules { font-weight: 400; }
 .rv-status { font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 99px; color: var(--muted); background: var(--gap-bg); }
 .rv-status.done { color: var(--ok); } .rv-status.degraded { color: var(--warn); } .rv-status.failed { color: var(--bad); }
 .rv-status.running, .rv-status.queued { color: var(--accent); }

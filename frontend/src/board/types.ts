@@ -1,4 +1,5 @@
 /** Review board model, as served by GET /api/reviews/{id}/board (backend codetortoise/board.py). */
+import type { StoryReading } from "../reading/types";
 export interface NodeChange { kind: "modified" | "signature" | "added" | "removed"; add: number; rem: number }
 export interface BoardNode {
   id: string; key: string; label: string; kind: "function" | "field" | "struct" | "more"; layer: number | null;
@@ -83,6 +84,8 @@ export interface StorySite {
 export interface StoryDetail {
   story: Story; board: Board; graph: Board | null; functions: StoryFunction[]; sites: StorySite[]; also_in: StoryRef[];
   pieces?: StoryPiece[];
+  /** The story's tiles (spec 2026-10-07-review-reading §6); null: run before the reading existed. */
+  reading?: StoryReading | null;
 }
 export interface StorySet {
   summary: string; stories: Story[];

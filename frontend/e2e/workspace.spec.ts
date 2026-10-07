@@ -53,6 +53,13 @@ test.describe("desktop", () => {
     await expectNamed(page);
   });
 
+  test("the header says what to act on in place of the risk pill", async ({ page }) => {
+    await startReview(page);
+    const head = page.locator(".ws-head");
+    await expect(head.locator(".ct-headline")).toHaveText("Medium risk · rules only");   // header fan-out never raises it
+    await expect(head.locator(".bd-pill.high")).toHaveCount(0);
+  });
+
   test("an address to something that does not exist says so", async ({ page }) => {
     const base = await startReview(page);
     await page.goto(`${base}/s/S9`);

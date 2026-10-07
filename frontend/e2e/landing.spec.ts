@@ -36,7 +36,8 @@ test.describe("desktop", () => {
     const n = Number((await high.locator("span").textContent())!.trim());
     await high.click();
     await expect(rows).toHaveCount(n);
-    for (const r of await rows.all()) await expect(r.locator(".rv-risk")).toHaveText("HIGH");
+    // each row says what to act on; without the strong model that is the rules' top severity (review reading §5.4)
+    for (const r of await rows.all()) await expect(r.locator(".rv-headline")).toHaveText(/ risk · rules only$/);
     await page.getByRole("button", { name: /^Mine/ }).click();
     await expect(rows).toHaveCount(total);                                            // every review here was started by demo
   });

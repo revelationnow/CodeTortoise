@@ -2,6 +2,7 @@ import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, type ReviewRow } from "../api";
 import { useMe } from "../App";
+import HeadlinePill from "../components/HeadlinePill";
 import Logo from "../components/Logo";
 import { ago, type Chip, chipCounts, filterReviews, highlight, parseCls } from "../lib/reviewFilter";
 
@@ -71,7 +72,8 @@ export default function Reviews() {
               <b>{highlight(r.title, query).map((p, i) => (p.hit ? <mark key={i}>{p.text}</mark> : <span key={i}>{p.text}</span>))}</b>
               <span className="cls">{r.cls.map((c) => <span key={c} className="cl">{c}</span>)}</span>
               <span className="sp" />
-              {r.risk && <span className={`rv-risk ${r.risk}`}>{r.risk.toUpperCase()}</span>}
+              {r.headline ? <HeadlinePill h={r.headline} className="rv-headline" />
+                : r.risk && <span className={`rv-risk ${r.risk}`}>{r.risk.toUpperCase()}</span>}
               <span className={`rv-status ${r.status}`}>{LIVE.has(r.status) ? `${r.status}…` : r.status}</span>
               <span className="when">{ago(r.created_at)} · {r.created_by}</span>
             </Link>

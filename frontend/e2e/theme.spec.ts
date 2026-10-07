@@ -20,6 +20,7 @@ const CHECKS = [
   ".bd-toolbar .bd-ibtn",          // a graph button
   ".topbar a",                     // app chrome link
   ".ws-rail .bd-pill.high",        // a high-risk pill
+  ".ws-head .ct-headline",         // what to act on
 ];
 
 for (const theme of ["light", "dark"] as const) {
