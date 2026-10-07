@@ -17,6 +17,7 @@ from codetortoise.reading import (
     headline,
     story_links,
     where,
+    with_marks,
 )
 from codetortoise.stories import Story, StorySet
 
@@ -379,7 +380,7 @@ def test_hazards_and_confirms_come_from_verdicts_and_no_hazard_findings_are_set_
     assert _rows(open_) == [("hazard", "S1", "drv/uart.c", 1, "send", "drops data"),
                             ("confirm", "S1", "drv/uart.c", 1, "send", "check the lock")]
     assert [(k.kind, k.text, k.finding) for k in cleared] == [("cleared", "fine", "F3")]
-    assert open_[0].key == "hazard|drv/uart.c|send|send" and open_[0].thread == "T1"
+    assert open_[0].key == "hazard|drv/uart.c|send|send|contract:contract F1" and open_[0].thread == "T1"
 
 
 def test_without_verdicts_high_and_medium_findings_are_confirm_rows_except_header_fan_out():
@@ -486,6 +487,26 @@ def test_two_kinds_at_one_place_merge_into_one_row_listing_both_reasons():
     (k,), _ = _checks(c, ss)
     assert (k.kind, k.function) == ("caller", "flush")
     assert [(r.kind, r.text) for r in k.also] == [("result", "`flush` ignores the result of `send`, which can now return -2")]
+
+
+def test_every_check_has_its_own_key_so_a_mark_on_one_call_site_or_finding_never_marks_another():
+    c, ss = _caller_world()
+    e = next(e for e in c.after[0].calls if e.caller == "c:@F@flush")
+    c.after[0].calls.append(e.model_copy(update={"line": e.line + 1}))          # `flush` calls `send` twice
+    ss.finding_story = {"F1": "S1", "F2": "S1"}
+    c.findings = [_f("F1", verdict="hazard", reason="drops data", source="tier1", title="drops"),
+                  _f("F2", verdict="hazard", reason="drops data", source="tier1", title="loses")]
+    open_, _ = _checks(c, ss)
+    keys = [k.key for k in open_]
+    assert len(set(keys)) == len(keys) == 4
+    first, second = (k for k in open_ if k.kind == "caller")
+    assert (first.key, second.key) == ("caller|svc/flush.c|flush|send", "caller|svc/flush.c|flush|send#2")
+    reading, _ = build_reading(ss, c)
+    view = with_marks(reading, {first.key: {"user": "ana", "source_line": first.source_line}}, c.findings)
+    assert view["marks"][first.key]["changed"] is False
+    hz = next(k for k in reading.checks if k.kind == "hazard")
+    view = with_marks(reading, {hz.key: {"user": "ana", "source_line": hz.source_line}}, c.findings)
+    assert view["headline"]["text"] == "1 hazard"                              # the other hazard stays open
 
 
 def test_a_header_included_only_by_files_of_another_target_is_a_check_across_the_change():
