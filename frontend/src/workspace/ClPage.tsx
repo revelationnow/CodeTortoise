@@ -4,7 +4,7 @@ import { api } from "../api";
 import { useMe } from "../App";
 import { SeverityBadge } from "../components/Badges";
 import Markdown from "../components/Markdown";
-import { plainTitle } from "../lib/markdown";
+import { descriptionParts, plainTitle } from "../lib/markdown";
 import { useWs } from "./context";
 import { short } from "./crumbs";
 import { Ticks } from "./NameText";
@@ -15,8 +15,7 @@ export default function ClPage({ cl }: { cl: number }) {
   const ws = useWs(), d = ws.data, me = useMe();
   const [msg, setMsg] = useState<string | null>(null);
   const c = d.detail!.cls.find((x) => x.cl === cl)!;
-  const [title, ...more] = (c.description ?? "").trim().split("\n");
-  const rest = more.join("\n").trim();
+  const { title, body: rest } = descriptionParts(c.description ?? "");
   const files = d.about?.tree.flatMap((t) => t.files).filter((f) => f.cls.includes(cl)) ?? [];
   const paths = new Set(files.map((f) => f.path));
   const stories = d.stories?.stories.filter((s) => s.cls.includes(cl)) ?? [];
