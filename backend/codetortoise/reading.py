@@ -102,6 +102,9 @@ class CallPath(BaseModel):
 
 CheckKind = Literal["hazard", "confirm", "caller", "result", "reader", "target", "untested", "unanalysed", "ask", "cleared"]
 CHECK_ORDER = ["hazard", "confirm", "caller", "result", "reader", "target", "untested", "unanalysed", "ask", "cleared"]
+KIND_LABEL = {"hazard": "Hazard", "confirm": "Confirm", "caller": "Caller not updated", "result": "Result handled the old way",
+              "reader": "Unchanged reader", "target": "Other build target", "untested": "No test touched",
+              "unanalysed": "Not analysed", "ask": "Ask the author", "cleared": "No hazard"}   # as frontend/src/reading/checks.ts
 
 
 class Reason(BaseModel):

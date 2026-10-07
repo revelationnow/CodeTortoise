@@ -193,6 +193,17 @@ def test_a_story_a_flow_and_a_file_bring_their_context(world):
     replies = [c for c in bob.get(f"/api/reviews/{rid}/comments").json() if c["author"] == "tortoise"]
     assert [r["anchor_kind"] for r in replies] == ["story", "flow", "file"]
 
+def test_a_question_on_a_check_brings_the_check_its_place_and_source_line(world):
+    script = Script({"action": "answer", "text": "flush ignores it.", "cites": []})
+    svc, app, rid = world(script)
+    bob = login(app, "bob")
+    k = next(k for k in bob.get(f"/api/reviews/{rid}/reading").json()["checks"] if k["kind"] == "result")
+    _ask(bob, rid, "@tortoise is this fine?", "check", {"key": k["key"]})
+    assert f"CHECK (Result handled the old way): {k['text']}" in script.prompts[0]
+    assert f"AT {k['path']}:{k['line']} in {k['function']}" in script.prompts[0]
+    assert f"SOURCE LINE: {k['source_line']}" in script.prompts[0]
+
+
 def test_a_full_prompt_drops_the_oldest_reads_first(world):
     calls = []
 
