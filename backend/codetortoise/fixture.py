@@ -41,6 +41,7 @@ def build_fixture(dest: Path) -> FixtureWorkspace:
     base = _git(root, "rev-parse", "HEAD")
     for cl, desc in sorted(CL_DESCRIPTIONS.items()):
         shutil.copytree(FIXTURE_SRC / f"cl{cl}", root, dirs_exist_ok=True)
+        _git(root, "rm", "-r", "-q", "--cached", ".")   # copies keep their mtime: a same-size edit could look unchanged
         _git(root, "add", "-A")
         _git(root, "commit", "-q", "-m", f"CL {cl}: {desc}")
     _git(root, "checkout", "-q", base)
