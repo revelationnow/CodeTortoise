@@ -528,3 +528,24 @@ def test_a_four_cl_review_reads_as_three_connected_threads(fx, tmp_path):
         ("confirm", "T1"), ("confirm", "T1"), ("caller", "T1"), ("result", "T1"), ("reader", "T1"), ("ask", "T3")]
     assert r["whole"] == "3 threads: A and B: both run inside `main`; B and C: nothing besides arriving in CL 104."
     assert "`service/logger.h` header change → 2 files rebuild" in [b["text"] for b in r["build_impact"]]
+
+
+def test_a_rerun_that_builds_no_reading_leaves_none_behind(fx, tmp_path, monkeypatch):
+    from codetortoise import pipeline
+    svc = make_services(fx, tmp_path)
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    assert svc.store.get_blob(rid, "reading") and svc.store.blob_keys(rid, "story_reading:")
+
+    def boom(*a, **k):
+        raise RuntimeError("broken")
+    monkeypatch.setattr(pipeline, "build_stories", boom)                       # the stories fail: nothing to read
+    run_review(rid, svc)
+    assert svc.store.get_blob(rid, "reading") is None and svc.store.blob_keys(rid, "story_reading:") == []
+    monkeypatch.undo()
+    run_review(rid, svc)
+    assert svc.store.get_blob(rid, "reading")
+    monkeypatch.setattr(pipeline, "build_boards", boom)                        # the board fails: reading is skipped
+    run_review(rid, svc)
+    assert stages(svc, rid)["reading"] == "skipped"
+    assert svc.store.get_blob(rid, "reading") is None and svc.store.blob_keys(rid, "story_reading:") == []
