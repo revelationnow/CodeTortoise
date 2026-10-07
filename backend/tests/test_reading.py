@@ -353,6 +353,13 @@ def test_call_paths_are_not_capped():
     assert len(paths) == 30 and paths[0].text == "calls `send`, whose body changed"
 
 
+
+def test_callers_that_share_a_caller_each_get_a_path_through_them():
+    fns = [_edit("send", "drv/uart.c"), _same("main", "app/main.c")] + [_same(f"c{i}", f"k/c{i}.c") for i in (1, 2, 3)]
+    c = _world(fns, calls=[(f"c{i}", "send") for i in (1, 2, 3)] + [("main", f"c{i}") for i in (1, 2, 3)])
+    paths = call_paths(_set(["N1"]).stories[0], _x(c), [])
+    assert [p.labels for p in paths] == [["main", "c1", "send"], ["main", "c2", "send"], ["main", "c3", "send"]]
+
 # ---- §7 To check
 def _f(fid, kind="contract", severity="medium", nodes=("N1",), verdict=None, reason=None, source=None, title=None):
     from codetortoise.detectors.base import Finding

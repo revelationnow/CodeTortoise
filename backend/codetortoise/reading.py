@@ -699,7 +699,8 @@ def _path(steps: list[str], kind: str, x: _Ctx, text: str, flow: str | None = No
 
 def call_paths(story: Story, x: _Ctx, flows: list[Flow]) -> list[CallPath]:
     """Every path ending at the story's changed functions, uncapped: its flows first (their effect is the line), then
-    each caller chain up to an entry point, a function nobody calls or `blast_hops` calls away, entry points first."""
+    caller chains up to an entry point, a function nobody calls or `blast_hops` calls away, entry points first. Every
+    caller and every call between callers lies on a path, also where callers share a caller."""
     mine = [f for f in flows if f.id in story.flows]
     out = [_path(list(f.path), f.tag, x, f.effect, f.id) for f in mine]
     seen = {tuple(p.steps) for p in out}
@@ -708,25 +709,46 @@ def call_paths(story: Story, x: _Ctx, flows: list[Flow]) -> list[CallPath]:
     for e in _live(x, {"call", "virtual"}):
         if not x.is_test(e.src):
             rev[e.dst].append(e.src)
-    pred: dict[str, str] = {}
-    frontier, starts = sorted(seeds), []
-    for hop in range(1, x.c.cfg.blast_hops + 1):
+    hops = x.c.cfg.blast_hops
+    layer = dict.fromkeys(seeds, 0)
+    down: dict[str, list[str]] = defaultdict(list)     # a caller's callees one hop nearer the change
+    frontier, starts, order = sorted(seeds), set(), []
+    for hop in range(1, hops + 1):
         nxt = []
         for n in frontier:
             for c in sorted(set(rev.get(n, [])), key=lambda m: x.label(m)):
-                if c in seeds or c in pred:
+                if layer.get(c, hop) != hop:
                     continue
-                pred[c] = n
-                if _is_entry(x, c) or not rev.get(c) or hop == x.c.cfg.blast_hops:
-                    starts.append(c)
+                down[c].append(n)
+                order.append((c, n))
+                if c in layer:
+                    continue
+                layer[c] = hop
+                if _is_entry(x, c) or not rev.get(c) or hop == hops:
+                    starts.add(c)
                 else:
                     nxt.append(c)
         frontier = nxt
+    up: dict[str, list[str]] = defaultdict(list)
+    for c, n in order:
+        up[n].append(c)
+    used: set[tuple[str, str]] = set()
+
+    def pick(options: list[str], edge) -> str:
+        return next((o for o in options if edge(o) not in used), options[0])
+
     calls = []
-    for s in starts:
-        steps = [s]
-        while steps[-1] in pred:
-            steps.append(pred[steps[-1]])
+    for c, n in [(c, None) for c, _ in order if c in starts] + order:
+        if n is not None and (c, n) in used:
+            continue
+        steps = [c]
+        while steps[0] not in starts and up.get(steps[0]):
+            steps.insert(0, pick(up[steps[0]], lambda o: (o, steps[0])))
+        if n is not None:
+            steps.append(n)
+        while steps[-1] not in seeds:
+            steps.append(pick(down[steps[-1]], lambda o: (steps[-1], o)))
+        used.update(zip(steps, steps[1:]))
         if tuple(steps) not in seen:
             seen.add(tuple(steps))
             calls.append(_path(steps, "call", x, f"calls `{x.label(steps[-1])}`, {_change_text(x, steps[-1])}"))
