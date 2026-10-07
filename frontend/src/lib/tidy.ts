@@ -2,8 +2,9 @@
  * finding text the server sends as the detectors wrote it (its titles anchor comments, so they are tidied only here). */
 
 const ITEM = String.raw`'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|-?\d+(?:\.\d+)?|True|False|None`;
-const LIST = new RegExp(String.raw`\[\s*((?:${ITEM})(?:\s*,\s*(?:${ITEM}))*)?\s*\]`, "g");
-const DICT = new RegExp(String.raw`\{\s*((?:${ITEM})\s*:\s*(?:${ITEM})(?:\s*,\s*(?:${ITEM})\s*:\s*(?:${ITEM}))*)?\s*\}`, "g");
+const CODE = String.raw`(?<![\w\])}])`; // a bracket right after a name, `]`, `)` or `}` is a subscript or initialiser: code
+const LIST = new RegExp(String.raw`${CODE}\[\s*((?:${ITEM})(?:\s*,\s*(?:${ITEM}))*)?\s*\]`, "g");
+const DICT = new RegExp(String.raw`${CODE}\{\s*((?:${ITEM})\s*:\s*(?:${ITEM})(?:\s*,\s*(?:${ITEM})\s*:\s*(?:${ITEM}))*)?\s*\}`, "g");
 const ONE = new RegExp(ITEM, "g");
 const COUNT = /\b(\d+) ((?:[A-Za-z_]+ )?[A-Za-z_]+)\(s\)( (?:reach|affect|call|use|need|read|write)\b)?/g;
 const LISTED = /\b([A-Za-z_]+)\(s\) ([^;]+)/g;

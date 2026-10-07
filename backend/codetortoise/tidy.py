@@ -4,8 +4,9 @@ where people and models read it. Code in backticks is left alone. frontend/src/l
 import re
 
 _ITEM = r"""'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|-?\d+(?:\.\d+)?|True|False|None"""
-_LIST = re.compile(rf"\[\s*((?:{_ITEM})(?:\s*,\s*(?:{_ITEM}))*)?\s*\]")
-_DICT = re.compile(rf"\{{\s*((?:{_ITEM})\s*:\s*(?:{_ITEM})(?:\s*,\s*(?:{_ITEM})\s*:\s*(?:{_ITEM}))*)?\s*\}}")
+_CODE = r"(?<![\w\])}])"         # a bracket right after a name, `]`, `)` or `}` is a subscript or initialiser: code
+_LIST = re.compile(rf"{_CODE}\[\s*((?:{_ITEM})(?:\s*,\s*(?:{_ITEM}))*)?\s*\]")
+_DICT = re.compile(rf"{_CODE}\{{\s*((?:{_ITEM})\s*:\s*(?:{_ITEM})(?:\s*,\s*(?:{_ITEM})\s*:\s*(?:{_ITEM}))*)?\s*\}}")
 _ONE = re.compile(_ITEM)
 _COUNT = re.compile(r"\b(\d+) ((?:[A-Za-z_]+ )?[A-Za-z_]+)\(s\)( (?:reach|affect|call|use|need|read|write)\b)?")
 _LISTED = re.compile(r"\b([A-Za-z_]+)\(s\) ([^;]+)")
