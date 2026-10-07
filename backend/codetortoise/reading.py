@@ -9,6 +9,7 @@ import re
 from collections import Counter, defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -1129,17 +1130,38 @@ def build_reading(ss: StorySet, c: BoardContext, details: dict[str, StoryDetail]
     return reading, per
 
 
+def _marked(lines: dict[str, str], marks: dict[str, dict]) -> dict[str, dict]:
+    """Each mark on a check still there, with `changed` when the source line at its place is no longer the line it was
+    marked at (the check is open again)."""
+    return {key: {**m, "changed": m["source_line"] != lines[key]} for key, m in marks.items() if key in lines}
+
+
 def with_marks(r: Reading, marks: dict[str, dict], findings: list[Finding]) -> dict:
-    """The reading as viewers see it (§7.4): each mark with `changed` when the source line at its place is no longer the
-    line it was marked at (the check is open again), and the headline and threads' open counts without the marked
-    checks."""
-    line = {k.key: k.source_line for k in r.checks + r.cleared}
-    view = {key: {**m, "changed": m["source_line"] != line.get(key, m["source_line"])}
-            for key, m in marks.items() if key in line}
+    """The reading as viewers see it (§7.4): its marks, and the headline and threads' open counts without the marked
+    checks. The story links stay out: the browser does not use them."""
+    view = _marked({k.key: k.source_line for k in r.checks + r.cleared}, marks)
     marked = {key for key, m in view.items() if not m["changed"]}
-    out = r.model_dump()
+    out = r.model_dump(exclude={"links"})
     out["marks"] = view
     out["headline"] = headline(r.checks, marked, findings).model_dump()
     for t in out["threads"]:
         t["open_checks"] = sum(1 for k in r.checks if k.thread == t["id"] and k.key not in marked)
     return out
+
+
+def headline_facts(r: Reading, findings: list[Finding]) -> dict:
+    """What the headline needs, stored beside the reading so the Reviews list reads a small blob, not the reading."""
+    return {"checks": [[k.key, k.kind, k.finding, k.source_line] for k in r.checks],
+            "cleared": [[k.key, k.source_line] for k in r.cleared],
+            "findings": [[f.id, f.kind, f.severity, f.verdict_source] for f in findings]}
+
+
+def headline_from(facts: dict, marks: dict[str, dict]) -> Headline:
+    """The headline from `headline_facts` and the review's marks, as `with_marks` gives it."""
+    lines = {key: line for key, line in facts["cleared"]}
+    lines.update({key: line for key, _, _, line in facts["checks"]})
+    marked = {key for key, m in _marked(lines, marks).items() if not m["changed"]}
+    checks = [SimpleNamespace(key=key, kind=kind, finding=fid) for key, kind, fid, _ in facts["checks"]]
+    findings = [SimpleNamespace(id=fid, kind=kind, severity=sev, verdict_source=src)
+                for fid, kind, sev, src in facts["findings"]]
+    return headline(checks, marked, findings)

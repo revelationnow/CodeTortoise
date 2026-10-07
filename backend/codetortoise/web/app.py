@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from pathlib import Path
 from typing import Literal
 
@@ -18,7 +19,7 @@ from codetortoise.names import cited, names, neighbours
 from codetortoise.paths import canon
 from codetortoise.pipeline import JobRunner
 from codetortoise.provenance import tag_board
-from codetortoise.reading import Check, Reading, with_marks
+from codetortoise.reading import Check, Reading, headline_from, with_marks
 from codetortoise.services import Services
 from codetortoise.swarm import SwarmError
 from codetortoise.tidy import tidy
@@ -28,6 +29,7 @@ from codetortoise.vcs.source import SourceBinary, SourceNotAllowed, SourceTooLar
 COOKIE = "ct_session"
 STATIC = Path(__file__).parent / "static"
 TERMINAL = {"done", "degraded", "failed"}
+log = logging.getLogger(__name__)
 
 
 class LoginRejected(Exception):
@@ -158,12 +160,24 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
             return None
         return with_marks(Reading.model_validate(raw), store.list_marks(rid), store.list_findings(rid))
 
+    def review_headline(rid: int) -> dict | None:
+        """The Reviews list's headline from the small `reading_head` blob (a reading stored before it: from the reading);
+        a blob it cannot read leaves that review without one rather than failing the list."""
+        try:
+            head = store.get_blob(rid, "reading_head")
+            if head:
+                return headline_from(head, store.list_marks(rid)).model_dump()
+            view = reading_view(rid)
+            return view["headline"] if view else None
+        except (ValueError, KeyError, TypeError) as e:          # pydantic's ValidationError is a ValueError
+            log.warning("review %s: no headline: %s: %s", rid, type(e).__name__, e)
+            return None
+
     @app.get("/api/reviews")
     def list_reviews(_: str = Depends(user_of)):
         out = store.list_reviews()
         for r in out:
-            view = reading_view(r["id"])
-            r["headline"] = view["headline"] if view else None
+            r["headline"] = review_headline(r["id"])
         return out
 
     @app.post("/api/reviews")

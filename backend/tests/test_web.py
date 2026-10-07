@@ -424,8 +424,26 @@ def test_the_reviews_list_shows_each_reviews_headline(env):
     owner, rid = _review(app)
     (item,) = owner.get("/api/reviews").json()
     assert item["headline"] == {"text": "Medium risk", "tone": "confirm", "rules_only": True}
-    svc.store.replace_blobs(rid, ["reading"], ["story_reading:"], {})        # a review run before the reading
+    svc.store.replace_blobs(rid, ["reading", "reading_head"], ["story_reading:"], {})   # a review run before the reading
     assert owner.get("/api/reviews").json()[0]["headline"] is None
     r = owner.get(f"/api/reviews/{rid}/reading")
     assert r.status_code == 404 and r.json()["detail"] == "this review has no reading: re-run it"
     assert owner.get(f"/api/reviews/{rid}/stories/S1").json()["reading"] is None
+
+
+def test_the_reviews_list_reads_only_each_reviews_small_headline_blob_and_survives_one_it_cannot_read(env):
+    from urllib.parse import quote
+    svc, app, _ = env
+    owner, rid = _review(app)
+    r = owner.get(f"/api/reviews/{rid}/reading").json()
+    assert "links" not in r                                                    # the browser never uses them
+    confirm = [k for k in r["checks"] if k["finding"]]
+    for k in confirm:
+        owner.post(f"/api/reviews/{rid}/checks/{quote(k['key'], safe='')}/mark")
+    after = owner.get(f"/api/reviews/{rid}/reading").json()["headline"]
+    svc.store.replace_blobs(rid, ["reading"], [], {})                         # the list never opens the full reading
+    assert owner.get("/api/reviews").json()[0]["headline"] == after
+    svc.store.put_blob(rid, "reading_head", {"checks": "not a list"})
+    rid2 = owner.post("/api/reviews", json={"cls": [101]}).json()["id"]
+    items = {i["id"]: i for i in owner.get("/api/reviews").json()}
+    assert items[rid]["headline"] is None and items[rid2]["headline"]
