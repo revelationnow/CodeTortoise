@@ -11,7 +11,7 @@ from concurrent.futures.process import BrokenProcessPool
 from codetortoise.cparse import is_header
 from codetortoise.facts.clang_extractor import TuRequest, extract_tu
 from codetortoise.facts.model import Facts
-from codetortoise.facts.treesitter_extractor import extract_tu_treesitter
+from codetortoise.facts.treesitter_extractor import extract_tu_treesitter, supplement
 from codetortoise.toolchain.libclang import load_libclang
 from codetortoise.toolchain.toolchain import Toolchain
 from codetortoise.tu_select import TuSelection
@@ -50,6 +50,8 @@ def _extract_with_fallback(req: TuRequest) -> Facts:
         return extract_tu_treesitter(req, reason=f"clang extractor error: {e}")
     if facts.tu.confidence == "failed":
         return extract_tu_treesitter(req, reason="; ".join(facts.tu.diagnostics))
+    if facts.tu.confidence == "degraded":
+        return supplement(facts, extract_tu_treesitter(req))
     return facts
 
 
@@ -103,13 +105,17 @@ _LOCATION = re.compile(r"^\S+?:\d+(:\d+)?: ")
 
 
 def parse_summary(facts: list[Facts]) -> str:
-    """"N parse(s): a precise, b degraded, c tree-sitter fallback; most common problem (k): <message>"."""
+    """"N parse(s): a precise, b degraded, c tree-sitter fallback; tree-sitter added n call(s) or field access(es) to m
+    degraded parse(s); most common problem (k): <message>"."""
     precise = sum(f.tu.confidence == "precise" for f in facts)
     fallback = sum(f.tu.extractor == "treesitter" for f in facts)
     degraded = len(facts) - precise - fallback
     parts = [f"{precise} precise"] + ([f"{degraded} degraded"] if degraded else []) + \
             ([f"{fallback} tree-sitter fallback"] if fallback else [])
     out = f"{len(facts)} parse(s): " + ", ".join(parts)
+    helped = [f.tu.supplemented for f in facts if f.tu.supplemented]
+    if helped:
+        out += f"; tree-sitter added {sum(helped)} call(s) or field access(es) to {len(helped)} degraded parse(s)"
     problems = Counter(_LOCATION.sub("", f.tu.diagnostics[0]) for f in facts
                        if f.tu.confidence != "precise" and f.tu.diagnostics)
     if problems:

@@ -59,3 +59,48 @@ def test_heuristic_fan_in_is_capped(analysed, fx):
                           AnalysisConfig(module_min_files=1, heuristic_fanin_cap=1))
     assert "logger_flush" not in {n.label for n in capped.nodes.values()}
     assert capped.capped == {"uart_send": 2}
+
+
+def _fn(usr, name, file, line, **kw):
+    from codetortoise.facts.model import Function
+    return Function(usr=usr, qualname=name, name=name, signature="", return_type="", file=file, start_line=line,
+                    end_line=line + 5, **kw)
+
+
+def _call(caller, name, file, line):
+    from codetortoise.facts.model import CallEdge
+    return CallEdge(caller=caller, callee=f"name:{name}", callee_name=name, file=file, line=line, confidence="heuristic")
+
+
+def test_calls_known_only_by_name_reach_the_function_of_that_name():
+    from codetortoise.config import AnalysisConfig
+    from codetortoise.diffmap import DiffMap, FunctionChange
+    from codetortoise.facts.model import Facts, FieldAccess, TuInfo
+    from codetortoise.impact import build_impact
+    from codetortoise.tu_select import TuSelection
+
+    hal = Facts(tu=TuInfo(file="/w/hal.c", variant="after"),
+                functions=[_fn("c:@F@hal_write", "hal_write", "/w/hal.c", 1),
+                           _fn("c:hal.c@F@probe", "probe", "/w/hal.c", 10, is_static=True)])
+    dsp = Facts(tu=TuInfo(file="/w/dsp.c", variant="after"),
+                functions=[_fn("c:dsp.c@F@probe", "probe", "/w/dsp.c", 1, is_static=True)])
+    drv = Facts(tu=TuInfo(file="/w/drv.c", variant="after", confidence="degraded"),
+                functions=[_fn("c:@F@drv_run", "drv_run", "/w/drv.c", 1)],
+                calls=[_call("c:@F@drv_run", "hal_write", "/w/drv.c", 2), _call("c:@F@drv_run", "probe", "/w/drv.c", 3)],
+                fields=[FieldAccess(fn="c:@F@drv_run", field="name:size", field_name="size", record="", path="?.size",
+                                    root_kind="unknown", mode="write", file="/w/drv.c", line=4, confidence="heuristic")])
+    tool = Facts(tu=TuInfo(file="/w/tool.c", variant="after", extractor="treesitter", confidence="failed"),
+                 functions=[_fn("ts:/w/tool.c#main", "main", "/w/tool.c", 1)],
+                 calls=[_call("ts:/w/tool.c#main", "hal_write", "/w/tool.c", 2)])
+    hal.calls.append(_call("c:@F@hal_write", "probe", "/w/hal.c", 3))
+    dm = DiffMap(functions=[FunctionChange(file="/w/hal.c", depot="//hal.c", qualname="hal_write", name="hal_write",
+                                           kind="body_modified", before_lines=(1, 6), after_lines=(1, 6))])
+    im = build_impact([], [hal, dsp, drv, tool], dm, TuSelection(selected=["/w/hal.c", "/w/dsp.c", "/w/drv.c", "/w/tool.c"]),
+                      None, None, AnalysisConfig(module_min_files=1))
+    edges = {(im.nodes[e.src].key, e.kind, im.nodes[e.dst].key): e.confidence for e in im.edges}
+    assert edges[("c:@F@drv_run", "call", "c:@F@hal_write")] == "heuristic"
+    assert edges[("ts:/w/tool.c#main", "call", "c:@F@hal_write")] == "heuristic"
+    assert edges[("c:@F@hal_write", "call", "c:hal.c@F@probe")] == "heuristic"        # a static of its own file
+    assert edges[("c:@F@drv_run", "call", "name:probe")] == "heuristic"              # two files' statics: unresolved
+    assert edges[("c:@F@drv_run", "writes", "field:name:size")] == "heuristic"
+    assert not any(n.key == "name:hal_write" for n in im.nodes.values())
