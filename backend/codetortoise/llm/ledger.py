@@ -17,7 +17,7 @@ from codetortoise.store import Store
 
 T = TypeVar("T")
 PIPELINE = "pipeline"
-TIER1 = ("stories", "stories_merge", "review")    # strong-model calls: their own budget (spec 2026-10-05 §9)
+TIER1 = ("stories", "stories_merge", "review", "threads")    # strong-model calls: their own budget (spec 2026-10-05 §9)
 _T1 = "(" + ",".join(f"'{p}'" for p in TIER1) + ")"
 
 
