@@ -13,10 +13,11 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from codetortoise.board import Flow, _count, _covered, _Ctx, is_test_path
+from codetortoise.board import BoardContext, Flow, _count, _covered, _Ctx, analyse, is_test_path
 from codetortoise.cparse import is_header, preproc_spans
+from codetortoise.detectors.base import SEVERITY_RANK, Finding
 from codetortoise.pieces import PieceSet, node_cl
-from codetortoise.stories import Story, StorySet
+from codetortoise.stories import Story, StoryDetail, StorySet
 from codetortoise.targets import UNKNOWN
 
 _KIND_RANK = {"calls": 0, "data": 1, "file": 2, "cl": 3}
@@ -120,6 +121,56 @@ class Check(BaseModel):
     finding: str | None = None
     cites: list[str] = Field(default_factory=list)
     also: list[Reason] = Field(default_factory=list)   # other kinds at the same place
+
+
+class Headline(BaseModel):
+    text: str
+    tone: Literal["hazard", "confirm", "none"]
+    rules_only: bool = False
+
+
+class BuildImpact(BaseModel):
+    header: str                       # workspace-relative
+    text: str
+    files: int
+    finding: str | None = None
+    note: str = ""
+
+
+class TestsRow(BaseModel):
+    """The overview's Tests row (§5.1): which threads the change's tests exercise."""
+    stories: list[str] = Field(default_factory=list)
+    functions: int = 0
+    covers: list[str] = Field(default_factory=list)
+    untested: list[str] = Field(default_factory=list)
+
+
+class StoryReading(BaseModel):
+    story: str
+    contracts: list[ContractRow] = Field(default_factory=list)
+    where: list[WhereFile] = Field(default_factory=list)
+    paths: list[CallPath] = Field(default_factory=list)
+    checks: list[Check] = Field(default_factory=list)
+    place_text: str = ""              # its place in its thread: "Uses what story 1 adds."
+    thread: str | None = None
+    position: int | None = None       # 1-based, within its thread
+
+
+class Reading(BaseModel):
+    whole: str = ""
+    whole_source: Literal["template", "llm"] = "template"
+    threads: list[Thread] = Field(default_factory=list)
+    connections: list[Connection] = Field(default_factory=list)
+    order: list[str] = Field(default_factory=list)            # story ids, tests last
+    reasons: dict[str, str] = Field(default_factory=dict)
+    links: list[StoryLink] = Field(default_factory=list)
+    checks: list[Check] = Field(default_factory=list)
+    cleared: list[Check] = Field(default_factory=list)        # findings judged no hazard
+    build_impact: list[BuildImpact] = Field(default_factory=list)
+    coverage: list[str] = Field(default_factory=list)
+    headline: Headline = Field(default_factory=lambda: Headline(text="No risks found", tone="none", rules_only=True))
+    rules_only: bool = True
+    tests: TestsRow | None = None
 
 
 def rel_path(x: _Ctx, path: str | None) -> str:
@@ -580,13 +631,14 @@ def contract_rows(story: Story, x: _Ctx) -> list[ContractRow]:
             body.append(n)
     repeated = []
     for (old, new), got in sigs.items():
+        what = f"gained `{new}`" if not old else f"lost `{old}`" if not new else f"`{old}` → `{new}`"
         if len(got) >= 2:
-            what = (f"gained `{new}`" if not old else f"lost `{old}`" if not new else f"changed `{old}` → `{new}`")
-            repeated.append(ContractRow(kind="repeated", nodes=[g[0] for g in got], text=f"{len(got)} signatures {what}"))
+            repeated.append(ContractRow(kind="repeated", nodes=[g[0] for g in got],
+                                        text=f"{len(got)} signatures {'changed ' if old and new else ''}{what}"))
         else:
             n, b, a, mark = got[0]
             singles.insert(0, ContractRow(kind="signature", node=n, nodes=[n], before=b, after=a, mark=mark,
-                                          text=f"`{x.label(n)}`: `{old}` → `{new}`"))
+                                          text=f"`{x.label(n)}`: {what}"))
     rows = repeated + singles + rets + flds
     if body:
         rows.append(ContractRow(kind="body", nodes=body, text=f"{len(body)} function{'s' if len(body) > 1 else ''} "
@@ -823,8 +875,7 @@ def build_checks(ss: StorySet, threads: list[Thread], conns: list[Connection], x
     for name, skipped in sorted(x.im.capped.items()):
         n = next((m for m in changed if x.label(m) == name or x.label(m).split("::")[-1] == name), None)
         if n:
-            add("unanalysed", n, n, *_def_place(x, n), f"{skipped} more callers of `{x.label(n)}` found by name were not "
-                                                       "checked")
+            add("unanalysed", n, n, *_def_place(x, n), f"{skipped} callers of `{x.label(n)}` found by name were not checked")
     # 9: threads tied to the rest only by their bundle
     lone = [t for t in threads if not any(k.kind != "bundled" and t.id in (k.a, k.b) for k in conns)]
     by = {s.id: s for s in ss.stories}
@@ -857,3 +908,165 @@ def _merge(rows: list[Check]) -> list[Check]:
             at[place] = k
         out.append(k)
     return out
+
+
+# ------------------------------------------------------------------ headline (§5.4), build impact and coverage (§5.2)
+def _n(n: int, word: str, plural: str | None = None) -> str:
+    return f"{n} {word if n == 1 else plural or word + 's'}"
+
+
+def headline(checks: list[Check], marked: set[str], findings: list[Finding]) -> Headline:
+    """What to act on: open hazards, else open checks to confirm, else none. Without the strong model's verdicts, the
+    top severity of the findings not marked, labelled rules only. Build impact never raises it."""
+    rules_only = not any(f.verdict_source == "tier1" for f in findings)
+    open_ = [k for k in checks if k.key not in marked]
+    if not rules_only:
+        hz = sum(k.kind == "hazard" for k in open_)
+        cf = sum(k.kind == "confirm" for k in open_)
+        if hz:
+            return Headline(text=_n(hz, "hazard"), tone="hazard")
+        if cf:
+            return Headline(text=f"{cf} to confirm", tone="confirm")
+        return Headline(text="No hazards found", tone="none")
+    done = {k.finding for k in checks if k.finding and k.key in marked}
+    sev = [f.severity for f in findings if f.kind != "header_fanout" and f.id not in done]
+    top = max(sev, key=lambda v: SEVERITY_RANK.get(v, 0), default=None)
+    if top is None:
+        return Headline(text="No risks found", tone="none", rules_only=True)
+    tone = "hazard" if top == "high" else "confirm" if top == "medium" else "none"
+    return Headline(text=f"{top.capitalize()} risk", tone=tone, rules_only=True)
+
+
+def build_impact(x: _Ctx) -> list[BuildImpact]:
+    """Header fan-out findings as "`common.h` macro change → 713 files rebuild"."""
+    tus = {fo.header: fo.total_tus for fo in x.im.fanout}
+    out = []
+    for f in x.c.findings:
+        if f.kind != "header_fanout":
+            continue
+        header = next((e.file for e in f.evidence if e.file), None)
+        if not header:
+            continue
+        kinds = {t.kind.split("_")[0] for t in x.c.dm.types if t.file == header}
+        what = {"macro": "macro change", "type": "type change", "decl": "declaration change"}.get(
+            next(iter(kinds)), "change") if len(kinds) == 1 else "header change"
+        n = tus.get(header, 0)
+        out.append(BuildImpact(header=rel_path(x, header), files=n, finding=f.id,
+                               text=f"`{rel_path(x, header)}` {what} → {_n(n, 'file')} rebuild{'s' if n == 1 else ''}",
+                               note="No behaviour change found." if f.verdict == "no_hazard" else ""))
+    return sorted(out, key=lambda b: -b.files)
+
+
+def coverage(x: _Ctx, has_tests: bool, outside: int = 0) -> list[str]:
+    """What the analysis could not see fully (§5.2, §7.5); empty counts are left out."""
+    facts = x.c.before + x.c.after
+    degraded = {f.tu.file for f in facts if f.tu.confidence == "degraded" and f.tu.extractor == "clang"}
+    added = sum(f.tu.supplemented for f in facts)
+    fallback = {f.tu.file for f in facts if f.tu.extractor == "treesitter"}
+    out = []
+    if degraded:
+        out.append(f"{_n(len(degraded), 'file')} parsed with errors"
+                   + (f"; tree-sitter added {_n(added, 'call')} or field accesses" if added else ""))
+    if fallback:
+        out.append(f"{_n(len(fallback), 'file')} read by tree-sitter only")
+    for name, n in sorted(x.im.capped.items()):
+        out.append(f"{n} callers of `{name}` found by name were not checked (more than {x.c.cfg.heuristic_fanin_cap})")
+    if outside:
+        out.append(f"{_n(outside, 'file')} with callers {'is' if outside == 1 else 'are'} outside every compile database")
+    if x.c.cs.drift:
+        d = len(x.c.cs.drift)
+        out.append(f"{_n(d, 'file')} in the workspace {'differs' if d == 1 else 'differ'} from the CL base")
+    if not has_tests:
+        out.append("No test code found in the workspace")
+    return out
+
+
+# ------------------------------------------------------------------ the whole reading
+def _stories_text(ps: list[int]) -> str:
+    nums = [str(p) for p in ps]
+    return ("story " if len(nums) == 1 else "stories ") + (nums[0] if len(nums) == 1 else
+                                                          ", ".join(nums[:-1]) + " and " + nums[-1])
+
+
+def _place_text(sid: str, order: list[str], strong: list[StoryLink]) -> str:
+    at = {s: i + 1 for i, s in enumerate(order)}
+    uses = sorted({at[lk.defines] for lk in strong if sid in (lk.a, lk.b) and lk.defines != sid and lk.defines in at})
+    built = sorted({at[lk.b if lk.a == sid else lk.a] for lk in strong if lk.defines == sid
+                    and (lk.b if lk.a == sid else lk.a) in at})
+    parts = ([f"Uses what {_stories_text(uses)} adds"] if uses else []) + \
+            ([f"{_stories_text(built)} build{'s' if len(built) == 1 else ''} on this"] if built else [])
+    text = "; ".join(parts)
+    return (text[0].upper() + text[1:] + ".") if text else ""
+
+
+def fixed_whole(threads: list[Thread], conns: list[Connection]) -> str:
+    """The change as a whole without the strong model (§9): the threads and their strongest shown connections."""
+    if not threads:
+        return "No changed code to read."
+    if len(threads) == 1:
+        return f"One thread: {threads[0].name}."
+    letter = {t.id: chr(ord("A") + i) if i < 26 else t.id for i, t in enumerate(threads)}
+    parts = [f"{letter[k.a]} and {letter[k.b]}: {k.text}" for k in conns if k.shown]
+    return f"{len(threads)} threads" + (": " + "; ".join(parts) if parts else "") + "."
+
+
+def _tests_row(ss: StorySet, threads: list[Thread], x: _Ctx) -> TestsRow | None:
+    tests = [s for s in ss.stories if s.kind == "tests"]
+    if not tests:
+        return None
+    thread_of = {s: t.id for t in threads for s in t.stories}
+    nodes = {n for s in tests for n in s.nodes}
+    home = _home(ss)
+    covered = {thread_of[home[e.dst]] for e in _live(x, {"call", "virtual"})
+               if e.src in nodes and home.get(e.dst) in thread_of}
+    return TestsRow(stories=[s.id for s in tests], functions=len(nodes),
+                    covers=[t.id for t in threads if t.id in covered], untested=[t.id for t in threads if t.id not in covered])
+
+
+def build_reading(ss: StorySet, c: BoardContext, details: dict[str, StoryDetail] | None = None, analysis=None,
+                  pieces: PieceSet | None = None, targets: dict[str, list[str]] | None = None, has_tests: bool = False,
+                  test_callers: Callable[[str], set[str]] | None = None, includers: Callable[[str], set[str]] | None = None,
+                  read_text: Callable[[str], str | None] | None = None) -> tuple[Reading, dict[str, StoryReading]]:
+    """The review's reading (threads, connections, order, To check, build impact, coverage, headline) and each story's
+    tiles, with fixed text; llm/threads.py may reword the thread names, purposes and the whole."""
+    a = analysis or analyse(c)
+    x = a.x
+    links = story_links(ss, x)
+
+    def checks_for(threads):
+        conns = connections(threads, ss, x, pieces)
+        return conns, build_checks(ss, threads, conns, x, targets=targets, has_tests=has_tests, test_callers=test_callers,
+                                   includers=includers, read_text=read_text)
+    first, _ = build_threads(ss, links, x)
+    _, (rows, _) = checks_for(first)
+    lead = {t.id: t.stories[0] for t in first}
+    counts: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+    for k in rows:
+        sid = k.story or lead.get(k.thread or "")
+        if sid and k.kind != "ask":               # how a thread relates to the rest is no reason to read it sooner
+            counts[sid][0] += k.kind == "hazard"
+            counts[sid][1] += 1
+    threads, reasons = build_threads(ss, links, x, {s: (h, n) for s, (h, n) in counts.items()})
+    conns, (rows, cleared) = checks_for(threads)
+    for t in threads:
+        t.open_checks = sum(1 for k in rows if k.thread == t.id)
+    strong = [lk for lk in links if lk.strength == "strong"]
+    order = [s for t in threads for s in t.stories] + [s.id for s in ss.stories if s.kind == "tests"]
+    outside = 0
+    if targets is not None:
+        outside = len({cl.file for cl in x.calls_after if not targets.get(cl.file) and cl.file not in x.texts})
+    reading = Reading(threads=threads, connections=conns, order=order, reasons=reasons, links=links, checks=rows,
+                      cleared=cleared, build_impact=build_impact(x), coverage=coverage(x, has_tests, outside),
+                      headline=headline(rows, set(), x.c.findings),
+                      rules_only=not any(f.verdict_source == "tier1" for f in x.c.findings),
+                      tests=_tests_row(ss, threads, x), whole=fixed_whole(threads, conns))
+    thread_of = {s: t for t in threads for s in t.stories}
+    per: dict[str, StoryReading] = {}
+    for s in ss.stories:
+        t = thread_of.get(s.id)
+        flows = details[s.id].board.flows if details and s.id in details else a.flows
+        per[s.id] = StoryReading(story=s.id, contracts=contract_rows(s, x), where=where(s, x), paths=call_paths(s, x, flows),
+                                 checks=[k for k in rows if k.story == s.id],
+                                 place_text=_place_text(s.id, t.stories, strong) if t else "",
+                                 thread=t.id if t else None, position=t.stories.index(s.id) + 1 if t else None)
+    return reading, per

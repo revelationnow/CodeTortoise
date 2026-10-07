@@ -3,13 +3,18 @@ from test_stories import _edit, _in_cls, _same, _world
 
 from codetortoise.board import analyse
 from codetortoise.reading import (
+    Check,
     Connection,
     Thread,
     build_checks,
+    build_impact,
+    build_reading,
     build_threads,
     call_paths,
     connections,
     contract_rows,
+    coverage,
+    headline,
     story_links,
     where,
 )
@@ -269,6 +274,8 @@ def test_a_signature_row_marks_the_part_that_differs():
     assert (row.kind, row.node, row.before, row.after, row.mark) == ("signature", "N1", "int send(int len)",
                                                                      "int send(unsigned len)", [9, 17])
     assert row.text == "`send`: `int` → `unsigned`"
+    _sig(c, "send", "int send(int, int)", "int send(int, unsigned int)")
+    assert contract_rows(_set(["N1"]).stories[0], _x(c))[0].text == "`send`: gained `unsigned`"
 
 
 def test_the_same_signature_edit_in_two_functions_is_one_repeated_row():
@@ -449,7 +456,7 @@ def test_capped_fan_in_is_a_not_analysed_row():
     c = _world([_edit("send", "drv/uart.c")])
     c.impact.capped = {"send": 90}
     (k,), _ = _checks(c, _set(["N1"]))
-    assert (k.kind, k.story, k.text) == ("unanalysed", "S1", "90 more callers of `send` found by name were not checked")
+    assert (k.kind, k.story, k.text) == ("unanalysed", "S1", "90 callers of `send` found by name were not checked")
 
 
 def test_a_thread_connected_only_by_its_bundle_raises_ask_the_author_on_the_thread():
@@ -480,3 +487,104 @@ def test_a_header_included_only_by_files_of_another_target_is_a_check_across_the
     targets = {"/w/drv/uart.c": ["fw"], "/w/drv/uart.h": ["fw"], "/w/host/a.c": ["host"], "/w/host/b.c": ["host"]}
     open_, _ = _checks(c, _set(["N1"]), targets=targets, includers=lambda h: {"/w/host/a.c", "/w/host/b.c", "/w/drv/uart.c"})
     assert _rows(open_) == [("target", None, "host/a.c", None, None, "`drv/uart.h` is included by 2 files built only for `host`")]
+
+
+# ---- §5.4 headline, §5.2 build impact and coverage
+def _k(kind, key, finding=None):
+    return Check(key=key, kind=kind, text="t", finding=finding)
+
+
+def test_the_headline_says_what_to_act_on_open_hazards_then_confirms_then_none():
+    tier1 = [_f("F1", verdict="hazard", source="tier1")]
+    rows = [_k("hazard", "h1"), _k("hazard", "h2"), _k("confirm", "c1"), _k("caller", "x")]
+    assert headline(rows, set(), tier1).model_dump() == {"text": "2 hazards", "tone": "hazard", "rules_only": False}
+    assert headline(rows, {"h1"}, tier1).text == "1 hazard"
+    assert headline(rows, {"h1", "h2"}, tier1).model_dump() == {"text": "1 to confirm", "tone": "confirm",
+                                                                "rules_only": False}
+    assert headline(rows, {"h1", "h2", "c1"}, tier1).model_dump() == {"text": "No hazards found", "tone": "none",
+                                                                      "rules_only": False}
+
+
+def test_rules_only_the_headline_is_the_top_severity_of_open_findings_never_build_impact():
+    fs = [_f("F1", severity="high"), _f("F2", severity="medium"), _f("F3", kind="header_fanout", severity="high"),
+          _f("F4", severity="low")]
+    rows = [_k("confirm", "a", "F1"), _k("confirm", "b", "F2")]
+    assert headline(rows, set(), fs).model_dump() == {"text": "High risk", "tone": "hazard", "rules_only": True}
+    assert headline(rows, {"a"}, fs).model_dump() == {"text": "Medium risk", "tone": "confirm", "rules_only": True}
+    assert headline(rows, {"a", "b"}, fs).model_dump() == {"text": "Low risk", "tone": "none", "rules_only": True}
+    assert headline([], set(), []).text == "No risks found"
+
+
+def test_header_fan_out_findings_become_build_impact_rows():
+    from codetortoise.detectors.base import Evidence
+    from codetortoise.diffmap import TypeChange
+    from codetortoise.impact import FanOut
+    c = _world([_edit("send", "drv/uart.c")])
+    c.dm.types.append(TypeChange(file="/w/inc/common.h", depot="//d/w/inc/common.h", name="LIMIT", kind="macro_changed"))
+    c.impact.fanout = [FanOut(header="/w/inc/common.h", total_tus=713)]
+    f = _f("F1", kind="header_fanout", severity="high", nodes=())
+    f.evidence = [Evidence(text="macro changed: LIMIT", file="/w/inc/common.h")]
+    c.findings = [f]
+    (b,) = build_impact(_x(c))
+    assert (b.header, b.text, b.files, b.finding, b.note) == ("inc/common.h", "`inc/common.h` macro change → 713 files "
+                                                              "rebuild", 713, "F1", "")
+    f.verdict = "no_hazard"
+    assert build_impact(_x(c))[0].note == "No behaviour change found."
+
+
+def test_coverage_names_parse_problems_caps_files_outside_compile_databases_drift_and_missing_tests():
+    from codetortoise.vcs.model import DriftItem
+    c = _world([_edit("send", "drv/uart.c")])
+    c.after[0].tu.confidence, c.after[0].tu.supplemented = "degraded", 7
+    c.impact.capped = {"send": 140}
+    c.cs.drift = [DriftItem(depot="//d/w/drv/uart.c", local="/w/drv/uart.c", expected="#3", actual="#4")]
+    assert coverage(_x(c), has_tests=False, outside=2) == [
+        "1 file parsed with errors; tree-sitter added 7 calls or field accesses",
+        "140 callers of `send` found by name were not checked (more than 50)",
+        "2 files with callers are outside every compile database",
+        "1 file in the workspace differs from the CL base",
+        "No test code found in the workspace"]
+    c.after[0].tu.confidence, c.after[0].tu.extractor, c.after[0].tu.supplemented = "degraded", "treesitter", 0
+    c.impact.capped, c.cs.drift = {}, []
+    assert coverage(_x(c), has_tests=True) == ["1 file read by tree-sitter only"]
+
+
+# ---- the whole reading
+def test_the_reading_puts_threads_in_order_with_checks_counted_and_each_story_its_tiles():
+    c, ss = _chain()
+    c.findings = [_f("F1", nodes=("N4",), verdict="hazard", reason="loses it", source="tier1")]
+    ss.finding_story = {"F1": "S4"}
+    reading, per = build_reading(ss, c)
+    assert [(t.id, t.stories, t.open_checks) for t in reading.threads] == [("T1", ["S4"], 1),
+                                                                          ("T2", ["S3", "S2", "S1"], 1)]
+    assert reading.order == ["S4", "S3", "S2", "S1", "S5"]
+    assert reading.reasons == {"S2": "← calls 1", "S1": "← uses 2"}
+    assert reading.headline.text == "1 hazard" and not reading.rules_only
+    assert [(k.kind, k.thread) for k in reading.checks] == [("hazard", "T1"), ("ask", "T2")]
+    assert reading.tests.model_dump() == {"stories": ["S5"], "functions": 1, "covers": ["T2"], "untested": ["T1"]}
+    assert per["S2"].place_text == "Uses what story 1 adds; story 3 builds on this."
+    assert per["S3"].place_text == "Story 2 builds on this." and per["S4"].place_text == ""
+    assert [k.kind for k in per["S4"].checks] == ["hazard"] and per["S1"].where[0].path == "svc/flush.c"
+    assert reading.whole_source == "template"
+
+
+def test_ask_the_author_does_not_move_a_thread_up_the_reading_order():
+    c, ss = _chain()
+    reading, _ = build_reading(ss, c)
+    assert [t.stories for t in reading.threads] == [["S3", "S2", "S1"], ["S4"]]
+    assert [(k.kind, k.thread) for k in reading.checks] == [("ask", "T2")]
+
+
+def test_the_fixture_reads_as_threads_with_checks(fx, analysed, fx_source):
+    from test_board import _ctx
+
+    from codetortoise.paths import canon
+    from codetortoise.stories import build_stories
+    bctx = _ctx(analysed, fx_source)
+    bctx.root = canon(str(fx.root))
+    ss, det = build_stories(bctx)
+    reading, per = build_reading(ss, bctx, details=det)
+    assert sorted(s for t in reading.threads for s in t.stories) == sorted(s.id for s in ss.stories)
+    assert set(per) == {s.id for s in ss.stories}
+    assert all(not k.path.startswith("/") for k in reading.checks)
+    assert {k.kind for k in reading.checks} >= {"confirm"}
