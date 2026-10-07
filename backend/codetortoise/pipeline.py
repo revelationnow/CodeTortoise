@@ -29,7 +29,7 @@ from codetortoise.llm.threads import write_threads
 from codetortoise.paths import canon
 from codetortoise.pieces import build_pieces
 from codetortoise.provenance import finding_files, impact_node_files, local_files
-from codetortoise.reading import READING_VERSION, build_reading
+from codetortoise.reading import READING_VERSION, build_reading, headline_facts
 from codetortoise.repeated import find_repeated
 from codetortoise.services import Services
 from codetortoise.stories import build_stories
@@ -417,7 +417,7 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
 
     def drop_reading() -> None:
         """A run that builds no reading leaves none: the last run's would read as this one's."""
-        store.replace_blobs(rid, ["reading"], ["story_reading:"], {})
+        store.replace_blobs(rid, ["reading", "reading_head"], ["story_reading:"], {})
 
     def reading():
         """How the review reads (spec 2026-10-07-review-reading): threads, connections, To check, each story's tiles."""
@@ -479,8 +479,9 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
                         "whole": r.whole, "whole_source": r.whole_source,
                         "connections": {f"{k.a}-{k.b}": k.text for k in r.connections}})
             told = f"thread text by {strong.model}"
-        store.replace_blobs(rid, ["reading"], ["story_reading:"],
-                            {"reading": r, **{f"story_reading:{sid}": sr for sid, sr in per.items()}})
+        store.replace_blobs(rid, ["reading", "reading_head"], ["story_reading:"],
+                            {"reading": r, "reading_head": headline_facts(r, x.c.findings),
+                             **{f"story_reading:{sid}": sr for sid, sr in per.items()}})
         ctx["reading_stored"] = True
         store.prune_marks(rid, {k.key for k in r.checks})
         msg = (f"{len(r.threads)} thread(s), {sum(k.shown for k in r.connections)} connection(s) shown, "
