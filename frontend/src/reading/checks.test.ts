@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { byThread, KIND_LABEL, letter, markLine, openCount, placeOf, splitChecks } from "./checks";
+import { byThread, KIND_LABEL, letter, markLine, openCount, placeOf, splitChecks, threadLabel } from "./checks";
 import type { Check, Mark, Reading, Thread } from "./types";
 
 const check = (key: string, extra: Partial<Check> = {}): Check => ({
@@ -50,6 +50,11 @@ describe("To check", () => {
 
   it("letters threads A to Z, then by id", () => {
     expect([letter(0), letter(25), letter(26, "T27")]).toEqual(["A", "Z", "T27"]);
+  });
+
+  it("names a story's thread as the rail does, past Z too, and a story in no thread as Tests", () => {
+    const threads = Array.from({ length: 28 }, (_, i) => ({ id: `T${i + 1}`, stories: [`S${i + 1}`] }));
+    expect(["S1", "S26", "S27", "S99"].map((s) => threadLabel(threads, s))).toEqual(["Thread A", "Thread Z", "Thread T27", "Tests"]);
   });
 
   it("says where a check is, workspace-relative", () => {

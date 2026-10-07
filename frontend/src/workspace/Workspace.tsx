@@ -8,6 +8,7 @@ import HeadlinePill from "../components/HeadlinePill";
 import { useSources } from "../board/useSources";
 import Stages from "../components/Stages";
 import { AiProvider, useAi } from "../lib/ai";
+import { threadLabel } from "../reading/checks";
 import { type Address, at, href, type Open, type Place, readAddress, type Tab } from "./address";
 import { useWs, type Ws, WsContext } from "./context";
 import Crumbs, { PhoneBar } from "./Crumbs";
@@ -56,10 +57,7 @@ export default function Workspace() {
 
   const d = data.detail;
   const r = data.reading;
-  const threadOf = useMemo(() => r ? (sid: string) => {
-    const i = r.threads.findIndex((t) => t.stories.includes(sid));
-    return i >= 0 ? `Thread ${String.fromCharCode(65 + Math.min(i, 25))}` : "Tests";
-  } : undefined, [r]);
+  const threadOf = useMemo(() => r ? (sid: string) => threadLabel(r.threads, sid) : undefined, [r]);
   const trail = useMemo(() => crumbs(addr.place, {
     base: root, title: d?.review.title ?? `Review ${id}`, stories: data.stories?.stories ?? [], findings: data.findings,
     cls: d?.cls ?? [], clusters: data.overview?.clusters ?? [], threadOf,
