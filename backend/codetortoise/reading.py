@@ -6,7 +6,7 @@ from __future__ import annotations
 import fnmatch
 import posixpath
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Literal
@@ -110,7 +110,8 @@ class Reason(BaseModel):
 
 class Check(BaseModel):
     """One row of To check (§7): a place the reviewer should look at, and why."""
-    key: str                          # kind|file|function|related changed function's qualified name (no line numbers)
+    key: str                          # kind|file|function|related changed function's qualified name (no line numbers),
+                                      # a finding's row adds |kind:title, a repeat at one key #2, #3 in line order
     kind: CheckKind
     story: str | None = None
     thread: str | None = None
@@ -795,9 +796,13 @@ def build_checks(ss: StorySet, threads: list[Thread], conns: list[Connection], x
             add("confirm", n, n, path, line, f.verdict_reason or f.title, **common)
         elif f.verdict == "no_hazard":
             add("cleared", n, n, path, line, f.verdict_reason or f.title, **common)
-            cleared.append(rows.pop())
         elif f.severity in ("high", "medium") and f.kind != "header_fanout":
             add("confirm", n, n, path, line, f.title, **common)
+        else:
+            continue
+        rows[-1].key += f"|{f.kind}:{f.title}"     # the finding's own identity: its id is renumbered on a re-run
+        if f.verdict == "no_hazard":
+            cleared.append(rows.pop())
 
     def tg(path: str | None) -> set[str]:
         return set((targets or {}).get(path or "", [])) or {UNKNOWN}
@@ -890,7 +895,7 @@ def build_checks(ss: StorySet, threads: list[Thread], conns: list[Connection], x
         fns = _story_fns(by[t.stories[0]], x)
         add("ask", None, None, None, None, "Ask the author how this thread relates to the rest of the change"
             + (f": {k.text}" if k else ""), thread=t.id, rel=_qual(x, fns[0]) if fns else t.name)
-    return _merge(rows), cleared
+    return _unique(_merge(rows)), _unique(cleared)
 
 
 def _merge(rows: list[Check]) -> list[Check]:
@@ -911,6 +916,17 @@ def _merge(rows: list[Check]) -> list[Check]:
             at[place] = k
         out.append(k)
     return out
+
+
+def _unique(rows: list[Check]) -> list[Check]:
+    """Each key once (§7.4), so a mark or comment reaches one row: a repeat of a key (another call site in one caller,
+    two findings alike at one function) gets #2, #3 in line order."""
+    seen: Counter[str] = Counter()
+    for k in rows:
+        seen[k.key] += 1
+        if seen[k.key] > 1:
+            k.key = f"{k.key}#{seen[k.key]}"
+    return rows
 
 
 # ------------------------------------------------------------------ headline (§5.4), build impact and coverage (§5.2)
