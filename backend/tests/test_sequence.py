@@ -83,3 +83,13 @@ def test_one_rewrite_row_per_function_ordered_by_file_cl_and_line():
     fl = walk(_file(["a", "b", "c", "d"], ["a", "x", "b", "c", "y", "d"], ["a", "X", "b", "c", "Y", "d"]))
     rows = rewrites({"//d/f.c": fl}, [_fn("one", 1, 3), _fn("two", 4, 6)])
     assert [(r.function, r.lines, r.line) for r in rows] == [("one", 1, 2), ("two", 1, 5)]
+
+
+def test_the_fixtures_cl_105_rewrites_the_line_cl_103_added_and_skipping_cl_104_leaves_a_gap(fx_source):
+    logger = "//fixture/service/logger.c"
+    fc = next(f for f in fx_source.load([103, 104, 105]).files if f.depot == logger)
+    fl = walk(fc)
+    assert fl.rewritten == {103: {7: 105}} and fl.gaps == []
+    assert fl.wrote[6] == 105 and fl.over[6] == 103 and fl.wrote.count(104) == 5
+    fc = next(f for f in fx_source.load([103, 105]).files if f.depot == logger)
+    assert walk(fc).gaps == [Gap(file=logger, after_cl=103, before_cl=105)]
