@@ -16,7 +16,7 @@ export function chipsAll(rows: Line[], fl: FileLines): Map<string, Tag> {
     const cl = l.t === "+" ? fl.wrote[l.n! - 1] : l.t === "-" ? fl.removed[l.o! - 1] : null;
     if (cl == null) { prev = null; continue; }
     const over = l.t === "+" ? fl.over[l.n! - 1] ?? null : null;
-    const run = `${l.t}${cl}|${over}`;
+    const run = `${cl}|${over}`;                     // a − run and the + run replacing it, one CL: one chip
     if (run !== prev) {
       out.set(l.t === "+" ? lineKey("new", l.n!) : lineKey("old", l.o!), {
         cl, label: over ? `CL ${cl} · rewrites CL ${over}` : `CL ${cl}`, short: String(cl), chip: true, grey: false });
