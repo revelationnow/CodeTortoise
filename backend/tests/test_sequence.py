@@ -75,6 +75,18 @@ def test_a_file_one_cl_touches_is_walked_the_same_way():
     assert fl.wrote == [None, 101] and fl.removed == [None]
 
 
+def test_a_big_file_with_a_small_edit_walks_quickly():
+    # review M8: SequenceMatcher(autojunk=False) is quadratic on many repeated lines; the unchanged ends are not matched
+    import time
+    base = [f"int v{i};" if i % 7 else "" for i in range(40000)]
+    one = base[:20000] + ["int x;"] + base[20000:]
+    two = one[:20001] + ["int y;"] + one[20001:]
+    t = time.perf_counter()
+    fl = walk(_file(base, one, two))
+    assert time.perf_counter() - t < 3
+    assert fl.wrote[20000:20002] == [101, 102] and fl.wrote.count(None) == 40000
+
+
 def _fn(name, start, end, file="/w/f.c"):
     return Function(usr=f"c:@F@{name}", qualname=name, name=name, signature=f"void {name}(void)", return_type="void",
                     file=file, start_line=start, end_line=end)
