@@ -83,6 +83,7 @@ def walk(fc: FileChange) -> FileLines:
     removed: list[int | None] = [None] * len(cur)
     rewritten: dict[int, dict[int, int]] = defaultdict(dict)
     events: list[tuple[int, int, int, int | None]] = []      # (a, m, by, id of the first line put in their place)
+    succ: dict[int, int] = {}                                 # a replaced line's id → the first line put in its place
     gaps: list[Gap] = []
     prev: int | None = None
 
@@ -105,6 +106,9 @@ def walk(fc: FileChange) -> FileLines:
                         events.append((g.origin[0], g.origin[1], cl, put[0].id if put else None))
                     elif g.base is not None:
                         removed[g.base] = cl
+            for g in gone:
+                if put:
+                    succ[g.id] = put[0].id
             out += put
         cur, attrs = new, out
 
@@ -117,9 +121,15 @@ def walk(fc: FileChange) -> FileLines:
         apply(_split(st.after), st.cl)
         prev = st.cl
     at = {a.id: i + 1 for i, a in enumerate(attrs)}
+
+    def stands(i: int | None) -> int | None:
+        """Where line `i` stands in the final text — or, when a later CL replaced it, what replaced it (review M9)."""
+        while i is not None and i not in at:
+            i = succ.get(i)
+        return at.get(i) if i is not None else None
     return FileLines(depot=fc.depot, local=fc.local, wrote=[a.origin[0] if a.origin else None for a in attrs],
                      over=[a.over for a in attrs], removed=removed, rewritten=dict(rewritten),
-                     replaced=[(a, m, by, at.get(put) if put is not None else None) for a, m, by, put in events], gaps=gaps)
+                     replaced=[(a, m, by, stands(put)) for a, m, by, put in events], gaps=gaps)
 
 
 def _holding(fns: list[Function], local: str, line: int | None) -> str | None:
