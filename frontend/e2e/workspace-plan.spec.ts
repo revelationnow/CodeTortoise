@@ -44,6 +44,20 @@ test.describe("desktop", () => {
     await expect(page.locator(".ov-thread .ov-read").first()).toHaveText(/^(\d+) of \1 read$/);
   });
 
+  test("a failed load of the reader's ticks says so and keeps the reading plan (review M5)", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    const { order } = await readingOf(page, base);
+    await page.goto(`${base}/s/${order[0]}`);
+    await expect(page.getByRole("button", { name: "Mark as read" })).toBeVisible();
+    await page.route("**/ticks", (r) => (r.request().method() === "GET" ? r.fulfill({ status: 500, json: { detail: "ticks are down" } })
+      : r.continue()));
+    await page.getByRole("button", { name: "Mark as read" }).click();
+    await expect(page.locator(".st-read .banner")).toHaveText("ticks are down");
+    await expect(page).toHaveURL(new RegExp(`${base}/s/${order[0]}$`));
+    await expect(page.getByRole("button", { name: "Mark as read" })).toBeVisible();
+    await expect(page.locator(".ws-head .ws-progress")).toBeVisible();
+  });
+
   test("a re-run clears every reader's ticks", async ({ page }) => {
     const base = await startReview(page, FOUR);
     const { order } = await readingOf(page, base);
