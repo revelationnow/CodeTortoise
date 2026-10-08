@@ -307,12 +307,41 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
     def mark_check(rid: int, key: str, user: str = Depends(user_of)):
         review_or_404(rid)
         k = check_or_404(rid, key)
+        store.set_tick(rid, user, "check", k.key)          # Looks fine is also read, for the one who says it
         return store.set_mark(rid, k.key, user, k.source_line)
 
     @app.delete("/api/reviews/{rid}/checks/{key:path}/mark")
     def unmark_check(rid: int, key: str, _: str = Depends(user_of)):
         review_or_404(rid)
         store.clear_mark(rid, key)
+        return {"ok": True}
+
+    # ---- the reading plan (spec 2026-10-07-review-reading-phase2 §6) --------
+    @app.get("/api/reviews/{rid}/ticks")
+    def ticks(rid: int, user: str = Depends(user_of)):
+        review_or_404(rid)
+        if not store.get_blob(rid, "reading"):
+            return {"stories": [], "checks": []}
+        return store.list_ticks(rid, user)
+
+    def tick_or_404(rid: int, kind: str, key: str) -> None:
+        raw = store.get_blob(rid, "reading")
+        r = Reading.model_validate(raw) if raw else None
+        known = (r.order if kind == "story" else [k.key for k in r.checks]) if r else []
+        if key not in known:
+            raise HTTPException(404, "That story or check is not in this review's reading.")
+
+    @app.put("/api/reviews/{rid}/ticks/{kind}/{key:path}")
+    def tick(rid: int, kind: Literal["story", "check"], key: str, user: str = Depends(user_of)):
+        review_or_404(rid)
+        tick_or_404(rid, kind, key)
+        store.set_tick(rid, user, kind, key)
+        return {"ok": True}
+
+    @app.delete("/api/reviews/{rid}/ticks/{kind}/{key:path}")
+    def untick(rid: int, kind: Literal["story", "check"], key: str, user: str = Depends(user_of)):
+        review_or_404(rid)
+        store.clear_tick(rid, user, kind, key)
         return {"ok": True}
 
     @app.get("/api/reviews/{rid}/locate")

@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS briefs(review_id INTEGER PRIMARY KEY, cache_key TEXT,
 CREATE INDEX IF NOT EXISTS ix_briefs_key ON briefs(cache_key);
 CREATE TABLE IF NOT EXISTS check_marks(review_id INTEGER, key TEXT, user TEXT, at TEXT, source_line TEXT,
     PRIMARY KEY(review_id, key));
+CREATE TABLE IF NOT EXISTS read_ticks(review_id INTEGER, user TEXT, kind TEXT, key TEXT, at TEXT,
+    PRIMARY KEY(review_id, user, kind, key));
 """
 
 ANCHOR_KINDS = {"line", "function", "finding", "chapter", "review", "story", "flow", "file", "check"}
@@ -258,6 +260,24 @@ class Store:
         """A re-run drops the marks of checks it no longer finds."""
         for key in set(self.list_marks(rid)) - keep:
             self.clear_mark(rid, key)
+
+    # ---- read ticks (spec 2026-10-07-review-reading-phase2 §6) -----------
+    def set_tick(self, rid: int, user: str, kind: str, key: str) -> None:
+        """`user` has read the story or check `key`; nobody else sees it."""
+        self._exec("INSERT OR IGNORE INTO read_ticks(review_id, user, kind, key, at) VALUES(?,?,?,?,?)",
+                   (rid, user, kind, key, _now()))
+
+    def clear_tick(self, rid: int, user: str, kind: str, key: str) -> None:
+        self._exec("DELETE FROM read_ticks WHERE review_id=? AND user=? AND kind=? AND key=?", (rid, user, kind, key))
+
+    def list_ticks(self, rid: int, user: str) -> dict[str, list[str]]:
+        rows = self._all("SELECT kind, key FROM read_ticks WHERE review_id=? AND user=? ORDER BY at, key", (rid, user))
+        return {"stories": [r["key"] for r in rows if r["kind"] == "story"],
+                "checks": [r["key"] for r in rows if r["kind"] == "check"]}
+
+    def clear_ticks(self, rid: int) -> None:
+        """A run starts every reader over (§6.5)."""
+        self._exec("DELETE FROM read_ticks WHERE review_id=?", (rid,))
 
     # ---- sessions --------------------------------------------------------
     def create_session(self, user: str, ttl_days: int = 7) -> str:

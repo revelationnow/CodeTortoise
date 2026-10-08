@@ -472,3 +472,33 @@ def test_a_file_several_cls_edit_comes_with_who_wrote_each_line(env):
     logger = files["//fixture/service/logger.c"]["lines"]
     assert logger["wrote"][6] == 105 and logger["over"][6] == 103 and logger["rewritten"] == {"103": {"7": 105}}
     assert [d for d, f in files.items() if "lines" in f] == ["//fixture/service/logger.c"]
+
+
+def test_read_ticks_are_each_readers_own_looks_fine_ticks_the_check_and_a_rerun_clears_them(env):
+    from urllib.parse import quote
+    svc, app, _ = env
+    owner, rid = _review(app)
+    bob = login(app, "bob")
+    r = owner.get(f"/api/reviews/{rid}/reading").json()
+    story, check = r["order"][0], r["checks"][0]["key"]
+    assert TestClient(app).get(f"/api/reviews/{rid}/ticks").status_code == 401
+    assert owner.put(f"/api/reviews/{rid}/ticks/story/{story}").json() == {"ok": True}
+    assert owner.put(f"/api/reviews/{rid}/ticks/check/{quote(check, safe='')}").status_code == 200
+    assert owner.get(f"/api/reviews/{rid}/ticks").json() == {"stories": [story], "checks": [check]}
+    assert bob.get(f"/api/reviews/{rid}/ticks").json() == {"stories": [], "checks": []}      # private to each reader
+    other = r["checks"][1]["key"]
+    bob.post(f"/api/reviews/{rid}/checks/{quote(other, safe='')}/mark")                    # Looks fine: read by bob
+    assert bob.get(f"/api/reviews/{rid}/ticks").json() == {"stories": [], "checks": [other]}
+    bob.delete(f"/api/reviews/{rid}/checks/{quote(other, safe='')}/mark")                  # undoing it keeps the tick
+    assert bob.get(f"/api/reviews/{rid}/ticks").json()["checks"] == [other]
+    assert owner.delete(f"/api/reviews/{rid}/ticks/story/{story}").json() == {"ok": True}
+    assert owner.get(f"/api/reviews/{rid}/ticks").json()["stories"] == []
+    bad = owner.put(f"/api/reviews/{rid}/ticks/story/S99")
+    assert bad.status_code == 404 and bad.json()["detail"] == "That story or check is not in this review's reading."
+    assert owner.put(f"/api/reviews/{rid}/ticks/flow/F1").status_code == 422
+    owner.post(f"/api/reviews/{rid}/rerun")
+    assert owner.get(f"/api/reviews/{rid}/ticks").json() == {"stories": [], "checks": []}
+    assert bob.get(f"/api/reviews/{rid}/ticks").json() == {"stories": [], "checks": []}
+    svc.store.replace_blobs(rid, ["reading", "reading_head"], ["story_reading:"], {})        # a review run before the reading
+    assert owner.get(f"/api/reviews/{rid}/ticks").json() == {"stories": [], "checks": []}
+    assert owner.put(f"/api/reviews/{rid}/ticks/story/{story}").status_code == 404
