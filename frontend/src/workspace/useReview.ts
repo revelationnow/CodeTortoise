@@ -33,14 +33,16 @@ export function useReview(id: number) {
   const loadStories = useCallback(() => api.stories(id).then(setStories, (e) => setStories(missing(null)(e))), [id]);
   const loadNames = useCallback(() => api.names(id).then(setNames).catch(() => { /* names fall back to "a function" */ }), [id]);
   const loadReading = useCallback(() => api.reading(id).then(setReading, (e) => setReading(missing(null)(e))), [id]);
-  const loadTicks = useCallback(() => api.ticks(id).then(setTicks, () => setTicks(null)), [id]);
+  /** The reader's ticks; a failure reaches the caller, and the last ticks stay on screen. */
+  const loadTicks = useCallback(() => api.ticks(id).then(setTicks), [id]);
   /** Tick or untick a story or check for the reader, then show what the server holds. */
   const tick = useCallback((kind: "story" | "check", key: string, on: boolean) => api.tick(id, kind, key, on).then(loadTicks), [id, loadTicks]);
   const loadBoard = useCallback(() => api.board(id).then(setBoard, (e) => setBoard(missing(null)(e))), [id]);
   const loadResults = useCallback(() => (setReload((k) => k + 1), Promise.all([
     api.overview(id).then((ov) => { setOverview(ov); setBoard(null); },
                           (e) => { setOverview(missing(null)(e)); return loadBoard(); }),
-    loadStories(), loadFindings(), api.files(id).then(setFiles), loadComments(), loadNames(), loadReading(), loadTicks(),
+    loadStories(), loadFindings(), api.files(id).then(setFiles), loadComments(), loadNames(), loadReading(),
+    loadTicks().catch(() => { /* no reading plan until the ticks load */ }),
   ]).catch(fail)), [id, loadBoard, loadStories, loadFindings, loadComments, loadNames, loadReading, loadTicks, fail]);
 
   useEffect(() => { loadDetail(); }, [loadDetail]);
