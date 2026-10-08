@@ -341,6 +341,7 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
     @app.delete("/api/reviews/{rid}/ticks/{kind}/{key:path}")
     def untick(rid: int, kind: Literal["story", "check"], key: str, user: str = Depends(user_of)):
         review_or_404(rid)
+        tick_or_404(rid, kind, key)
         store.clear_tick(rid, user, kind, key)
         return {"ok": True}
 
