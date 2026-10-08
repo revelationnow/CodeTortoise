@@ -666,3 +666,18 @@ def test_a_storys_rewrites_are_in_its_own_functions_not_a_same_named_one_in_anot
             Rewrite(by=103, of=101, file="//d/b.c", function=None, lines=1, line=None)]
     story = Story(id="S1", kind="other", title="t", summary="s", nodes=["N2"])
     assert rd._story_rewrites(story, x, rows, {"//d/a.c": "/w/a.c", "//d/b.c": "/w/b.c"}) == rows[1:]
+
+
+def test_a_cl_that_only_deleted_an_earlier_cls_lines_in_a_function_is_one_of_its_cls(monkeypatch):
+    """Review M2: CL 101 adds two lines to f, CL 102 deletes one; f's CLs are 101 and 102."""
+    from types import SimpleNamespace as NS
+
+    from test_sequence import _file
+
+    import codetortoise.reading as rd
+    from codetortoise.sequence import walk
+    fl = walk(_file(["f() {", "}"], ["f() {", "a;", "b;", "}"], ["f() {", "a;", "}"]))
+    monkeypatch.setattr(rd, "node_cl", lambda x, n: 101)
+    x = NS(texts={"/w/f.c": NS(depot="//d/f.c")}, local=lambda n: "/w/f.c", im=NS(nodes={"N1": NS(key="k")}),
+           fa={"k": NS(start_line=1, end_line=3)}, fb={"k": NS(start_line=1, end_line=2)})
+    assert rd._cls_of(x, "N1", {"//d/f.c": fl}) == [101, 102]

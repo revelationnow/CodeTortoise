@@ -40,6 +40,7 @@ class FileLines(BaseModel):
     removed: list[int | None] = Field(default_factory=list)    # per base line: the CL that removed it
     rewritten: dict[int, dict[int, int]] = Field(default_factory=dict)  # [cl a][its after line m] = the CL replacing it
     replaced: list[tuple[int, int, int, int | None]] = Field(default_factory=list)  # (a, m, by, final line in its place)
+    near: list[int | None] = Field(default_factory=list)   # per replaced row: its final line, or above a pure deletion
     gaps: list[Gap] = Field(default_factory=list)
 
 
@@ -82,7 +83,7 @@ def walk(fc: FileChange) -> FileLines:
     attrs = [_Line(next(ids), None, None, i) for i in range(len(cur))]
     removed: list[int | None] = [None] * len(cur)
     rewritten: dict[int, dict[int, int]] = defaultdict(dict)
-    events: list[tuple[int, int, int, int | None]] = []      # (a, m, by, id of the first line put in their place)
+    events: list[tuple[int, int, int, int | None, int | None]] = []   # (a, m, by, first put id, id where it happened)
     succ: dict[int, int] = {}                                 # a replaced line's id → the first line put in its place
     gaps: list[Gap] = []
     prev: int | None = None
@@ -103,7 +104,8 @@ def walk(fc: FileChange) -> FileLines:
                 for g in gone:
                     if g.origin is not None:
                         rewritten[g.origin[0]][g.origin[1]] = cl
-                        events.append((g.origin[0], g.origin[1], cl, put[0].id if put else None))
+                        events.append((g.origin[0], g.origin[1], cl, put[0].id if put else None,
+                                       put[0].id if put else out[-1].id if out else None))
                     elif g.base is not None:
                         removed[g.base] = cl
             for g in gone:
@@ -129,7 +131,8 @@ def walk(fc: FileChange) -> FileLines:
         return at.get(i) if i is not None else None
     return FileLines(depot=fc.depot, local=fc.local, wrote=[a.origin[0] if a.origin else None for a in attrs],
                      over=[a.over for a in attrs], removed=removed, rewritten=dict(rewritten),
-                     replaced=[(a, m, by, stands(put)) for a, m, by, put in events], gaps=gaps)
+                     replaced=[(a, m, by, stands(put)) for a, m, by, put, _ in events],
+                     near=[stands(here) for *_, here in events], gaps=gaps)
 
 
 def _holding(fns: list[Function], local: str, line: int | None) -> str | None:

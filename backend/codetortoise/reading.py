@@ -1163,8 +1163,9 @@ def _cls_of(x: _Ctx, n: str, lines: dict[str, FileLines]) -> list[int]:
     out: set[int] = set()
     if fa is not None:
         out |= {c for c in fl.wrote[fa.start_line - 1:fa.end_line] if c is not None}
-        out |= {c for a, _, by, line in fl.replaced if line is not None and fa.start_line <= line <= fa.end_line
-                for c in (a, by)}
+        near = fl.near or [r[3] for r in fl.replaced]          # a lines blob stored before `near` existed
+        out |= {c for (a, _, by, _), line in zip(fl.replaced, near, strict=False)
+                if line is not None and fa.start_line <= line <= fa.end_line for c in (a, by)}
     if fb is not None:
         out |= {c for c in fl.removed[fb.start_line - 1:fb.end_line] if c is not None}
     return sorted(out) or ([one] if one is not None else [])
