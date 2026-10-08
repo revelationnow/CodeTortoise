@@ -9,6 +9,7 @@ import { useSources } from "../board/useSources";
 import Stages from "../components/Stages";
 import { AiProvider, useAi } from "../lib/ai";
 import { threadLabel } from "../reading/checks";
+import { progress, progressText } from "../reading/plan";
 import { type Address, at, href, type Open, type Place, readAddress, type Tab } from "./address";
 import { useWs, type Ws, WsContext } from "./context";
 import Crumbs, { PhoneBar } from "./Crumbs";
@@ -133,6 +134,7 @@ function Head({ onMenu, drawer }: { onMenu: () => void; drawer: boolean }) {
       <h1><Link to={ws.base} state={{ page: true }} title="Go to the whole change">{r.title}</Link></h1>
       {d.reading ? <HeadlinePill h={d.reading.headline} />
         : r.risk && <span className={`bd-pill ${r.risk}`}>{r.risk.toUpperCase()} RISK</span>}
+      {d.reading && d.ticks && <span className="ws-progress">{progressText(progress(d.reading, d.ticks))}</span>}
       {!d.ready && <span className="bd-pill ghost">{r.status}</span>}
       {d.ready && <AiPill />}
       {me?.is_owner && d.ready && <button className="link rerun" onClick={() => api.rerun(d.id).then(d.loadDetail)}>Re-run</button>}

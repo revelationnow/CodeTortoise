@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { byThread, letter } from "../reading/checks";
 import { arcLayout, connectionRows, testsLine } from "../reading/overview";
+import { progress, progressText, threadRead } from "../reading/plan";
 import type { Reading, Thread } from "../reading/types";
 import CheckTile, { Cleared } from "./CheckList";
 import { useWs } from "./context";
@@ -72,6 +73,7 @@ function ThreadCard({ t, i, r }: { t: Thread; i: number; r: Reading }) {
           <Link key={c} className="ws-chip" to={ws.link(ws.item({ kind: "cl", cl: c }))} title={`Open CL ${c}`} aria-label={`Open CL ${c}`}>CL {c}</Link>
         ))}
         {t.open_checks > 0 && <span className="ck-count">{t.open_checks} open</span>}
+        {ws.data.ticks && <span className="ov-read">{threadRead(t.stories, new Set(ws.data.ticks.stories))} read</span>}
       </header>
       {t.purpose && <p className="ov-purpose"><Ticks text={t.purpose} /></p>}
       <ol className="ov-stories">{t.stories.map((sid) => {
@@ -94,9 +96,11 @@ function ThreadCard({ t, i, r }: { t: Thread; i: number; r: Reading }) {
 export default function Overview({ r }: { r: Reading }) {
   const ws = useWs(), ss = ws.data.stories;
   const tests = r.tests?.stories[0], testsStory = tests ? ss?.stories.find((s) => s.id === tests) : null;
+  const p = ws.data.ticks ? progress(r, ws.data.ticks) : null;          // the reader's progress (phase 2 §6.2, §6.4)
   return (
     <div className="ws-page"><div className="ov2">
       <div className="ov2-left ws-whole">
+        {p && <p className={`ov-progress${p.all ? " done" : ""}`}>{p.all ? "You've read every story" : progressText(p)}</p>}
         <section aria-labelledby="ov-whole">
           <h2 id="ov-whole">The change as a whole</h2>
           <p className="ws-lead">{r.whole_source === "llm" && <span className="ai-label">AI</span>}<Ticks text={r.whole} /></p>

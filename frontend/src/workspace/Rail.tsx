@@ -7,6 +7,7 @@ import HeadlinePill from "../components/HeadlinePill";
 import { plainTitle } from "../lib/markdown";
 import { tidy } from "../lib/tidy";
 import { isOpen, letter, openCount } from "../reading/checks";
+import { threadRead } from "../reading/plan";
 import { reviewTargets, sections } from "../stories/stories";
 import { INDEX_TABS, type Place, samePlace } from "./address";
 import { useWs } from "./context";
@@ -84,9 +85,11 @@ export default function Rail({ show, onPick, hidden = false }: { show: string | 
     const byId = new Map(ss.stories.map((st) => [st.id, st]));
     const open = r.checks.filter((k) => isOpen(k, r.marks)).length;
     const tests = ss.stories.filter((st) => st.kind === "tests");
-    const storyRow = (st: Story, why?: string) => { const reason = st.kind === "unsorted" ? "Needs a person to place it" : why; return row({ kind: "story", sid: st.id, view: "steps" }, `Go to story ${st.id}: ${short(st.title)}`, <>
+    const read = d.ticks ? new Set(d.ticks.stories) : null;     // the reader's own ticks (phase 2 §6.4)
+    const storyRow = (st: Story, why?: string) => { const reason = st.kind === "unsorted" ? "Needs a person to place it" : why; return row({ kind: "story", sid: st.id, view: "steps" }, `Go to story ${st.id}: ${short(st.title)}${read?.has(st.id) ? " (read)" : ""}`, <>
       <span className="ws-row-top">
         <span className="ws-row-title"><Ticks text={st.title} /></span>
+        {read?.has(st.id) && <span className="ws-read" aria-hidden>✓</span>}
         <span className="ws-handle">{st.id}</span>
       </span>
       {(reason || (manyTargets && (st.targets ?? []).length > 0)) && <span className="ws-chips">
@@ -105,7 +108,8 @@ export default function Rail({ show, onPick, hidden = false }: { show: string | 
           {r.threads.map((t, i) => (
             <div key={t.id} className="ws-group ws-thread">
               <h3><span className="ov-letter">{letter(i, t.id)}</span> <Ticks text={t.name} />
-                {t.open_checks > 0 && <span className="ck-count">{t.open_checks}</span>}</h3>
+                {t.open_checks > 0 && <span className="ck-count">{t.open_checks}</span>}
+                {read && <span className="ws-thread-read">{threadRead(t.stories, read)}</span>}</h3>
               <ul>{t.stories.map((sid) => byId.get(sid) && <li key={sid}>{storyRow(byId.get(sid)!, r.reasons[sid])}</li>)}</ul>
             </div>
           ))}
