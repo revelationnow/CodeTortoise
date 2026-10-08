@@ -18,6 +18,7 @@ from codetortoise.board import BoardContext, Flow, _count, _covered, _Ctx, analy
 from codetortoise.cparse import is_header, preproc_spans
 from codetortoise.detectors.base import SEVERITY_RANK, Finding
 from codetortoise.pieces import PieceSet, node_cl
+from codetortoise.sequence import FileLines, Gap, Rewrite, file_lines, rewrites
 from codetortoise.stories import Story, StoryDetail, StorySet
 from codetortoise.targets import UNKNOWN
 from codetortoise.tidy import tidy
@@ -87,6 +88,7 @@ class WhereFile(BaseModel):
     path: str                         # workspace-relative
     depot: str | None = None
     functions: list[WhereFn] = Field(default_factory=list)
+    cls: list[int] = Field(default_factory=list)   # the story's CLs that edit the file, in order (phase 2 §5.3)
 
 
 class CallPath(BaseModel):
@@ -162,6 +164,8 @@ class StoryReading(BaseModel):
     place_text: str = ""              # its place in its thread: "Uses what story 1 adds."
     thread: str | None = None
     position: int | None = None       # 1-based, within its thread
+    cl_order: list[int] = Field(default_factory=list)           # the order to read its CLs in (phase 2 §4.4)
+    rewrites: list[Rewrite] = Field(default_factory=list)       # rewrites in its code
 
 
 class Reading(BaseModel):
@@ -179,6 +183,8 @@ class Reading(BaseModel):
     headline: Headline = Field(default_factory=lambda: Headline(text="No risks found", tone="none", rules_only=True))
     rules_only: bool = True
     tests: TestsRow | None = None
+    rewrites: list[Rewrite] = Field(default_factory=list)       # later CLs replacing earlier CLs' lines (phase 2 §4.3)
+    gaps: list[Gap] = Field(default_factory=list)               # CLs outside the review between two of its CLs
 
 
 def rel_path(x: _Ctx, path: str | None) -> str:
@@ -1084,9 +1090,11 @@ def _set_depots(c: BoardContext, checks: list[Check]) -> None:
 def build_reading(ss: StorySet, c: BoardContext, details: dict[str, StoryDetail] | None = None, analysis=None,
                   pieces: PieceSet | None = None, targets: dict[str, list[str]] | None = None, has_tests: bool = False,
                   test_callers: Callable[[str], set[str]] | None = None, includers: Callable[[str], set[str]] | None = None,
-                  read_text: Callable[[str], str | None] | None = None) -> tuple[Reading, dict[str, StoryReading]]:
-    """The review's reading (threads, connections, order, To check, build impact, coverage, headline) and each story's
-    tiles, with fixed text; llm/threads.py may reword the thread names, purposes and the whole."""
+                  read_text: Callable[[str], str | None] | None = None,
+                  lines: dict[str, FileLines] | None = None) -> tuple[Reading, dict[str, StoryReading]]:
+    """The review's reading (threads, connections, order, To check, build impact, coverage, headline, rewrites) and each
+    story's tiles, with fixed text; llm/threads.py may reword the thread names, purposes and the whole. `lines`: each
+    multi-CL file walked (phase 2 §4), computed from the change set when not given."""
     a = analysis or analyse(c)
     x = a.x
     links = story_links(ss, x)
@@ -1121,16 +1129,53 @@ def build_reading(ss: StorySet, c: BoardContext, details: dict[str, StoryDetail]
                       headline=headline(rows, set(), x.c.findings),
                       rules_only=not any(f.verdict_source == "tier1" for f in x.c.findings),
                       tests=_tests_row(ss, threads, x), whole=fixed_whole(threads, conns))
+    lines = file_lines(c.cs) if lines is None else lines
+    reading.rewrites = rewrites(lines, [f for fx in c.after for f in fx.functions])
+    reading.gaps = [g for fl in lines.values() for g in fl.gaps]
+    local_of = {d: fl.local for d, fl in lines.items()}
     thread_of = {s: t for t in threads for s in t.stories}
     per: dict[str, StoryReading] = {}
     for s in ss.stories:
         t = thread_of.get(s.id)
         flows = details[s.id].board.flows if details and s.id in details else a.flows
-        per[s.id] = StoryReading(story=s.id, contracts=contract_rows(s, x), where=where(s, x), paths=call_paths(s, x, flows),
+        files = where(s, x)
+        for wf in files:
+            wf.cls = sorted({c for f in wf.functions for c in _cls_of(x, f.node, lines)})
+        order_ = sorted({c for wf in files for c in wf.cls}) or sorted(s.cls)
+        per[s.id] = StoryReading(story=s.id, contracts=contract_rows(s, x), where=files, paths=call_paths(s, x, flows),
                                  checks=[k for k in rows if k.story == s.id],
                                  place_text=_place_text(s.id, t.stories, strong) if t else "",
-                                 thread=t.id if t else None, position=t.stories.index(s.id) + 1 if t else None)
+                                 thread=t.id if t else None, position=t.stories.index(s.id) + 1 if t else None,
+                                 cl_order=order_, rewrites=_story_rewrites(s, x, reading.rewrites, local_of))
     return reading, per
+
+
+def _cls_of(x: _Ctx, n: str, lines: dict[str, FileLines]) -> list[int]:
+    """The CLs whose edits fall inside a changed function (phase 2 §4.4): in a file several CLs edit, those that wrote
+    its final lines, removed its base lines or had lines inside it rewritten; else its file's CL."""
+    fc = x.texts.get(x.local(n) or "")
+    fl = lines.get(fc.depot) if fc else None
+    one = node_cl(x, n)
+    if fl is None:
+        return [one] if one is not None else []
+    key = x.im.nodes[n].key
+    fa, fb = x.fa.get(key), x.fb.get(key)
+    out: set[int] = set()
+    if fa is not None:
+        out |= {c for c in fl.wrote[fa.start_line - 1:fa.end_line] if c is not None}
+        out |= {c for a, _, by, line in fl.replaced if line is not None and fa.start_line <= line <= fa.end_line
+                for c in (a, by)}
+    if fb is not None:
+        out |= {c for c in fl.removed[fb.start_line - 1:fb.end_line] if c is not None}
+    return sorted(out) or ([one] if one is not None else [])
+
+
+def _story_rewrites(s: Story, x: _Ctx, rows: list[Rewrite], local_of: dict[str, str]) -> list[Rewrite]:
+    """The rewrites in a story's code (phase 2 §4.4): in one of its changed functions, or — when no function stands in
+    their place — in a file holding its code."""
+    fns = _story_fns(s, x)
+    quals, files = {_qual(x, n) for n in fns}, {x.local(n) for n in fns}
+    return [r for r in rows if r.function in quals or (r.function is None and local_of.get(r.file) in files)]
 
 
 def _marked(lines: dict[str, str], marks: dict[str, dict]) -> dict[str, dict]:

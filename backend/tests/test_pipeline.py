@@ -549,3 +549,23 @@ def test_a_rerun_that_builds_no_reading_leaves_none_behind(fx, tmp_path, monkeyp
     run_review(rid, svc)
     assert stages(svc, rid)["reading"] == "skipped"
     assert svc.store.get_blob(rid, "reading") is None and svc.store.blob_keys(rid, "story_reading:") == []
+
+
+def test_a_later_cl_rewriting_an_earlier_ones_line_is_a_rewrite_and_each_story_reads_only_the_cls_in_its_code(fx, tmp_path):
+    """CL 105 rewrites the line CL 103 added in `logger_init`; CL 104 adds `logger_level` (phase 2 §4)."""
+    svc = make_services(fx, tmp_path)
+    logger = "//fixture/service/logger.c"
+    rid = svc.store.create_review("t", "owner", [103, 104, 105])
+    run_review(rid, svc)
+    r = svc.store.get_blob(rid, "reading")
+    rewrite = {"by": 105, "of": 103, "file": logger, "function": "logger_init", "lines": 1, "line": 7}
+    assert r["rewrites"] == [rewrite] and r["gaps"] == []
+    assert list(svc.store.get_blob(rid, "lines")) == [logger]                     # only files several CLs edit
+    titles = {s["title"]: s["id"] for s in svc.store.get_blob(rid, "stories")["stories"]}
+    init = svc.store.get_blob(rid, f"story_reading:{titles['Other changes in `service` (`logger_init`)']}")
+    level = svc.store.get_blob(rid, f"story_reading:{titles['Other changes in `service` (`logger_level`)']}")
+    assert (init["cl_order"], init["rewrites"], init["where"][0]["cls"]) == ([103, 105], [rewrite], [103, 105])
+    assert (level["cl_order"], level["rewrites"]) == ([104], [])
+    rid = svc.store.create_review("t", "owner", [103, 105])                       # CL 104 is outside this review
+    run_review(rid, svc)
+    assert svc.store.get_blob(rid, "reading")["gaps"] == [{"file": logger, "after_cl": 103, "before_cl": 105}]

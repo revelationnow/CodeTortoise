@@ -31,6 +31,7 @@ from codetortoise.pieces import build_pieces
 from codetortoise.provenance import finding_files, impact_node_files, local_files
 from codetortoise.reading import READING_VERSION, build_reading, headline_facts
 from codetortoise.repeated import find_repeated
+from codetortoise.sequence import file_lines
 from codetortoise.services import Services
 from codetortoise.stories import build_stories
 from codetortoise.swarm import SwarmError
@@ -417,7 +418,7 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
 
     def drop_reading() -> None:
         """A run that builds no reading leaves none: the last run's would read as this one's."""
-        store.replace_blobs(rid, ["reading", "reading_head"], ["story_reading:"], {})
+        store.replace_blobs(rid, ["reading", "reading_head", "lines"], ["story_reading:"], {})
 
     def reading():
         """How the review reads (spec 2026-10-07-review-reading): threads, connections, To check, each story's tiles."""
@@ -451,11 +452,12 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
             return texts[path]
         has_tests = any(is_test_path(rel(f)) for f in svc.index.files()) or \
             any(is_test_path(rel(f.local)) for f in ctx["cs"].files)
+        lines = file_lines(ctx["cs"])
         r, per = build_reading(bs.stories, x.c, details=bs.story_details, analysis=bs.analysis, pieces=ps,
                                targets=targets, has_tests=has_tests, includers=svc.index.transitive_includers,
                                test_callers=lambda name: {c.path for c in svc.index.callers_of(name)
                                                           if is_test_path(rel(c.path))},
-                               read_text=read_text)
+                               read_text=read_text, lines=lines)
         notes: list[str] = []
         strong = cfg.llm.strong
         if svc.strong is None or strong is None:
@@ -479,8 +481,9 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
                         "whole": r.whole, "whole_source": r.whole_source,
                         "connections": {f"{k.a}-{k.b}": k.text for k in r.connections}})
             told = f"thread text by {strong.model}"
-        store.replace_blobs(rid, ["reading", "reading_head"], ["story_reading:"],
+        store.replace_blobs(rid, ["reading", "reading_head", "lines"], ["story_reading:"],
                             {"reading": r, "reading_head": headline_facts(r, x.c.findings),
+                             "lines": {d: fl.model_dump() for d, fl in lines.items()},
                              **{f"story_reading:{sid}": sr for sid, sr in per.items()}})
         ctx["reading_stored"] = True
         store.prune_marks(rid, {k.key for k in r.checks + r.cleared})

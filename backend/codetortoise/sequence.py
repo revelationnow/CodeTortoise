@@ -9,7 +9,7 @@ from difflib import SequenceMatcher
 from pydantic import BaseModel, Field
 
 from codetortoise.facts.model import Function
-from codetortoise.vcs.model import FileChange
+from codetortoise.vcs.model import ChangeSet, FileChange
 
 
 class Gap(BaseModel):
@@ -120,3 +120,8 @@ def rewrites(lines: dict[str, FileLines], fns: list[Function]) -> list[Rewrite]:
             if line is not None and (r.line is None or line < r.line):
                 r.line = line
     return sorted(rows.values(), key=lambda r: (r.file, r.of, r.by, r.line or 0, r.function or ""))
+
+
+def file_lines(cs: ChangeSet) -> dict[str, FileLines]:
+    """Each file more than one CL of the change set touches, walked; a file one CL touches needs no walk (§4.1)."""
+    return {f.depot: walk(f) for f in cs.files if len({p.cl for p in f.per_cl}) > 1}
