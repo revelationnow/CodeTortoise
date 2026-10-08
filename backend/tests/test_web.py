@@ -462,3 +462,13 @@ def test_a_mark_on_a_check_judged_no_hazard_survives_a_rerun(env):
     assert owner.post(f"/api/reviews/{rid}/checks/{quote(cleared[0]['key'], safe='')}/mark").status_code == 200
     owner.post(f"/api/reviews/{rid}/rerun")
     assert set(owner.get(f"/api/reviews/{rid}/reading").json()["marks"]) == {cleared[0]["key"]}
+
+
+def test_a_file_several_cls_edit_comes_with_who_wrote_each_line(env):
+    svc, app, _ = env
+    owner = login(app, "owner")
+    rid = owner.post("/api/reviews", json={"cls": [103, 104, 105]}).json()["id"]
+    files = {f["depot"]: f for f in owner.get(f"/api/reviews/{rid}/files").json()}
+    logger = files["//fixture/service/logger.c"]["lines"]
+    assert logger["wrote"][6] == 105 and logger["over"][6] == 103 and logger["rewritten"] == {"103": {"7": 105}}
+    assert [d for d, f in files.items() if "lines" in f] == ["//fixture/service/logger.c"]

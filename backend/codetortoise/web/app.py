@@ -432,7 +432,8 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
     def files(rid: int, _: str = Depends(user_of)):
         review_or_404(rid)
         cs = store.get_blob(rid, "changeset") or {}
-        return cs.get("files", [])
+        lines = store.get_blob(rid, "lines") or {}        # who wrote each line of a multi-CL file (phase 2 §4)
+        return [{**f, "lines": lines[f["depot"]]} if f["depot"] in lines else f for f in cs.get("files", [])]
 
     # ---- layers ------------------------------------------------------------
     @app.put("/api/layers/{level}")
