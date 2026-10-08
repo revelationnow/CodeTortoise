@@ -16,18 +16,20 @@ function CheckRow({ k, lit }: { k: Check; lit: boolean }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const marked = !!m && !m.changed;
-  const toggle = () => {
+  const read = !!d.ticks?.checks.includes(k.key);          // this reader's own tick (phase 2 §6.3)
+  const run = (act: () => Promise<unknown>) => {
     setBusy(true);
     setError(null);
-    (marked ? api.unmarkCheck(d.id, k.key) : api.markCheck(d.id, k.key)).then(d.loadReading)
-      .catch((e) => setError(String(e.message ?? e))).finally(() => setBusy(false));
+    act().catch((e) => setError(String(e.message ?? e))).finally(() => setBusy(false));
   };
+  const toggle = () => run(() => (marked ? api.unmarkCheck(d.id, k.key) : api.markCheck(d.id, k.key))
+    .then(() => Promise.all([d.loadReading(), d.loadTicks()])));
   const li = useRef<HTMLLIElement>(null);
   useEffect(() => { if (lit) li.current?.scrollIntoView({ block: "center" }); }, [lit]);
   const talks = d.comments.filter((c) => c.parent_id === null && c.anchor_kind === "check" && c.anchor.key === k.key).length;
   const where = placeOf(k), place = `${k.path}${k.line ? ` at line ${k.line}` : ""}`;
   return (
-    <li ref={li} className={`ck-row${marked ? " marked" : ""}${lit ? " lit" : ""}`} data-key={k.key} data-finding={k.finding ?? undefined}>
+    <li ref={li} className={`ck-row${marked ? " marked" : ""}${read ? " read" : ""}${lit ? " lit" : ""}`} data-key={k.key} data-finding={k.finding ?? undefined}>
       {[{ kind: k.kind, text: k.text }, ...k.also].map((r, i) => (
         <div key={i} className="ck-top"><span className={`ck-tag ${r.kind}`}>{KIND_LABEL[r.kind]}</span>
           <span className="ck-text"><Ticks text={r.text} /></span></div>
@@ -37,6 +39,8 @@ function CheckRow({ k, lit }: { k: Check; lit: boolean }) {
       {m && <div className={`ck-mark${m.changed ? " changed" : ""}`}>{markLine(m)}</div>}
       <div className="ck-acts">
         <button className="link" onClick={toggle} disabled={busy} aria-pressed={marked}>{marked ? "Reopen" : "Looks fine"}</button>
+        {d.ticks && <label className="ck-read"><input type="checkbox" checked={read} disabled={busy}
+                                                      onChange={() => run(() => d.tick("check", k.key, !read))} /> Read</label>}
         <button className="link" onClick={() => setTalk(!talk)} aria-expanded={talk}>Comment{talks ? ` (${talks})` : ""}</button>
         {k.depot && <Link to={ws.link(ws.opened({ file: k.depot, line: k.line }))} title={`Open ${place}`} aria-label={`Open ${place}`}>Open</Link>}
         {k.finding && <Link to={ws.link(at({ kind: "finding", fid: k.finding }, { details: true }))} title={`Finding ${k.finding}'s details`}

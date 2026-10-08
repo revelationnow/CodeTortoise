@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, type AiJob, type Board, type Comment, type FileChange, type Finding, type Names, type Overview,
   type Reading, type ReviewDetail, type StoryDetail, type StorySet } from "../api";
 import { useAiState } from "../lib/ai";
+import type { ReadTicks } from "../reading/plan";
 
 const TERMINAL = new Set(["done", "degraded", "failed"]);
 const missing = <T,>(fallback: T) => (e: unknown): T => {
@@ -21,6 +22,7 @@ export function useReview(id: number) {
   const [comments, setComments] = useState<Comment[]>([]);
   const [names, setNames] = useState<Names>({});
   const [reading, setReading] = useState<Reading | null | undefined>(undefined);   // null: run before the reading existed
+  const [ticks, setTicks] = useState<ReadTicks | null>(null);                          // the reader's own (phase 2 §6)
   const [reload, setReload] = useState(0);                // story pages and cluster graphs fetch again: new results, AI text
   const [error, setError] = useState<string | null>(null);
 
@@ -31,12 +33,15 @@ export function useReview(id: number) {
   const loadStories = useCallback(() => api.stories(id).then(setStories, (e) => setStories(missing(null)(e))), [id]);
   const loadNames = useCallback(() => api.names(id).then(setNames).catch(() => { /* names fall back to "a function" */ }), [id]);
   const loadReading = useCallback(() => api.reading(id).then(setReading, (e) => setReading(missing(null)(e))), [id]);
+  const loadTicks = useCallback(() => api.ticks(id).then(setTicks, () => setTicks(null)), [id]);
+  /** Tick or untick a story or check for the reader, then show what the server holds. */
+  const tick = useCallback((kind: "story" | "check", key: string, on: boolean) => api.tick(id, kind, key, on).then(loadTicks), [id, loadTicks]);
   const loadBoard = useCallback(() => api.board(id).then(setBoard, (e) => setBoard(missing(null)(e))), [id]);
   const loadResults = useCallback(() => (setReload((k) => k + 1), Promise.all([
     api.overview(id).then((ov) => { setOverview(ov); setBoard(null); },
                           (e) => { setOverview(missing(null)(e)); return loadBoard(); }),
-    loadStories(), loadFindings(), api.files(id).then(setFiles), loadComments(), loadNames(), loadReading(),
-  ]).catch(fail)), [id, loadBoard, loadStories, loadFindings, loadComments, loadNames, loadReading, fail]);
+    loadStories(), loadFindings(), api.files(id).then(setFiles), loadComments(), loadNames(), loadReading(), loadTicks(),
+  ]).catch(fail)), [id, loadBoard, loadStories, loadFindings, loadComments, loadNames, loadReading, loadTicks, fail]);
 
   useEffect(() => { loadDetail(); }, [loadDetail]);
   const status = detail?.review.status;
@@ -79,10 +84,10 @@ export function useReview(id: number) {
   const ai = useAiState(id, ready, people, comments.some((c) => c.ai_meta?.pending), onAiDone, loadComments);
   const about = (board ?? overview)?.about ?? null;
 
-  return useMemo(() => ({ id, detail, board, overview, stories, findings, files, comments, names, reading, about, reload, error,
-                         ready, ai, story, loadDetail, loadComments, loadFindings, loadReading }),
-                 [id, detail, board, overview, stories, findings, files, comments, names, reading, about, reload, error, ready, ai,
-                  story, loadDetail, loadComments, loadFindings, loadReading]);
+  return useMemo(() => ({ id, detail, board, overview, stories, findings, files, comments, names, reading, ticks, about, reload, error,
+                         ready, ai, story, loadDetail, loadComments, loadFindings, loadReading, loadTicks, tick }),
+                 [id, detail, board, overview, stories, findings, files, comments, names, reading, ticks, about, reload, error, ready, ai,
+                  story, loadDetail, loadComments, loadFindings, loadReading, loadTicks, tick]);
 }
 
 export type ReviewData = ReturnType<typeof useReview>;

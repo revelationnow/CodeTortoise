@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ApiError } from "../api";
 import type { StoryDetail } from "../board/types";
 import Comments from "../components/Comments";
 import Explain from "../components/Explain";
 import { isOpen } from "../reading/checks";
+import { nextUnread } from "../reading/plan";
 import { clCounts, stepIn, threadCrumb } from "../reading/story";
 import { countLine, reviewTargets, stepStory } from "../stories/stories";
 import { type Address, at as addressAt } from "./address";
@@ -18,6 +19,32 @@ import { MechanicalStory, TestsStory } from "./StoryBodies";
 import { StoryChecks, StoryWhy } from "./StoryPlan";
 import StorySteps from "./StorySteps";
 import StoryTiles from "./StoryTiles";
+
+/** Mark as read beside ‹ › (spec 2026-10-07-review-reading-phase2 §6.2): ticks the story for this reader and goes to
+ * the next unread story in reading order, or to the overview once every story is read; a read story offers Mark unread. */
+function MarkRead({ sid, order }: { sid: string; order: string[] }) {
+  const ws = useWs(), d = ws.data, navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const read = d.ticks!.stories.includes(sid);
+  const act = (on: boolean) => {
+    setBusy(true);
+    setError(null);
+    d.tick("story", sid, on).then(() => {
+      if (!on) return;
+      const next = nextUnread(order, new Set([...d.ticks!.stories, sid]), sid);
+      if (next) ws.go(ws.item({ kind: "story", sid: next, view: "steps" }));
+      else navigate(ws.link(addressAt({ kind: "whole" })), { state: { page: true } });
+    }).catch((e) => setError(String(e.message ?? e))).finally(() => setBusy(false));
+  };
+  return (
+    <span className="st-read">
+      {read ? <>✓ Read · <button className="link" onClick={() => act(false)} disabled={busy}>Mark unread</button></>
+        : <button onClick={() => act(true)} disabled={busy}>Mark as read</button>}
+      {error && <span className="banner warn">{error}</span>}
+    </span>
+  );
+}
 
 /** A story (spec 2026-10-04-review-workspace §3.2): header with the Steps | Graph switch beside the title and ‹ › in a
  * fixed-width group; its tiles (spec 2026-10-07-review-reading §6) or its graph with the flow strip. A review run before
@@ -78,6 +105,7 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
           </span>
         )}
         <span className="ws-pos">{step(-1)}<span>{r ? (crumb?.text ?? st.id) : `${st.id} of ${ss.stories.length}`}</span>{step(1)}</span>
+        {r && d.ticks && <MarkRead sid={sid} order={r.order} />}
       </div>
       <p>{!r && <NameText text={st.summary} />} {st.kind !== "mechanical" && <Explain kind="story" target={st.id} has={st.text_source === "llm"} askOnly={st.source === "tier1"} ask={{ kind: "story", anchor: { id: st.id }, onAsked: d.loadComments }} />}</p>
       <p className="ws-story-meta">{!r && <span className="muted">{countLine(st)}</span>}

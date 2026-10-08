@@ -63,6 +63,7 @@ export interface Health { checks: HealthCheck[]; ready: boolean; index_generatio
 
 export type { Board, Overview, SourceText, StoryDetail, StorySet } from "./board/types";
 import type { Board, Overview, SourceText, StoryDetail, StorySet } from "./board/types";
+import type { ReadTicks } from "./reading/plan";
 import type { FileLines, Headline, Mark, Reading } from "./reading/types";
 export type { Headline, Mark, Reading } from "./reading/types";
 
@@ -104,6 +105,10 @@ export const api = {
   /** "Looks fine" on a To check row, for everyone viewing the review; its key holds "|", so it is encoded. */
   markCheck: (id: number, key: string) => call<Mark>("POST", `/api/reviews/${id}/checks/${encodeURIComponent(key)}/mark`),
   unmarkCheck: (id: number, key: string) => call("DELETE", `/api/reviews/${id}/checks/${encodeURIComponent(key)}/mark`),
+  /** The signed-in reader's own ticks (spec 2026-10-07-review-reading-phase2 §6). */
+  ticks: (id: number) => call<ReadTicks>("GET", `/api/reviews/${id}/ticks`),
+  tick: (id: number, kind: "story" | "check", key: string, on: boolean) =>
+    call(on ? "PUT" : "DELETE", `/api/reviews/${id}/ticks/${kind}/${encodeURIComponent(key)}`),
   locate: (id: number, q: { node?: string; flow?: string; finding?: string }) =>
     call<{ cluster: string | null; story?: string | null }>("GET", `/api/reviews/${id}/locate?${new URLSearchParams(q)}`),
   source: (id: number, path: string, side: "before" | "after" = "after") =>
