@@ -23,6 +23,11 @@ describe("CL chips (spec 2026-10-07-review-reading-phase2 §5)", () => {
     ]);
   });
 
+  it("chips a replaced block once when one CL removed the old lines and wrote the new (review M3)", () => {
+    const own: FileLines = { ...fl, wrote: [null, 102, null], over: [null, null, null], removed: [null, 102, null] };
+    expect(shown(chipsAll(lineDiff("a\nb\nc\n", "a\nB\nc\n"), own))).toEqual([["old:2", "CL 102", "102", false, 102]]);
+  });
+
   it("leaves rows no CL of the review wrote without a chip", () => {
     const outside: FileLines = { ...fl, wrote: [null, null, null], over: [null, null, null], removed: [null, null] };
     expect(chipsAll(lineDiff("a\nb\n", "a\nz\ny\n"), outside).size).toBe(0);
