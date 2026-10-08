@@ -2,8 +2,8 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { StoryDetail } from "../board/types";
 import Comments from "../components/Comments";
-import { byEntry, codeOrder, foldPath, whereTree } from "../reading/story";
-import type { CallPath, ContractRow, StoryReading } from "../reading/types";
+import { byEntry, codeOrder, foldPath, readOrder, rewriteText, whereByCl, whereTree } from "../reading/story";
+import type { CallPath, ContractRow, StoryReading, WhereFile } from "../reading/types";
 import CheckTile, { Cleared } from "./CheckList";
 import { useWs } from "./context";
 import FunctionCode from "./FunctionCode";
@@ -34,9 +34,38 @@ function Contract({ row }: { row: ContractRow }) {
   );
 }
 
+/** Where's files by folder, then file, then function; `also` names a file's later CLs in the story (phase 2 §5.3). */
+function WhereDirs({ files }: { files: (WhereFile & { also?: number[] })[] }) {
+  const ws = useWs();
+  return (
+    <>{whereTree(files).map((d) => (
+      <div key={d.dir} className="st-dir">
+        <div className="st-dir-name mono">{d.dir}/</div>
+        {d.files.map(({ name, file, showCl }) => (
+          <div key={file.path} className="st-file">
+            <div className="mono">{name}{(file.also ?? []).map((c) => <span key={c} className="ws-chip">also CL {c}</span>)}</div>
+            <ul>{file.functions.map((f) => {
+              const label = `Open ${f.label} in ${file.path}${f.line ? ` at line ${f.line}` : ""}`;
+              return (
+                <li key={f.node}>
+                  {file.depot ? <Link className="mono" to={ws.link(ws.opened({ file: file.depot, line: f.line }))} title={label}
+                                      aria-label={label}>{f.label}</Link> : <span className="mono">{f.label}</span>}
+                  <span className="cnt"><span className="p">+{f.add}</span> <span className="m">−{f.rem}</span></span>
+                  {showCl && f.cl !== null && <span className="ws-chip">CL {f.cl}</span>}
+                </li>
+              );
+            })}</ul>
+          </div>
+        ))}
+      </div>
+    ))}</>
+  );
+}
+
 /** Before → after beside Where (§6.1). */
 function ContractAndWhere({ sr }: { sr: StoryReading }) {
   const ws = useWs();
+  const order = readOrder(sr.cl_order), grouped = (sr.cl_order?.length ?? 0) > 1;    // phase 2 §5.3
   return (
     <div className="st-pair">
       {sr.contracts.length > 0 && (
@@ -48,27 +77,22 @@ function ContractAndWhere({ sr }: { sr: StoryReading }) {
       {sr.where.length > 0 && (
         <section className="ws-tile" aria-label="Where">
           <h3>Where</h3>
-          {whereTree(sr.where).map((d) => (
-            <div key={d.dir} className="st-dir">
-              <div className="st-dir-name mono">{d.dir}/</div>
-              {d.files.map(({ name, file, showCl }) => (
-                <div key={file.path} className="st-file">
-                  <div className="mono">{name}</div>
-                  <ul>{file.functions.map((f) => {
-                    const label = `Open ${f.label} in ${file.path}${f.line ? ` at line ${f.line}` : ""}`;
-                    return (
-                      <li key={f.node}>
-                        {file.depot ? <Link className="mono" to={ws.link(ws.opened({ file: file.depot, line: f.line }))} title={label}
-                                            aria-label={label}>{f.label}</Link> : <span className="mono">{f.label}</span>}
-                        <span className="cnt"><span className="p">+{f.add}</span> <span className="m">−{f.rem}</span></span>
-                        {showCl && f.cl !== null && <span className="ws-chip">CL {f.cl}</span>}
-                      </li>
-                    );
-                  })}</ul>
-                </div>
-              ))}
+          {order && <p className="st-order">{order}</p>}
+          {grouped ? whereByCl(sr.where, sr.cl_order!).map((g) => (
+            <div key={g.cl ?? "none"} className="st-clgroup" role="group" aria-label={g.cl === null ? "Other files" : `CL ${g.cl}`}>
+              <h4>{g.cl === null ? "Other" : `CL ${g.cl}`} · {g.files.length} file{g.files.length === 1 ? "" : "s"}</h4>
+              <WhereDirs files={g.files} />
             </div>
-          ))}
+          )) : <WhereDirs files={sr.where} />}
+          {(sr.rewrites ?? []).length > 0 && (
+            <ul className="st-rewrites">{sr.rewrites!.map((r, i) => {
+              const t = rewriteText(r), label = `Open ${t.name}${r.line ? ` at line ${r.line}` : ""}, in all CLs`;
+              return (
+                <li key={i}>{t.lead}{" "}
+                  <Link className="mono" to={ws.link(ws.opened({ file: r.file, line: r.line }))} title={label} aria-label={label}>{t.name}</Link></li>
+              );
+            })}</ul>
+          )}
         </section>
       )}
     </div>

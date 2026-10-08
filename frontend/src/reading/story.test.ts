@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { byEntry, clCounts, codeOrder, foldPath, stepIn, threadCrumb, whereTree } from "./story";
-import type { CallPath, ContractRow, Reading, WhereFile } from "./types";
+import { byEntry, clCounts, clRewrites, codeOrder, foldPath, readOrder, rewriteText, stepIn, threadCrumb, whereByCl, whereTree } from "./story";
+import type { CallPath, ContractRow, Reading, Rewrite, WhereFile } from "./types";
 
 const fn = (node: string, label: string, cl: number | null, extra = {}) => ({ node, label, add: 2, rem: 1, cl, line: 3, ...extra });
 const file = (path: string, functions: ReturnType<typeof fn>[]): WhereFile => ({ path, depot: `//d/${path}`, functions });
@@ -58,5 +58,34 @@ describe("Code", () => {
     const where = [file("a.c", [fn("N1", "caller", 1), fn("N2", "callee", 1)]), file("b.c", [fn("N3", "other", 1)])];
     const rows = [{ kind: "signature", nodes: ["N2"] } as ContractRow, { kind: "body", nodes: ["N1", "N3"] } as ContractRow];
     expect(codeOrder(where, rows).map((f) => f.label)).toEqual(["callee", "caller", "other"]);
+  });
+});
+
+describe("CLs as a sequence (spec 2026-10-07-review-reading-phase2 §5.3, §5.4)", () => {
+  const w = (path: string, cls: number[]) => ({ ...file(path, [fn(`n-${path}`, path, cls[0] ?? null)]), cls });
+  const rw = (by: number, of: number, fnName: string | null, lines: number, file = "//d/drv/uart.c"): Rewrite =>
+    ({ by, of, file, function: fnName, lines, line: lines ? 4 : null });
+
+  it("groups Where's files under the first of the story's CLs that edits them, in reading order, naming the others", () => {
+    const groups = whereByCl([w("a.c", [103]), w("b.c", [101, 103]), w("c.c", [101]), w("d.c", [])], [101, 103]);
+    expect(groups.map((g) => [g.cl, g.files.map((f) => [f.path, f.also])])).toEqual([
+      [101, [["b.c", [103]], ["c.c", []]]], [103, [["a.c", []]]], [null, [["d.c", []]]]]);
+  });
+
+  it("says the order to read a story's CLs in only when it has several", () => {
+    expect(readOrder([101, 103, 105])).toBe("Read CL 101, then CL 103, then CL 105");
+    expect(readOrder([104])).toBeNull();
+    expect(readOrder(undefined)).toBeNull();
+  });
+
+  it("says what a rewrite replaced and where, by function or else by file", () => {
+    expect(rewriteText(rw(103, 101, "uart_send", 5))).toEqual({ lead: "CL 103 rewrites 5 lines CL 101 added in", name: "uart_send" });
+    expect(rewriteText(rw(105, 103, null, 1))).toEqual({ lead: "CL 105 rewrites 1 line CL 103 added in", name: "uart.c" });
+  });
+
+  it("splits the review's rewrites into a CL's two directions", () => {
+    const all = [rw(103, 101, "send", 5), rw(105, 103, "init", 1), rw(104, 102, "x", 2)];
+    expect(clRewrites(all, 103)).toEqual({ rewrites: [all[0]], rewrittenBy: [all[1]] });
+    expect(clRewrites(undefined, 103)).toEqual({ rewrites: [], rewrittenBy: [] });
   });
 });

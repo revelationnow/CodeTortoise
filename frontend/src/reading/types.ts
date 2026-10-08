@@ -32,6 +32,8 @@ export interface Reading {
   /** Findings judged no hazard, with their reasons. */
   cleared: Check[]; build_impact: BuildImpact[]; coverage: string[]; headline: Headline; rules_only: boolean;
   tests: TestsRow | null; marks: Record<string, Mark>;
+  /** Later CLs replacing lines earlier ones added, and CLs outside the review in between (phase 2 §4.3). */
+  rewrites?: Rewrite[]; gaps?: Gap[];
 }
 
 export interface ContractRow {
@@ -41,7 +43,11 @@ export interface ContractRow {
   mark: number[]; added: string[]; removed: string[]; nodes: string[];
 }
 export interface WhereFn { node: string; label: string; add: number; rem: number; cl: number | null; line: number | null }
-export interface WhereFile { path: string; depot: string | null; functions: WhereFn[] }
+export interface WhereFile {
+  path: string; depot: string | null; functions: WhereFn[];
+  /** The story's CLs that edit the file, in order (phase 2 §5.3); absent on a reading stored before phase 2. */
+  cls?: number[];
+}
 export interface CallPath {
   /** Node ids, entry first; `hidden` are the folded middle steps of a long path. */
   steps: string[]; labels: string[]; kind: "contract" | "state" | "call"; entry: string | null; hidden: string[];
@@ -51,6 +57,8 @@ export interface StoryReading {
   story: string; contracts: ContractRow[]; where: WhereFile[]; paths: CallPath[]; checks: Check[];
   /** Its place in its thread: "Uses what story 1 adds." */
   place_text: string; thread: string | null; position: number | null;
+  /** The order to read the story's CLs in, and the rewrites inside its code (phase 2 §4.4); absent before phase 2. */
+  cl_order?: number[]; rewrites?: Rewrite[];
 }
 
 /** Who wrote each line of a file several CLs edit (phase 2 §4.3); JSON keys of `rewritten` are strings. */
@@ -67,3 +75,6 @@ export interface FileLines {
 /** A CL outside the review changed `file` between review CLs `after_cl` and `before_cl`. */
 export interface Gap { file: string; after_cl: number; before_cl: number }
 
+/** CL `by` replaced or deleted `lines` lines CL `of` added to `file` (a depot path); `line` is the first final line in
+ * their place and `function` the function holding it. */
+export interface Rewrite { by: number; of: number; file: string; function: string | null; lines: number; line: number | null }
