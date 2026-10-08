@@ -8,6 +8,7 @@ from difflib import SequenceMatcher
 
 from pydantic import BaseModel, Field
 
+from codetortoise.facts.model import Function
 from codetortoise.vcs.model import FileChange
 
 
@@ -16,6 +17,17 @@ class Gap(BaseModel):
     file: str
     after_cl: int
     before_cl: int
+
+
+class Rewrite(BaseModel):
+    """CL `by` replaced or deleted `lines` lines CL `of` added to `file` (a depot path); `line` is the first final line
+    written in their place and `function` the function holding it (None when nothing of `by` stands there)."""
+    by: int
+    of: int
+    file: str
+    function: str | None = None
+    lines: int
+    line: int | None = None
 
 
 class FileLines(BaseModel):
@@ -87,3 +99,24 @@ def walk(fc: FileChange) -> FileLines:
     return FileLines(depot=fc.depot, local=fc.local, wrote=[a.origin[0] if a.origin else None for a in attrs],
                      over=[a.over for a in attrs], removed=removed, rewritten=dict(rewritten),
                      replaced=[(a, m, by, at.get(put) if put is not None else None) for a, m, by, put in events], gaps=gaps)
+
+
+def _holding(fns: list[Function], local: str, line: int | None) -> str | None:
+    """The innermost function of `local` whose lines hold `line`."""
+    if line is None:
+        return None
+    inside = [f for f in fns if f.file == local and f.start_line <= line <= f.end_line]
+    return min(inside, key=lambda f: f.end_line - f.start_line).qualname if inside else None
+
+
+def rewrites(lines: dict[str, FileLines], fns: list[Function]) -> list[Rewrite]:
+    """The review's rewrites (§4.3), one per file, CL pair and function; `fns` are the after facts' functions."""
+    rows: dict[tuple[str, int, int, str | None], Rewrite] = {}
+    for depot, fl in lines.items():
+        for a, _, by, line in fl.replaced:
+            fn = _holding(fns, fl.local, line)
+            r = rows.setdefault((depot, by, a, fn), Rewrite(by=by, of=a, file=depot, function=fn, lines=0, line=line))
+            r.lines += 1
+            if line is not None and (r.line is None or line < r.line):
+                r.line = line
+    return sorted(rows.values(), key=lambda r: (r.file, r.of, r.by, r.line or 0, r.function or ""))
