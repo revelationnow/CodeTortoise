@@ -568,4 +568,5 @@ def test_a_later_cl_rewriting_an_earlier_ones_line_is_a_rewrite_and_each_story_r
     assert (level["cl_order"], level["rewrites"]) == ([104], [])
     rid = svc.store.create_review("t", "owner", [103, 105])                       # CL 104 is outside this review
     run_review(rid, svc)
-    assert svc.store.get_blob(rid, "reading")["gaps"] == [{"file": logger, "after_cl": 103, "before_cl": 105}]
+    assert svc.store.get_blob(rid, "reading")["gaps"] == [{"file": logger, "after_cl": 103, "before_cl": 105,
+                                                              "same_base": False}]   # CL 104 came between: not one base

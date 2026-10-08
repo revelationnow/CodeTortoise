@@ -6,7 +6,7 @@ import { SeverityBadge } from "../components/Badges";
 import Markdown from "../components/Markdown";
 import { descriptionParts, plainTitle } from "../lib/markdown";
 import { tidy } from "../lib/tidy";
-import { clRewrites } from "../reading/story";
+import { clRewrites, gapText } from "../reading/story";
 import type { Rewrite } from "../reading/types";
 import { useWs } from "./context";
 import { short } from "./crumbs";
@@ -28,7 +28,7 @@ export default function ClPage({ cl }: { cl: number }) {
   const base = (p: string) => p.slice(p.lastIndexOf("/") + 1);
   const at = (r: Rewrite) => {
     const name = r.function ?? base(r.file), label = `Open ${name}${r.line ? ` at line ${r.line}` : ""}, in all CLs`;
-    return <><Link className="mono" to={ws.link(ws.opened({ file: r.file, line: r.line }))} title={label} aria-label={label}>{name}</Link>
+    return <><Link className="mono" to={ws.link(ws.opened({ file: r.file, line: r.line, all: true }))} title={label} aria-label={label}>{name}</Link>
       {" "}({r.lines} line{r.lines === 1 ? "" : "s"})</>;
   };
   const run = (act: () => Promise<unknown>, ok: string) => {           // a new press clears the last answer
@@ -75,8 +75,7 @@ export default function ClPage({ cl }: { cl: number }) {
           <ul className="ws-fx">
             {rewrites.map((r, i) => <li key={`r${i}`}>rewrites lines CL {r.of} added: {at(r)}</li>)}
             {rewrittenBy.map((r, i) => <li key={`b${i}`}>lines it added are rewritten by CL {r.by}: {at(r)}</li>)}
-            {gaps.map((g, i) => <li key={`g${i}`}><span className="mono">{base(g.file)}</span>: a CL outside this review changed it
-              between CL {g.after_cl} and CL {g.before_cl}</li>)}
+            {gaps.map((g, i) => <li key={`g${i}`}>{gapText(g)}</li>)}
           </ul></section>
       )}
       {stories.length > 0 && (

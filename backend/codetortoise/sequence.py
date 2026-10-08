@@ -13,10 +13,12 @@ from codetortoise.vcs.model import ChangeSet, FileChange
 
 
 class Gap(BaseModel):
-    """A CL outside the review changed `file` between review CLs `after_cl` and `before_cl`."""
+    """A CL outside the review changed `file` between review CLs `after_cl` and `before_cl` — or, with `same_base`,
+    `before_cl` was made against the base, not on top of `after_cl` (two CLs shelved against one revision)."""
     file: str
     after_cl: int
     before_cl: int
+    same_base: bool = False
 
 
 class Rewrite(BaseModel):
@@ -50,13 +52,16 @@ class _Line:
 
 
 def _split(text: str) -> list[str]:
-    return text.splitlines()
+    """Lines as the browser's diff counts them (`codeRows.ts`): split on "\n" only, so a form feed or lone CR stays
+    inside its line and line n here is row n there."""
+    lines = text.split("\n")
+    return lines[:-1] if lines and lines[-1] == "" else lines
 
 
 def walk(fc: FileChange) -> FileLines:
     """Walk the file's CLs in order (§4.2): each CL's diff from its before to its after moves the lines' origins along;
     a CL whose before is not the previous after had an outside change first (a gap, whose lines carry no CL)."""
-    cur = _split(fc.before)
+    cur = base = _split(fc.before)
     ids = iter(range(1 << 62))
     attrs = [_Line(next(ids), None, None, i) for i in range(len(cur))]
     removed: list[int | None] = [None] * len(cur)
@@ -91,7 +96,7 @@ def walk(fc: FileChange) -> FileLines:
         before = _split(st.before)
         if before != cur:
             if prev is not None:
-                gaps.append(Gap(file=fc.depot, after_cl=prev, before_cl=st.cl))
+                gaps.append(Gap(file=fc.depot, after_cl=prev, before_cl=st.cl, same_base=before == base))
             apply(before, None)
         apply(_split(st.after), st.cl)
         prev = st.cl

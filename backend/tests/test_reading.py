@@ -650,3 +650,19 @@ def test_the_fixture_reads_as_threads_with_checks(fx, analysed, fx_source):
     assert all(not k.path.startswith("/") for k in reading.checks)
     assert all(k.depot.startswith("//") for k in reading.checks if k.path)
     assert {k.kind for k in reading.checks} >= {"confirm"}
+
+
+def test_a_storys_rewrites_are_in_its_own_functions_not_a_same_named_one_in_another_file(monkeypatch):
+    """Phase 2 §4.4: two files each with a static `init`; only the story's own file's rewrite is its."""
+    from types import SimpleNamespace
+
+    import codetortoise.reading as rd
+    from codetortoise.sequence import Rewrite
+    monkeypatch.setattr(rd, "_story_fns", lambda s, x: ["N2"])
+    monkeypatch.setattr(rd, "_qual", lambda x, n: "init")
+    x = SimpleNamespace(local=lambda n: {"N2": "/w/b.c"}[n])
+    rows = [Rewrite(by=103, of=101, file="//d/a.c", function="init", lines=2, line=4),
+            Rewrite(by=103, of=101, file="//d/b.c", function="init", lines=1, line=9),
+            Rewrite(by=103, of=101, file="//d/b.c", function=None, lines=1, line=None)]
+    story = Story(id="S1", kind="other", title="t", summary="s", nodes=["N2"])
+    assert rd._story_rewrites(story, x, rows, {"//d/a.c": "/w/a.c", "//d/b.c": "/w/b.c"}) == rows[1:]

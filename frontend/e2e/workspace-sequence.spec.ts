@@ -54,6 +54,10 @@ test.describe("desktop", () => {
     await expect(rw.locator("li")).toHaveText("rewrites lines CL 103 added: logger_init (1 line)");
     await page.goto(`${base}/cl/103`);
     await expect(rw.locator("li")).toHaveText("lines it added are rewritten by CL 105: logger_init (1 line)");
+    await rw.getByRole("link", { name: "Open logger_init at line 7, in all CLs" }).click();
+    const code = page.getByRole("complementary", { name: "Code: logger.c" });
+    await expect(code.getByLabel("Changelist")).toHaveValue("all");                      // not CL 103's own diff
+    await expect(code.locator(".bd-ln.focus")).toContainText("lg->level = 2;");
     await page.goto(`${base}/cl/104`);
     await expect(page.getByRole("heading", { name: "Stories drawn from this CL" })).toBeVisible();
     await expect(rw).toHaveCount(0);

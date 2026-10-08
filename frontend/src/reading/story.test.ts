@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { byEntry, clCounts, clRewrites, codeOrder, foldPath, readOrder, rewriteText, stepIn, threadCrumb, whereByCl, whereTree } from "./story";
+import { byEntry, clCounts, clRewrites, codeOrder, foldPath, gapText, readOrder, rewriteText, stepIn, threadCrumb, whereByCl, whereTree } from "./story";
 import type { CallPath, ContractRow, Reading, Rewrite, WhereFile } from "./types";
 
 const fn = (node: string, label: string, cl: number | null, extra = {}) => ({ node, label, add: 2, rem: 1, cl, line: 3, ...extra });
@@ -81,6 +81,13 @@ describe("CLs as a sequence (spec 2026-10-07-review-reading-phase2 §5.3, §5.4)
   it("says what a rewrite replaced and where, by function or else by file", () => {
     expect(rewriteText(rw(103, 101, "uart_send", 5))).toEqual({ lead: "CL 103 rewrites 5 lines CL 101 added in", name: "uart_send" });
     expect(rewriteText(rw(105, 103, null, 1))).toEqual({ lead: "CL 105 rewrites 1 line CL 103 added in", name: "uart.c" });
+  });
+
+  it("says what came between two CLs: a CL outside the review, or the same base under both", () => {
+    expect(gapText({ file: "//d/service/logger.c", after_cl: 103, before_cl: 105 }))
+      .toBe("logger.c: a CL outside this review changed it between CL 103 and CL 105");
+    expect(gapText({ file: "//d/service/logger.c", after_cl: 103, before_cl: 105, same_base: true }))
+      .toBe("logger.c: CL 103 and CL 105 were each made against the same base, not one on top of the other");
   });
 
   it("splits the review's rewrites into a CL's two directions", () => {
