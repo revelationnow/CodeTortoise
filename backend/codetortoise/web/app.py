@@ -325,9 +325,8 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         return store.list_ticks(rid, user)
 
     def tick_or_404(rid: int, kind: str, key: str) -> None:
-        raw = store.get_blob(rid, "reading")
-        r = Reading.model_validate(raw) if raw else None
-        known = (r.order if kind == "story" else [k.key for k in r.checks]) if r else []
+        raw = store.get_blob(rid, "reading") or {}          # the stored keys alone: no need to build the whole model
+        known = raw.get("order", []) if kind == "story" else [k.get("key") for k in raw.get("checks", [])]
         if key not in known:
             raise HTTPException(404, "That story or check is not in this review's reading.")
 
