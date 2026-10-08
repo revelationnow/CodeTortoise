@@ -108,8 +108,8 @@ test.describe("desktop", () => {
     const base = await startReview(page, FOUR);
     const rail = page.locator(".ws-rail");
     await expect(rail.getByRole("link", { name: "Go to the overview" })).toContainText("Medium risk · rules only");
-    await expect(rail.locator(".ws-thread h3")).toHaveText(["A hal_write in hal50 of 2", "B logger_init in service0 of 2",
-                                                        "C svc::Engine::step in cpp10 of 1"]);   // open checks, then stories read
+    await expect(rail.locator(".ws-thread h3")).toHaveText(["A hal_write in hal, 5 open, 0 of 2 read", "B logger_init in service, 0 of 2 read",
+                                                        "C svc::Engine::step in cpp, 1 open, 0 of 1 read"]);   // as a screen reader reads them
     await expect(rail.locator(".ws-thread").first().getByRole("link", { name: /^Go to story/ })).toHaveCount(2);
     await expect(rail.locator(".ws-thread").first().getByRole("link").nth(1)).toHaveAccessibleName(/^Go to story S1/);
     await expect(rail.locator(".ws-missed .ck-count")).toHaveText("6 open");

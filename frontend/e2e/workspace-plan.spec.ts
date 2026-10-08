@@ -36,7 +36,7 @@ test.describe("desktop", () => {
     const rail = page.locator(".ws-rail");
     await expect(rail.locator(".ws-read")).toHaveCount(order.length - 1);
     await expect(rail.getByRole("link", { name: new RegExp(`^Go to story ${order[0]}: .* \\(read\\)$`) })).toBeVisible();
-    await expect(rail.locator(".ws-thread .ws-thread-read").first()).toHaveText(/^\d+ of \d+$/);
+    await expect(rail.locator(".ws-thread .ws-thread-read").first()).toHaveText(/^, \d+ of \d+ read$/);
     await page.getByRole("button", { name: "Mark as read" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}$`));
     await expect(page.locator(".ov-progress")).toHaveText(`You've read every story · 0 of ${checks.length} checks`);
