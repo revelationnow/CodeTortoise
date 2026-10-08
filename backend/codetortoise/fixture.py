@@ -13,6 +13,7 @@ CL_DESCRIPTIONS = {
     102: "uart: add flags field; hal_write takes unsigned reg",
     103: "logger: start at log level 1",
     104: "logger: read the level back; engine: step by three",
+    105: "logger: start at log level 2",
 }
 
 
