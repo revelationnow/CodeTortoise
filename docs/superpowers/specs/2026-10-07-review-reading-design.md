@@ -330,7 +330,7 @@ Applied in every view and AI prompt:
   finding and cluster addresses.
 - Lab: review 19 with and without the strong model; the owner's work review when the branch is ready.
 
-## 14. Phase 2 (outline, specified later)
+## 14. Phase 2 (specified in 2026-10-07-review-reading-phase2-design.md)
 
 - CLs as a sequence: the combined diff by default with each hunk tagged by its CL; per-CL filtering.
 - Stacked CLs: a flag when a later CL changes lines an earlier CL in the review added; each story says the order to
