@@ -1,6 +1,6 @@
 /** A story page's tiles (spec 2026-10-07-review-reading §6): its place in its thread, Where, call paths and code order. */
 import { letter } from "./checks";
-import type { CallPath, ContractRow, Reading, WhereFile, WhereFn } from "./types";
+import type { CallPath, ContractRow, Reading, Rewrite, WhereFile, WhereFn } from "./types";
 
 /** ‹ › on a story page: the story `by` places away in reading order, wrapping; a story not in it stays put. */
 export function stepIn(order: string[], sid: string, by: number): string {
@@ -25,14 +25,43 @@ export function clCounts(where: WhereFile[]): { cl: number; functions: number }[
 
 /** Folder › file › functions, folders in Where's order; a function's CL shows only where its file was edited in
  * several CLs. */
-export function whereTree(where: WhereFile[]): { dir: string; files: { name: string; file: WhereFile; showCl: boolean }[] }[] {
-  const dirs = new Map<string, { name: string; file: WhereFile; showCl: boolean }[]>();
+export function whereTree<W extends WhereFile>(where: W[]): { dir: string; files: { name: string; file: W; showCl: boolean }[] }[] {
+  const dirs = new Map<string, { name: string; file: W; showCl: boolean }[]>();
   for (const w of where) {
     const cut = w.path.lastIndexOf("/"), dir = cut < 0 ? "." : w.path.slice(0, cut);
     const showCl = new Set(w.functions.map((f) => f.cl)).size > 1;
     dirs.set(dir, [...(dirs.get(dir) ?? []), { name: w.path.slice(cut + 1), file: w, showCl }]);
   }
   return [...dirs.entries()].map(([dir, files]) => ({ dir, files }));
+}
+
+/** Where's files under the first of the story's CLs that edits them, in reading order (phase 2 §5.3); `also` names
+ * its other CLs. Files no CL is known for come last, under `null`. */
+export function whereByCl(where: WhereFile[], order: number[]): { cl: number | null; files: (WhereFile & { also: number[] })[] }[] {
+  const groups = new Map<number | null, (WhereFile & { also: number[] })[]>([...order.map((c) => [c, []] as [number, []]), [null, []]]);
+  for (const w of where) {
+    const [first = null, ...also] = w.cls ?? [];
+    if (!groups.has(first)) groups.set(first, []);
+    groups.get(first)!.push({ ...w, also });
+  }
+  const out = [...groups.entries()].filter(([, files]) => files.length).map(([cl, files]) => ({ cl, files }));
+  return [...out.filter((g) => g.cl !== null), ...out.filter((g) => g.cl === null)];
+}
+
+/** "Read CL 101, then CL 103" for a story with several CLs; null otherwise. */
+export function readOrder(order: number[] | undefined): string | null {
+  return order && order.length > 1 ? `Read ${order.map((c) => `CL ${c}`).join(", then ")}` : null;
+}
+
+/** A rewrite's sentence, ending in the function (or else the file) it happened in. */
+export function rewriteText(r: Rewrite): { lead: string; name: string } {
+  return { lead: `CL ${r.by} rewrites ${r.lines} line${r.lines === 1 ? "" : "s"} CL ${r.of} added in`,
+           name: r.function ?? r.file.slice(r.file.lastIndexOf("/") + 1) };
+}
+
+/** A CL's rewrites in both directions (phase 2 §5.4): those it made, and those later CLs made of its lines. */
+export function clRewrites(all: Rewrite[] | undefined, cl: number): { rewrites: Rewrite[]; rewrittenBy: Rewrite[] } {
+  return { rewrites: (all ?? []).filter((r) => r.by === cl), rewrittenBy: (all ?? []).filter((r) => r.of === cl) };
 }
 
 /** The paths under the function they start from, in rank order; `entry` when that is an entry point. */

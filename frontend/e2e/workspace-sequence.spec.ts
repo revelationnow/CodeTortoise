@@ -32,6 +32,37 @@ test.describe("desktop", () => {
     await row.getByRole("button", { name: /show CL 105 alone/ }).click();
     await expect(code.getByLabel("Changelist")).toHaveValue("105");
   });
+
+  test("a story's Where groups its files by CL in reading order, says the order, and names the rewrite", async ({ page }) => {
+    await startReview(page, STACK);
+    await page.locator(".ws-rail").getByRole("link", { name: /^Go to story S\d+: .*logger_init/ }).click();
+    const where = page.getByRole("region", { name: "Where" });
+    await expect(where.locator(".st-order")).toHaveText("Read CL 103, then CL 105");
+    await expect(where.locator(".st-clgroup h4")).toHaveText(["CL 103 · 1 file"]);
+    await expect(where.getByRole("group", { name: "CL 103" }).locator(".st-file .ws-chip")).toHaveText("also CL 105");
+    await expect(where.locator(".st-rewrites li")).toHaveText("CL 105 rewrites 1 line CL 103 added in logger_init");
+    await where.getByRole("link", { name: "Open logger_init at line 7, in all CLs" }).click();
+    const code = page.getByRole("complementary", { name: "Code: logger.c" });
+    await expect(code.getByLabel("Changelist")).toHaveValue("all");
+    await expect(code.locator(".bd-ln.focus")).toContainText("lg->level = 2;");
+  });
+
+  test("a CL page names its rewrites both ways, and a CL outside the review between two of its CLs", async ({ page }) => {
+    let base = await startReview(page, STACK);
+    await page.goto(`${base}/cl/105`);
+    const rw = page.getByRole("region", { name: "Rewrites" });
+    await expect(rw.locator("li")).toHaveText("rewrites lines CL 103 added: logger_init (1 line)");
+    await page.goto(`${base}/cl/103`);
+    await expect(rw.locator("li")).toHaveText("lines it added are rewritten by CL 105: logger_init (1 line)");
+    await page.goto(`${base}/cl/104`);
+    await expect(page.getByRole("heading", { name: "Stories drawn from this CL" })).toBeVisible();
+    await expect(rw).toHaveCount(0);
+    base = await startReview(page, "103 105");
+    await page.goto(`${base}/cl/105`);
+    await expect(rw.locator("li")).toHaveText([
+      "rewrites lines CL 103 added: logger_init (1 line)",
+      "logger.c: a CL outside this review changed it between CL 103 and CL 105"]);
+  });
 });
 
 test.describe("phone", () => {

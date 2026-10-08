@@ -622,6 +622,13 @@ a.ws-chip { text-decoration: none; }
 .st-file { margin: 2px 0 0 12px; font-size: 13px; }
 .st-file ul { list-style: none; margin: 0; padding: 0 0 0 14px; }
 .st-file li { display: flex; gap: 8px; align-items: baseline; padding: 1px 0; }
+/* Where in reading order (spec 2026-10-07-review-reading-phase2 §5.3) */
+.st-order { margin: 0 0 6px; font-size: 13px; color: var(--ink); }
+.st-clgroup + .st-clgroup { margin-top: 10px; }
+.st-clgroup h4 { margin: 0 0 4px; font: 600 12px/1.4 var(--bd-sans); color: var(--muted); }
+.st-file .ws-chip { margin-left: 6px; }
+.st-rewrites { list-style: none; margin: 10px 0 0; padding: 8px 0 0; border-top: 1px solid var(--line); font-size: 13px; }
+.st-rewrites li + li { margin-top: 2px; }
 .st-file a { text-decoration: none; }
 .st-entry { margin: 0 0 8px; }
 .st-entry > summary { cursor: pointer; font-size: 13px; }

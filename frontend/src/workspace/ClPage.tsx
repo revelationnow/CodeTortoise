@@ -6,6 +6,8 @@ import { SeverityBadge } from "../components/Badges";
 import Markdown from "../components/Markdown";
 import { descriptionParts, plainTitle } from "../lib/markdown";
 import { tidy } from "../lib/tidy";
+import { clRewrites } from "../reading/story";
+import type { Rewrite } from "../reading/types";
 import { useWs } from "./context";
 import { short } from "./crumbs";
 import { Ticks } from "./NameText";
@@ -21,6 +23,14 @@ export default function ClPage({ cl }: { cl: number }) {
   const paths = new Set(files.map((f) => f.path));
   const stories = d.stories?.stories.filter((s) => s.cls.includes(cl)) ?? [];
   const findings = d.findings.filter((f) => f.files?.some((p) => paths.has(p)));
+  const { rewrites, rewrittenBy } = clRewrites(d.reading?.rewrites, cl);      // phase 2 §5.4
+  const gaps = (d.reading?.gaps ?? []).filter((g) => g.after_cl === cl || g.before_cl === cl);
+  const base = (p: string) => p.slice(p.lastIndexOf("/") + 1);
+  const at = (r: Rewrite) => {
+    const name = r.function ?? base(r.file), label = `Open ${name}${r.line ? ` at line ${r.line}` : ""}, in all CLs`;
+    return <><Link className="mono" to={ws.link(ws.opened({ file: r.file, line: r.line }))} title={label} aria-label={label}>{name}</Link>
+      {" "}({r.lines} line{r.lines === 1 ? "" : "s"})</>;
+  };
   const run = (act: () => Promise<unknown>, ok: string) => {           // a new press clears the last answer
     setMsg(null);
     act().then(() => { setMsg(ok); d.loadDetail(); }).catch((e) => setMsg(String(e.message ?? e)));
@@ -60,6 +70,15 @@ export default function ClPage({ cl }: { cl: number }) {
             <span className="muted small"> {f.action} <span className="cnt"><span className="p">+{f.add}</span> <span className="m">−{f.rem}</span></span></span></li>
         ))}</ul> : <p className="muted">No files of this CL in the review's change summary.</p>}
       </section>
+      {(rewrites.length > 0 || rewrittenBy.length > 0 || gaps.length > 0) && (
+        <section aria-labelledby="ws-clrw"><h3 id="ws-clrw">Rewrites</h3>
+          <ul className="ws-fx">
+            {rewrites.map((r, i) => <li key={`r${i}`}>rewrites lines CL {r.of} added: {at(r)}</li>)}
+            {rewrittenBy.map((r, i) => <li key={`b${i}`}>lines it added are rewritten by CL {r.by}: {at(r)}</li>)}
+            {gaps.map((g, i) => <li key={`g${i}`}><span className="mono">{base(g.file)}</span>: a CL outside this review changed it
+              between CL {g.after_cl} and CL {g.before_cl}</li>)}
+          </ul></section>
+      )}
       {stories.length > 0 && (
         <section aria-labelledby="ws-cls"><h3 id="ws-cls">Stories drawn from this CL</h3>
           <ul className="ws-findings">{stories.map((s) => (
