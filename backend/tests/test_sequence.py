@@ -1,5 +1,6 @@
 """Who wrote each line of a file several CLs edit (spec 2026-10-07-review-reading-phase2 §4)."""
-from codetortoise.sequence import Gap, walk
+from codetortoise.facts.model import Function
+from codetortoise.sequence import Gap, Rewrite, rewrites, walk
 from codetortoise.vcs.model import FileChange, PerClText
 
 
@@ -59,3 +60,26 @@ def test_a_rewrite_of_a_rewrite_names_each_cl_it_replaced():
 def test_a_file_one_cl_touches_is_walked_the_same_way():
     fl = walk(_file(["a"], ["a", "x"]))
     assert fl.wrote == [None, 101] and fl.removed == [None]
+
+
+def _fn(name, start, end, file="/w/f.c"):
+    return Function(usr=f"c:@F@{name}", qualname=name, name=name, signature=f"void {name}(void)", return_type="void",
+                    file=file, start_line=start, end_line=end)
+
+
+def test_a_rewrite_row_counts_the_lines_names_the_function_its_replacement_is_in_and_where():
+    fl = walk(_file(["a", "b"], ["a", "x1", "x2", "b"], ["a", "z", "b"]))
+    assert rewrites({"//d/f.c": fl}, [_fn("outer", 1, 3), _fn("init", 2, 2)]) == [
+        Rewrite(by=102, of=101, file="//d/f.c", function="init", lines=2, line=2)]   # the innermost function
+
+
+def test_lines_deleted_with_nothing_in_their_place_are_a_rewrite_with_no_function():
+    fl = walk(_file(["a", "b"], ["a", "x", "b"], ["a", "b"]))
+    assert rewrites({"//d/f.c": fl}, [_fn("init", 1, 2)]) == [
+        Rewrite(by=102, of=101, file="//d/f.c", function=None, lines=1, line=None)]
+
+
+def test_one_rewrite_row_per_function_ordered_by_file_cl_and_line():
+    fl = walk(_file(["a", "b", "c", "d"], ["a", "x", "b", "c", "y", "d"], ["a", "X", "b", "c", "Y", "d"]))
+    rows = rewrites({"//d/f.c": fl}, [_fn("one", 1, 3), _fn("two", 4, 6)])
+    assert [(r.function, r.lines, r.line) for r in rows] == [("one", 1, 2), ("two", 1, 5)]
