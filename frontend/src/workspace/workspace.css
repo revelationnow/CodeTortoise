@@ -464,6 +464,12 @@ a.ws-nb:hover { border-color: var(--accent); }
 .st-read > button:not(.link) { padding: 2px 10px; font-size: 12.5px; }
 .ck-read { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; color: var(--muted); cursor: pointer; }
 .ck-row.read:not(.marked) { opacity: .75; }
+.ws-progress { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ws-read { flex: none; color: var(--ok); font-size: 12px; }
+.ws-thread-read, .ov-read { margin-left: 6px; font-size: 11.5px; font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ov-progress { margin: 0 0 14px; font-size: 13px; color: var(--muted); }
+.ov-progress.done { color: var(--ink); font-weight: 600; }
+@media (max-width: 640px) { .ws-progress { display: none; } }
 .ws-step-btn { width: 30px; text-align: center; text-decoration: none; display: inline-block; }
 .ws-story-head p { margin: 8px 0 0; font-size: 14.5px; }
 .ws-story-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
