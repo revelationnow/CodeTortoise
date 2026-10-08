@@ -68,6 +68,8 @@ def test_a_rewrite_of_a_rewrite_names_each_cl_it_replaced():
     fl = walk(_file(["a"], ["a", "x"], ["a", "y"], ["a", "z"]))
     assert fl.wrote == [None, 103] and fl.over == [None, 102]
     assert fl.rewritten == {101: {2: 102}, 102: {2: 103}}
+    # review M9: CL 102's rewrite of CL 101's line keeps its place — where CL 103's line, which replaced CL 102's, stands
+    assert fl.replaced == [(101, 2, 102, 2), (102, 2, 103, 2)]
 
 
 def test_a_file_one_cl_touches_is_walked_the_same_way():
