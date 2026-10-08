@@ -56,7 +56,9 @@ the review whose lines its insertion replaced, if any. For each CL `c` in order:
 
 1. If `c`'s before differs from the previous text, the difference is a **gap**: lines it inserts get no origin (they
    came from outside the review) and the gap `(previous CL, c)` is recorded.
-2. Diff `c`'s before against its after (Python `difflib.SequenceMatcher` on lines, `autojunk=False`):
+2. Diff `c`'s before against its after (Python `difflib.SequenceMatcher` on lines, `autojunk=False`, matching only
+   what lies between their common first and last lines). Lines are split on `"\n"` only, as the browser's diff rows
+   count them, so a form feed or lone CR stays inside its line:
    - lines kept keep their origin;
    - lines inserted get origin `(c, n)`; when they replace (the same `replace` opcode) lines of an earlier review CL
      `a`, their `over` is `a` (the latest such CL when several);
@@ -72,8 +74,12 @@ Per multi-CL file, `FileLines`:
 - `over: list[int | None]` — for each line of the final text, the earlier CL whose lines it replaced.
 - `removed: list[int | None]` — for each line of the base text, the CL that removed it.
 - `rewritten: dict[int, dict[int, int]]` — `rewritten[a][m] = c`: CL `a`'s after-text line `m` was replaced by CL `c`.
-- `gaps: list[Gap]`, `Gap {file, after_cl: int, before_cl: int}` — an outside change between review CLs
-  `after_cl` and `before_cl`.
+- `gaps: list[Gap]`, `Gap {file, after_cl: int, before_cl: int, same_base: bool}` — an outside change between review
+  CLs `after_cl` and `before_cl`; `same_base` when `before_cl` was made against the base, not on top of `after_cl`
+  (two CLs shelved against one revision).
+- `replaced: list[(a, m, by, line)]` — each rewritten line with the final line its replacement stands at, and
+  `near: list[int | None]`, per row, that line or — for a pure deletion — the final line just above where it stood
+  (so the function it happened in can count CL `by`). `local` is the file's workspace path.
 
 Because these are keyed by line number on the final, base and per-CL texts — not by any one diff — the browser's diff
 (jsdiff) cannot disagree with them: a `+` row at new line `n` looks up `wrote[n-1]`, a `−` row at old line `o` looks up
@@ -81,15 +87,18 @@ Because these are keyed by line number on the final, base and per-CL texts — n
 
 For the review: `Rewrite {by: int, of: int, file: str, function: str | None, lines: int, line: int | None}`, one per
 (file, by, of, function). `lines` counts CL `of`'s lines that CL `by` replaced or deleted. `line` is the first final-text
-line CL `by` wrote in their place, and `function` the function holding it by the after facts' ranges; when CL `by` only
-deleted them, or its lines did not survive to the final text, `line` and `function` are None and the text reads "in
-`logger.c`".
+line CL `by` wrote in their place (when a later CL replaced those in turn, where its replacement stands), and
+`function` the function holding it by the after facts' ranges; when CL `by` only deleted them, `line` and `function` are
+None and the text reads "in `logger.c`".
 
 ### 4.4 A story's CL order
 
-A story's CLs (`Story.cls`) are read in CL number order — the review's sequence; rewrites only ever go from an earlier
-CL to a later one, so that order never contradicts them. The story's reading carries `cl_order` and the rewrites whose
-`function` is one of its changed functions (or whose file holds its code when `function` is None).
+A story's CLs are those whose edits fall inside its changed functions — that wrote a final line there, removed a base
+line there, or replaced or deleted (`near`) an earlier CL's line there — falling back to `Story.cls` when none of its
+files was walked. (`Story.cls` is file-level: a story only CL 104 wrote would otherwise read "CL 103, then CL 104, then
+CL 105".) They are read in CL number order — the review's sequence; rewrites only ever go from an earlier CL to a later
+one, so that order never contradicts them. The story's reading carries `cl_order`, each Where file the story's CLs that
+edit it (`cls`), and the rewrites in a file holding its code whose `function` is one of its changed functions or None.
 
 ### 4.5 Honest limits
 
@@ -125,7 +134,9 @@ As today (that CL's before → after). Its added lines a later CL replaced (`rew
 
 A "Rewrites" section with both directions — "rewrites lines CL 101 added: `uart_send` (5 lines)" and "lines it added
 are rewritten by CL 103: `uart_send` (5 lines)" — and, when the CL has a gap, "`logger.c`: a CL outside this review
-changed it between CL 103 and CL 105". No section when there is nothing to say.
+changed it between CL 103 and CL 105" (with `same_base`: "`logger.c`: CL 103 and CL 105 were each made against the
+same base, not one on top of the other"). Its links open the file in all CLs (`?cl=all`), since a rewrite's line is a
+final-text line. No section when there is nothing to say.
 
 ### 5.5 Not changed
 
@@ -156,10 +167,11 @@ login share ticks — a limit of the staged security set-up (no per-viewer ident
 
 ### 6.4 Progress
 
-- **Header**, beside the headline: "7 of 12 stories read · 18 of 30 checks" (hidden on a phone until the header is
-  opened).
+- **Header**, beside the headline: "7 of 12 stories read · 18 of 30 checks" (hidden on a phone, which has no way to
+  open the header).
 - **Rail:** ✓ beside each read story; each thread's heading "2 of 3".
-- **Overview:** each thread card "2 of 3 read".
+- **Overview:** opens with the same line, or "You've read every story · 18 of 30 checks" (the checks part only when
+  there are checks); each thread card "2 of 3 read".
 
 ### 6.5 Re-run and old reviews
 
