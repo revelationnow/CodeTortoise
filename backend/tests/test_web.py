@@ -496,6 +496,7 @@ def test_read_ticks_are_each_readers_own_looks_fine_ticks_the_check_and_a_rerun_
     bad = owner.put(f"/api/reviews/{rid}/ticks/story/S99")
     assert bad.status_code == 404 and bad.json()["detail"] == "That story or check is not in this review's reading."
     assert owner.put(f"/api/reviews/{rid}/ticks/flow/F1").status_code == 422
+    assert owner.delete(f"/api/reviews/{rid}/ticks/story/S99").status_code == 404           # review M4: as PUT
     owner.post(f"/api/reviews/{rid}/rerun")
     assert owner.get(f"/api/reviews/{rid}/ticks").json() == {"stories": [], "checks": []}
     assert bob.get(f"/api/reviews/{rid}/ticks").json() == {"stories": [], "checks": []}
