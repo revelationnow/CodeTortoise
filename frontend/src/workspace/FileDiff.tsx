@@ -10,6 +10,7 @@ import Comments from "../components/Comments";
 import Explain, { FileSummaryView } from "../components/Explain";
 import { useAi } from "../lib/ai";
 import { onLine } from "../lib/anchors";
+import { chipsAll, chipsOne } from "../reading/sequence";
 import { useWs } from "./context";
 
 interface Props {
@@ -41,6 +42,10 @@ export default function FileDiff({ path, line, anns, cl: firstCl = null, wide }:
     if (src && "status" in src && src.status === "ok") return plainLines(src.file.text);
     return null;
   }, [src, change, step]);
+  const tags = useMemo(() => {                      // which CL wrote each row (spec 2026-10-07-review-reading-phase2 §5)
+    if (!lines || !change?.lines) return undefined;
+    return cl === null ? chipsAll(lines, change.lines) : chipsOne(lines, change.lines, cl);
+  }, [lines, change, cl]);
   const mine = useMemo(() => anns.filter((x) => x.path === path && x.side === "new"), [anns, path]);
   const keep = useMemo(() => {                      // lines with notes or comment threads stay in the changes view
     if (!lines) return new Set<number>();
@@ -100,7 +105,7 @@ export default function FileDiff({ path, line, anns, cl: firstCl = null, wide }:
       </div>
       {lines ? (
         <CodeView reviewId={d.id} path={path} lines={lines} mode={change ? mode : "unified"} anns={anns} comments={d.comments}
-                  onComments={d.loadComments} focus={line} windowed cl={cl} runs={runs}
+                  onComments={d.loadComments} focus={line} windowed cl={cl} runs={runs} tags={tags} onTag={setCl}
                   onExpand={(run, how) => setShown((s) => [...s, expandRange(run, how)])} />
       ) : src && "status" in src && src.status === "error" ? (
         <div className="bd-note error">{src.error} <button className="bd-ibtn" onClick={() => ws.sources.reload(path)}>Retry</button></div>

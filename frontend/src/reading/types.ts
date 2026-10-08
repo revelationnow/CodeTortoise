@@ -52,3 +52,18 @@ export interface StoryReading {
   /** Its place in its thread: "Uses what story 1 adds." */
   place_text: string; thread: string | null; position: number | null;
 }
+
+/** Who wrote each line of a file several CLs edit (phase 2 §4.3); JSON keys of `rewritten` are strings. */
+export interface FileLines {
+  depot: string; local: string;
+  /** Per line of the final text: the CL that wrote it, and the earlier CL whose lines it replaced. */
+  wrote: (number | null)[]; over: (number | null)[];
+  /** Per line of the base text: the CL that removed it. */
+  removed: (number | null)[];
+  /** rewritten[cl a][its after-text line] = the later CL that replaced it. */
+  rewritten: Record<string, Record<string, number>>;
+  replaced: [number, number, number, number | null][]; gaps: Gap[];
+}
+/** A CL outside the review changed `file` between review CLs `after_cl` and `before_cl`. */
+export interface Gap { file: string; after_cl: number; before_cl: number }
+
