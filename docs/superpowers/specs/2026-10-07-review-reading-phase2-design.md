@@ -1,6 +1,6 @@
 # Review Reading, Phase 2: CLs as a Sequence and a Reading Plan — Design
 
-Date: 2026-10-07. Status: draft for review. Specifies phase 2 of the review reading design
+Date: 2026-10-07. Status: approved by the owner, 2026-10-07. Specifies phase 2 of the review reading design
 (2026-10-07-review-reading-design.md §14), whose phase 1 is on main (c9ceb23). Work happens on branch
 `review-reading-2`; nothing reaches main until the owner decides.
 
