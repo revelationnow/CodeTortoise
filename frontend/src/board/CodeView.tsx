@@ -3,6 +3,7 @@ import type { Comment } from "../api";
 import Comments from "../components/Comments";
 import FoldButton from "../components/FoldButton";
 import { lineAnchor, onLine } from "../lib/anchors";
+import type { Tag } from "../reading/sequence";
 import { codeItems, lineKey, type Line, type Side, WINDOW, windowAround } from "./codeRows";
 import { type Run, STEP } from "./fold";
 import { tokens } from "./highlight";
@@ -24,6 +25,10 @@ interface Props {
   onExpand?: (run: Run, how: "up" | "down" | "all") => void;
   /** Comments made on one changelist's diff are anchored to it. */
   cl?: number | null;
+  /** Rows' CLs by lineKey (spec 2026-10-07-review-reading-phase2 §5): chips, and greyed lines a later CL replaced. */
+  tags?: Map<string, Tag>;
+  /** A chip was clicked: show that CL alone. */
+  onTag?: (cl: number) => void;
 }
 
 const ICON = { warn: "⚠ ", ok: "✓ ", info: "ⓘ " } as const;
@@ -32,8 +37,18 @@ function Src({ text }: { text: string }) {
   return <>{tokens(text).map((t, i) => (t.cls ? <span key={i} className={`hl-${t.cls}`}>{t.text}</span> : t.text))}</>;
 }
 
+function Chip({ tag, onTag }: { tag?: Tag; onTag?: (cl: number) => void }) {
+  if (!tag?.chip) return null;
+  return (
+    <button className="cl-chip" title={`Show CL ${tag.cl} alone`} aria-label={`${tag.label}: show CL ${tag.cl} alone`}
+            onClick={(e) => { e.stopPropagation(); onTag?.(tag.cl); }}>
+      <span className="long">{tag.label}</span><span className="short">{tag.short}</span>
+    </button>
+  );
+}
+
 /** Code lines (diff or plain) with inline annotations and line comment threads; click a line to comment. */
-function CodeView({ reviewId, path, lines, mode, anns, comments, onComments, focus, windowed, runs, onExpand, cl = null }: Props) {
+function CodeView({ reviewId, path, lines, mode, anns, comments, onComments, focus, windowed, runs, onExpand, cl = null, tags, onTag }: Props) {
   const [opened, setOpened] = useState<Set<string>>(new Set());
   const mine = useMemo(() => anns.filter((a) => a.path === path), [anns, path]);
   const threads = useMemo(() => {
@@ -90,23 +105,24 @@ function CodeView({ reviewId, path, lines, mode, anns, comments, onComments, foc
             </div>
           );
         if (it.kind === "line") {
-          const l = it.line;
+          const l = it.line, tag = tags?.get(lineKey(it.side, it.no));
           return (
             <div key={i} data-n={l.n ?? undefined} onClick={() => open(it.side, it.no)}
-                 className={`bd-ln${l.t === "+" ? " a" : l.t === "-" ? " d" : ""}${it.hot ? " hot" : ""}${focus && l.n === focus ? " focus" : ""}`}>
+                 className={`bd-ln${l.t === "+" ? " a" : l.t === "-" ? " d" : ""}${it.hot ? " hot" : ""}${focus && l.n === focus ? " focus" : ""}${tag?.grey ? " rw" : ""}`}>
               <span className="no">{l.n ?? l.o}</span><span className="sg">{l.t === "=" ? "" : l.t}</span>
-              <span className="src"><Src text={l.text} /><span className="plus">＋ comment</span></span>
+              <span className="src"><Src text={l.text} /><Chip tag={tag} onTag={onTag} /><span className="plus">＋ comment</span></span>
             </div>
           );
         }
         const { l, r } = it;
+        const lt = l?.t === "-" ? tags?.get(lineKey("old", l.o!)) : undefined, rt = r ? tags?.get(lineKey("new", r.n!)) : undefined;
         return (
           <Fragment key={i}>
             <div data-n={r?.n ?? undefined} onClick={() => open(it.side, it.no)}
-                 className={`bd-sbs${it.hot ? " hot" : ""}${focus && r?.n === focus ? " focus" : ""}`}>
-              {l ? <><span className={`no l${l.t === "-" ? " d" : ""}`}>{l.o}</span><span className={`src l${l.t === "-" ? " d" : ""}`}><Src text={l.text} /></span></>
+                 className={`bd-sbs${it.hot ? " hot" : ""}${focus && r?.n === focus ? " focus" : ""}${rt?.grey ? " rw" : ""}`}>
+              {l ? <><span className={`no l${l.t === "-" ? " d" : ""}`}>{l.o}</span><span className={`src l${l.t === "-" ? " d" : ""}`}><Src text={l.text} /><Chip tag={lt} onTag={onTag} /></span></>
                  : <><span className="no empty" /><span className="src empty" /></>}
-              {r ? <><span className={`no r${r.t === "+" ? " a" : ""}`}>{r.n}</span><span className={`src r${r.t === "+" ? " a" : ""}`}><Src text={r.text} /><span className="plus">＋ comment</span></span></>
+              {r ? <><span className={`no r${r.t === "+" ? " a" : ""}`}>{r.n}</span><span className={`src r${r.t === "+" ? " a" : ""}`}><Src text={r.text} /><Chip tag={rt} onTag={onTag} /><span className="plus">＋ comment</span></span></>
                  : <><span className="no empty" /><span className="src empty"><span className="plus">＋ comment</span></span></>}
             </div>
           </Fragment>

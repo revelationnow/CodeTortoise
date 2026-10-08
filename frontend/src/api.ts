@@ -31,7 +31,11 @@ export type Names = Record<string, NodeName>;
 export interface Neighbour extends NodeName { id: string; changed: boolean; test: boolean }
 export interface Neighbours { node: Neighbour; callers: { total: number; items: Neighbour[] }; callees: { total: number; items: Neighbour[] } }
 export interface PerCl { cl: number; before: string; after: string }
-export interface FileChange { depot: string; local: string; action: string; before: string; after: string; base_rev: string | null; per_cl: PerCl[] }
+export interface FileChange {
+  depot: string; local: string; action: string; before: string; after: string; base_rev: string | null; per_cl: PerCl[];
+  /** Who wrote each line, for a file several CLs of the review edit (spec 2026-10-07-review-reading-phase2 §4). */
+  lines?: FileLines;
+}
 export type AnchorKind = "line" | "function" | "finding" | "chapter" | "review" | "story" | "flow" | "file" | "check";
 export interface Comment {
   id: number; review_id: number; parent_id: number | null; author: string; body: string;
@@ -59,7 +63,7 @@ export interface Health { checks: HealthCheck[]; ready: boolean; index_generatio
 
 export type { Board, Overview, SourceText, StoryDetail, StorySet } from "./board/types";
 import type { Board, Overview, SourceText, StoryDetail, StorySet } from "./board/types";
-import type { Headline, Mark, Reading } from "./reading/types";
+import type { FileLines, Headline, Mark, Reading } from "./reading/types";
 export type { Headline, Mark, Reading } from "./reading/types";
 
 export class ApiError extends Error {
