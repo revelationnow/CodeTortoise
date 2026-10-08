@@ -108,8 +108,8 @@ export default function Rail({ show, onPick, hidden = false }: { show: string | 
           {r.threads.map((t, i) => (
             <div key={t.id} className="ws-group ws-thread">
               <h3><span className="ov-letter">{letter(i, t.id)}</span> <Ticks text={t.name} />
-                {t.open_checks > 0 && <span className="ck-count">{t.open_checks}</span>}
-                {read && <span className="ws-thread-read">{threadRead(t.stories, read)}</span>}</h3>
+                {t.open_checks > 0 && <span className="ck-count"><span className="vh">, </span>{t.open_checks}<span className="vh"> open</span></span>}
+                {read && <span className="ws-thread-read"><span className="vh">, </span>{threadRead(t.stories, read)}<span className="vh"> read</span></span>}</h3>
               <ul>{t.stories.map((sid) => byId.get(sid) && <li key={sid}>{storyRow(byId.get(sid)!, r.reasons[sid])}</li>)}</ul>
             </div>
           ))}
