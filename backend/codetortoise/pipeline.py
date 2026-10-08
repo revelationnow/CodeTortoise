@@ -123,6 +123,7 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
     seen (no cached brief)."""
     store, cfg = svc.store, svc.cfg
     store.reset_stages(rid, STAGES)
+    store.clear_ticks(rid)                     # a re-run starts every reader's reading plan over
     store.set_review_status(rid, "running")
     status: dict[str, str] = {}
     ctx: dict = {}

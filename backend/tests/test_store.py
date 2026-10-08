@@ -112,6 +112,20 @@ def test_check_marks_are_per_review_shared_and_pruned_to_the_keys_found_again(st
     assert store.list_marks(rid) == {} and store.list_marks(rid + 1) == {}
 
 
+
+def test_read_ticks_belong_to_one_reader_and_a_run_clears_them_all(store):
+    rid = store.create_review("t", "a", [1])
+    store.set_tick(rid, "ana", "story", "S1")
+    store.set_tick(rid, "ana", "check", "caller|a.c|f|g")
+    store.set_tick(rid, "ana", "story", "S1")                                  # ticking again changes nothing
+    store.set_tick(rid, "bob", "story", "S2")
+    assert store.list_ticks(rid, "ana") == {"stories": ["S1"], "checks": ["caller|a.c|f|g"]}
+    assert store.list_ticks(rid, "bob") == {"stories": ["S2"], "checks": []}
+    store.clear_tick(rid, "ana", "story", "S1")
+    assert store.list_ticks(rid, "ana") == {"stories": [], "checks": ["caller|a.c|f|g"]}
+    store.clear_ticks(rid)
+    assert store.list_ticks(rid, "ana") == store.list_ticks(rid, "bob") == {"stories": [], "checks": []}
+
 def test_comments_can_be_anchored_to_a_check(store):
     rid = store.create_review("t", "a", [1])
     c = store.add_comment(rid, "bob", "is this fine?", "check", {"key": "caller|a.c|f|g"})
