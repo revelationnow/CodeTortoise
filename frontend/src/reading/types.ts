@@ -71,6 +71,8 @@ export interface FileLines {
   /** rewritten[cl a][its after-text line] = the later CL that replaced it. */
   rewritten: Record<string, Record<string, number>>;
   replaced: [number, number, number, number | null][]; gaps: Gap[];
+  /** Per replaced row: its final line, or the line just above a pure deletion (absent before it existed). */
+  near?: (number | null)[];
 }
 /** A CL outside the review changed `file` between review CLs `after_cl` and `before_cl`; `same_base`: `before_cl` was
  * made against the base, not on top of `after_cl`. */

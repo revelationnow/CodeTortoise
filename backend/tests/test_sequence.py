@@ -39,6 +39,13 @@ def test_a_later_cl_deleting_an_earlier_cls_lines_is_a_rewrite_with_nothing_in_t
     assert fl.rewritten == {101: {2: 102}} and fl.replaced == [(101, 2, 102, None)]
 
 
+def test_lines_deleted_with_nothing_in_their_place_note_the_line_above_them():
+    # review M2: where the deletion happened, so the function it happened in can count the deleting CL
+    fl = walk(_file(["a", "b"], ["a", "x", "b"], ["a", "b"]))
+    assert fl.near == [1]
+    assert walk(_file(["a", "b"], ["a", "x1", "x2", "b"], ["a", "z", "b"])).near == [2, 2]   # a replacement: its line
+
+
 def test_a_base_line_removed_records_the_cl_that_removed_it():
     fl = walk(_file(["a", "b", "c"], ["a", "c"], ["a", "c", "d"]))
     assert fl.removed == [None, 101, None] and fl.wrote == [None, None, 102] and fl.rewritten == {}
