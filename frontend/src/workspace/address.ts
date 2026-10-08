@@ -15,7 +15,8 @@ export const INDEX_TABS = ["cls", "files", "checks", "map"] as const;
 export type IndexTab = typeof INDEX_TABS[number];
 
 /** What the detail panel shows: a node's code, or a file's diff (at a line). */
-export type Open = { node: string } | { file: string; line: number | null } | null;
+/** `all`: the file in all CLs, whatever CL the page is about (phase 2 §5.4: a rewrite's line is a final-text line). */
+export type Open = { node: string } | { file: string; line: number | null; all?: true } | null;
 export type Tab = "diff" | "neighbours";
 
 export interface Address {
@@ -52,13 +53,17 @@ function readOpen(raw: string | null): Open {
   return m ? { file: m[1], line: m[2] && Number(m[2]) > 0 ? Number(m[2]) : null } : null;
 }
 
+function withAll(open: Open, all: boolean): Open {
+  return all && open && "file" in open ? { ...open, all: true } : open;
+}
+
 /** The address of `path` (what follows `/r/:id`) and its query. */
 export function readAddress(path: string, q: URLSearchParams): Address {
   const flow = Number(q.get("flow"));
   return {
     place: readPlace(path, q),
     flow: Number.isInteger(flow) && flow > 0 ? flow : null,
-    open: readOpen(q.get("open")),
+    open: withAll(readOpen(q.get("open")), q.get("cl") === "all"),
     tab: q.get("tab") === "neighbours" ? "neighbours" : "diff",
     ...(q.get("story") ? { story: q.get("story") } : {}),
     ...(q.get("check") ? { check: q.get("check") } : {}),
@@ -85,6 +90,7 @@ export function href(base: string, a: Address): string {
   if (a.story && (a.place.kind === "whole" || a.place.kind === "cluster")) q.set("story", a.story);
   if (a.flow) q.set("flow", String(a.flow));
   if (a.open) q.set("open", "node" in a.open ? a.open.node : `file:${a.open.file}${a.open.line ? `:${a.open.line}` : ""}`);
+  if (a.open && "file" in a.open && a.open.all) q.set("cl", "all");
   if (a.tab !== "diff") q.set("tab", a.tab);
   if (a.check) q.set("check", a.check);
   if (a.details && a.place.kind === "finding") q.set("details", "1");

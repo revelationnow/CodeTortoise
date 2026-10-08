@@ -1,6 +1,6 @@
 /** A story page's tiles (spec 2026-10-07-review-reading §6): its place in its thread, Where, call paths and code order. */
 import { letter } from "./checks";
-import type { CallPath, ContractRow, Reading, Rewrite, WhereFile, WhereFn } from "./types";
+import type { CallPath, ContractRow, Gap, Reading, Rewrite, WhereFile, WhereFn } from "./types";
 
 /** ‹ › on a story page: the story `by` places away in reading order, wrapping; a story not in it stays put. */
 export function stepIn(order: string[], sid: string, by: number): string {
@@ -57,6 +57,13 @@ export function readOrder(order: number[] | undefined): string | null {
 export function rewriteText(r: Rewrite): { lead: string; name: string } {
   return { lead: `CL ${r.by} rewrites ${r.lines} line${r.lines === 1 ? "" : "s"} CL ${r.of} added in`,
            name: r.function ?? r.file.slice(r.file.lastIndexOf("/") + 1) };
+}
+
+/** What came between two CLs editing a file (phase 2 §5.4): a CL outside the review, or the same base under both. */
+export function gapText(g: Gap): string {
+  const name = g.file.slice(g.file.lastIndexOf("/") + 1);
+  return g.same_base ? `${name}: CL ${g.after_cl} and CL ${g.before_cl} were each made against the same base, not one on top of the other`
+    : `${name}: a CL outside this review changed it between CL ${g.after_cl} and CL ${g.before_cl}`;
 }
 
 /** A CL's rewrites in both directions (phase 2 §5.4): those it made, and those later CLs made of its lines. */

@@ -72,8 +72,9 @@ export interface FileLines {
   rewritten: Record<string, Record<string, number>>;
   replaced: [number, number, number, number | null][]; gaps: Gap[];
 }
-/** A CL outside the review changed `file` between review CLs `after_cl` and `before_cl`. */
-export interface Gap { file: string; after_cl: number; before_cl: number }
+/** A CL outside the review changed `file` between review CLs `after_cl` and `before_cl`; `same_base`: `before_cl` was
+ * made against the base, not on top of `after_cl`. */
+export interface Gap { file: string; after_cl: number; before_cl: number; same_base?: boolean }
 
 /** CL `by` replaced or deleted `lines` lines CL `of` added to `file` (a depot path); `line` is the first final line in
  * their place and `function` the function holding it. */

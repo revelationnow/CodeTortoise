@@ -76,7 +76,7 @@ export default function Detail() {
     if (!path) return <p className="muted">No code to show for {label}.</p>;
     const line = "file" in open ? open.line : node?.range?.[0] ?? name?.line ?? null;
     return <FileDiff key={path} path={path} line={line} anns={anns} wide={wide}
-                     cl={ws.addr.place.kind === "cl" ? ws.addr.place.cl : null} />;
+                     cl={ws.addr.place.kind === "cl" && !("file" in open && open.all) ? ws.addr.place.cl : null} />;
   };
   return (
     <aside className="ws-detail" style={{ ["--w" as string]: `${width}px` }} aria-label={`Code: ${label ?? "not found"}`}>

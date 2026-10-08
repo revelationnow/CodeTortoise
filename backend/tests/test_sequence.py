@@ -51,6 +51,19 @@ def test_a_change_from_outside_the_review_between_two_cls_is_a_gap_and_its_lines
     assert fl.gaps == [Gap(file="//d/f.c", after_cl=101, before_cl=103)]
 
 
+def test_lines_split_on_newlines_only_as_the_browser_counts_them():
+    # a form feed (a GNU page break) or a lone CR stays inside its line, as in the browser's diff rows
+    fl = walk(_file(["a\fb", "c\rd"], ["a\fb", "c\rd", "x"]))
+    assert fl.wrote == [None, None, 101] and fl.removed == [None, None]
+
+
+def test_a_cl_made_against_the_same_base_as_an_earlier_one_is_a_gap_saying_so():
+    # CLs 101 and 102 were each shelved against the base: 102 does not start from 101's result
+    fl = walk(_file(["a"], ["a", "x"], ["a", "y"], gap=(1, ["a"])))
+    assert fl.gaps == [Gap(file="//d/f.c", after_cl=101, before_cl=102, same_base=True)]
+    assert walk(_file(["a"], ["a", "x"], ["a", "x", "o", "y"], gap=(1, ["a", "x", "o"]))).gaps[0].same_base is False
+
+
 def test_a_rewrite_of_a_rewrite_names_each_cl_it_replaced():
     fl = walk(_file(["a"], ["a", "x"], ["a", "y"], ["a", "z"]))
     assert fl.wrote == [None, 103] and fl.over == [None, 102]

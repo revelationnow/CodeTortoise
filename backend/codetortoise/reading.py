@@ -1175,7 +1175,7 @@ def _story_rewrites(s: Story, x: _Ctx, rows: list[Rewrite], local_of: dict[str, 
     their place — in a file holding its code."""
     fns = _story_fns(s, x)
     quals, files = {_qual(x, n) for n in fns}, {x.local(n) for n in fns}
-    return [r for r in rows if r.function in quals or (r.function is None and local_of.get(r.file) in files)]
+    return [r for r in rows if local_of.get(r.file) in files and (r.function is None or r.function in quals)]
 
 
 def _marked(lines: dict[str, str], marks: dict[str, dict]) -> dict[str, dict]:

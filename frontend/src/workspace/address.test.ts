@@ -20,6 +20,7 @@ describe("readAddress", () => {
     expect(readAddress("", q("open=file://fixture/driver/uart.c:17")).open).toEqual({ file: "//fixture/driver/uart.c", line: 17 });
     expect(readAddress("", q("open=file://fixture/driver/uart.c")).open).toEqual({ file: "//fixture/driver/uart.c", line: null });
     expect(readAddress("", q("open=file://d/a.c:0")).open).toEqual({ file: "//d/a.c", line: null });   // lines start at 1
+    expect(readAddress("/cl/101", q("open=file://d/a.c:4&cl=all")).open).toEqual({ file: "//d/a.c", line: 4, all: true });
   });
 
   it("falls back on anything it cannot read", () => {
@@ -36,6 +37,8 @@ describe("href", () => {
     expect(href("/w/7", { place: { kind: "whole" }, flow: null, open: null, tab: "diff" })).toBe("/w/7");
     expect(href("/w/7", { place: { kind: "cl", cl: 101 }, flow: null, open: { file: "//d/a.c", line: 4 }, tab: "diff" }))
       .toBe("/w/7/cl/101?open=file%3A%2F%2Fd%2Fa.c%3A4");
+    expect(href("/w/7", { place: { kind: "cl", cl: 101 }, flow: null, open: { file: "//d/a.c", line: 4, all: true }, tab: "diff" }))
+      .toBe("/w/7/cl/101?open=file%3A%2F%2Fd%2Fa.c%3A4&cl=all");       // in all CLs, whatever the page's CL
   });
 
   it("round-trips every place", () => {
