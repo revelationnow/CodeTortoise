@@ -30,6 +30,12 @@ export function progressText(p: Progress): string {
   return `${p.stories} of ${p.storyCount} stories read${p.checkCount ? ` · ${p.checks} of ${p.checkCount} checks` : ""}`;
 }
 
+/** The overview's opening line: the reader's progress, or "You've read every story" — with the checks still counted,
+ * since on a phone the header's count is hidden. */
+export function overviewProgress(p: Progress): string {
+  return p.all ? `You've read every story${p.checkCount ? ` · ${p.checks} of ${p.checkCount} checks` : ""}` : progressText(p);
+}
+
 /** A thread's "2 of 3": how many of its stories the reader has read. */
 export function threadRead(stories: string[], read: ReadonlySet<string>): string {
   return `${stories.filter((s) => read.has(s)).length} of ${stories.length}`;

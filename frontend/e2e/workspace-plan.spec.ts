@@ -39,7 +39,7 @@ test.describe("desktop", () => {
     await expect(rail.locator(".ws-thread .ws-thread-read").first()).toHaveText(/^\d+ of \d+$/);
     await page.getByRole("button", { name: "Mark as read" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}$`));
-    await expect(page.locator(".ov-progress")).toHaveText("You've read every story");
+    await expect(page.locator(".ov-progress")).toHaveText(`You've read every story · 0 of ${checks.length} checks`);
     await expect(head).toHaveText(`${order.length} of ${order.length} stories read · 0 of ${checks.length} checks`);
     await expect(page.locator(".ov-thread .ov-read").first()).toHaveText(/^(\d+) of \1 read$/);
   });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nextUnread, progress, progressText, threadRead } from "./plan";
+import { nextUnread, overviewProgress, progress, progressText, threadRead } from "./plan";
 import type { Check, Reading } from "./types";
 
 const check = (key: string) => ({ key }) as Check;
@@ -19,6 +19,12 @@ describe("the reading plan (spec 2026-10-07-review-reading-phase2 §6)", () => {
     expect(progressText(p)).toBe("1 of 4 stories read · 1 of 3 checks");
     expect(progressText(progress({ ...reading, checks: [] }, { stories: [], checks: [] }))).toBe("0 of 4 stories read");
     expect(progress(reading, { stories: ["S1", "S2", "S3", "S4"], checks: [] }).all).toBe(true);
+  });
+
+  it("opens the overview with the reader's progress, keeping the checks once every story is read (review M7)", () => {
+    expect(overviewProgress(progress(reading, { stories: ["S1"], checks: ["a"] }))).toBe("1 of 4 stories read · 1 of 3 checks");
+    expect(overviewProgress(progress(reading, { stories: reading.order, checks: ["a"] }))).toBe("You've read every story · 1 of 3 checks");
+    expect(overviewProgress(progress({ ...reading, checks: [] }, { stories: reading.order, checks: [] }))).toBe("You've read every story");
   });
 
   it("says how much of a thread the reader has read", () => {
