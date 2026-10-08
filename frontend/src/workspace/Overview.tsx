@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { byThread, letter } from "../reading/checks";
 import { arcLayout, connectionRows, testsLine } from "../reading/overview";
-import { progress, progressText, threadRead } from "../reading/plan";
+import { overviewProgress, progress, threadRead } from "../reading/plan";
 import type { Reading, Thread } from "../reading/types";
 import CheckTile, { Cleared } from "./CheckList";
 import { useWs } from "./context";
@@ -100,7 +100,7 @@ export default function Overview({ r }: { r: Reading }) {
   return (
     <div className="ws-page"><div className="ov2">
       <div className="ov2-left ws-whole">
-        {p && <p className={`ov-progress${p.all ? " done" : ""}`}>{p.all ? "You've read every story" : progressText(p)}</p>}
+        {p && <p className={`ov-progress${p.all ? " done" : ""}`}>{overviewProgress(p)}</p>}
         <section aria-labelledby="ov-whole">
           <h2 id="ov-whole">The change as a whole</h2>
           <p className="ws-lead">{r.whole_source === "llm" && <span className="ai-label">AI</span>}<Ticks text={r.whole} /></p>
