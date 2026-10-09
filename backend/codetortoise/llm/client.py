@@ -1,9 +1,10 @@
-"""LLM client with JSON output, retries and one repair round.
+"""LLM client with JSON output, retries, a raised limit for cut-off replies and one repair round.
 
 It speaks one of three APIs: OpenAI-compatible chat completions ("chat"), the OpenAI Responses API ("responses") or the
 Anthropic Messages API ("messages"), each at `base_url` plus its path."""
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import re
@@ -23,6 +24,8 @@ _PATHS = {"chat": "/chat/completions", "responses": "/responses", "messages": "/
 _FORMAT_PARAM = {"chat": "response_format", "responses": "format"}   # the word a server's rejection names
 ANTHROPIC_VERSION = "2023-06-01"
 MESSAGES_MAX_TOKENS = 8192            # the Messages API requires a limit; used when none is configured
+DEFAULT_BASE = 8192                   # the doubling base when no limit is configured (spec 2026-10-08-llm-robustness §4.3)
+DEFAULT_CAP = 32768
 
 
 class LlmError(RuntimeError):
@@ -31,6 +34,14 @@ class LlmError(RuntimeError):
 
 class LlmUnreachable(LlmError):
     """Every attempt failed to reach the endpoint or got a server error: later calls this run will fare no better."""
+
+
+class LlmTruncated(LlmError):
+    """The reply stopped at its output-token limit (spec 2026-10-08-llm-robustness §4.1)."""
+
+    def __init__(self, limit: int | None, completion: int | None):
+        super().__init__(f"reply cut off at {limit} tokens" if limit else "reply cut off at the server's limit")
+        self.limit, self.completion = limit, completion
 
 
 def _extract_json(text: str) -> str:
@@ -43,10 +54,13 @@ class LlmClient:
     def __init__(self, base_url: str, api_key: str, model: str, timeout: float = 120,
                  transport: httpx.BaseTransport | None = None, retries: int = 2,
                  sleep: Callable[[float], None] = time.sleep, temperature: float | None = None,
-                 api: Api = "chat", max_output_tokens: int | None = None):
+                 api: Api = "chat", max_output_tokens: int | None = None, cap: int = DEFAULT_CAP):
         self.model = model
         self.api = api
         self.max_output_tokens = max_output_tokens
+        self.cap = cap
+        self._limit_param = "max_tokens"          # -> "max_completion_tokens" when a chat server asks for it
+        self._view = False                        # a per-try view keeps a raised limit (with_start)
         self.temperature = temperature           # None: the model's own default (some servers reject it)
         self.retries = retries
         self._sleep = sleep
@@ -57,6 +71,40 @@ class LlmClient:
         self._http = httpx.Client(base_url=base_url.rstrip("/"), timeout=timeout, transport=transport, headers=headers)
         self._usage = threading.local()          # tokens reported by the responses of this thread's current call
 
+    @property
+    def base(self) -> int:
+        """The limit a raise doubles from when none was sent."""
+        return self.max_output_tokens or DEFAULT_BASE
+
+    def with_start(self, limit: int | None) -> LlmClient:
+        """A view for one try: the same connection, usage and log, its own starting limit, which stays raised once a
+        cut-off reply raises it (spec 2026-10-08-llm-robustness §4.3, §5)."""
+        v = copy.copy(self)
+        v.max_output_tokens, v._view = limit, True
+        return v
+
+    def _raised(self, limit: int | None) -> int | None:
+        """The limit after `limit`: doubled (from the base when none was sent) and capped; None when already at the cap."""
+        nxt = min(self.cap, 2 * (limit or self.base))
+        return nxt if limit is None or nxt > limit else None
+
+    @staticmethod
+    def _sent(body: dict) -> int | None:
+        return body.get("max_tokens") or body.get("max_completion_tokens") or body.get("max_output_tokens")
+
+    def _stop(self, data: dict) -> tuple[str | None, bool]:
+        """The reply's stop reason as the API words it, and whether the output limit cut it off."""
+        if self.api == "messages":
+            stop = data.get("stop_reason")
+            return stop, stop == "max_tokens"
+        if self.api == "responses":
+            status = data.get("status")
+            reason = (data.get("incomplete_details") or {}).get("reason")
+            return (reason or status) if status == "incomplete" else status, \
+                status == "incomplete" and reason == "max_output_tokens"
+        stop = data["choices"][0].get("finish_reason")
+        return stop, stop == "length"
+
     def _response_format(self, schema: type[BaseModel] | None) -> dict | None:
         if self._format == "json_object":
             return {"type": "json_object"}
@@ -65,21 +113,23 @@ class LlmClient:
                     "json_schema": {"name": schema.__name__, "schema": schema.model_json_schema()}}
         return None
 
-    def _body(self, system: str, user: str, rf: dict | None) -> dict:
+    def _body(self, system: str, user: str, rf: dict | None, limit: int | None) -> dict:
         if self.api == "messages":
             body = {"model": self.model, "system": system, "messages": [{"role": "user", "content": user}],
-                    "max_tokens": self.max_output_tokens or MESSAGES_MAX_TOKENS}
+                    "max_tokens": limit or MESSAGES_MAX_TOKENS}
         elif self.api == "responses":
             body = {"model": self.model, "instructions": system, "input": user}
             if rf is not None:   # the Responses API takes the json_schema fields flat
                 body["text"] = {"format": rf if rf["type"] == "json_object" else {"type": "json_schema", **rf["json_schema"]}}
-            if self.max_output_tokens:
-                body["max_output_tokens"] = self.max_output_tokens
+            if limit:
+                body["max_output_tokens"] = limit
         else:
             body = {"model": self.model,
                     "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
             if rf is not None:
                 body["response_format"] = rf
+            if limit:
+                body[self._limit_param] = limit
         if self.temperature is not None:
             body["temperature"] = self.temperature
         return body
@@ -93,15 +143,22 @@ class LlmClient:
         return data["choices"][0]["message"]["content"] or ""
 
     def chat(self, system: str, user: str, schema: type[BaseModel] | None = None) -> str:
+        return self._chat(system, user, schema, self.max_output_tokens)
+
+    def _chat(self, system: str, user: str, schema: type[BaseModel] | None, limit: int | None) -> str:
         last: Exception | None = None
         for attempt in range(self.retries + 1):
             rf = self._response_format(schema)
-            body = self._body(system, user, rf)
+            body = self._body(system, user, rf, limit)
             try:
                 r = self._http.post(_PATHS[self.api], json=body)
             except httpx.HTTPError as e:
                 last = e
             else:
+                if (r.status_code == 400 and self.api == "chat" and limit and self._limit_param == "max_tokens"
+                        and "max_tokens" in r.text and "max_completion_tokens" in r.text):
+                    self._limit_param = "max_completion_tokens"      # OpenAI's newer models name the limit so
+                    continue
                 if r.status_code == 400 and rf is not None and _FORMAT_PARAM[self.api] in r.text:
                     # server rejects this structured-output form: prefer json_schema if it asks for it, else plain text
                     wants_schema = self._format == "json_object" and "json_schema" in r.text
@@ -112,34 +169,59 @@ class LlmClient:
                         raise LlmError(f"LLM HTTP {r.status_code}: {r.text[:300]}")
                     try:
                         data = r.json()
-                        u = data.get("usage") if isinstance(data, dict) else None
-                        if isinstance(u, dict):
-                            p, c = getattr(self._usage, "tokens", None) or (0, 0)
-                            self._usage.tokens = (p + int(u.get("prompt_tokens") or u.get("input_tokens") or 0),
-                                                  c + int(u.get("completion_tokens") or u.get("output_tokens") or 0))
-                        return self._text(data)
+                        tokens = self._count(data)
+                        text = self._text(data)
+                        _stop, cut = self._stop(data)
                     except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
                         raise LlmError(f"unexpected LLM response: {r.text[:300]}") from e
+                    if cut:
+                        raise LlmTruncated(self._sent(body), tokens[1] if tokens else None)
+                    return text
                 last = LlmError(f"LLM HTTP {r.status_code}")
             if attempt < self.retries:
                 self._sleep(2 ** attempt)
         raise LlmUnreachable(f"LLM request failed after {self.retries + 1} attempts: {last}")
 
+    def _count(self, data: dict) -> tuple[int, int] | None:
+        """Adds the reply's reported tokens to this thread's usage; returns them (prompt, completion), or None."""
+        u = data.get("usage") if isinstance(data, dict) else None
+        if not isinstance(u, dict):
+            return None
+        got = (int(u.get("prompt_tokens") or u.get("input_tokens") or 0),
+               int(u.get("completion_tokens") or u.get("output_tokens") or 0))
+        p, c = getattr(self._usage, "tokens", None) or (0, 0)
+        self._usage.tokens = (p + got[0], c + got[1])
+        return got
+
     def complete_json(self, system: str, user: str, schema: type[T]) -> T:
+        """One JSON answer. A reply cut off by the limit is sent again at double the limit (spec
+        2026-10-08-llm-robustness §4.3); a complete but invalid one gets one repair round, also at double the limit."""
         system = system + "\n\nReply with a single JSON object matching this JSON schema:\n" + \
             json.dumps(schema.model_json_schema())
-        text = self.chat(system, user, schema)
-        try:
-            return schema.model_validate_json(_extract_json(text))
-        except ValidationError as e:
-            log.debug("LLM JSON invalid, repairing: %s", e)
-            repair = (user + "\n\nYour previous reply was:\n" + text[:4000] +
-                      f"\n\nIt was invalid: {str(e)[:1000]}\nReply again with valid JSON only.")
-            text = self.chat(system, repair, schema)
+        limit, prompt, repaired = self.max_output_tokens, user, False
+        while True:
             try:
-                return schema.model_validate_json(_extract_json(text))
-            except ValidationError as e2:
-                raise LlmError(f"LLM returned invalid JSON twice: {str(e2)[:300]}") from e2
+                text = self._chat(system, prompt, schema, limit)
+            except LlmTruncated:
+                nxt = self._raised(limit)
+                if nxt is None:
+                    raise
+                limit = nxt
+                continue
+            try:
+                out = schema.model_validate_json(_extract_json(text))
+            except ValidationError as e:
+                if repaired:
+                    raise LlmError(f"LLM returned invalid JSON twice: {str(e)[:300]}") from e
+                log.debug("LLM JSON invalid, repairing: %s", e)
+                repaired = True
+                prompt = (user + "\n\nYour previous reply was:\n" + text[:4000] +
+                          f"\n\nIt was invalid: {str(e)[:1000]}\nReply again with valid JSON only.")
+                limit = self._raised(limit) or limit
+                continue
+            if self._view:
+                self.max_output_tokens = limit
+            return out
 
     def start_usage(self) -> None:
         self._usage.tokens = None
