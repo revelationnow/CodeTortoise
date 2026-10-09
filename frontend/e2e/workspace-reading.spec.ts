@@ -76,7 +76,8 @@ test.describe("desktop", () => {
     await route.nth(2).getByRole("button", { name: /^Go to thread C/ }).click();
     await expect(page.locator("#thread-T3")).toBeInViewport();
     const card = page.locator(".ov-thread").first();
-    await expect(card.locator(".ov-purpose")).toContainText("Starts with “hal_write's signature changed");
+    await expect(card.locator(".ov-purpose")).toHaveCount(2);                            // its purpose, then the fixed intro
+    await expect(card.locator(".ov-purpose").last()).toContainText("Starts with “hal_write's signature changed");
     await expect(card.locator(".ov-purpose .ai-label")).toHaveCount(0);
     await route.first().getByRole("link", { name: "Open the first story of thread A" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S\\d+$`));

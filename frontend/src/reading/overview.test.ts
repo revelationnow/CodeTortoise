@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { keys } from "../board/prefs";
-import { arcLayout, connectionRows, introOpen, routeRows, setIntroOpen, testsLine } from "./overview";
+import { arcLayout, cardText, connectionRows, introOpen, routeRows, setIntroOpen, testsLine } from "./overview";
 import type { Connection, RouteStep, TestsRow, Thread } from "./types";
 
 const thread = (id: string, name = id): Thread => ({ id, name, purpose: "", text_source: "template", stories: [], cls: [], open_checks: 0 });
@@ -86,5 +86,23 @@ describe("the introduction", () => {
     vi.stubGlobal("window", { localStorage: { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("quota"); } } });
     expect(introOpen()).toBe(true);
     expect(() => setIntroOpen(false)).not.toThrow();
+  });
+});
+
+describe("a thread card's text", () => {
+  const t = (over: Partial<Thread>): Thread => ({ ...thread("T1"), purpose: "Sends bytes.", ...over });
+
+  it("shows the strong model's intro alone: it says what the thread does", () => {
+    expect(cardText(t({ intro: "Mine. Two. Three.", intro_source: "llm", text_source: "llm" })))
+      .toEqual([{ text: "Mine. Two. Three.", ai: true }]);
+  });
+
+  it("keeps the purpose above a fixed intro, labelled AI when the model wrote it", () => {
+    expect(cardText(t({ intro: "1 story. Nothing is open.", intro_source: "template", text_source: "llm" })))
+      .toEqual([{ text: "Sends bytes.", ai: true }, { text: "1 story. Nothing is open.", ai: false }]);
+  });
+
+  it("shows only the purpose on a reading stored before the introduction", () => {
+    expect(cardText(t({}))).toEqual([{ text: "Sends bytes.", ai: false }]);
   });
 });
