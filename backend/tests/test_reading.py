@@ -876,3 +876,22 @@ def test_a_reading_stored_before_the_introduction_loads_with_its_defaults():
     t = r.threads[0]
     assert (t.intro, t.intro_source, t.files, t.modules, t.files_source) == ("", "template", [], [], "template")
     assert (r.route, r.route_source) == ([], "template")
+
+
+def test_marked_checks_leave_the_fixed_intro_and_route_and_text_the_strong_model_wrote_stays():
+    ss = _set(["N1"], ["N2"], kinds={"S2": "mechanical"})
+    r = Reading(threads=[Thread(id="T1", name="a", purpose="p", stories=["S1"], open_checks=1),
+                         Thread(id="T2", name="b", purpose="p", stories=["S2"], open_checks=1)],
+                checks=[_ck("confirm"), _ck("hazard", "T2")])
+    fixed_introduction(r, ss)
+    assert [(s.thread, s.reason, s.skim) for s in r.route] == [("T1", "1 check open.", False), ("T2", "1 hazard open.", False)]
+    marks = {r.checks[1].key: {"user": "ana", "source_line": ""}}
+    view = with_marks(r, marks, [], ss)
+    assert [t["intro"] for t in view["threads"]] == ["1 story. 1 check open: Confirm. Starts with “story 1”.",
+                                                     "1 story. Nothing is open. Starts with “story 2”."]
+    assert [(s["thread"], s["reason"], s["skim"]) for s in view["route"]] == [
+        ("T1", "1 check open.", False), ("T2", "Only repeated edits and tests; skim it.", True)]
+    r.threads[1].intro, r.threads[1].intro_source = "Mine.", "llm"
+    r.route, r.route_source = [RouteStep(thread="T2", reason="Mine."), RouteStep(thread="T1", reason="Too.")], "llm"
+    view = with_marks(r, marks, [], ss)
+    assert view["threads"][1]["intro"] == "Mine." and [s["reason"] for s in view["route"]] == ["Mine.", "Too."]

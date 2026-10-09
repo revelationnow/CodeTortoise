@@ -405,6 +405,7 @@ def test_any_viewer_marks_a_check_and_a_rerun_keeps_drops_or_reopens_it(env):
     assert r["marks"][caller["key"]]["user"] == "bob" and not r["marks"][caller["key"]]["changed"]
     t1 = r["threads"][0]
     assert t1["open_checks"] == len(checks) - 2
+    assert f"{len(checks) - 2} checks open" in t1["intro"] and r["route"][0]["reason"].startswith(f"{len(checks) - 2} ")
     svc.store.set_mark(rid, reader["key"], "bob", "an older line")             # the line changed since it was marked
     svc.store.set_mark(rid, "caller|gone.c|f|g", "bob", "x")                   # a check the re-run will not find
     owner.post(f"/api/reviews/{rid}/rerun")

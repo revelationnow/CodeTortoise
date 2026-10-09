@@ -160,7 +160,8 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         raw = store.get_blob(rid, "reading")
         if not raw:
             return None
-        return with_marks(Reading.model_validate(raw), store.list_marks(rid), store.list_findings(rid))
+        return with_marks(Reading.model_validate(raw), store.list_marks(rid), store.list_findings(rid),
+                          boardstore.stories(store, rid))
 
     def review_headline(rid: int) -> dict | None:
         """The Reviews list's headline from the small `reading_head` blob (a reading stored before it: from the reading);
