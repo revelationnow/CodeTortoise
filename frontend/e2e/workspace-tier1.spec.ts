@@ -26,6 +26,17 @@ test.describe("stories formed by a strong model", () => {
     await expectNamed(page);
   });
 
+  test("the overview's introduction is the strong model's, each part labelled AI", async ({ page }) => {
+    await startReview(page);
+    const start = page.getByRole("region", { name: "Where to start" });
+    await expect(start.locator("h2 .ai-label")).toBeVisible();
+    await expect(start.locator(".ov-route li").first()).toContainText("This thread comes next in the change.");
+    const intro = page.locator(".ov-thread").first().locator(".ov-purpose");
+    await expect(intro.locator(".ai-label")).toBeVisible();
+    await expect(intro).toContainText("This thread changes the UART driver.");
+    await expect(page.locator(".ov2-left .ws-lead")).toContainText("The main risk is a caller that misses a new result.");
+  });
+
   test("the header counts the open hazards the strong model found", async ({ page }) => {
     await startReview(page);
     await expect(page.locator(".ws-head .ct-headline")).toHaveText("1 hazard");
