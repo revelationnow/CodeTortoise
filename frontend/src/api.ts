@@ -24,7 +24,11 @@ export interface Finding {
    * model's story review (`verdict_source` "tier1") judges any finding, citing node ids and file:line it was shown. */
   side_effect?: boolean; verdict?: "hazard" | "needs_review" | "no_hazard" | null; verdict_reason?: string | null;
   verdict_cites?: string[]; verdict_source?: "tier1" | "tier2" | null;
+  /** A write to a shared sink: hidden unless the viewer shows them. */
+  sink?: boolean;
 }
+/** The shared sink rules (spec 2026-10-09 §6): tortoise.yaml's threshold and patterns, and the owner's marks. */
+export interface SinkRules { threshold: number; patterns: string[]; marked: string[] }
 /** A node's name for the workspace (review workspace §4.2): the reader sees names, never node ids. */
 export interface NodeName { label: string; kind: string; path: string | null; line: number | null; story: string | null }
 export type Names = Record<string, NodeName>;
@@ -64,6 +68,7 @@ export interface Health { checks: HealthCheck[]; ready: boolean; index_generatio
 
 export type { Board, Overview, SourceText, StoryDetail, StorySet } from "./board/types";
 import type { Board, Overview, SourceText, StoryDetail, StorySet } from "./board/types";
+import { quietBoard, quietFindings, quietStory, showSinks } from "./lib/sinks";
 import type { ReadTicks } from "./reading/plan";
 import type { FileLines, Headline, Mark, Reading } from "./reading/types";
 export type { Headline, Mark, Reading } from "./reading/types";
@@ -98,10 +103,12 @@ export const api = {
   review: (id: number) => call<ReviewDetail>("GET", `/api/reviews/${id}`),
   rerun: (id: number, fresh = false) => call("POST", `/api/reviews/${id}/rerun${fresh ? "?fresh=true" : ""}`),
   board: (id: number, cluster?: string | null) =>
-    call<Board>("GET", `/api/reviews/${id}/board${cluster ? `?${new URLSearchParams({ cluster })}` : ""}`),
+    call<Board>("GET", `/api/reviews/${id}/board${cluster ? `?${new URLSearchParams({ cluster })}` : ""}`)
+      .then((b) => quietBoard(b, showSinks())),
   overview: (id: number) => call<Overview>("GET", `/api/reviews/${id}/overview`),
   stories: (id: number) => call<StorySet>("GET", `/api/reviews/${id}/stories`),
-  story: (id: number, sid: string) => call<StoryDetail>("GET", `/api/reviews/${id}/stories/${sid}`),
+  story: (id: number, sid: string) => call<StoryDetail>("GET", `/api/reviews/${id}/stories/${sid}`)
+    .then((d) => quietStory(d, showSinks())),
   reading: (id: number) => call<Reading>("GET", `/api/reviews/${id}/reading`),
   /** "Looks fine" on a To check row, for everyone viewing the review; its key holds "|", so it is encoded. */
   markCheck: (id: number, key: string) => call<Mark>("POST", `/api/reviews/${id}/checks/${encodeURIComponent(key)}/mark`),
@@ -119,7 +126,7 @@ export const api = {
   neighbours: (id: number, nid: string, limit = 20, more: { callers?: number; callees?: number } = {}) =>
     call<Neighbours>("GET", `/api/reviews/${id}/nodes/${encodeURIComponent(nid)}/neighbours?${new URLSearchParams({
       limit: String(limit), ...Object.fromEntries(Object.entries(more).map(([k, v]) => [k, String(v)])) })}`),
-  findings: (id: number) => call<Finding[]>("GET", `/api/reviews/${id}/findings`),
+  findings: (id: number) => call<Finding[]>("GET", `/api/reviews/${id}/findings`).then((fs) => quietFindings(fs, showSinks())),
   setFindingState: (id: number, fid: string, state: Finding["state"]) =>
     call("PATCH", `/api/reviews/${id}/findings/${fid}`, { state }),
   files: (id: number) => call<FileChange[]>("GET", `/api/reviews/${id}/files`),
@@ -138,4 +145,8 @@ export const api = {
   raiseBudget: (id: number, budget: number) => call<{ budget: number }>("PUT", `/api/reviews/${id}/ai/budget`, { budget }),
   setRounds: (id: number, rounds: number) => call<{ rounds: number }>("PUT", `/api/reviews/${id}/ai/rounds`, { rounds }),
   renameLayer: (level: number, name: string) => call("PUT", `/api/layers/${level}`, { name }),
+  /** Shared sinks (spec 2026-10-09 §6): the rules, and the owner's marks for every review from the next run. */
+  sinks: () => call<SinkRules>("GET", "/api/sinks"),
+  markSink: (label: string) => call<SinkRules>("PUT", `/api/sinks/${encodeURIComponent(label)}`),
+  unmarkSink: (label: string) => call<SinkRules>("DELETE", `/api/sinks/${encodeURIComponent(label)}`),
 };
