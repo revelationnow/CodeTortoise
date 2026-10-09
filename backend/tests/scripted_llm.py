@@ -37,3 +37,20 @@ class ScriptedLlm:
 
     def ping(self):
         return True
+
+
+def intro_answer(user: str) -> dict:
+    """A passing introduction for any intro prompt (spec 2026-10-09-review-introduction §4.3): every thread introduced
+    citing its first story, the route in the threads' order."""
+    import re
+    body = user.split("THREAD DETAILS (id", 1)[1].split("CONNECTIONS (a", 1)[0]
+    rows = re.findall(r"^(T\d+) \| ", body, re.M)
+    first = dict(re.findall(r"^(T\d+) \|.*\n(?:  (?:modules|files): .*\n)*  stories: (S\d+) ", body, re.M))
+    return {"whole": "The change reworks the UART driver. It spans the driver and the code that calls it. Each thread "
+                     "below says what it adds. The main risk is a caller that misses a new result.",
+            "whole_cites": rows[:1],
+            "threads": [{"id": t, "intro": f"This thread holds {first.get(t, t)} and what builds on it. Its code sits in "
+                                           "the driver. Its open checks say what to confirm.",
+                         "cites": [first.get(t, t)]} for t in rows],
+            "route": [{"thread": t, "reason": "This thread comes next in the change.", "skim": False, "cites": [t]}
+                      for t in rows]}
