@@ -15,6 +15,7 @@ from collections.abc import Callable
 
 from codetortoise.board import _Ctx
 from codetortoise.detectors.base import Finding
+from codetortoise.sinks import why_text
 from codetortoise.targets import UNKNOWN
 
 FACT_CHARS = 2400                     # 600 tokens per finding
@@ -96,6 +97,9 @@ def returns_facts(x: _Ctx, nid: str, read: dict[str, str] | None = None) -> list
 
 def field_facts(x: _Ctx, field_id: str, read: dict[str, str] | None = None) -> list[str]:
     n = x.im.nodes[field_id]
+    sink = x.im.sinks.get(field_id)
+    if sink is not None:          # a shared sink (spec 2026-10-09 §4): its users would swamp the facts
+        return [f"{n.label} ({field_id}) is a shared sink ({why_text(sink)}); its users are not listed"]
     rows = [f"readers and writers of {n.label} ({field_id}):"]
     for e in sorted((e for e in x.im.edges if e.dst == field_id and e.kind in ("reads", "writes")),
                     key=lambda e: (x.label(e.src), e.kind)):

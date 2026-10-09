@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Collection
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -33,9 +34,12 @@ class Brief(BaseModel):
     reviewed: list[str] = Field(default_factory=list)                  # story keys whose risk pass ran
 
 
-def cache_key(ps: PieceSet, model: str, rules_version: int, agree: int) -> str:
-    """Hash of what tier 1 is shown (cards, links, overview), the rules' version and the model."""
-    blob = json.dumps({"cards": [p.card for p in ps.pieces], "links": [lk.model_dump() for lk in ps.links],
-                       "overview": ps.overview, "rules": rules_version, "model": model, "agree": agree}, sort_keys=True)
-    return hashlib.sha256(blob.encode()).hexdigest()
+def cache_key(ps: PieceSet, model: str, rules_version: int, agree: int, sinks: Collection[str] = ()) -> str:
+    """Hash of what tier 1 is shown (cards, links, overview), the rules' version, the model and the shared sinks (their
+    links are left out of the pieces, so marking one regroups the stories)."""
+    data = {"cards": [p.card for p in ps.pieces], "links": [lk.model_dump() for lk in ps.links],
+            "overview": ps.overview, "rules": rules_version, "model": model, "agree": agree}
+    if sinks:
+        data["sinks"] = sorted(sinks)
+    return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
 

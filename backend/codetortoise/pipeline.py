@@ -286,13 +286,15 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
             brief = Brief(overview=ps.overview, pieces=ps, plan=plan)
             msg = f"{len(plan.stories)} stories from {len(ps.pieces)} piece(s), by the rules (no strong model configured)"
         else:
-            key = cache_key(ps, strong.model, STORY_RULES_VERSION, strong.agree)
+            key = cache_key(ps, strong.model, STORY_RULES_VERSION, strong.agree,
+                            [s.label for s in ctx["impact"].sinks.values()])
             hit = None if fresh else store.find_brief(key)
             if hit is not None:
                 brief = Brief.model_validate(hit)
                 brief.pieces, brief.overview, plan = ps, ps.overview, brief.plan
             else:
-                plan = form_stories(svc.strong, svc.ledger, rid, ps, ctx["analysis"].x, strong, ctx["findings"],
+                plan = form_stories(svc.strong, svc.ledger, rid, ps, ctx["analysis"].x, strong,
+                                    [f for f in ctx["findings"] if not f.sink],
                                     weak=svc.llm)
                 brief = Brief(key=key, model=strong.model, complete=plan.complete, overview=ps.overview, pieces=ps,
                               plan=plan)
@@ -312,12 +314,13 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
         brings its verdicts. Findings take the verdicts' severities before the board is drawn."""
         brief, findings, ps, strong = ctx["brief"], ctx["findings"], ctx["pieces"], cfg.llm.strong
         x = ctx["analysis"].x
-        brief.facts = prepare_facts(x, findings, ps.targets, svc.index.transitive_includers, _read_text,
+        quiet = [f for f in findings if not f.sink]   # shared sinks are never judged (spec 2026-10-09 §4)
+        brief.facts = prepare_facts(x, quiet, ps.targets, svc.index.transitive_includers, _read_text,
                                     ctx.get("resolve_targets"))
         if svc.strong is None or strong is None:
             store.put_brief(rid, brief.key, brief)
             return f"no strong model: {len(findings)} finding(s) left to the detectors and the AI's side-effect pass"
-        got = review_stories(svc.strong, svc.ledger, rid, ctx["plan"], ps, x, strong, findings, brief.facts,
+        got = review_stories(svc.strong, svc.ledger, rid, ctx["plan"], ps, x, strong, quiet, brief.facts,
                              skip=set(brief.reviewed), weak=svc.llm)
         brief.verdicts.update(got.verdicts)
         brief.reviewed = list(dict.fromkeys(brief.reviewed + got.reviewed))

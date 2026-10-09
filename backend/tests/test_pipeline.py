@@ -587,3 +587,29 @@ def test_a_review_run_prunes_requests_older_than_the_retention(fx, tmp_path):
                                               "prompt_tokens": 1, "completion_tokens": 1, "request": {}, "response": "{}"}])
     run_review(rid, svc)
     assert request_log.rows(svc.store, rid) == []
+
+
+def test_shared_sinks_from_the_yaml_and_the_owners_marks_quiet_a_review(fx, tmp_path, monkeypatch):
+    from helpers import make_config
+
+    from codetortoise import pipeline
+    from codetortoise.services import build_services
+
+    seen = []
+    real = pipeline.prepare_facts
+    monkeypatch.setattr(pipeline, "prepare_facts", lambda x, fs, *a, **k: (seen.extend(fs), real(x, fs, *a, **k))[1])
+    svc = build_services(make_config(fx, tmp_path, analysis={"module_min_files": 1, "workers": 1,
+                                                             "sink_fields": ["Stats::*"]}))
+    svc.store.kv_put("sink_marks", ["Uart::errors"])
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    sinks = {(s["label"], s["why"]) for s in svc.store.get_blob(rid, "impact")["sinks"].values()}
+    assert {("Stats::tx", "listed"), ("Uart::errors", "marked")} <= sinks
+    sunk = {f.title for f in svc.store.list_findings(rid) if f.sink}
+    assert {"uart_send now writes Stats::tx through a local alias",
+            "uart_send now writes Uart::errors through a local alias"} <= sunk
+    assert seen and not any(f.sink for f in seen)             # the strong model's facts never cover a sink
+    reading = svc.store.get_blob(rid, "reading")
+    assert not [k for k in reading["checks"] if k["kind"] == "reader"]
+    assert {"Stats::tx", "Uart::errors"} <= {h["label"] for h in reading["sinks"]}
+    assert [f["tag"] for f in svc.store.get_blob(rid, "board")["flows"]] == ["contract", "contract"]   # no state flow

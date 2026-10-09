@@ -108,3 +108,13 @@ def test_each_file_outside_the_change_is_read_once():
         return "int x;\n"
     prepare_facts(_Ctx(c), [f, f.model_copy(update={"id": "F3"})], {}, includers=lambda hdr: {other}, read_text=read)
     assert reads == [other]
+
+
+def test_a_shared_sinks_facts_are_one_line_without_its_users():
+    from codetortoise.impact import SinkInfo
+    c = _world([_edit("uart_send", "drv/uart.c"), _same("uart_errors", "drv/stat.c")],
+               fields=[("uart_send", "Uart", "errors", "write", "added"), ("uart_errors", "Uart", "errors", "read", "unchanged")])
+    c.impact.sinks = {"N3": SinkInfo(field="N3", label="Uart::errors", users=312, why="threshold")}
+    f = _finding("field_mutation", "uart_send now writes Uart::errors", ["N1", "N3"], side_effect=True)
+    assert prepare_facts(_Ctx(c), [f], {})[finding_key(f)] == \
+        "Uart::errors (N3) is a shared sink (312 functions); its users are not listed"
