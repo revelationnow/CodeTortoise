@@ -142,12 +142,12 @@ class _Draft:
         self.pieces: list[Piece] = []
 
     def rank(self, sev: dict[str, str]) -> tuple:
-        f = max((SEVERITY_RANK.get(sev.get(i, "info"), 0) for i in self.findings), default=0)
+        f = max((SEVERITY_RANK.get(sev[i], 0) for i in self.findings if i in sev), default=0)
         fl = max((SEVERITY_RANK.get(x.severity, 0) for x in self.flows), default=0)
         return (-f, -fl, -len(self.flows), -len(self.members))
 
     def risk(self, sev: dict[str, str]) -> str | None:
-        top = max([SEVERITY_RANK.get(sev.get(i, "info"), 0) for i in self.findings]
+        top = max([SEVERITY_RANK.get(sev[i], 0) for i in self.findings if i in sev]
                   + [SEVERITY_RANK.get(x.severity, 0) for x in self.flows], default=0)
         return RISK.get(top)
 
@@ -165,7 +165,7 @@ def build_stories(c: BoardContext, home: dict[str, str] | None = None, analysis:
     flows = [f.model_copy(deep=True) for f in a.flows]
     about = a.about.model_copy(deep=True)
     im, cfg = x.im, c.cfg
-    sev = {f.id: f.severity for f in c.findings}
+    sev = {f.id: f.severity for f in c.findings if not f.sink}    # a shared sink's finding is listed, never counted
     is_test = x.is_test_path
 
     # 1. substitutions and pieces (shared with the pieces stage), and the plan grouping the pieces
@@ -416,7 +416,8 @@ def _story(x: _Ctx, d: _Draft, sid: str, sev: dict[str, str], home: dict[str, st
     # a repeated edit's flows: the functions causing them are at home in the edit's story, not this one
     own = [] if d.kind == "behaviour" and d.sub is not None else d.members
     files = {depots.get(x.local(n)) or x.local(n) for n in own} | {depots.get(loc) or loc for _, loc, _ in d.sites}
-    counts = {"flows": len(d.flows), "findings": len(d.findings), "functions": len(own), "files": len(files - {None, ""})}
+    counts = {"flows": len(d.flows), "findings": sum(1 for i in d.findings if i in sev), "functions": len(own),
+              "files": len(files - {None, ""})}
     key = d.cause or (d.members[0] if d.members else None)
     board = (home or {}).get(key) if key else None
     if d.kind == "mechanical":

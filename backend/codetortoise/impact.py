@@ -217,7 +217,7 @@ def build_impact(before: list[Facts], after: list[Facts], dm: DiffMap, sel: TuSe
             rows = [r for r in index.member_refs(fname) if r.path not in parsed and r.fn
                     and (allowed is None or r.path in allowed)]
             if len(rows) > cfg.heuristic_fanin_cap:
-                capped[label] = len(rows)
+                capped[label] = len({(r.path, r.fn) for r in rows})     # functions, not references: a sink's users
                 continue
             for row in rows:
                 key = by_qual.get(row.fn) or f"ts:{row.path}#{row.fn}"

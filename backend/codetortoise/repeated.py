@@ -117,7 +117,7 @@ def _note(x: _Ctx, nid: str, mech_of: dict[str, Sub], fn_sites: dict[str, list[S
             parts.append("signature changed")
     for status, verb in (("added", "now writes"), ("removed", "no longer writes")):
         fields = [x.label(e.dst).split("::")[-1] for e in x.writes_from.get(nid, [])
-                  if e.status == status and e.dst in x.im.nodes]
+                  if e.status == status and e.dst in x.im.nodes and e.dst not in x.im.sinks]
         if fields:
             parts.append(f"{verb} {', '.join(dict.fromkeys(fields[:3]))}" + (f" +{len(fields) - 3}" if len(fields) > 3 else ""))
     also = sorted({s.sub for s in fn_sites.get(nid, []) if s.sub in mech_subs}, key=lambda s: s.old)

@@ -146,3 +146,16 @@ def test_a_shared_sink_links_no_pieces():
     assert any(lk.type == "field" for lk in _pieces(c).links)
     c.impact.sinks = {"N3": SinkInfo(field="N3", label="log_t::buf", users=300, why="threshold")}
     assert not any(lk.type == "field" for lk in _pieces(c).links)
+
+
+def test_a_card_never_names_a_shared_sink_finding():
+    from codetortoise.detectors.base import Finding
+    c = _world([_edit("stack_one", "a/x.c")], fields=[("stack_one", "log_t", "buf", "write", "added")])
+    c.findings = [Finding(id="F1", kind="field_mutation", severity="info", title="stack_one now writes log_t::buf",
+                          summary="s", nodes=["N1"], sink=True),
+                  Finding(id="F2", kind="contract", severity="medium", title="stack_one can now return -1", summary="s",
+                          nodes=["N1"])]
+    from codetortoise.impact import SinkInfo
+    c.impact.sinks = {"N2": SinkInfo(field="N2", label="log_t::buf", users=300, why="threshold")}
+    (p,) = _pieces(c).pieces
+    assert "F2 (contract" in p.card and "F1" not in p.card and "buf" not in p.card

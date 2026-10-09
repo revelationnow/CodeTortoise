@@ -207,13 +207,13 @@ def cluster_change(im: ImpactModel, flows: list[_FlowLike], findings: list[Findi
     for c in clusters:
         for m in c.members:
             home.setdefault(m, str(id(c)))
-    sev = {f.id: f.severity for f in findings}
+    sev = {f.id: f.severity for f in findings if not f.sink}      # a shared sink's finding is listed, never counted
     for f in findings:
         owner = next((c for n in f.nodes for c in clusters if n in c.members), None)
         if owner:
             owner.findings.append(f.id)
     for c in clusters:
-        c.risk = max((sev[i] for i in c.findings), key=lambda s: SEVERITY_RANK.get(s, 0), default=None)
+        c.risk = max((sev[i] for i in c.findings if i in sev), key=lambda s: SEVERITY_RANK.get(s, 0), default=None)
         levels = Counter(im.nodes[m].layer for m in mem(c) if im.nodes[m].layer is not None)
         c.level = levels.most_common(1)[0][0] if levels else None
         c.also = sorted((lv for lv in levels if lv != c.level), reverse=True)

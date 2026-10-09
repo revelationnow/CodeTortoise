@@ -565,3 +565,15 @@ def test_a_plan_from_tier_1_gives_titles_purposes_checks_related_stories_and_an_
     assert det[s3.id].graph is not None
     assert [(p.id, p.files, p.names) for p in det[s1.id].pieces] == [
         (pid["modem_tx"], ["//d/w/modem/tx.c"], ["modem_tx"]), (pid["modem_rx"], ["//d/w/modem/rx.c"], ["modem_rx"])]
+
+
+def test_a_shared_sink_finding_is_listed_but_never_counted_or_raises_the_risk():
+    from codetortoise.detectors.base import Finding
+    from codetortoise.impact import SinkInfo
+    c = _world([_edit("stack_one", "a/x.c")], fields=[("stack_one", "log_t", "buf", "write", "added")])
+    c.impact.sinks = {"N2": SinkInfo(field="N2", label="log_t::buf", users=300, why="threshold")}
+    c.findings = [Finding(id="F1", kind="field_mutation", severity="low", title="stack_one no longer writes log_t::buf",
+                          summary="s", nodes=["N1"], sink=True)]
+    ss, _ = build_stories(c)
+    (s,) = ss.stories
+    assert s.findings == ["F1"] and s.counts["findings"] == 0 and s.risk is None

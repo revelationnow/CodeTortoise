@@ -754,3 +754,19 @@ def test_a_headline_stored_before_sinks_still_reads():
     from codetortoise.reading import headline_from
     facts = {"checks": [], "cleared": [], "findings": [["F1", "contract", "medium", None]]}
     assert headline_from(facts, {}).text == "Medium risk"
+
+
+def test_a_story_contract_never_names_a_shared_sink():
+    c = _world([_edit("config", "drv/cfg.c"), _edit("p", "x/p.c")],
+               fields=[("config", "Log", "buf", "write", "added"), ("p", "Log", "buf", "write", "added")])
+    _sink(c, "Log::buf")
+    rows = contract_rows(_set(["N1", "N2"]).stories[0], _x(c))
+    assert [(r.kind, r.nodes) for r in rows] == [("body", ["N1", "N2"])]
+
+
+def test_a_callees_change_never_names_a_shared_sink():
+    from codetortoise.reading import _change_text
+    c = _world([_edit("config", "drv/cfg.c")], fields=[("config", "Log", "buf", "write", "added")])
+    assert _change_text(_x(c), "N1") == "which now writes `Log::buf`"
+    _sink(c, "Log::buf")
+    assert _change_text(_x(c), "N1") == "whose body changed"

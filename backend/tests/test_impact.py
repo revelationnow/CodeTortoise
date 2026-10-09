@@ -124,3 +124,23 @@ def test_the_impact_model_names_its_shared_sinks_and_the_blast_radius_skips_them
 def test_an_impact_model_stored_before_sinks_loads_without_them():
     from codetortoise.impact import ImpactModel
     assert ImpactModel.model_validate({"nodes": {}, "edges": []}).sinks == {}
+
+
+def test_name_matches_over_the_cap_count_each_function_once(analysed):
+    from codetortoise.config import AnalysisConfig
+    from codetortoise.impact import build_impact
+    from codetortoise.index.symbols import MemberRow
+
+    class Index:                                # 60 references to a written field's name, from 3 functions
+        def callers_of(self, name):
+            return []
+
+        def member_refs(self, name):
+            return [MemberRow(fn=f"f{i % 3}", path=f"/x/{i % 3}.c", line=i, is_write=False) for i in range(60)]
+
+        def transitive_includers(self, path):
+            return {f"/x/{i}.c" for i in range(3)}
+
+    a = analysed
+    im = build_impact(a.before, a.after, a.dm, a.sel, Index(), a.layers, AnalysisConfig(module_min_files=1))
+    assert im.capped["Uart::errors"] == 3
