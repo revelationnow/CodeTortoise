@@ -38,6 +38,9 @@ class Thread(BaseModel):
     ...                                   # unchanged: id, name, purpose, text_source, stories, cls, open_checks
     intro: str = ""                       # 3–5 sentences; "" in readings stored before this change
     intro_source: Literal["template", "llm"] = "template"
+    files: list[str] = Field(default_factory=list)     # its key files, workspace-relative, at most 8 (§3.3)
+    modules: list[str] = Field(default_factory=list)   # its key modules: directories, workspace-relative, at most 4
+    files_source: Literal["template", "llm"] = "template"
 
 class RouteStep(BaseModel):
     thread: str                           # thread id
@@ -60,7 +63,7 @@ the fuller one.
 > 3 stories in `driver/` and `service/` across CL 101. 2 checks open: Confirm, Result handled the old way.
 > Starts with “uart_send can now return -2”.
 
-- Directories: the stories' files' directories, workspace-relative, at most 3, then "and N more".
+- Directories: the thread's `modules` (§3.3), at most 3, then "and N more".
 - Checks: "Nothing is open." when none; otherwise the count and the distinct check kinds by their `KIND_LABEL` labels
   (the labels the To check rows show), at most 3 then "and N more".
 - The first story's title, in the thread's reading order.
@@ -83,7 +86,28 @@ Reasons, one per step:
 
 The rules' route has `route_source="template"`.
 
-## 4. The introduction call (`llm/intro.py`)
+### 3.3 Key files and modules
+
+A thread's **files** are the files its stories change, workspace-relative; its **modules** are directories holding them.
+The threads call (§4.0) picks the ones that matter. The rules' pick, made first and kept when the threads call's pick is
+missing or fails its check:
+
+- files: the thread's changed files, most changed functions first, then by path; at most 8.
+- modules: the directories of those files, most files first, then by path; at most 4.
+
+## 4. The model's text
+
+### 4.0 The threads call picks each thread's key files and modules
+
+The threads call (`llm/threads.py`) is given, per thread, every file its stories change (workspace-relative, with the
+number of changed functions in each; at most 40 per thread, most changed first, then "+N more") and asked, per thread,
+for `"files"` (at most 8, the ones a reviewer should look at first) and `"modules"` (at most 4 directories naming the
+parts of the code it touches).
+
+Check, per thread: every file is one of the thread's listed files; every module is a directory that holds at least one
+of them (a prefix of a listed file ending at a `/`); at most 8 files and 4 modules; at least one file. Else the rules'
+pick stays. Accepted picks get `files_source="llm"`. The `thread_text` cache stores them with the name and purpose, and
+`READING_VERSION` goes up so caches written before this change are not reused.
 
 ### 4.1 When
 
@@ -99,7 +123,8 @@ No strong model configured: no call; the rules' text stands.
 ```
 THREADS (id | name | purpose | CLs | open checks):
   T1 | `uart_send` returns -2 | … | CL 101 | 2
-    files: driver/uart.c, service/logger.c                     (workspace-relative, at most 8)
+    modules: driver/, service/                                  (the thread's modules, §3.3)
+    files: driver/uart.c, service/logger.c                     (the thread's key files, §3.3)
     stories: S1 uart_send can now return -2…: <purpose> (behaviour); S2 …
     open checks: Confirm: uart_send: new return value -2; Result handled the old way: logger_flush ignores …  (at most 6)
 CONNECTIONS (a | b | kind | text):
@@ -191,7 +216,11 @@ pytest:
 - rules: a thread's intro text (directories capped, checks' kinds, "Nothing is open.", first story); the route puts a
   thread whose code another calls first, breaks ties by open checks, breaks a cycle by thread order, and puts skim
   threads last with their reasons.
-- intro prompt: holds each thread's files (capped), stories, open checks (capped) and the DEPENDS lines.
+- key files and modules: the rules' pick (most changed functions first, capped); the threads prompt lists each thread's
+  files (capped at 40 with "+N more"); an accepted pick sets `files_source="llm"`; a file not in the thread's list, a
+  module holding none of its files, more than 8 files or 4 modules, or no file keeps the rules' pick; a cached pick is
+  reused.
+- intro prompt: holds each thread's modules, key files, stories, open checks (capped) and the DEPENDS lines.
 - intro answers: an accepted answer sets every part to `llm`; a whole with 3 sentences, an intro with 6, an intro
   citing an unlisted id, a route missing a thread, a route listing one twice and a reason of two sentences each keep
   their fixed text, and only that part.
