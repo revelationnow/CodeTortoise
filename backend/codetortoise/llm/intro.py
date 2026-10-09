@@ -13,12 +13,12 @@ from codetortoise.llm.client import LlmClient
 from codetortoise.llm.ledger import Ledger, Refused
 from codetortoise.llm.storyboard import _styled
 from codetortoise.llm.style import STYLE
-from codetortoise.llm.threads import _SENT, _ids
+from codetortoise.llm.threads import _SENT
 from codetortoise.llm.tiers import TiersFailed, done_text, tried_note, try_tiers
 from codetortoise.reading import KIND_LABEL, Reading, RouteStep
 from codetortoise.stories import StorySet
 
-INTRO_VERSION = 1                     # bump with every change to the introduction's prompt or checks (keys its cache)
+INTRO_VERSION = 2                     # bump with every change to the introduction's prompt or checks (keys its cache)
 CHECKS_SHOWN = 6
 
 SYSTEM = ("You are a senior C/C++ reviewer introducing a change to reviewers who have not seen it. Use only what you "
@@ -30,7 +30,7 @@ ASK = """Each thread is a group of stories joined by calls or shared data. Write
 risk. For each thread write "intro": 3 to 5 sentences saying what it changes and why, where in the code, what could go \
 wrong (from its open checks) and how much is open. Then write "route": every thread once, in the order a reviewer \
 should read them, each with a one-sentence "reason"; set "skim" to true for a thread worth only a skim. Cite the ids \
-(T1, S2, N4, CL12) behind each part in "whole_cites" and "cites"; cite nothing that is not listed."""
+(T1, S2, CL12) behind each part in "whole_cites" and "cites"; cite nothing that is not listed."""
 
 
 class _Intro(BaseModel):
@@ -79,6 +79,13 @@ def prompt(reading: Reading, ss: StorySet, cls: dict[int, str]) -> str:
     return ASK + "\n\n" + "\n".join(lines)
 
 
+def _listed(reading: Reading, ss: StorySet) -> set[str]:
+    """The ids the prompt lists, the only ones an answer may cite: threads, their stories and their CLs."""
+    have = {s.id for s in ss.stories}
+    return ({t.id for t in reading.threads} | {s for t in reading.threads for s in t.stories if s in have}
+            | {f"CL{c}" for t in reading.threads for c in t.cls})
+
+
 def write_intro(strong: LlmClient, ledger: Ledger | None, rid: int | None, reading: Reading, ss: StorySet,
                 cls: dict[int, str], weak: LlmClient | None = None) -> tuple[list[str], str | None]:
     """Write `reading`'s introduction in place from one checked answer; returns notes on the parts that kept their fixed
@@ -96,7 +103,7 @@ def write_intro(strong: LlmClient, ledger: Ledger | None, rid: int | None, readi
         return [tried_note("introduction", e.failures, "the fixed text stays")], None
     out = tried.value
     said = [] if tried.tier == "strong" else [tried_note("introduction", tried.failures, done_text(tried, "wrote it"))]
-    ids = _ids(reading, ss)
+    ids = _listed(reading, ss)
 
     def ok(text: str, cites: list[str], lo: int, hi: int) -> bool:
         cs = [c.replace(" ", "") for c in cites]
