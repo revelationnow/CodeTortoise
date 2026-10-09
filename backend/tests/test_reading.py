@@ -5,7 +5,12 @@ from codetortoise.board import analyse
 from codetortoise.reading import (
     Check,
     Connection,
+    Reading,
+    RouteStep,
+    StoryReading,
     Thread,
+    WhereFile,
+    WhereFn,
     build_checks,
     build_impact,
     build_reading,
@@ -14,8 +19,14 @@ from codetortoise.reading import (
     connections,
     contract_rows,
     coverage,
+    fixed_intro,
+    fixed_introduction,
+    fixed_route,
     headline,
+    module_of,
+    pick_files,
     story_links,
+    thread_files,
     where,
     with_marks,
 )
@@ -772,3 +783,96 @@ def test_a_callees_change_never_names_a_shared_sink():
     assert _change_text(_x(c), "N1") == "which now writes `Log::buf`"
     _sink(c, "Log::buf")
     assert _change_text(_x(c), "N1") == "whose body changed"
+
+
+# ---- the review's introduction (spec 2026-10-09-review-introduction §3)
+def _ck(kind, thread="T1", n=0):
+    return Check(key=f"{kind}|{thread}|{n}", kind=kind, thread=thread, text="t")
+
+
+def test_a_threads_key_files_are_its_most_changed_files_and_its_modules_their_directories():
+    files = [(f"d{i % 3}/f{i}.c", 10 - i) for i in range(10)] + [("main.c", 1)]
+    top, modules = pick_files(files)
+    assert top == [f"d{i % 3}/f{i}.c" for i in range(8)]
+    assert modules == ["d0/", "d1/", "d2/"]                         # d0 and d1 hold 3 of the top 8 each, d2 two
+    assert pick_files([("main.c", 2)]) == (["main.c"], [])           # a root file has no module
+    assert module_of("a/b/c.c") == "a/b/" and module_of("c.c") == ""
+
+
+def test_modules_are_capped_at_four_most_files_first_then_by_path():
+    files = [("e/1.c", 5), ("e/2.c", 5), ("a/1.c", 4), ("b/1.c", 3), ("c/1.c", 2), ("d/1.c", 1)]
+    assert pick_files(files)[1] == ["e/", "a/", "b/", "c/"]
+
+
+def test_thread_files_count_each_changed_function_once_most_first_then_by_path():
+    t = Thread(id="T1", name="n", purpose="p", stories=["S1", "S2"])
+    per = {"S1": StoryReading(story="S1", where=[WhereFile(path="b/x.c", functions=[WhereFn(node="N1", label="f")]),
+                                                 WhereFile(path="a/y.c", functions=[WhereFn(node="N2", label="g")])]),
+           "S2": StoryReading(story="S2", where=[WhereFile(path="b/x.c", functions=[WhereFn(node="N1", label="f"),
+                                                                                    WhereFn(node="N3", label="h")])])}
+    assert thread_files([t], per) == {"T1": [("b/x.c", 2), ("a/y.c", 1)]}
+
+
+def test_a_threads_fixed_intro_says_where_what_is_open_and_where_it_starts():
+    t = Thread(id="T1", name="n", purpose="p", stories=["S2", "S1", "S3"], cls=[101],
+               modules=["driver/", "service/"])
+    titles = {"S1": "b", "S2": "`uart_send` can now return -2", "S3": "c"}
+    assert fixed_intro(t, [_ck("confirm"), _ck("result", n=1), _ck("confirm", "T2")], titles) == (
+        "3 stories in `driver/` and `service/` across CL 101. 2 checks open: Confirm, Result handled the old way. "
+        "Starts with “`uart_send` can now return -2”.")
+
+
+def test_a_fixed_intro_caps_directories_and_check_kinds_and_says_nothing_is_open():
+    t = Thread(id="T1", name="n", purpose="p", stories=["S1"], cls=[1, 2], modules=["a/", "b/", "c/", "d/"])
+    assert fixed_intro(t, [], {"S1": "s"}) == (
+        "1 story in `a/`, `b/`, `c/` and 1 more across CL 1 and CL 2. Nothing is open. Starts with “s”.")
+    kinds = ["hazard", "confirm", "caller", "result", "reader"]
+    text = fixed_intro(t, [_ck(k, n=i) for i, k in enumerate(kinds)], {"S1": "s"})
+    assert "5 checks open: Hazard, Confirm, Caller not updated and 2 more." in text
+
+
+def test_a_fixed_intro_without_modules_or_cls_leaves_those_parts_out():
+    t = Thread(id="T1", name="n", purpose="p", stories=["S1"])
+    assert fixed_intro(t, [_ck("ask")], {"S1": "s"}) == "1 story. 1 check open: Ask the author. Starts with “s”."
+
+
+def test_the_fixed_route_keeps_the_threads_order_moves_skim_threads_last_and_says_why():
+    threads = [Thread(id="T1", name="a", purpose="p", stories=["S1"], open_checks=3),
+               Thread(id="T2", name="b", purpose="p", stories=["S2", "S3"]),
+               Thread(id="T3", name="c", purpose="p", stories=["S4"], open_checks=1),
+               Thread(id="T4", name="d", purpose="p", stories=["S5"], open_checks=1),
+               Thread(id="T5", name="e", purpose="p", stories=["S6"])]
+    checks = [_ck("hazard"), _ck("confirm", n=1), _ck("caller", n=2), _ck("confirm", "T3"), _ck("hazard", "T4")]
+    kinds = {"S1": "behaviour", "S2": "mechanical", "S3": "mechanical", "S4": "mechanical", "S5": "other", "S6": "other"}
+    assert [(s.thread, s.reason, s.skim) for s in fixed_route(threads, checks, kinds)] == [
+        ("T1", "1 hazard and 2 other checks open.", False), ("T3", "1 check open.", False),
+        ("T4", "1 hazard open.", False), ("T5", "Nothing is open.", False),
+        ("T2", "Only repeated edits and tests; skim it.", True)]
+
+
+def test_fixed_introduction_keeps_what_the_strong_model_wrote_and_handles_no_threads():
+    ss = _set(["N1"])
+    r = Reading(threads=[Thread(id="T1", name="n", purpose="p", stories=["S1"], intro="Mine.", intro_source="llm")],
+                route=[RouteStep(thread="T1", reason="Mine.")], route_source="llm")
+    fixed_introduction(r, ss)
+    assert (r.threads[0].intro, r.route[0].reason) == ("Mine.", "Mine.")
+    empty = Reading()
+    fixed_introduction(empty, ss)
+    assert empty.route == [] and empty.route_source == "template"
+
+
+def test_build_reading_gives_each_thread_its_key_files_modules_intro_and_a_route():
+    c, ss = _chain()
+    reading, _ = build_reading(ss, c)
+    t1 = next(t for t in reading.threads if "S3" in t.stories)
+    assert (t1.files, t1.modules, t1.files_source) == (["drv/uart.c", "svc/flush.c", "svc/log.c"], ["svc/", "drv/"],
+                                                       "template")
+    assert t1.intro.startswith("3 stories in `svc/` and `drv/` across CL 1. ") and t1.intro.endswith("Starts with “story 3”.")
+    assert [s.thread for s in reading.route] == [t.id for t in reading.threads] and reading.route_source == "template"
+
+
+def test_a_reading_stored_before_the_introduction_loads_with_its_defaults():
+    r = Reading.model_validate({"whole": "w", "threads": [{"id": "T1", "name": "n", "purpose": "p", "stories": ["S1"]}]})
+    t = r.threads[0]
+    assert (t.intro, t.intro_source, t.files, t.modules, t.files_source) == ("", "template", [], [], "template")
+    assert (r.route, r.route_source) == ([], "template")

@@ -23,7 +23,10 @@ from codetortoise.stories import Story, StoryDetail, StorySet
 from codetortoise.targets import UNKNOWN
 from codetortoise.tidy import tidy
 
-READING_VERSION = 1                   # bump with every change to the thread text's prompt or checks (keys its cache)
+READING_VERSION = 2                   # bump with every change to the thread text's prompt or checks (keys its cache)
+MAX_FILES, MAX_MODULES = 8, 4         # a thread's key files and modules (spec 2026-10-09-review-introduction §3.3)
+SHOWN_DIRS = SHOWN_KINDS = 3          # how many directories and check kinds a thread's fixed intro names
+SKIM_KINDS = {"mechanical", "tests"}
 _KIND_RANK = {"calls": 0, "data": 1, "file": 2, "cl": 3}
 ConnKind = Literal["caller", "vocabulary", "condition", "place", "bundled"]
 _CONN_RANK = {"caller": 1, "vocabulary": 2, "condition": 3, "place": 4, "bundled": 5}
@@ -50,6 +53,11 @@ class Thread(BaseModel):
     stories: list[str] = Field(default_factory=list)  # in reading order
     cls: list[int] = Field(default_factory=list)
     open_checks: int = 0
+    intro: str = ""                                   # 3–5 sentences (spec 2026-10-09-review-introduction §3)
+    intro_source: Literal["template", "llm"] = "template"
+    files: list[str] = Field(default_factory=list)    # its key files, workspace-relative, at most MAX_FILES
+    modules: list[str] = Field(default_factory=list)  # its key directories ("driver/"), at most MAX_MODULES
+    files_source: Literal["template", "llm"] = "template"
 
 
 class Connection(BaseModel):
@@ -178,9 +186,18 @@ class SinkHit(BaseModel):
     writers: list[str] = Field(default_factory=list)      # changed functions whose write to it the change added or removed
 
 
+class RouteStep(BaseModel):
+    """One step of Where to start (spec 2026-10-09-review-introduction §3.1): a thread and why to read it then."""
+    thread: str
+    reason: str
+    skim: bool = False
+
+
 class Reading(BaseModel):
     whole: str = ""
     whole_source: Literal["template", "llm"] = "template"
+    route: list[RouteStep] = Field(default_factory=list)       # every thread once, in reading order
+    route_source: Literal["template", "llm"] = "template"
     threads: list[Thread] = Field(default_factory=list)
     connections: list[Connection] = Field(default_factory=list)
     order: list[str] = Field(default_factory=list)            # story ids, tests last
@@ -1096,6 +1113,95 @@ def fixed_whole(threads: list[Thread], conns: list[Connection]) -> str:
     return f"{len(threads)} threads" + (": " + "; ".join(parts) if parts else "") + "."
 
 
+def thread_files(threads: list[Thread], per: dict[str, StoryReading]) -> dict[str, list[tuple[str, int]]]:
+    """Each thread's changed files (workspace-relative) with how many of its changed functions each holds, most first,
+    then by path (spec 2026-10-09-review-introduction §3.3)."""
+    out: dict[str, list[tuple[str, int]]] = {}
+    for t in threads:
+        fns: dict[str, set[str]] = defaultdict(set)
+        for sid in t.stories:
+            for wf in per[sid].where if sid in per else []:
+                fns[wf.path].update(f.node for f in wf.functions)
+        out[t.id] = sorted(((p, len(ns)) for p, ns in fns.items() if p), key=lambda pn: (-pn[1], pn[0]))
+    return out
+
+
+def module_of(path: str) -> str:
+    """A file's directory ending in "/"; "" for a file at the workspace root."""
+    d = posixpath.dirname(path)
+    return d + "/" if d else ""
+
+
+def pick_files(files: list[tuple[str, int]]) -> tuple[list[str], list[str]]:
+    """The rules' key files (the most changed, at most MAX_FILES) and modules (their directories, most files first, then
+    by path, at most MAX_MODULES) from `thread_files`' list (§3.3)."""
+    top = [p for p, _ in files[:MAX_FILES]]
+    count = Counter(m for p in top if (m := module_of(p)))
+    return top, sorted(count, key=lambda m: (-count[m], m))[:MAX_MODULES]
+
+
+def _some(xs: list[str], cap: int) -> str:
+    """"a", "a and b", "a, b and c"; past `cap`: "a, b, c and 2 more"."""
+    if len(xs) > cap:
+        return ", ".join(xs[:cap]) + f" and {len(xs) - cap} more"
+    return xs[0] if len(xs) == 1 else ", ".join(xs[:-1]) + " and " + xs[-1]
+
+
+def fixed_intro(t: Thread, checks: list[Check], titles: dict[str, str]) -> str:
+    """A thread's introduction without the strong model (§3.2): its stories and where they are, what is open, and the
+    story it starts with."""
+    n = len(t.stories)
+    where = f" in {_some([f'`{m}`' for m in t.modules], SHOWN_DIRS)}" if t.modules else ""
+    across = f" across {_cls(t.cls)}" if t.cls else ""
+    out = [f"{n} stor{'y' if n == 1 else 'ies'}{where}{across}."]
+    mine = [k for k in checks if k.thread == t.id]
+    if mine:
+        kinds = [KIND_LABEL[kd] for kd in CHECK_ORDER if any(k.kind == kd for k in mine)]
+        more = f" and {len(kinds) - SHOWN_KINDS} more" if len(kinds) > SHOWN_KINDS else ""
+        out.append(f"{len(mine)} check{'' if len(mine) == 1 else 's'} open: {', '.join(kinds[:SHOWN_KINDS])}{more}.")
+    else:
+        out.append("Nothing is open.")
+    if t.stories:
+        out.append(f"Starts with “{titles.get(t.stories[0], t.stories[0])}”.")
+    return " ".join(out)
+
+
+def _route_reason(t: Thread, checks: list[Check], skim: bool) -> str:
+    if skim:
+        return "Only repeated edits and tests; skim it."
+    mine = [k for k in checks if k.thread == t.id]
+    h = sum(k.kind == "hazard" for k in mine)
+    rest = len(mine) - h
+
+    def n(x: int, word: str) -> str:
+        return f"{x} {word}{'' if x == 1 else 's'}"
+    if h and rest:
+        return f"{n(h, 'hazard')} and {n(rest, 'other check')} open."
+    if h:
+        return f"{n(h, 'hazard')} open."
+    return f"{n(rest, 'check')} open." if rest else "Nothing is open."
+
+
+def fixed_route(threads: list[Thread], checks: list[Check], kinds: dict[str, str]) -> list[RouteStep]:
+    """Where to start without the strong model (§3.2): the threads' own order (no call or data link runs between two
+    threads), threads with nothing open and only repeated edits or tests last, marked skim."""
+    steps = []
+    for t in threads:
+        skim = t.open_checks == 0 and bool(t.stories) and all(kinds.get(s) in SKIM_KINDS for s in t.stories)
+        steps.append(RouteStep(thread=t.id, reason=_route_reason(t, checks, skim), skim=skim))
+    return [s for s in steps if not s.skim] + [s for s in steps if s.skim]
+
+
+def fixed_introduction(reading: Reading, ss: StorySet) -> None:
+    """Every thread's fixed intro and the fixed route, in place; text the strong model wrote stays."""
+    titles = {s.id: s.title for s in ss.stories}
+    for t in reading.threads:
+        if t.intro_source == "template":
+            t.intro = fixed_intro(t, reading.checks, titles)
+    if reading.route_source == "template":
+        reading.route = fixed_route(reading.threads, reading.checks, {s.id: s.kind for s in ss.stories})
+
+
 def _tests_row(ss: StorySet, threads: list[Thread], x: _Ctx) -> TestsRow | None:
     tests = [s for s in ss.stories if s.kind == "tests"]
     if not tests:
@@ -1178,6 +1284,10 @@ def build_reading(ss: StorySet, c: BoardContext, details: dict[str, StoryDetail]
                                  place_text=_place_text(s.id, t.stories, strong) if t else "",
                                  thread=t.id if t else None, position=t.stories.index(s.id) + 1 if t else None,
                                  cl_order=order_, rewrites=_story_rewrites(s, x, reading.rewrites, local_of))
+    files = thread_files(threads, per)
+    for t in threads:
+        t.files, t.modules = pick_files(files[t.id])
+    fixed_introduction(reading, ss)
     return reading, per
 
 
