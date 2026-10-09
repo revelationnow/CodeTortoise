@@ -20,6 +20,10 @@ export interface Annotation {
   node: string; path: string | null; line: number; side: "new" | "old"; severity: "warn" | "info" | "ok";
   channel: "contract" | "state" | "signature"; title: string; text: string; finding: string | null;
   cause: string | null; landing: boolean;
+  /** A write to a shared sink: drawn only when the viewer shows them (spec 2026-10-09). */
+  sink?: boolean;
+  /** A field declaration's note: the field's label, which the owner may mark a shared sink. */
+  field?: string | null;
 }
 export interface BoardFlow {
   id: string; path: string[]; tag: "state" | "contract"; lands: string; fx_at: string | null; severity: string;

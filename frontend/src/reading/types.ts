@@ -19,7 +19,11 @@ export interface Check {
   text: string; source_line: string; finding: string | null; cites: string[];
   /** Other kinds at the same place. */
   also: Reason[];
+  /** A reader row's field (the owner may mark it a shared sink). */
+  field?: string | null;
 }
+/** A shared sink the change writes (spec 2026-10-09 §5.1): hidden unless the viewer shows them. */
+export interface SinkHit { field: string; label: string; users: number; why: "marked" | "listed" | "threshold"; writers: string[] }
 /** "Looks fine", shared by everyone viewing the review; `changed`: the line is no longer the one marked, so it is open. */
 export interface Mark { key: string; user: string; at: string; source_line: string; changed: boolean }
 export interface Headline { text: string; tone: "hazard" | "confirm" | "none"; rules_only: boolean }
@@ -34,6 +38,8 @@ export interface Reading {
   tests: TestsRow | null; marks: Record<string, Mark>;
   /** Later CLs replacing lines earlier ones added, and CLs outside the review in between (phase 2 §4.3). */
   rewrites?: Rewrite[]; gaps?: Gap[];
+  /** Shared sinks the change writes; absent on a reading stored before them. */
+  sinks?: SinkHit[];
 }
 
 export interface ContractRow {
