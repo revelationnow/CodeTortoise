@@ -388,3 +388,46 @@ def test_a_view_shares_the_log_and_keeps_a_raised_limit_for_the_rest_of_its_try(
     c.complete_json("s", "u", Out)
     c.complete_json("s", "u", Out)
     assert bodies == [1000, 2000, 1000, 2000] and c.max_output_tokens == 1000     # the shared client keeps its own
+
+
+def test_a_step_down_learned_in_one_try_holds_for_the_next():
+    bodies = []
+
+    def handler(req):
+        body = json.loads(req.content)
+        bodies.append(body)
+        if "max_tokens" in body:
+            return httpx.Response(400, json={"error": {"message": "Unsupported parameter: 'max_tokens'. Use "
+                                                                  "'max_completion_tokens' instead."}})
+        return reply("hi")
+    c = client(handler, max_output_tokens=3000)
+    assert c.with_start(3000).chat("s", "u") == "hi" and c.with_start(6000).chat("s", "u") == "hi"
+    assert [("max_tokens" in b, b.get("max_completion_tokens")) for b in bodies] == [(True, None), (False, 3000), (False, 6000)]
+
+
+def test_a_step_down_costs_no_attempt():
+    n = itertools.count()
+
+    def handler(req):
+        i = next(n)
+        if i == 0:
+            return httpx.Response(400, json={"error": {"message": "Unsupported parameter: 'max_tokens'. Use "
+                                                                  "'max_completion_tokens' instead."}})
+        return httpx.Response(429) if i < 3 else reply("hi")
+    assert client(handler, max_output_tokens=3000).chat("s", "u") == "hi"      # step-down, 429, 429, answer
+
+
+def test_a_raised_limit_the_server_rejects_is_sent_again_at_the_clients_own_limit():
+    bodies = []
+
+    def handler(req):
+        body = json.loads(req.content)
+        bodies.append(body.get("max_tokens"))
+        if (body.get("max_tokens") or 0) > 16384:
+            return httpx.Response(400, json={"error": {"message": "max_tokens is too large: 32768. This model supports "
+                                                                  "at most 16384 completion tokens."}})
+        return cut() if len(bodies) == 2 else reply('{"answer": "x", "n": 1}')
+    v = client(handler).with_start(32768)
+    with pytest.raises(LlmTruncated):        # sent again with no limit, cut off: no more raising in this call
+        v.complete_json("s", "u", Out)
+    assert bodies == [32768, None]
