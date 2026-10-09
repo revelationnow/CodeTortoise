@@ -46,8 +46,9 @@ export interface Comment {
 export interface AiMeta { pending: boolean; round?: number; of?: number; read: string[]; files: string[]; calls: number; error: string | null }
 export type AiKind = "flow" | "finding" | "file" | "story";
 export interface AiJob { id: number; user: string; kind: string; target: string; status: "running" | "done" | "failed" | "refused"; error: string | null }
-export interface AiCall { id: number; user: string; purpose: string; target: string | null; started_at: string; finished_at: string | null;
-  prompt_tokens: number | null; completion_tokens: number | null; outcome: "ok" | "failed" | "refused" | "running" | null; error: string | null }
+export interface AiCall { id: number; user: string; purpose: string; target: string | null; model: string | null;
+  started_at: string; finished_at: string | null; prompt_tokens: number | null; completion_tokens: number | null;
+  outcome: "ok" | "failed" | "refused" | "running" | null; error: string | null; requests: number }
 export interface FileSummary { summary: string; check: string[]; files: string[] | null; by: string; at: string }
 export interface AiView {
   used: number; budget: number; by_person: Record<string, number>; by_purpose: Record<string, number>;

@@ -69,6 +69,22 @@ test.describe("stories formed by a strong model", () => {
     await expect(page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ })).toBeVisible({ timeout: 60_000 });
   });
 
+  test("a strong reply cut off by its limit recovers at double the limit, and the request log downloads", async ({ page }) => {
+    const base = await startReview(page);
+    await expect(page.locator(".ws-head .ct-headline")).toHaveText("1 hazard");      // the strong model's answers stand
+    await page.goto(base);
+    await page.getByRole("button", { name: /^AI \d+\/\d+$/ }).click();
+    const usage = page.getByRole("dialog", { name: "AI usage" });
+    await usage.getByText(/^All calls/).click();
+    await expect(usage.locator(".ai-calls tbody tr").first()).toBeVisible();
+    await expect(usage.locator(".ai-calls")).toContainText("fake-strong");
+    const one = usage.getByRole("link", { name: /^Requests of call \d+$/ }).first();
+    await expect(one).toBeVisible();
+    const [download] = await Promise.all([page.waitForEvent("download"),
+                                          usage.getByRole("link", { name: "Download request log" }).click()]);
+    expect(download.suggestedFilename()).toMatch(/^review-\d+-requests\.zip$/);
+  });
+
   test("Health says plainly when code goes to a model off the network", async ({ page }) => {
     await login(page);
     await page.route("**/api/health*", async (route) => {

@@ -15,6 +15,7 @@ llm:
   strong:
     base_url: http://127.0.0.1:8797/v1
     model: fake-strong
+    max_output_tokens: 1000
 targets:
   - { match: "hal/*", name: hal }
   - { match: "*.c", name: fw }
