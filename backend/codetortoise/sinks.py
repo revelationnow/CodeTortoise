@@ -25,7 +25,7 @@ def find_sinks(im: ImpactModel, threshold: int, patterns: list[str], marked: Col
     for nid, n in im.nodes.items():
         if n.kind != "field":
             continue
-        users = len(who.get(nid, ())) + im.capped.get(n.label, 0)
+        users = len(who.get(nid, ())) + im.capped_fields.get(n.label, 0)
         if n.label in marked:
             why = "marked"
         elif any(fnmatch.fnmatchcase(n.label, p) for p in patterns):

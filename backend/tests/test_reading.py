@@ -581,16 +581,18 @@ def test_coverage_names_parse_problems_caps_files_outside_compile_databases_drif
     from codetortoise.vcs.model import DriftItem
     c = _world([_edit("send", "drv/uart.c")])
     c.after[0].tu.confidence, c.after[0].tu.supplemented = "degraded", 7
-    c.impact.capped = {"send": 140}
+    c.impact.capped, c.impact.capped_fields = {"send": 140}, {"Log::buf": 1, "Stats::tx": 75}
     c.cs.drift = [DriftItem(depot="//d/w/drv/uart.c", local="/w/drv/uart.c", expected="#3", actual="#4")]
     assert coverage(_x(c), has_tests=False, outside=2) == [
         "1 file parsed with errors; tree-sitter added 7 calls or field accesses",
         "140 callers of `send` found by name were not checked (more than 50)",
+        "1 function using `Log::buf` found by name was not checked (more than 50 references)",
+        "75 functions using `Stats::tx` found by name were not checked (more than 50 references)",
         "2 files with callers are outside every compile database",
         "1 file in the workspace differs from the CL base",
         "No test code found in the workspace"]
     c.after[0].tu.confidence, c.after[0].tu.extractor, c.after[0].tu.supplemented = "degraded", "treesitter", 0
-    c.impact.capped, c.cs.drift = {}, []
+    c.impact.capped, c.impact.capped_fields, c.cs.drift = {}, {}, []
     assert coverage(_x(c), has_tests=True) == ["1 file read by tree-sitter only"]
 
 

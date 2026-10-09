@@ -488,8 +488,9 @@ def build_impacts(x: _Ctx) -> list[Impact]:
             sink = x.im.sinks.get(fid) if fid else None
             if sink is not None:
                 # a shared sink (spec 2026-10-09 §4): the writer's own lines, quiet; nobody else is annotated
+                title = f"{node.label} now writes {label}"          # the detector's title for this field
                 fm = next((f.id for f in x.c.findings if f.sink and f.kind == "field_mutation" and nid in f.nodes
-                           and f.title.startswith(f"{node.label} now writes {label}")), None)
+                           and f.title in (title, title + " through a local alias")), None)
                 for a in accs:
                     add(nid, a.file, a.line, "info", "state", "State",
                         f"writes {label}{_how(a)} — a shared sink ({why_text(sink)}); its users are not checked", fm,

@@ -380,3 +380,13 @@ def test_the_overview_map_neither_links_parts_by_a_shared_sink_nor_counts_its_fi
     assert all(lk.fields == 0 for lk in ov.links) and ov.totals["findings"] == 0
     (mine,) = [cl for cl in ov.clusters if "N1" in cl.nodes]
     assert mine.findings == 0 and mine.finding_ids == ["F1"]
+
+
+def test_a_sink_note_links_its_own_fields_finding_not_one_whose_name_starts_the_same():
+    from codetortoise.detectors.base import Finding
+    ctx = _sunk()
+    sunk = lambda fid, title: Finding(id=fid, kind="field_mutation", severity="info", title=title,  # noqa: E731
+                                      summary="s", nodes=["N1"], sink=True)
+    ctx.findings = [sunk("F1", "set now writes R::vv"), sunk("F2", "set now writes R::v through a local alias")]
+    (note,) = [i for i in build_board(ctx).impacts if i.channel == "state"]
+    assert note.finding == "F2"

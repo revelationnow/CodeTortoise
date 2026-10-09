@@ -13,7 +13,7 @@ def _im(readers=3, capped=0, label="log_t::buf"):
         nodes[nid] = Node(id=nid, key=f"c:r{i}", label=f"r{i}")
         edges.append(Edge(id=f"E{2 + 2 * i}", src=nid, dst="N2", kind="reads"))
         edges.append(Edge(id=f"E{3 + 2 * i}", src=nid, dst="N2", kind="writes", confidence="heuristic"))
-    return ImpactModel(nodes=nodes, edges=edges, changed=["N1"], capped={label: capped} if capped else {})
+    return ImpactModel(nodes=nodes, edges=edges, changed=["N1"], capped_fields={label: capped} if capped else {})
 
 
 def test_a_field_more_unchanged_functions_touch_than_the_threshold_is_a_sink():
