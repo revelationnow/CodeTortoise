@@ -248,3 +248,17 @@ def test_a_cluster_merged_past_the_limit_with_code_is_not_a_test_cluster():
     f1, t1 = g.fn("uart_send", "drv/uart.c"), g.fn("test_uart", "drv/test_uart.c")
     (c,) = g.run(max_clusters=1).clusters
     assert sorted(c.members) == sorted([f1, t1]) and not c.test
+
+
+def test_a_shared_sink_joins_no_code_and_no_board_requires_it():
+    from codetortoise.impact import SinkInfo
+    g = G()
+    a, b = g.fn("uart_send", "drv/uart.c"), g.fn("logger_put", "svc/logger.c")
+    buf = g.field("log_t::buf")
+    g.edge(a, buf, "writes", "added")
+    g.edge(b, buf, "writes", "added")
+    assert members(g.run()) == [sorted([a, b])]
+    g.im.sinks = {buf: SinkInfo(field=buf, label="log_t::buf", users=300, why="threshold")}
+    res = g.run()
+    assert members(res) == sorted([[a], [b]])
+    assert all(buf not in c.required for c in res.clusters)

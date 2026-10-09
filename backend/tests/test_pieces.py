@@ -137,3 +137,12 @@ def test_the_overview_lists_each_cl_and_each_target_with_shared_files_once():
     many = {f"{W}/d{i}/e{i}/f{i}/g{i}/x.c": ["fw"] for i in range(400)}
     c.cs.files += [FileChange(depot="//d" + f, local=f, action="edit", before="a\n", after="b\n") for f in many]
     assert len(change_overview(c, _Ctx(c), many, limit=6000)) <= 6000
+
+
+def test_a_shared_sink_links_no_pieces():
+    from codetortoise.impact import SinkInfo
+    c = _world([_edit("stack_one", "a/x.c"), _edit("other_two", "b/y.c")],
+               fields=[("stack_one", "log_t", "buf", "write", "added"), ("other_two", "log_t", "buf", "write", "added")])
+    assert any(lk.type == "field" for lk in _pieces(c).links)
+    c.impact.sinks = {"N3": SinkInfo(field="N3", label="log_t::buf", users=300, why="threshold")}
+    assert not any(lk.type == "field" for lk in _pieces(c).links)

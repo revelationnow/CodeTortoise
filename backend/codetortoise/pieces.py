@@ -234,7 +234,7 @@ def build_pieces(c: BoardContext, a: Analysis, targets: dict[str, list[str]],
             adj[e.dst][e.src] += 1
     by_field: dict[str, set[str]] = defaultdict(set)
     for e in im.edges:
-        if altered_access(e) and e.src in cl_of:
+        if altered_access(e, im.sinks) and e.src in cl_of:
             by_field[e.dst].add(e.src)
     for fns in by_field.values():
         for f in fns:
@@ -333,7 +333,7 @@ def _links(x: _Ctx, pieces: list[Piece], node_piece: dict[str, str], rep: Repeat
             link(node_piece[e.src], node_piece[e.dst], "call")
     by_field: dict[str, set[str]] = defaultdict(set)
     for e in im.edges:
-        if altered_access(e) and e.src in node_piece:
+        if altered_access(e, im.sinks) and e.src in node_piece:
             by_field[e.dst].add(node_piece[e.src])
     for ps in by_field.values():
         for p in ps:
