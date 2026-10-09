@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from codetortoise import boardstore
 from codetortoise.health import run_health
 from codetortoise.impact import ImpactModel
-from codetortoise.llm import ondemand, tortoise
+from codetortoise.llm import ondemand, request_log, tortoise
 from codetortoise.names import cited, names, neighbours
 from codetortoise.paths import canon
 from codetortoise.pipeline import JobRunner
@@ -94,6 +94,7 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
     store.end_pending_ai_replies("I couldn't answer: CodeTortoise restarted before the answer was finished. Ask again.")
     if svc.ledger:
         svc.ledger.fail_running()
+        svc.ledger.prune()                         # logged requests past llm.request_log_days
     state = {"ready": run_health(svc).ready}
 
     def user_of(request: Request) -> str:
@@ -512,6 +513,17 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
     def ai_calls(rid: int, _: str = Depends(user_of)):
         review_or_404(rid)
         return svc.ledger.usage(rid)["calls"] if svc.ledger else []
+
+    @app.get("/api/reviews/{rid}/ai/requests.zip")
+    def ai_requests(rid: int, call: int | None = None, _: str = Depends(user_of)):
+        """The review's logged AI requests, one JSON file per request (spec 2026-10-08-llm-robustness §8.2)."""
+        review_or_404(rid)
+        got = request_log.rows(store, rid, call)
+        if not got:
+            raise HTTPException(404, "no requests logged")
+        name = f"review-{rid}" + (f"-call-{call}" if call is not None else "") + "-requests.zip"
+        return Response(request_log.zip_bytes(got), media_type="application/zip",
+                        headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
     @app.put("/api/reviews/{rid}/ai/budget")
     def ai_budget(rid: int, body: BudgetIn, user: str = Depends(owner_of)):

@@ -503,3 +503,29 @@ def test_read_ticks_are_each_readers_own_looks_fine_ticks_the_check_and_a_rerun_
     svc.store.replace_blobs(rid, ["reading", "reading_head"], ["story_reading:"], {})        # a review run before the reading
     assert owner.get(f"/api/reviews/{rid}/ticks").json() == {"stories": [], "checks": []}
     assert owner.put(f"/api/reviews/{rid}/ticks/story/{story}").status_code == 404
+
+
+def test_the_request_log_downloads_as_a_zip_and_the_calls_say_how_many_requests_they_hold(env):
+    import io
+    import zipfile
+
+    from codetortoise.llm import request_log
+    svc, app, _ = env
+    rid = svc.store.create_review("t", "owner", [101])
+    call = svc.ledger.reserve(rid, None, "threads", "threads", "big")
+    svc.ledger.finish(call, "ok")
+    request_log.write(svc.store, call, rid, [{"seq": 1, "sent_at": "2026-10-08T10:00:00+00:00", "elapsed_ms": 5,
+                                              "url": "/v1/chat/completions", "model": "big", "status": 200, "error": None,
+                                              "stop_reason": "stop", "truncated": False, "repair": False,
+                                              "max_output_tokens": None, "prompt_tokens": 1, "completion_tokens": 1,
+                                              "request": {"model": "big"}, "response": "{}"}])
+    c = login(app, "bob")
+    [row] = c.get(f"/api/reviews/{rid}/ai/calls").json()
+    assert (row["model"], row["requests"]) == ("big", 1)
+    r = c.get(f"/api/reviews/{rid}/ai/requests.zip")
+    assert r.status_code == 200 and r.headers["content-type"] == "application/zip"
+    assert f'filename="review-{rid}-requests.zip"' in r.headers["content-disposition"]
+    assert zipfile.ZipFile(io.BytesIO(r.content)).namelist() == [f"call-{call}/1.json"]
+    one = c.get(f"/api/reviews/{rid}/ai/requests.zip?call={call}")
+    assert f'filename="review-{rid}-call-{call}-requests.zip"' in one.headers["content-disposition"]
+    assert c.get(f"/api/reviews/{rid}/ai/requests.zip?call={call + 1}").status_code == 404
