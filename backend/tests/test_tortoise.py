@@ -44,9 +44,10 @@ class Script:
 
 @pytest.fixture
 def world(fx, tmp_path):
-    def make(script, **budget):
+    def make(script, sinks=(), **budget):
         llm = LlmClient("http://llm/v1", "k", "m", transport=httpx.MockTransport(script.handler), sleep=lambda s: None)
         svc = make_services(fx, tmp_path / str(len(budget)) / str(id(script)), llm=llm)
+        svc.cfg.analysis.sink_fields = list(sinks)
         for k, v in budget.items():
             setattr(svc.cfg.llm.budget, k, v)
         app = create_app(svc, InlineRunner(svc), make_authenticator(svc))
@@ -320,3 +321,14 @@ def test_a_question_starts_from_its_anchor_s_story_and_the_change_overview(world
     context = script.prompts[0].split("CONTEXT:\n", 1)[1]
     assert context.startswith("BRIEF (") and f"STORY: {story['title']}" in context
     assert "CHANGE OVERVIEW:\nCHANGE: 2 CLs" in context
+
+
+def test_a_review_question_never_lists_a_shared_sinks_finding(world):
+    import re
+    script = Script({"action": "answer", "text": "ok", "cites": []})
+    svc, app, rid = world(script, sinks=["Stats::*"])
+    sunk = [f.id for f in svc.store.list_findings(rid) if f.sink]
+    _ask(login(app, "bob"), rid, "@tortoise review?", "review", {})
+    finds = script.prompts[0].split("FINDINGS:", 1)[1]
+    assert sunk and re.search(r"^F\d+ \[", finds, re.M)
+    assert not any(re.search(rf"^{i} \[", finds, re.M) for i in sunk)

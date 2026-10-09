@@ -271,8 +271,9 @@ def _anchor_context(svc: Services, rid: int, comment: dict, ctx: AiContext, boar
         reader.ids.update(nodes)
         return "LAYER FUNCTIONS:\n" + _facts_for_nodes(im, nodes)
     flows = "\n".join(f"{f.id}: {f.title} — {f.what}" for f in board.flows)
-    finds = "\n".join(f"{f.id} [{f.severity}] {tidy(f.title)}" for f in ctx.findings)
-    reader.ids.update(f.id for f in ctx.findings)
+    told = [f for f in ctx.findings if not f.sink]           # a shared sink's finding is not the change's risk
+    finds = "\n".join(f"{f.id} [{f.severity}] {tidy(f.title)}" for f in told)
+    reader.ids.update(f.id for f in told)
     return f"CHANGE: {board.about.intent}\nFLOWS:\n{flows}\nFINDINGS:\n{finds}"
 
 

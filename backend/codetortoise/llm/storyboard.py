@@ -385,7 +385,7 @@ def story_job(ctx: AiContext, d: StoryDetail) -> Job:
 
 def summary_job(ctx: AiContext, sb: Storyboard, board: Board | None) -> Job:
     overview = [f"CHAPTER {c.name}: {c.narrative} (cites {c.cites})" for c in sb.chapters]
-    overview += [_finding_text(f) for f in ctx.findings[:30]]
+    overview += [_finding_text(f) for f in [f for f in ctx.findings if not f.sink][:30]]   # a shared sink's: never
 
     def apply(out: _SummaryOut) -> int:
         ok = bool(out.summary.strip()) and _styled(out.summary, "explanation")
