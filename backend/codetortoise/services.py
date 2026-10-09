@@ -134,7 +134,7 @@ def build_services(cfg: Config, llm: LlmClient | None = None, source: Source | N
         else:
             p4 = P4Runner(cfg.workspace.p4port or "", cfg.workspace.client, cfg.workspace.p4_bin, cwd=cfg.workspace.root)
             source = P4Source(p4)
-    ledger = Ledger(store, cfg.llm.budget)
+    ledger = Ledger(store, cfg.llm.budget, cfg.llm.request_log, cfg.llm.request_log_days)
     return Services(cfg=cfg, store=store, source=source, index=index, cdb=cdb, toolchain=tc, llm=llm,
                     layers=LayersProvider(cfg, index, store, llm, ledger), p4=p4, ledger=ledger,
                     strong=strong if strong is not None else make_strong(cfg))

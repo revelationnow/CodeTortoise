@@ -87,6 +87,8 @@ class LlmConfig(BaseModel):
     api: Literal["chat", "responses", "messages"] = "chat"   # chat completions, OpenAI Responses or Anthropic Messages
     max_output_tokens: int | None = None   # the reply's token limit (Messages needs one: 8192 when unset)
     max_output_tokens_cap: int = 32768   # no try asks either model for more output tokens than this
+    request_log: Literal["all", "failed", "off"] = "all"   # HTTP requests kept: every one, a failed call's, or none
+    request_log_days: int = 14     # logged requests older than this are deleted
     max_context_tokens: int = 64000
     timeout_s: float = 120.0
     concurrency: int = 4           # parallel LLM calls (finding explanations, chapter and flow narratives)

@@ -129,3 +129,15 @@ def test_the_output_token_cap_defaults_to_32768_and_reaches_both_clients():
     cfg = Config.model_validate({**base, "llm": {"base_url": "https://x/v1", "model": "m", "max_output_tokens_cap": 16000,
                                                  "strong": {"base_url": "https://a/v1", "model": "big"}}})
     assert (make_llm(cfg).cap, make_strong(cfg).cap) == (16000, 16000)
+
+
+def test_the_request_log_keeps_every_request_for_14_days_unless_told_otherwise():
+    import pydantic
+
+    from codetortoise.config import Config
+    base = {"workspace": {"root": "/w", "compile_commands": "auto"}}
+    cfg = Config.model_validate(base)
+    assert (cfg.llm.request_log, cfg.llm.request_log_days) == ("all", 14)
+    assert Config.model_validate({**base, "llm": {"request_log": "failed"}}).llm.request_log == "failed"
+    with pytest.raises(pydantic.ValidationError, match="request_log"):
+        Config.model_validate({**base, "llm": {"request_log": "some"}})
