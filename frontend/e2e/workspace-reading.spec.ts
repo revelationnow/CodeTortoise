@@ -57,11 +57,14 @@ test.describe("desktop", () => {
     const how = page.locator(".ov-howto");
     await expect(how.locator("ul")).toBeVisible();                                       // open on a first visit
     await expect(how).toContainText("Threads group the change's stories");
+    const saved = () => page.evaluate(() => window.localStorage.getItem("ct.intro.open"));   // kept on the toggle event
     await how.locator("summary").click();
     await expect(how.locator("ul")).toBeHidden();
+    await expect.poll(saved).toBe("false");
     await page.reload();
     await expect(how.locator("ul")).toBeHidden();                                        // stays closed in this browser
     await how.locator("summary").click();
+    await expect.poll(saved).toBe("true");
     await page.reload();
     await expect(how.locator("ul")).toBeVisible();
 
