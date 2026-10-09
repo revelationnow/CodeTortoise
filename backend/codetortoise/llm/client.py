@@ -11,6 +11,7 @@ import re
 import threading
 import time
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Literal, TypeVar
 
 import httpx
@@ -70,6 +71,8 @@ class LlmClient:
             {"Authorization": f"Bearer {api_key}"}
         self._http = httpx.Client(base_url=base_url.rstrip("/"), timeout=timeout, transport=transport, headers=headers)
         self._usage = threading.local()          # tokens reported by the responses of this thread's current call
+        self._log = threading.local()            # this thread's HTTP attempts for the current call (start_log)
+        self._url = self._http.base_url.path.rstrip("/")
 
     @property
     def base(self) -> int:
@@ -145,16 +148,23 @@ class LlmClient:
     def chat(self, system: str, user: str, schema: type[BaseModel] | None = None) -> str:
         return self._chat(system, user, schema, self.max_output_tokens)
 
-    def _chat(self, system: str, user: str, schema: type[BaseModel] | None, limit: int | None) -> str:
+    def _chat(self, system: str, user: str, schema: type[BaseModel] | None, limit: int | None,
+              repair: bool = False) -> str:
         last: Exception | None = None
         for attempt in range(self.retries + 1):
             rf = self._response_format(schema)
             body = self._body(system, user, rf, limit)
+            rec = self._record(body, repair)
+            t0 = time.monotonic()
             try:
                 r = self._http.post(_PATHS[self.api], json=body)
             except httpx.HTTPError as e:
+                if rec is not None:
+                    rec.update(elapsed_ms=int((time.monotonic() - t0) * 1000), error=f"{type(e).__name__}: {e}")
                 last = e
             else:
+                if rec is not None:
+                    rec.update(elapsed_ms=int((time.monotonic() - t0) * 1000), status=r.status_code, response=r.text)
                 if (r.status_code == 400 and self.api == "chat" and limit and self._limit_param == "max_tokens"
                         and "max_tokens" in r.text and "max_completion_tokens" in r.text):
                     self._limit_param = "max_completion_tokens"      # OpenAI's newer models name the limit so
@@ -171,9 +181,12 @@ class LlmClient:
                         data = r.json()
                         tokens = self._count(data)
                         text = self._text(data)
-                        _stop, cut = self._stop(data)
+                        stop, cut = self._stop(data)
                     except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
                         raise LlmError(f"unexpected LLM response: {r.text[:300]}") from e
+                    if rec is not None:
+                        rec.update(stop_reason=stop, truncated=cut, prompt_tokens=tokens[0] if tokens else None,
+                                   completion_tokens=tokens[1] if tokens else None)
                     if cut:
                         raise LlmTruncated(self._sent(body), tokens[1] if tokens else None)
                     return text
@@ -201,7 +214,7 @@ class LlmClient:
         limit, prompt, repaired = self.max_output_tokens, user, False
         while True:
             try:
-                text = self._chat(system, prompt, schema, limit)
+                text = self._chat(system, prompt, schema, limit, repaired)
             except LlmTruncated:
                 nxt = self._raised(limit)
                 if nxt is None:
@@ -222,6 +235,27 @@ class LlmClient:
             if self._view:
                 self.max_output_tokens = limit
             return out
+
+    def start_log(self) -> None:
+        self._log.records = []
+
+    def take_log(self) -> list[dict]:
+        """The HTTP attempts since start_log, on this thread (spec 2026-10-08-llm-robustness §4.4); [] if none was
+        started. Headers are never recorded."""
+        recs = getattr(self._log, "records", None) or []
+        self._log.records = None
+        return recs
+
+    def _record(self, body: dict, repair: bool) -> dict | None:
+        recs = getattr(self._log, "records", None)
+        if recs is None:
+            return None
+        rec = {"seq": len(recs) + 1, "sent_at": datetime.now(UTC).isoformat(timespec="seconds"), "elapsed_ms": None,
+               "url": self._url + _PATHS[self.api], "model": self.model, "status": None, "error": None,
+               "stop_reason": None, "truncated": False, "repair": repair, "max_output_tokens": self._sent(body),
+               "prompt_tokens": None, "completion_tokens": None, "request": body, "response": None}
+        recs.append(rec)
+        return rec
 
     def start_usage(self) -> None:
         self._usage.tokens = None
