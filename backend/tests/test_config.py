@@ -119,3 +119,13 @@ def test_each_model_names_the_api_its_endpoint_speaks():
     assert (make_llm(cfg).api, make_strong(cfg).api, make_strong(cfg).max_output_tokens) == ("responses", "messages", 4000)
     with pytest.raises(pydantic.ValidationError, match="api"):
         Config.model_validate({**base, "llm": {"api": "completions"}})
+
+
+def test_the_output_token_cap_defaults_to_32768_and_reaches_both_clients():
+    from codetortoise.config import Config
+    from codetortoise.services import make_llm, make_strong
+    base = {"workspace": {"root": "/w", "compile_commands": "auto"}}
+    assert Config.model_validate(base).llm.max_output_tokens_cap == 32768
+    cfg = Config.model_validate({**base, "llm": {"base_url": "https://x/v1", "model": "m", "max_output_tokens_cap": 16000,
+                                                 "strong": {"base_url": "https://a/v1", "model": "big"}}})
+    assert (make_llm(cfg).cap, make_strong(cfg).cap) == (16000, 16000)

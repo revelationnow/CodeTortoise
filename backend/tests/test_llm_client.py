@@ -4,7 +4,7 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
-from codetortoise.llm.client import LlmClient, LlmError, LlmUnreachable
+from codetortoise.llm.client import LlmClient, LlmError, LlmTruncated, LlmUnreachable
 
 
 class Out(BaseModel):
@@ -229,3 +229,88 @@ def test_a_token_limit_goes_to_the_responses_api_as_max_output_tokens():
 def test_malformed_responses_and_messages_bodies_raise_llm_error(api, body):
     with pytest.raises(LlmError, match="unexpected LLM response"):
         client(lambda r: httpx.Response(200, json=body), api=api).chat("s", "u")
+
+
+def cut(content="{", completion=7):
+    return httpx.Response(200, json={"choices": [{"message": {"content": content}, "finish_reason": "length"}],
+                                     "usage": {"prompt_tokens": 10, "completion_tokens": completion}})
+
+
+def test_a_reply_cut_off_by_the_limit_is_sent_again_with_double_the_limit_and_no_repair():
+    bodies = []
+
+    def handler(req):
+        body = json.loads(req.content)
+        bodies.append(body)
+        return cut('{"answer": "x"') if body["max_tokens"] < 4000 else reply('{"answer": "x", "n": 1}')
+    assert client(handler, max_output_tokens=1000).complete_json("s", "u", Out).n == 1
+    assert [b["max_tokens"] for b in bodies] == [1000, 2000, 4000]
+    assert all(b["messages"][1]["content"] == "u" for b in bodies)        # sent again as it was: no repair round
+
+
+def test_a_short_reply_cut_off_by_the_limit_is_still_cut_off():
+    # a reasoning model spends the limit thinking: two visible tokens, cut off all the same
+    with pytest.raises(LlmTruncated):
+        client(lambda r: cut("{", completion=2), max_output_tokens=1000, cap=1000).complete_json("s", "u", Out)
+
+
+def test_a_reply_cut_off_at_the_cap_fails_with_llm_truncated():
+    with pytest.raises(LlmTruncated, match="reply cut off at 2000 tokens") as e:
+        client(lambda r: cut(), max_output_tokens=1000, cap=2000).complete_json("s", "u", Out)
+    assert (e.value.limit, e.value.completion) == (2000, 7)
+
+
+def test_with_no_limit_set_a_cut_off_reply_is_sent_again_from_the_base():
+    bodies = []
+
+    def handler(req):
+        bodies.append(json.loads(req.content))
+        return cut() if len(bodies) == 1 else reply('{"answer": "x", "n": 1}')
+    assert client(handler).complete_json("s", "u", Out).n == 1
+    assert "max_tokens" not in bodies[0] and bodies[1]["max_tokens"] == 16384
+
+
+def test_a_complete_but_invalid_reply_is_repaired_with_double_the_limit():
+    replies = iter(['{"answer": "x"}', '{"answer": "x", "n": 3}'])
+    bodies = []
+
+    def handler(req):
+        bodies.append(json.loads(req.content))
+        return reply(next(replies))
+    assert client(handler, max_output_tokens=1000).complete_json("s", "u", Out).n == 3
+    assert [b["max_tokens"] for b in bodies] == [1000, 2000] and "invalid" in bodies[1]["messages"][1]["content"]
+
+
+@pytest.mark.parametrize("api,data", [
+    ("chat", {"choices": [{"message": {"content": "{"}, "finish_reason": "length"}]}),
+    ("messages", {"content": [{"type": "text", "text": "{"}], "stop_reason": "max_tokens"}),
+    ("responses", {"status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"},
+                   "output": [{"type": "message", "content": [{"type": "output_text", "text": "{"}]}]}),
+])
+def test_each_api_says_when_a_reply_was_cut_off(api, data):
+    with pytest.raises(LlmTruncated):
+        client(lambda r: httpx.Response(200, json=data), api=api, max_output_tokens=1000).chat("s", "u")
+
+
+@pytest.mark.parametrize("api,data", [
+    ("chat", {"choices": [{"message": {"content": "hi"}, "finish_reason": "stop"}]}),
+    ("messages", {"content": [{"type": "text", "text": "hi"}], "stop_reason": "end_turn"}),
+    ("responses", {"status": "completed", "output": [{"type": "message", "content": [{"type": "output_text", "text": "hi"}]}]}),
+])
+def test_other_stop_reasons_change_nothing(api, data):
+    assert client(lambda r: httpx.Response(200, json=data), api=api).chat("s", "u") == "hi"
+
+
+def test_the_chat_api_sends_its_limit_as_max_tokens_and_moves_to_max_completion_tokens_when_told():
+    bodies = []
+
+    def handler(req):
+        body = json.loads(req.content)
+        bodies.append(body)
+        if "max_tokens" in body:
+            return httpx.Response(400, json={"error": {"message": "Unsupported parameter: 'max_tokens' is not supported "
+                                                                  "with this model. Use 'max_completion_tokens' instead."}})
+        return reply("hi")
+    c = client(handler, max_output_tokens=3000)
+    assert c.chat("s", "u") == "hi" and c.chat("s", "u") == "hi"
+    assert [("max_tokens" in b, b.get("max_completion_tokens")) for b in bodies] == [(True, None), (False, 3000), (False, 3000)]

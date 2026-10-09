@@ -105,7 +105,8 @@ def make_llm(cfg: Config) -> LlmClient | None:
     if not cfg.llm.base_url:
         return None
     return LlmClient(cfg.llm.base_url, key, cfg.llm.model, timeout=cfg.llm.timeout_s, api=cfg.llm.api,
-                     max_output_tokens=cfg.llm.max_output_tokens)
+                     max_output_tokens=cfg.llm.max_output_tokens,
+                     cap=cfg.llm.max_output_tokens_cap)
 
 
 def make_strong(cfg: Config) -> LlmClient | None:
@@ -113,7 +114,7 @@ def make_strong(cfg: Config) -> LlmClient | None:
     if s is None:
         return None
     return LlmClient(s.base_url, os.environ.get(s.key_env, ""), s.model, timeout=s.timeout_s, temperature=s.temperature,
-                     api=s.api, max_output_tokens=s.max_output_tokens)
+                     api=s.api, max_output_tokens=s.max_output_tokens, cap=cfg.llm.max_output_tokens_cap)
 
 
 def build_services(cfg: Config, llm: LlmClient | None = None, source: Source | None = None,
