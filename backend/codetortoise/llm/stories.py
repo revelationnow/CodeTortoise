@@ -24,10 +24,11 @@ from codetortoise.board import _Ctx
 from codetortoise.config import StrongLlmConfig
 from codetortoise.detectors.base import Finding
 from codetortoise.grouping import REASONS, Placement, PlannedStory, StoryPlan, rules_plan
-from codetortoise.llm.client import LlmClient, LlmUnreachable
+from codetortoise.llm.client import LlmClient
 from codetortoise.llm.ledger import Ledger, Refused
 from codetortoise.llm.storyboard import _styled, _titled
 from codetortoise.llm.style import MODES, STYLE
+from codetortoise.llm.tiers import TiersFailed, Tried, done_text, tried_note, try_tiers
 from codetortoise.pieces import Piece, PieceSet
 from codetortoise.tidy import tidy
 
@@ -457,9 +458,10 @@ def merge_pass(strong: LlmClient, stories: list[PlannedStory], ps: PieceSet, cls
 
 # ------------------------------------------------------------------ the stage
 def form_stories(strong: LlmClient, ledger: Ledger | None, rid: int | None, ps: PieceSet, x: _Ctx,
-                 cfg: StrongLlmConfig, findings: list[Finding]) -> StoryPlan:
-    """Tier 1's plan for the whole change. A chunk that fails (or is refused by the budget) is grouped by the rules,
-    and the plan's notes say so."""
+                 cfg: StrongLlmConfig, findings: list[Finding], weak: LlmClient | None = None) -> StoryPlan:
+    """Tier 1's plan for the whole change. A chunk the strong model fails is tried fresh, then on the weak model (spec
+    2026-10-08-llm-robustness §6); one every model fails (or the budget refuses) is grouped by the rules. The plan's
+    notes say which."""
     limit = int(cfg.context_tokens * 4 * CHUNK_SHARE)
     cls = {m.cl: m.description for m in x.c.cs.cls}
     tools = Tools(x, ps)
@@ -467,19 +469,25 @@ def form_stories(strong: LlmClient, ledger: Ledger | None, rid: int | None, ps: 
     stories: list[PlannedStory] = []
     unsorted: list[Placement] = []
     notes: list[str] = []
-    refused = unreachable = fell_back = False
+    refused = fell_back = False
+    gone = {"strong": False}            # the strong model was unreachable this run: later work skips its tries
 
-    def call(purpose: str, target: str, fn):
-        return ledger.call(strong, rid, None, purpose, target, fn) if ledger is not None else fn(strong)
+    def call(purpose: str, target: str, fn) -> Tried:
+        t = try_tiers(ledger, rid, purpose, target, fn, strong, weak, skip_strong=gone["strong"])
+        gone["strong"] |= t.strong_unreachable
+        return t
     for i, ids in enumerate(groups, 1):
         prefix = f"c{i}" if len(groups) > 1 else ""
         parts = chunk_parts(ids, ps, findings)
+        later: list[tuple[int, Tried]] = []          # runs a later try answered: each gets a note
 
-        def run(n: int = 1, ids=ids, parts=parts, prefix=prefix, i=i) -> Got:
-            step = call("stories", f"chunk {i}" + (f" run {n}" if n > 1 else ""),
-                        lambda llm: ask(llm, parts, tools, cfg.rounds, int(cfg.context_tokens * 4 * 0.9)))
-            return check_answer(step, ids, ps, cls, prefix)
-        if unreachable:
+        def run(n: int = 1, ids=ids, parts=parts, prefix=prefix, i=i, later=later) -> Got:
+            t = call("stories", f"chunk {i}" + (f" run {n}" if n > 1 else ""),
+                     lambda llm: ask(llm, parts, tools, cfg.rounds, int(cfg.context_tokens * 4 * 0.9)))
+            if t.tier != "strong":
+                later.append((n, t))
+            return check_answer(t.value, ids, ps, cls, prefix)
+        if gone["strong"] and weak is None:
             fell_back = True
             notes.append(f"chunk {i}: the strong model is unreachable; the rules grouped its pieces")
             stories += rules_plan(ps, ids, prefix=f"r{i}_")
@@ -500,19 +508,31 @@ def form_stories(strong: LlmClient, ledger: Ledger | None, rid: int | None, ps: 
             refused = fell_back = True
             notes.append(f"chunk {i}: AI budget: {e.reason}; the rules grouped its pieces")
             got = Got(stories=rules_plan(ps, ids, prefix=f"r{i}_"))
-        except Exception as e:  # a chunk that fails falls back to the rules; the others stand
-            unreachable = isinstance(e, LlmUnreachable)          # no point waiting on it again this run
+        except TiersFailed as e:
+            gone["strong"] |= e.strong_unreachable
+            fell_back = True
+            notes.append(tried_note(f"chunk {i}", e.failures, "the rules grouped its pieces"))
+            got = Got(stories=rules_plan(ps, ids, prefix=f"r{i}_"))
+        except Exception as e:  # an answer the checks reject: the rules group the chunk; the others stand
             fell_back = True
             notes.append(f"chunk {i}: {type(e).__name__}: {e}"[:300] + "; the rules grouped its pieces")
             got = Got(stories=rules_plan(ps, ids, prefix=f"r{i}_"))
+        for n, t in later:
+            fell_back = fell_back or t.tier == "weak"
+            notes.append(tried_note(f"chunk {i}" + (f" run {n}" if n > 1 else ""), t.failures,
+                                    done_text(t, "grouped its pieces")))
         stories += got.stories
         unsorted += got.unsorted
     tier1 = [s for s in stories if s.source == "tier1"]
-    if len(groups) > 1 and len(tier1) > 1 and not refused and not unreachable:
+    if len(groups) > 1 and len(tier1) > 1 and not refused and not (gone["strong"] and weak is None):
         try:
-            merged = call("stories_merge", "merge", lambda llm: merge_pass(llm, tier1, ps, cls))
-            stories = merged.stories + [s for s in stories if s.source != "tier1"]
-            unsorted += merged.unsorted
+            t = call("stories_merge", "merge", lambda llm: merge_pass(llm, tier1, ps, cls))
+            stories = t.value.stories + [s for s in stories if s.source != "tier1"]
+            unsorted += t.value.unsorted
+            if t.tier != "strong":
+                notes.append(tried_note("merge pass", t.failures, done_text(t, "merged them")))
+        except TiersFailed as e:
+            notes.append(tried_note("merge pass", e.failures, "the chunks' stories stand unmerged"))
         except Exception as e:  # the chunks' stories stand unmerged
             notes.append(f"merge pass: {type(e).__name__}: {e}"[:300])
     if unsorted:

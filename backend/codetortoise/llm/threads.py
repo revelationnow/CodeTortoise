@@ -15,6 +15,7 @@ from codetortoise.llm.client import LlmClient
 from codetortoise.llm.ledger import Ledger, Refused
 from codetortoise.llm.storyboard import _styled, _titled
 from codetortoise.llm.style import STYLE
+from codetortoise.llm.tiers import TiersFailed, done_text, tried_note, try_tiers
 from codetortoise.reading import Reading
 from codetortoise.stories import StorySet
 
@@ -87,18 +88,22 @@ def _keeps(fixed: str, facts: list[str], text: str) -> bool:
 
 
 def write_threads(strong: LlmClient, ledger: Ledger | None, rid: int | None, reading: Reading, ss: StorySet,
-                  cls: dict[int, str]) -> list[str]:
-    """Reword `reading` in place from one checked tier-1 answer; returns notes on what kept its fixed text."""
+                  cls: dict[int, str], weak: LlmClient | None = None) -> tuple[list[str], str | None]:
+    """Reword `reading` in place from one checked answer; returns notes on what kept its fixed text, and the model that
+    wrote the text (None: the fixed text stays). The strong model failing is tried fresh, then on the weak model (spec
+    2026-10-08-llm-robustness §6)."""
     text = prompt(reading, ss, cls)
 
     def ask(llm: LlmClient) -> _Out:
         return llm.complete_json(SYSTEM, text, _Out)
     try:
-        out = ledger.call(strong, rid, None, "threads", "threads", ask) if ledger is not None else ask(strong)
+        tried = try_tiers(ledger, rid, "threads", "threads", ask, strong, weak)
     except Refused as e:
-        return [f"thread text: AI budget: {e.reason}; the fixed text stays"]
-    except Exception as e:  # the fixed text stands
-        return [f"thread text: {type(e).__name__}: {e}"[:300] + "; the fixed text stays"]
+        return [f"thread text: AI budget: {e.reason}; the fixed text stays"], None
+    except TiersFailed as e:  # the fixed text stands
+        return [tried_note("thread text", e.failures, "the fixed text stays")], None
+    out = tried.value
+    said = [] if tried.tier == "strong" else [tried_note("thread text", tried.failures, done_text(tried, "wrote it"))]
     ids = _ids(reading, ss)
 
     def cited(cites: list[str]) -> bool:
@@ -129,8 +134,8 @@ def write_threads(strong: LlmClient, ledger: Ledger | None, rid: int | None, rea
         else:
             bad_conns += 1
     if not (bad_threads or bad_whole or bad_conns):
-        return []
+        return said, tried.model
     parts = ([f"{bad_threads} thread(s)"] if bad_threads else []) + (["the whole"] if bad_whole else []) + \
             ([f"{bad_conns} connection(s)"] if bad_conns else [])
     joined = parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
-    return [f"thread text: {joined} failed the checks; their fixed text stays"]
+    return said + [f"thread text: {joined} failed the checks; their fixed text stays"], tried.model

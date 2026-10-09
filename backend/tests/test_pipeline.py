@@ -470,7 +470,8 @@ def test_a_strong_model_that_fails_leaves_the_rules_stories_and_says_so(fx, tmp_
     run_review(rid, svc)
     st = next(s for s in svc.store.list_stages(rid) if s["name"] == "stories")
     assert st["status"] == "degraded"
-    assert "chunk 1: RuntimeError: the endpoint is down; the rules grouped its pieces" in st["message"]
+    assert ("chunk 1: big: RuntimeError: the endpoint is down; fresh try: RuntimeError: the endpoint is down; the rules "
+            "grouped its pieces") in st["message"]
     assert {s["source"] for s in svc.store.get_blob(rid, "stories")["stories"]} == {"rules"}
     assert svc.store.get_brief(rid)["complete"] is False
 
@@ -570,3 +571,19 @@ def test_a_later_cl_rewriting_an_earlier_ones_line_is_a_rewrite_and_each_story_r
     run_review(rid, svc)
     assert svc.store.get_blob(rid, "reading")["gaps"] == [{"file": logger, "after_cl": 103, "before_cl": 105,
                                                               "same_base": False}]   # CL 104 came between: not one base
+
+
+def test_a_review_run_prunes_requests_older_than_the_retention(fx, tmp_path):
+    from datetime import UTC, datetime, timedelta
+
+    from codetortoise.llm import request_log
+    svc = make_services(fx, tmp_path)
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    call = svc.ledger.reserve(rid, None, "flow", "x", "m")
+    old = (datetime.now(UTC) - timedelta(days=30)).isoformat(timespec="seconds")
+    request_log.write(svc.store, call, rid, [{"seq": 1, "sent_at": old, "elapsed_ms": 1, "url": "/v1/chat/completions",
+                                              "model": "m", "status": 200, "error": None, "stop_reason": "stop",
+                                              "truncated": False, "repair": False, "max_output_tokens": None,
+                                              "prompt_tokens": 1, "completion_tokens": 1, "request": {}, "response": "{}"}])
+    run_review(rid, svc)
+    assert request_log.rows(svc.store, rid) == []

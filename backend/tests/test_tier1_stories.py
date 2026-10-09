@@ -6,7 +6,7 @@ from test_stories import W, _edit, _in_cls, _world
 from codetortoise.board import analyse
 from codetortoise.brief import cache_key
 from codetortoise.config import LlmBudget, StrongLlmConfig
-from codetortoise.llm.client import LlmUnreachable
+from codetortoise.llm.client import LlmError, LlmUnreachable
 from codetortoise.llm.ledger import Ledger
 from codetortoise.llm.stories import ASK_STYLE, STORY_RULES_VERSION, Tools, ask, chunk_parts, form_stories
 from codetortoise.pieces import build_pieces
@@ -113,7 +113,8 @@ def test_a_chunk_that_fails_is_grouped_by_the_rules_and_the_plan_says_so():
     c, a, ps, pid = _change()
     plan, _ = _form(ps, a.x, lambda s, u: {"action": "read", "tool": "cl", "arg": "11"}, rounds=2)
     assert {s.source for s in plan.stories} == {"rules"}
-    assert plan.notes == ["chunk 1: ValueError: no answer within the rounds allowed; the rules grouped its pieces"]
+    assert plan.notes == ["chunk 1: big: ValueError: no answer within the rounds allowed; fresh try: ValueError: no answer "
+                          "within the rounds allowed; the rules grouped its pieces"]
 
 
 def test_large_changes_are_chunked_by_target_and_a_merge_pass_joins_them():
@@ -191,8 +192,8 @@ def test_an_unreachable_strong_model_is_asked_once_and_the_rules_group_the_rest(
     plan, llm = _form(ps, a.x, lambda s, u: LlmUnreachable("LLM request failed after 3 attempts: ReadTimeout"),
                       context_tokens=_per_target(ps))
     assert len(llm.prompts) == 1 and {s.source for s in plan.stories} == {"rules"}
-    assert plan.notes == ["chunk 1: LlmUnreachable: LLM request failed after 3 attempts: ReadTimeout; the rules grouped "
-                          "its pieces", "chunk 2: the strong model is unreachable; the rules grouped its pieces"]
+    assert plan.notes == ["chunk 1: big: unreachable; the rules grouped its pieces",
+                          "chunk 2: the strong model is unreachable; the rules grouped its pieces"]
 
 
 def test_a_shared_piece_placed_first_leaves_the_story_to_its_single_target_pieces():
@@ -257,7 +258,8 @@ def test_a_failed_merge_pass_leaves_the_plan_complete_and_a_failed_chunk_does_no
         return {"action": "answer", "stories": [_story(f"s{i}", "Modem transmit", _p(m, "starts_purpose"))
                                                 for i, m in enumerate(mine)]}
     plan, _ = _form(ps, a.x, answer, context_tokens=_per_target(ps))
-    assert plan.complete and plan.notes == ["merge pass: RuntimeError: the merge timed out"]
+    assert plan.complete and plan.notes == ["merge pass: big: RuntimeError: the merge timed out; fresh try: RuntimeError: "
+                                     "the merge timed out; the chunks' stories stand unmerged"]
     plan, _ = _form(ps, a.x, lambda s, u: {"action": "read", "tool": "cl", "arg": "11"}, rounds=2)
     assert not plan.complete
 
@@ -278,3 +280,27 @@ def test_agreement_mode_keeps_the_first_run_when_the_budget_stops_the_second(tmp
 @pytest.fixture(autouse=True)
 def _no_network(monkeypatch):
     monkeypatch.setattr("httpx.Client.post", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no network")))
+
+
+def test_a_chunk_the_strong_model_fails_is_grouped_by_the_weak_model_and_the_plan_says_so():
+    c, a, ps, pid = _change()
+    answer = {"action": "answer", "stories": [
+        _story("a", "Modem radio gains band 71", _p(pid["modem_tx"], "starts_purpose"), _p(pid["modem_rx"])),
+        _story("b", "DSP runs a faster FFT", _p(pid["dsp_run"], "starts_purpose"), purpose="The DSP's FFT gets faster.")]}
+    strong = ScriptedLlm(lambda s, u: LlmError("LLM returned invalid JSON twice: x"))
+    weak = ScriptedLlm(lambda s, u: answer, model="small")
+    plan = form_stories(strong, None, None, ps, a.x, StrongLlmConfig(base_url="http://x", model="big"), [], weak=weak)
+    assert [s.key for s in plan.stories] == ["a", "b"] and {s.source for s in plan.stories} == {"tier1"}
+    assert plan.notes == ["chunk 1: big: invalid JSON twice; fresh try: invalid JSON twice; small grouped its pieces"]
+    assert not plan.complete and len(strong.prompts) == 2 and len(weak.prompts) == 1
+
+
+def test_once_the_strong_model_is_unreachable_later_chunks_go_straight_to_the_weak_model():
+    c, a, ps, pid = _change()
+    strong = ScriptedLlm(lambda s, u: LlmUnreachable("LLM request failed after 3 attempts: ReadTimeout"))
+    weak = ScriptedLlm(lambda s, u: LlmError("LLM returned invalid JSON twice: x"), model="small")
+    plan = form_stories(strong, None, None, ps, a.x, StrongLlmConfig(base_url="http://x", model="big",
+                                                                     context_tokens=_per_target(ps)), [], weak=weak)
+    assert len(strong.prompts) == 1 and len(weak.prompts) == 2
+    assert plan.notes == ["chunk 1: big: unreachable; small: invalid JSON twice; the rules grouped its pieces",
+                          "chunk 2: small: invalid JSON twice; the rules grouped its pieces"]
