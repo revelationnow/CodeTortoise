@@ -151,3 +151,10 @@ def test_a_thread_whose_files_are_all_at_the_root_may_pick_no_module():
     notes, _ = write_threads(ScriptedLlm(lambda s, u: _with_picks(T1=(["main.c"], []))), None, None, r, ss, {},
                              files={"T1": [("main.c", 1)]})
     assert notes == [] and (r.threads[0].files, r.threads[0].modules, r.threads[0].files_source) == (["main.c"], [], "llm")
+
+
+def test_a_pick_copying_a_files_changed_function_count_still_names_that_file():
+    r, ss = _reading()
+    notes, _ = write_threads(ScriptedLlm(lambda s, u: _with_picks(T1=(["drv/uart.c (2)", "main.c(1)"], ["drv/"]))), None,
+                             None, r, ss, {}, files={"T1": FILES["T1"]})
+    assert notes == [] and r.threads[0].files == ["drv/uart.c", "main.c"]

@@ -121,3 +121,10 @@ def test_the_scripted_intro_answer_passes_every_check():
     r, ss = _intro_reading()
     llm = ScriptedLlm(lambda s, u: intro_answer(u))
     assert write_intro(llm, None, None, r, ss, {}) == ([], "big")
+
+
+def test_a_thread_with_open_checks_is_never_marked_skim():
+    r, ss = _intro_reading()
+    route = [{**GOOD["route"][0], "skim": True}, *GOOD["route"][1:]]
+    notes, _ = write_intro(ScriptedLlm(lambda s, u: _with(route=route)), None, None, r, ss, {})
+    assert notes == [] and [s.skim for s in r.route] == [False, False, True]

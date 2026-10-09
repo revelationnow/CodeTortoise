@@ -25,6 +25,7 @@ MAX_LISTED = 40                       # a thread's files listed in the prompt
 _TICKS = re.compile(r"`[^`]+`")
 _CL = re.compile(r"\bCL ?\d+\b")
 _SENT = re.compile(r"(?<=[.?!])\s+")
+_COUNT = re.compile(r"\s*\(\d+\)\s*$")       # a listed file's changed-function count, copied into a pick
 
 SYSTEM = ("You are a senior C/C++ reviewer explaining a change to other reviewers. Use only what you are given. Reply "
           'with one JSON object: {"threads": [{"id", "name", "purpose", "cites", "files", "modules"}], "whole", '
@@ -102,7 +103,7 @@ def _keeps(fixed: str, facts: list[str], text: str) -> bool:
 def _pick(a: _T, listed: list[str], need_module: bool) -> tuple[list[str], list[str]] | None:
     """A thread's key files and modules from the answer, or None when they fail the check (spec
     2026-10-09-review-introduction §4.0): listed files only, directories holding one of them, within the limits."""
-    files = list(dict.fromkeys(f.strip() for f in a.files if f.strip()))
+    files = list(dict.fromkeys(f for f in (_COUNT.sub("", f).strip() for f in a.files) if f))
     modules = list(dict.fromkeys(m.strip() for m in a.modules if m.strip()))
     ok = (1 <= len(files) <= MAX_FILES and len(modules) <= MAX_MODULES and (bool(modules) or not need_module)
           and all(f in listed for f in files)
