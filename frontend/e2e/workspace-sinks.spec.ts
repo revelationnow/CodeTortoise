@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { startReview } from "./helpers";
+import { login, startReview } from "./helpers";
 
 const SINKS = "http://127.0.0.1:8794";
 const READER = "uart_errors reads Uart::errors";
@@ -44,5 +44,45 @@ test.describe("shared sinks", () => {
     await cov.getByRole("button", { name: "Re-run" }).click();
     await expect(page.locator(".ck-row", { hasText: READER })).toHaveCount(1, { timeout: 60_000 });
     await expect(cov).not.toContainText("Uart::errors");
+  });
+
+  test("Show reveals the writer's quiet note in its code; hidden, the code has none", async ({ page }) => {
+    const base = await startReview(page);
+    const openDiff = async () => {
+      await page.locator(".ws-rail").getByRole("link", { name: "Open the Index: Files" }).click();
+      await page.getByRole("link", { name: "Open uart.c's diff" }).click();
+      const file = page.getByRole("complementary", { name: "Code: uart.c" });
+      await expect(file.locator(".bd-ann", { hasText: "Uart::errors" }).first()).toBeVisible();
+      return file.locator(".bd-ann", { hasText: "a shared sink (in tortoise.yaml)" });
+    };
+    await expect(await openDiff()).toHaveCount(0);
+    await page.goto(base);
+    await page.getByRole("region", { name: "Coverage" }).getByRole("button", { name: "Show" }).click();
+    await expect((await openDiff()).first()).toContainText("writes Stats::tx");
+  });
+
+  test("a re-run that fails says why, and the button can be tried again", async ({ page }) => {
+    await startReview(page);
+    const row = page.locator(".ck-row", { hasText: READER });
+    try {
+      await row.getByRole("button", { name: "Treat Uart::errors as a sink" }).click();
+      await page.route("**/rerun", (r) => r.fulfill({ status: 409, contentType: "application/json",
+                                                      body: JSON.stringify({ detail: "a run is already in progress" }) }));
+      await row.getByRole("button", { name: "Re-run" }).click();
+      await expect(row).toContainText("a run is already in progress");
+      await expect(row.getByRole("button", { name: "Re-run" })).toBeEnabled();
+    } finally {
+      await page.request.delete(`/api/sinks/${encodeURIComponent("Uart::errors")}`);
+    }
+  });
+
+  test("unmarking on the Health page takes the label off the list", async ({ page }) => {
+    await login(page);
+    await page.request.put(`/api/sinks/${encodeURIComponent("Probe::flag")}`);
+    await page.goto("/health");
+    const card = page.locator("section.card", { has: page.getByRole("heading", { name: "Shared sinks" }) });
+    await expect(card).toContainText("Probe::flag");
+    await card.getByRole("button", { name: "Unmark Probe::flag" }).click();
+    await expect(card).not.toContainText("Probe::flag");
   });
 });

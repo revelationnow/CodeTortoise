@@ -6,8 +6,9 @@ export default function Health() {
   const [h, setH] = useState<HealthT | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sinks, setSinks] = useState<SinkRules | null>(null);
+  const loadSinks = () => api.sinks().then(setSinks).catch(() => setSinks(null));
   const load = () => {
-    api.sinks().then(setSinks).catch(() => setSinks(null));
+    loadSinks();
     return api.health().then(setH).catch((e) => setError(String(e.message ?? e)));
   };
   useEffect(() => { load(); }, []);
@@ -55,7 +56,7 @@ export default function Health() {
             <h2>Shared sinks</h2>
             <p>{sinks.threshold > 0 ? `A field more than ${sinks.threshold} unchanged functions touch` : "No threshold (sink_threshold: 0)"}</p>
             <p className="mono small">In tortoise.yaml: {sinks.patterns.length ? sinks.patterns.join(" ") : "none"}</p>
-            <p>Marked: {sinks.marked.length ? sinks.marked.map((m) => <span key={m}><code>{m}</code> <SinkMark label={m} on /> </span>) : "none"}</p>
+            <p>Marked: {sinks.marked.length ? sinks.marked.map((m) => <span key={m}><code>{m}</code> <SinkMark label={m} on onDone={loadSinks} /> </span>) : "none"}</p>
           </section>
         )}
         {Object.keys(h.p4_sources ?? {}).length > 0 && (

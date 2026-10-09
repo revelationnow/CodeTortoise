@@ -199,7 +199,15 @@ analysis:
                                     #   ("workspace" indexes every C/C++ file under root)
   workers: 4                        # parallel libclang processes
   entrypoint_patterns: ["main", "*_isr", "*_irq_handler", "*Callback", "*_callback"]
+  sink_threshold: 20                # a field more than this many unchanged functions touch is a shared sink; 0 = off
+  sink_fields: ["log_t::*", "*::trace_buf"]   # record::field patterns (case-sensitive), always shared sinks
 ```
+
+A **shared sink** is a field like a log buffer, a trace ring or a statistics counter that so many functions touch that a
+new write to it says nothing about its users. A review leaves its users out: no To check rows, no notes on other
+functions, no flows, no story links, and no AI judgement. The overview lists the sinks it hid and why; each viewer can
+**Show** them. The owner can also mark a field as a sink (or unmark it) from a finding, a To check row, a field's
+declaration note or the Health page; marks apply to every review from its next run.
 
 ### 4. Index, check, run
 
