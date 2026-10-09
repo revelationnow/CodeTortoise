@@ -13,5 +13,7 @@ export default defineConfig({
     // two-tier stories (e2e/workspace-tier1.spec.ts): the fake model as the strong model too, the fixture split into targets
     { command: "bash e2e/serve-strong.sh", url: "http://127.0.0.1:8795/api/me", timeout: 120_000, reuseExistingServer: false },
     { command: "bash e2e/serve-large.sh", url: "http://127.0.0.1:8796/api/me", timeout: 120_000, reuseExistingServer: false },
+    // shared sinks (e2e/workspace-sinks.spec.ts): the fixture with Stats::* listed as sinks, marks of its own
+    { command: "bash e2e/serve-sinks.sh", url: "http://127.0.0.1:8794/api/me", timeout: 120_000, reuseExistingServer: false },
   ],
 });
