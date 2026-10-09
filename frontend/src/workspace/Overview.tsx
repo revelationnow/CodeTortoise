@@ -99,9 +99,9 @@ function WhereToStart({ r }: { r: Reading }) {
       <h2 id="ov-start">{r.route_source === "llm" && <span className="ai-label">AI</span>}Where to start</h2>
       <ol className="ov-route">{rows.map((row) => (
         <li key={row.id} className={row.skim ? "skim" : ""}>
-          <button className="link" onClick={() => document.getElementById(`thread-${row.id}`)?.scrollIntoView({ block: "start" })}
+          <button className="link ov-route-go" onClick={() => document.getElementById(`thread-${row.id}`)?.scrollIntoView({ block: "start" })}
                   aria-label={`Go to thread ${row.letter}: ${short(row.name.replaceAll("`", ""))}`}>
-            <span className="ov-letter">{row.letter}</span> <Ticks text={row.name} />
+            <span className="ov-letter">{row.letter}</span> <span className="ov-route-name"><Ticks text={row.name} /></span>
           </button>
           {" — "}<Ticks text={row.reason} />
           {row.skim && <span className="ov-skim">skim</span>}

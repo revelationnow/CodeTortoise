@@ -619,6 +619,8 @@ a.ws-chip { text-decoration: none; }
 .ov-route li { margin: 4px 0; }
 .ov-route li.skim { color: var(--muted); }
 .ov-route .ov-letter { margin-right: 2px; }
+.ov-route-go { text-decoration: none; padding: 0; }
+.ov-route-go .ov-route-name { text-decoration: underline; text-underline-offset: 2px; }
 .ov-skim { margin-left: 6px; padding: 0 6px; font-size: 12px; border: 1px solid var(--line); border-radius: 8px; }
 .ov-stories { margin: 4px 0 0; padding-left: 22px; font-size: 14px; }
 .ov-stories li { padding: 2px 0; }
