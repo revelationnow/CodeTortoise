@@ -5,6 +5,7 @@ from collections import defaultdict
 
 from codetortoise.detectors.base import DetectorContext, Evidence, Finding
 from codetortoise.facts.model import FieldAccess
+from codetortoise.sinks import why_text
 
 
 def _writes(facts_list, usr: str) -> dict[tuple[str, str], list[FieldAccess]]:
@@ -36,6 +37,19 @@ def detect_field_mutation(ctx: DetectorContext) -> list[Finding]:
             accesses = wa[key]
             a0 = accesses[0]
             field_node = im.node_by_key(f"field:{a0.field}")
+            label = field_node.label if field_node else a0.field_name
+            alias = any(not v.startswith("call:") for a in accesses for v in a.via)
+            title = f"{node.label} now writes {label}" + (" through a local alias" if alias else "")
+            sink = im.sinks.get(field_node.id) if field_node else None
+            if sink is not None:
+                # a shared sink (spec 2026-10-09 §4): the writer's own lines; its users are neither listed nor judged
+                findings.append(Finding(
+                    kind="field_mutation", severity="info", sink=True, title=title, nodes=[nid],
+                    evidence=[Evidence(text=f"{a.mode} `{a.path}`" + (f" via {' -> '.join(a.via)}" if a.via else "")
+                                       + f" ({a.confidence})", file=a.file, line=a.line) for a in accesses],
+                    summary=f"{node.label} newly modifies {label}, a shared sink ({why_text(sink)}); its users are not "
+                            "checked."))
+                continue
             others, heuristic = [], []
             if field_node is not None:
                 users = [e for e in im.edges
@@ -56,17 +70,16 @@ def detect_field_mutation(ctx: DetectorContext) -> list[Finding]:
                 ev.append(Evidence(text=f"{len(heuristic)} more by name match outside parsed TUs (heuristic): "
                                         f"{', '.join(heuristic[:10])}", severity="info",
                                    nodes=sorted({e.src for e in users if e.confidence == "heuristic"})))
-            label = field_node.label if field_node else a0.field_name
-            alias = any(not v.startswith("call:") for a in accesses for v in a.via)
             findings.append(Finding(
-                kind="field_mutation", severity="info", side_effect=True,
-                title=f"{node.label} now writes {label}" + (" through a local alias" if alias else ""),
+                kind="field_mutation", severity="info", side_effect=True, title=title,
                 nodes=[nid] + ([field_node.id] if field_node else []), evidence=ev,
                 summary=f"{node.label} newly modifies {label} ({a0.path}). A side effect, not a risk by itself."))
         for key in sorted(set(wb) - set(wa)):
             a0 = wb[key][0]
+            gone = im.node_by_key(f"field:{a0.field}")
             findings.append(Finding(
                 kind="field_mutation", severity="low", title=f"{node.label} no longer writes {a0.record}::{a0.field_name}",
+                sink=gone is not None and gone.id in im.sinks,
                 nodes=[nid], evidence=[Evidence(text=f"previously wrote `{a0.path}`", file=a0.file, line=a0.line,
                                                 severity="low")],
                 summary=f"{node.label} stopped modifying {a0.record}::{a0.field_name}; readers may depend on it."))

@@ -133,3 +133,31 @@ def test_alias_claim_requires_an_alias_variable():
     assert f.title == "f now writes B::ptr" and (f.severity, f.side_effect) == ("info", True)
     (g,) = run_detectors(_mutation_ctx("changed", ["tmp"]))
     assert g.title == "f now writes B::ptr through a local alias"
+
+
+def test_a_write_to_a_shared_sink_is_flagged_lists_no_users_and_is_not_a_side_effect():
+    from codetortoise.detectors.field_mutation import detect_field_mutation
+    from codetortoise.impact import SinkInfo
+
+    ctx = _mutation_ctx("changed", [])
+    (plain,) = detect_field_mutation(ctx)
+    assert plain.side_effect and not plain.sink and any("other function" in e.text for e in plain.evidence)
+    ctx.impact.sinks = {"N2": SinkInfo(field="N2", label="B::ptr", users=40, why="threshold")}
+    (f,) = detect_field_mutation(ctx)
+    assert (f.kind, f.severity, f.side_effect, f.sink, f.title, f.nodes) == (
+        "field_mutation", "info", False, True, "f now writes B::ptr", ["N1"])
+    assert [e.text for e in f.evidence] == ["write `out.ptr` (precise)"]
+    assert f.summary == "f newly modifies B::ptr, a shared sink (40 functions); its users are not checked."
+
+
+def test_no_longer_writing_a_shared_sink_is_flagged_too():
+    from codetortoise.detectors.field_mutation import detect_field_mutation
+    from codetortoise.impact import SinkInfo
+
+    ctx = _mutation_ctx("changed", [])
+    ctx.before, ctx.after = ctx.after, ctx.before      # f wrote B::ptr before and does not now
+    (plain,) = detect_field_mutation(ctx)
+    assert plain.title == "f no longer writes B::ptr" and not plain.sink
+    ctx.impact.sinks = {"N2": SinkInfo(field="N2", label="B::ptr", users=3, why="marked")}
+    (f,) = detect_field_mutation(ctx)
+    assert f.title == "f no longer writes B::ptr" and f.sink
