@@ -31,6 +31,8 @@ export const keys = {
   /** The story page's To check column width and the review header's height, once dragged. */
   checkW: "ct.ws.checkW",
   headH: "ct.ws.headH",
+  /** Whether the overview's "How to read this page" is open (spec 2026-10-09-review-introduction §5.1). */
+  introOpen: "ct.intro.open",
   /** Neighbours drawn as tiles or as the call tree. */
   nbView: "ct.ws.nb.view",
 };

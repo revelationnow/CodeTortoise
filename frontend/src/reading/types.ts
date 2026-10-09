@@ -8,7 +8,13 @@ export interface Thread {
   id: string; name: string; purpose: string; text_source: "template" | "llm";
   /** In reading order. */
   stories: string[]; cls: number[]; open_checks: number;
+  /** 3–5 sentences (spec 2026-10-09-review-introduction §3); absent on a reading stored before the introduction. */
+  intro?: string; intro_source?: "template" | "llm";
+  /** Its key files and directories, workspace-relative. */
+  files?: string[]; modules?: string[]; files_source?: "template" | "llm";
 }
+/** One step of Where to start: a thread and why to read it then. */
+export interface RouteStep { thread: string; reason: string; skim: boolean }
 export interface Connection { a: string; b: string; kind: ConnKind; text: string; facts: string[]; shown: boolean }
 export interface Reason { kind: CheckKind; text: string }
 export interface Check {
@@ -40,6 +46,8 @@ export interface Reading {
   rewrites?: Rewrite[]; gaps?: Gap[];
   /** Shared sinks the change writes; absent on a reading stored before them. */
   sinks?: SinkHit[];
+  /** Every thread once, in the order to read them; absent on a reading stored before the introduction. */
+  route?: RouteStep[]; route_source?: "template" | "llm";
 }
 
 export interface ContractRow {

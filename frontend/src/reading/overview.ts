@@ -1,6 +1,7 @@
-/** The overview's connections tile and Tests row (spec 2026-10-07-review-reading §5.1). */
+/** The overview's connections tile, Tests row and introduction (specs 2026-10-07-review-reading §5.1, 2026-10-09-review-introduction §5). */
+import { keys, load, save } from "../board/prefs";
 import { letter } from "./checks";
-import type { Connection, ConnKind, TestsRow, Thread } from "./types";
+import type { Connection, ConnKind, Reading, TestsRow, Thread } from "./types";
 
 export const STEP = 28;               // how much further right each level of nesting reaches
 const GAP = 20;                       // the least room between two arc labels
@@ -57,3 +58,18 @@ export function testsLine(t: TestsRow, threads: Thread[]): string {
   return `Tests: ${t.functions}${t.covers.length ? ` cover thread${t.covers.length === 1 ? "" : "s"} ${of(t.covers)}` : ""}`
     + (t.untested.length ? ` · nothing tests ${of(t.untested)}` : "");
 }
+
+export interface RouteRow { id: string; letter: string; name: string; reason: string; skim: boolean; first: string | null }
+
+/** Where to start, one row per step in the route's order; each thread keeps the letter its place in the threads gives it. */
+export function routeRows(r: Pick<Reading, "threads" | "route">): RouteRow[] {
+  const at = new Map(r.threads.map((t, i) => [t.id, i]));
+  return (r.route ?? []).filter((s) => at.has(s.thread)).map((s) => {
+    const i = at.get(s.thread)!, t = r.threads[i];
+    return { id: t.id, letter: letter(i, t.id), name: t.name, reason: s.reason, skim: s.skim, first: t.stories[0] ?? null };
+  });
+}
+
+/** "How to read this page" is open until the viewer closes it; storage that is missing or throws leaves it open. */
+export const introOpen = (): boolean => load<unknown>(keys.introOpen, true) !== false;
+export const setIntroOpen = (open: boolean): void => save(keys.introOpen, open);

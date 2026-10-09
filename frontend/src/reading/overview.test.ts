@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { arcLayout, connectionRows, testsLine } from "./overview";
-import type { Connection, TestsRow, Thread } from "./types";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { keys } from "../board/prefs";
+import { arcLayout, connectionRows, introOpen, routeRows, setIntroOpen, testsLine } from "./overview";
+import type { Connection, RouteStep, TestsRow, Thread } from "./types";
 
 const thread = (id: string, name = id): Thread => ({ id, name, purpose: "", text_source: "template", stories: [], cls: [], open_checks: 0 });
 const conn = (a: string, b: string, kind: Connection["kind"] = "caller", shown = true, text = `${a}–${b}`): Connection =>
@@ -50,5 +51,40 @@ describe("the Tests row", () => {
     expect(testsLine(tests(["T1", "T2"], ["T3"]), T)).toBe("Tests: 6 cover threads A and B · nothing tests C");
     expect(testsLine(tests(["T1"], []), T)).toBe("Tests: 6 cover thread A");
     expect(testsLine(tests([], ["T1", "T2", "T3"]), T)).toBe("Tests: 6 · nothing tests A, B and C");
+  });
+});
+
+describe("the introduction", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const step = (thread: string, reason = `why ${thread}`, skim = false): RouteStep => ({ thread, reason, skim });
+  const threads = [{ ...thread("T1", "`send` changes"), stories: ["S2", "S1"] }, thread("T2", "init"), thread("T3", "step")];
+
+  it("lists the route in its own order, lettering each thread by its place in the threads", () => {
+    const rows = routeRows({ threads, route: [step("T3", "only bundled", true), step("T1"), step("T2")] });
+    expect(rows.map((r) => [r.letter, r.name, r.reason, r.skim, r.first])).toEqual([
+      ["C", "step", "only bundled", true, null], ["A", "`send` changes", "why T1", false, "S2"], ["B", "init", "why T2", false, null]]);
+  });
+
+  it("drops a step naming no thread of the reading, and has no rows for a reading stored before the route", () => {
+    expect(routeRows({ threads, route: [step("T9"), step("T2")] }).map((r) => r.id)).toEqual(["T2"]);
+    expect(routeRows({ threads })).toEqual([]);
+  });
+
+  it("opens the explainer on a first visit and keeps it closed once closed", () => {
+    const store = new Map<string, string>();
+    vi.stubGlobal("window", { localStorage: { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v) } });
+    expect(introOpen()).toBe(true);
+    setIntroOpen(false);
+    expect(store.get(keys.introOpen)).toBe("false");
+    expect(introOpen()).toBe(false);
+    setIntroOpen(true);
+    expect(introOpen()).toBe(true);
+  });
+
+  it("opens the explainer when storage is missing or throws, and closing it never throws", () => {
+    expect(introOpen()).toBe(true);                                   // no window at all (node)
+    vi.stubGlobal("window", { localStorage: { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("quota"); } } });
+    expect(introOpen()).toBe(true);
+    expect(() => setIntroOpen(false)).not.toThrow();
   });
 });
