@@ -68,20 +68,18 @@ the fuller one.
   (the labels the To check rows show), at most 3 then "and N more".
 - The first story's title, in the thread's reading order.
 
-**Route.** Foundations first:
+**Route.** The threads' own order, skim threads last:
 
-1. Thread X *comes before* thread Y when a strong story link joins a story of X and a story of Y and its `defines`
-   story is in X (Y calls code X changed, or reads a field X now writes).
-2. Order the threads so every "comes before" holds, breaking ties by more open checks, then by the threads' own order.
-   A cycle is broken by the threads' own order.
-3. A thread is **skim** when it has no open checks and all its stories are repeated edits or tests (`mechanical` or
-   `tests`). Skim threads go last, in the same tie order.
+1. Threads are groups of stories joined by calls or shared data, so no call or data link runs between two threads; the
+   rules have no dependency to order by. They keep the order `build_threads` already gives (most open hazards, then
+   most open checks, then most changed functions).
+2. A thread is **skim** when it has no open checks and all its stories are repeated edits or tests (`mechanical` or
+   `tests`). Skim threads move to the end, keeping their order.
 
 Reasons, one per step:
 
-- comes before others: "Read it first: `B name` uses code it changes."
-- comes after one: "`A name` changes code it uses, so read that thread first."
-- otherwise: "2 checks open." / "Nothing is open."
+- "1 hazard and 2 checks open." / "2 checks open." / "1 check open." (hazards counted among the thread's open checks)
+- "Nothing is open." for a thread with no open checks that is not skim
 - skim: "Only repeated edits and tests; skim it."
 
 The rules' route has `route_source="template"`.
@@ -129,8 +127,6 @@ THREADS (id | name | purpose | CLs | open checks):
     open checks: Confirm: uart_send: new return value -2; Result handled the old way: logger_flush ignores …  (at most 6)
 CONNECTIONS (a | b | kind | text):
   …
-DEPENDS (from the strong story links):
-  T2 uses code T1 changed (S1 → S3)
 CL DESCRIPTIONS: (each marked "a hint from its author, not the source of truth", as in the threads prompt)
 ```
 
@@ -213,14 +209,13 @@ defaults. The overview then shows each thread's purpose and hides Where to start
 
 pytest:
 
-- rules: a thread's intro text (directories capped, checks' kinds, "Nothing is open.", first story); the route puts a
-  thread whose code another calls first, breaks ties by open checks, breaks a cycle by thread order, and puts skim
-  threads last with their reasons.
+- rules: a thread's intro text (directories capped, checks' kinds, "Nothing is open.", first story); the route keeps
+  the threads' order, moves skim threads last, and gives each step its reason.
 - key files and modules: the rules' pick (most changed functions first, capped); the threads prompt lists each thread's
   files (capped at 40 with "+N more"); an accepted pick sets `files_source="llm"`; a file not in the thread's list, a
   module holding none of its files, more than 8 files or 4 modules, or no file keeps the rules' pick; a cached pick is
   reused.
-- intro prompt: holds each thread's modules, key files, stories, open checks (capped) and the DEPENDS lines.
+- intro prompt: holds each thread's modules, key files, stories, open checks (capped) and the connections.
 - intro answers: an accepted answer sets every part to `llm`; a whole with 3 sentences, an intro with 6, an intro
   citing an unlisted id, a route missing a thread, a route listing one twice and a reason of two sentences each keep
   their fixed text, and only that part.
