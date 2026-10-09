@@ -4,6 +4,7 @@ import { useMe } from "../App";
 import { SeverityBadge } from "../components/Badges";
 import Comments from "../components/Comments";
 import Explain from "../components/Explain";
+import SinkMark from "../components/SinkMark";
 import { useAi } from "../lib/ai";
 import { tidy } from "../lib/tidy";
 import { citeTarget } from "../stories/stories";
@@ -24,6 +25,7 @@ export default function FindingPage({ fid }: { fid: string }) {
   const n = d.findings.length;
   const sid = d.stories?.finding_story[fid] ?? null, st = sid ? d.stories!.stories.find((s) => s.id === sid) : null;
   const first = f.nodes.find((x) => d.names[x]) ?? f.nodes[0] ?? null;
+  const field = f.kind === "field_mutation" && !f.sink ? f.nodes.map((x) => d.names[x]).find((x) => x?.kind === "field")?.label ?? null : null;
   const cluster = d.overview?.clusters.find((c) => c.finding_ids.includes(fid)) ?? null;
   const graph: Address | null = !first ? null
     : st && (st.kind === "behaviour" || st.kind === "other") ? { ...ws.item({ kind: "story", sid: st.id, view: "graph" }), place: { kind: "story", sid: st.id, view: "graph" }, open: { node: first }, tab: "diff" }
@@ -58,6 +60,7 @@ export default function FindingPage({ fid }: { fid: string }) {
             <button key={s} className="link small" onClick={() => api.setFindingState(d.id, f.id, s).then(d.loadFindings)}>
               mark {STATE[s]}</button>
           ))}
+          {field && <SinkMark label={field} />}
         </p>
         {f.verdict_source === "tier1" && f.verdict ? (
           <p className={`ws-verdict ${f.verdict}`}>

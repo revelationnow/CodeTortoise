@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import SinkMark from "../components/SinkMark";
+import { setShowSinks, showSinks, sinkLine } from "../lib/sinks";
 import { byThread, letter } from "../reading/checks";
 import { arcLayout, connectionRows, testsLine } from "../reading/overview";
 import { overviewProgress, progress, threadRead } from "../reading/plan";
-import type { Reading, Thread } from "../reading/types";
+import type { Reading, SinkHit, Thread } from "../reading/types";
 import CheckTile, { Cleared } from "./CheckList";
 import { useWs } from "./context";
 import { short } from "./crumbs";
@@ -91,6 +93,19 @@ function ThreadCard({ t, i, r }: { t: Thread; i: number; r: Reading }) {
   );
 }
 
+/** The shared sinks the review hid (spec 2026-10-09 §5.2), with the viewer's Show/Hide and the owner's unmark. Show is
+ * kept in the browser; the page reloads so every board, story and finding list follows it. */
+function SinksLine({ hits }: { hits: SinkHit[] }) {
+  const shown = showSinks();
+  const flip = () => { setShowSinks(!shown); window.location.reload(); };
+  return (
+    <li className="ov-sinks">
+      <Ticks text={sinkLine(hits, shown)} /> · <button className="link" onClick={flip} aria-pressed={shown}>{shown ? "Hide" : "Show"}</button>
+      {hits.filter((h) => h.why === "marked").map((h) => <span key={h.label}> · <SinkMark label={h.label} on /></span>)}
+    </li>
+  );
+}
+
 /** The overview in layout B (spec 2026-10-07-review-reading §5): the change as a whole, how its threads connect and the
  * threads on the left; To check, Build impact and Coverage pinned on the right. */
 export default function Overview({ r }: { r: Reading }) {
@@ -133,10 +148,13 @@ export default function Overview({ r }: { r: Reading }) {
             ))}</ul>
           </section>
         )}
-        {r.coverage.length > 0 && (
+        {(r.coverage.length > 0 || (r.sinks?.length ?? 0) > 0) && (
           <section className="ws-tile" aria-label="Coverage">
             <h3>Coverage</h3>
-            <ul className="ov-lines">{r.coverage.map((c) => <li key={c}><Ticks text={c} /></li>)}</ul>
+            <ul className="ov-lines">
+              {r.coverage.map((c) => <li key={c}><Ticks text={c} /></li>)}
+              {(r.sinks?.length ?? 0) > 0 && <SinksLine hits={r.sinks!} />}
+            </ul>
           </section>
         )}
       </aside>

@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import Comments from "../components/Comments";
+import SinkMark from "../components/SinkMark";
 import { isOpen, KIND_LABEL, markLine, openCount, placeOf, splitChecks } from "../reading/checks";
 import type { Check } from "../reading/types";
 import { at } from "./address";
@@ -45,6 +46,7 @@ function CheckRow({ k, lit }: { k: Check; lit: boolean }) {
         {k.depot && <Link to={ws.link(ws.opened({ file: k.depot, line: k.line }))} title={`Open ${place}`} aria-label={`Open ${place}`}>Open</Link>}
         {k.finding && <Link to={ws.link(at({ kind: "finding", fid: k.finding }, { details: true }))} title={`Finding ${k.finding}'s details`}
                             aria-label={`Finding ${k.finding}'s details`}>Details</Link>}
+        {k.kind === "reader" && k.field && <SinkMark label={k.field} />}
       </div>
       {error && <div className="banner warn">{error}</div>}
       {talk && <Comments reviewId={d.id} comments={d.comments} kind="check" anchor={{ key: k.key }} onChange={d.loadComments} autoFocus />}

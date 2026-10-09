@@ -2,6 +2,7 @@ import { Fragment, memo, useMemo, useState } from "react";
 import type { Comment } from "../api";
 import Comments from "../components/Comments";
 import FoldButton from "../components/FoldButton";
+import SinkMark from "../components/SinkMark";
 import { lineAnchor, onLine } from "../lib/anchors";
 import type { Tag } from "../reading/sequence";
 import { codeItems, lineKey, type Line, type Side, WINDOW, windowAround } from "./codeRows";
@@ -94,6 +95,7 @@ function CodeView({ reviewId, path, lines, mode, anns, comments, onComments, foc
           return (
             <div key={i} className={`bd-ann ${it.ann.severity}`}>
               <span className="k">{ICON[it.ann.severity]}{it.ann.title}</span>{it.ann.text}
+              {it.ann.field && <> <SinkMark label={it.ann.field} /></>}
             </div>
           );
         if (it.kind === "thread")
