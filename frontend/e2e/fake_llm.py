@@ -118,8 +118,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):  # noqa: N802 — /v1/chat/completions
         req = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         msgs = req["messages"]
-        out = answer(msgs[0]["content"], msgs[-1]["content"])
-        self._send({"choices": [{"message": {"content": json.dumps(out)}}], "usage": {"prompt_tokens": 900, "completion_tokens": 60}})
+        content = json.dumps(answer(msgs[0]["content"], msgs[-1]["content"]))
+        limit = req.get("max_tokens") or req.get("max_completion_tokens")
+        if limit and limit < 2000:     # spec 2026-10-08-llm-robustness §9: a limit this low cuts the reply off
+            self._send({"choices": [{"message": {"content": content[:len(content) // 2]}, "finish_reason": "length"}],
+                        "usage": {"prompt_tokens": 900, "completion_tokens": limit}})
+            return
+        self._send({"choices": [{"message": {"content": content}, "finish_reason": "stop"}],
+                    "usage": {"prompt_tokens": 900, "completion_tokens": 60}})
 
     def log_message(self, *args):
         pass
