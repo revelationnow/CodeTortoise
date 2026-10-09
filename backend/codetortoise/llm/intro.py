@@ -118,7 +118,9 @@ def write_intro(strong: LlmClient, ledger: Ledger | None, rid: int | None, readi
     bad_route = not (sorted(s.thread for s in out.route) == sorted(t.id for t in reading.threads)
                      and all(ok(s.reason.strip(), s.cites, 1, 1) for s in out.route))
     if not bad_route:
-        reading.route = [RouteStep(thread=s.thread, reason=s.reason.strip(), skim=s.skim) for s in out.route]
+        open_ = {t.id: t.open_checks for t in reading.threads}         # a thread with something open is never muted
+        reading.route = [RouteStep(thread=s.thread, reason=s.reason.strip(), skim=s.skim and not open_[s.thread])
+                         for s in out.route]
         reading.route_source = "llm"
     if not (bad_whole or bad_threads or bad_route):
         return said, tried.model
