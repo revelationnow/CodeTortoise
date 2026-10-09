@@ -36,6 +36,12 @@ CREATE TABLE IF NOT EXISTS llm_calls(id INTEGER PRIMARY KEY AUTOINCREMENT, revie
   error TEXT);
 CREATE INDEX IF NOT EXISTS ix_llm_calls_review ON llm_calls(review_id);
 CREATE INDEX IF NOT EXISTS ix_llm_calls_user ON llm_calls(user, started_at);
+CREATE TABLE IF NOT EXISTS llm_requests(id INTEGER PRIMARY KEY AUTOINCREMENT, call_id INTEGER NOT NULL,
+  review_id INTEGER, seq INTEGER NOT NULL, sent_at TEXT NOT NULL, elapsed_ms INTEGER, url TEXT, model TEXT,
+  status INTEGER, error TEXT, stop_reason TEXT, truncated INTEGER NOT NULL, repair INTEGER NOT NULL,
+  max_output_tokens INTEGER, prompt_tokens INTEGER, completion_tokens INTEGER, request BLOB, response BLOB);
+CREATE INDEX IF NOT EXISTS ix_llm_requests_call ON llm_requests(call_id);
+CREATE INDEX IF NOT EXISTS ix_llm_requests_review ON llm_requests(review_id, sent_at);
 CREATE TABLE IF NOT EXISTS llm_budget(review_id INTEGER, budget INTEGER, set_by TEXT, set_at TEXT);
 CREATE TABLE IF NOT EXISTS llm_rounds(review_id INTEGER, rounds INTEGER, set_by TEXT, set_at TEXT);
 CREATE TABLE IF NOT EXISTS briefs(review_id INTEGER PRIMARY KEY, cache_key TEXT, json TEXT, created_at TEXT);
@@ -77,6 +83,9 @@ class Store:
             cols = {r[1] for r in self._db.execute("PRAGMA table_info(comments)")}
             if "ai_meta" not in cols:                # databases made before @tortoise
                 self._db.execute("ALTER TABLE comments ADD COLUMN ai_meta TEXT")
+            calls = {r[1] for r in self._db.execute("PRAGMA table_info(llm_calls)")}
+            if "model" not in calls:                 # databases made before the request log
+                self._db.execute("ALTER TABLE llm_calls ADD COLUMN model TEXT")
 
     def _exec(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         with self._lock, self._db:

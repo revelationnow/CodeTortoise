@@ -180,6 +180,8 @@ llm:                                # optional; without it, narratives use built
                                     #   or messages (Anthropic Messages API, e.g. base_url https://api.anthropic.com/v1)
   # max_output_tokens: 8192         # reply token limit; messages needs one (8192 when unset), others send it only if set
   # max_output_tokens_cap: 32768    # a reply cut off by its limit is sent again at double the limit, up to this
+  # request_log: all                # HTTP requests kept for debugging: all, failed (a failed, cut-off or repaired call's) or off
+  # request_log_days: 14            # read them with `codetortoise llm-log` or the AI usage view's download link
   api_key_env: TORTOISE_LLM_KEY     # name of the environment variable holding the key
   max_context_tokens: 64000
   concurrency: 4                    # parallel LLM calls

@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from typing import TypeVar
 
 from codetortoise.config import LlmBudget
+from codetortoise.llm import request_log as rlog
 from codetortoise.llm.client import LlmClient
 from codetortoise.store import Store
 
@@ -34,8 +35,9 @@ def _now() -> str:
 
 
 class Ledger:
-    def __init__(self, store: Store, budget: LlmBudget):
+    def __init__(self, store: Store, budget: LlmBudget, request_log: str = "all", request_log_days: int = 14):
         self.store, self.limits = store, budget
+        self.request_log, self.request_log_days = request_log, request_log_days
 
     # ---- limits
     def budget(self, rid: int) -> int:
@@ -81,13 +83,14 @@ class Ledger:
         return None
 
     # ---- calls
-    def reserve(self, rid: int | None, user: str | None, purpose: str, target: str) -> int:
+    def reserve(self, rid: int | None, user: str | None, purpose: str, target: str, model: str | None = None) -> int:
         """Record a call about to be made and return its id, or raise Refused (recording the refusal)."""
         with self.store._lock:
             reason = self.check(rid, user, purpose)
             cur = self.store._exec(
-                "INSERT INTO llm_calls(review_id, user, purpose, target, started_at, outcome, error) VALUES(?,?,?,?,?,?,?)",
-                (rid, user or PIPELINE, purpose, target, _now(), "refused" if reason else "running", reason))
+                "INSERT INTO llm_calls(review_id, user, purpose, target, started_at, outcome, error, model) "
+                "VALUES(?,?,?,?,?,?,?,?)",
+                (rid, user or PIPELINE, purpose, target, _now(), "refused" if reason else "running", reason, model))
             if reason:
                 raise Refused(reason)
             return int(cur.lastrowid)
@@ -99,16 +102,28 @@ class Ledger:
 
     def call(self, llm: LlmClient, rid: int | None, user: str | None, purpose: str, target: str,
              fn: Callable[[LlmClient], T]) -> T:
-        """Reserve, run `fn(llm)` (one AI call, its retries included), and record the outcome and tokens."""
-        call_id = self.reserve(rid, user, purpose, target)
+        """Reserve, run `fn(llm)` (one AI call, its retries included), and record the outcome, tokens and, as
+        `llm.request_log` says, its HTTP requests."""
+        call_id = self.reserve(rid, user, purpose, target, llm.model)
         llm.start_usage()
+        llm.start_log()
         try:
             out = fn(llm)
         except Exception as e:
             self.finish(call_id, "failed", llm.take_usage(), f"{type(e).__name__}: {e}"[:500])
+            self._log(call_id, rid, llm.take_log(), failed=True)
             raise
         self.finish(call_id, "ok", llm.take_usage())
+        self._log(call_id, rid, llm.take_log(), failed=False)
         return out
+
+    def _log(self, call_id: int, rid: int | None, records: list[dict], failed: bool) -> None:
+        if rlog.keep(self.request_log, failed, records):
+            rlog.write(self.store, call_id, rid, records)
+
+    def prune(self, now: datetime | None = None) -> int:
+        """Deletes logged requests older than `llm.request_log_days`."""
+        return rlog.prune(self.store, self.request_log_days, now)
 
     def fail_running(self) -> None:
         """At startup: calls a stopped server left running count as failed (they may have cost tokens)."""
@@ -122,8 +137,10 @@ class Ledger:
                                )[0]["n"]
 
     def usage(self, rid: int) -> dict:
-        calls = self.store._all("SELECT id, user, purpose, target, started_at, finished_at, prompt_tokens, "
-                                "completion_tokens, outcome, error FROM llm_calls WHERE review_id=? ORDER BY id", (rid,))
+        calls = self.store._all("SELECT id, user, purpose, target, model, started_at, finished_at, prompt_tokens, "
+                                "completion_tokens, outcome, error, (SELECT COUNT(*) FROM llm_requests r "
+                                "WHERE r.call_id = llm_calls.id) AS requests FROM llm_calls WHERE review_id=? "
+                                "ORDER BY id", (rid,))
         counted = [c for c in calls if c["outcome"] != "refused"]
         tier1 = [c for c in counted if c["purpose"] in TIER1]
         return {"used": len(counted) - len(tier1), "budget": self.budget(rid),
