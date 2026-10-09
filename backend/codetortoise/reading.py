@@ -1326,9 +1326,10 @@ def _marked(lines: dict[str, str], marks: dict[str, dict]) -> dict[str, dict]:
     return {key: {**m, "changed": m["source_line"] != lines[key]} for key, m in marks.items() if key in lines}
 
 
-def with_marks(r: Reading, marks: dict[str, dict], findings: list[Finding]) -> dict:
+def with_marks(r: Reading, marks: dict[str, dict], findings: list[Finding], ss: StorySet | None = None) -> dict:
     """The reading as viewers see it (§7.4): its marks, and the headline and threads' open counts without the marked
-    checks. The story links stay out: the browser does not use them."""
+    checks; with the stories `ss`, also the fixed intros and route (spec 2026-10-09-review-introduction §3.2). The story
+    links stay out: the browser does not use them."""
     view = _marked({k.key: k.source_line for k in r.checks + r.cleared}, marks)
     marked = {key for key, m in view.items() if not m["changed"]}
     out = r.model_dump(exclude={"links"})
@@ -1336,6 +1337,14 @@ def with_marks(r: Reading, marks: dict[str, dict], findings: list[Finding]) -> d
     out["headline"] = headline(r.checks, marked, findings).model_dump()
     for t in out["threads"]:
         t["open_checks"] = sum(1 for k in r.checks if k.thread == t["id"] and k.key not in marked)
+    if ss is not None:
+        live = Reading(threads=[t.model_copy(update={"open_checks": o["open_checks"]})
+                                for t, o in zip(r.threads, out["threads"], strict=True)],
+                       checks=[k for k in r.checks if k.key not in marked], route=r.route, route_source=r.route_source)
+        fixed_introduction(live, ss)
+        for t, o in zip(live.threads, out["threads"], strict=True):
+            o["intro"] = t.intro
+        out["route"] = [s.model_dump() for s in live.route]
     return out
 
 
