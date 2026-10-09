@@ -119,7 +119,7 @@ No strong model configured: no call; the rules' text stands.
 ### 4.2 Input
 
 ```
-THREADS (id | name | purpose | CLs | open checks):
+THREAD DETAILS (id | name | purpose | CLs | open checks):      (not "THREADS (id": the threads call's prompt starts so)
   T1 | `uart_send` returns -2 | … | CL 101 | 2
     modules: driver/, service/                                  (the thread's modules, §3.3)
     files: driver/uart.c, service/logger.c                     (the thread's key files, §3.3)
