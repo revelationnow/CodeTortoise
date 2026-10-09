@@ -19,6 +19,7 @@ from codetortoise.llm.storyboard import (
     name_layers,
     run_job,
     skeleton,
+    summary_job,
 )
 
 
@@ -412,3 +413,12 @@ def test_a_brief_takes_its_room_from_the_prompt_budget_not_on_top_of_it():
     briefed = briefed_job(ctx, brief, lambda: finding_job(ctx, findings[0])).prompt
     assert briefed.startswith(brief + "\n\n") and len(briefed) <= len(plain) + 20
     assert finding_job(ctx, findings[0]).prompt == plain                  # the room is given back afterwards
+
+
+def test_the_summary_prompt_never_lists_a_shared_sinks_finding():
+    im, findings, layers = model()
+    board = _board(1)
+    sb = build_storyboard(im, findings, layers, {}, None, board=board)
+    findings[1].sink = True
+    prompt = summary_job(_ctx(findings, im), sb, board).prompt
+    assert "F1 [medium]" in prompt and "F2 [high]" not in prompt
