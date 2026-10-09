@@ -304,3 +304,11 @@ def test_once_the_strong_model_is_unreachable_later_chunks_go_straight_to_the_we
     assert len(strong.prompts) == 1 and len(weak.prompts) == 2
     assert plan.notes == ["chunk 1: big: unreachable; small: invalid JSON twice; the rules grouped its pieces",
                           "chunk 2: small: invalid JSON twice; the rules grouped its pieces"]
+
+
+def test_the_cache_key_changes_with_the_shared_sinks():
+    ps = _change()[2]
+    k = cache_key(ps, "big", STORY_RULES_VERSION, 1)
+    assert cache_key(ps, "big", STORY_RULES_VERSION, 1, []) == k               # no sinks: the key as before
+    assert cache_key(ps, "big", STORY_RULES_VERSION, 1, ["log_t::buf"]) != k
+    assert cache_key(ps, "big", STORY_RULES_VERSION, 1, ["b", "a"]) == cache_key(ps, "big", STORY_RULES_VERSION, 1, ["a", "b"])
