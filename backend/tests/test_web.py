@@ -529,3 +529,27 @@ def test_the_request_log_downloads_as_a_zip_and_the_calls_say_how_many_requests_
     one = c.get(f"/api/reviews/{rid}/ai/requests.zip?call={call}")
     assert f'filename="review-{rid}-call-{call}-requests.zip"' in one.headers["content-disposition"]
     assert c.get(f"/api/reviews/{rid}/ai/requests.zip?call={call + 1}").status_code == 404
+
+
+def test_the_owner_marks_and_unmarks_shared_sinks_for_every_review(env):
+    svc, app, _ = env
+    owner, bob = login(app, "owner"), login(app, "bob")
+    assert TestClient(app).get("/api/sinks").status_code == 401
+    assert bob.get("/api/sinks").json() == {"threshold": 20, "patterns": [], "marked": []}
+    assert bob.put("/api/sinks/Uart%3A%3Aerrors").status_code == 403
+    assert owner.put("/api/sinks/Uart%3A%3Aerrors").json()["marked"] == ["Uart::errors"]
+    assert owner.put("/api/sinks/log_t%3A%3Abuf").json()["marked"] == ["Uart::errors", "log_t::buf"]
+    assert bob.delete("/api/sinks/log_t%3A%3Abuf").status_code == 403
+    assert owner.delete("/api/sinks/log_t%3A%3Abuf").json()["marked"] == ["Uart::errors"]
+    assert svc.store.kv_get("sink_marks") == ["Uart::errors"]
+    rid = owner.post("/api/reviews", json={"cls": [101, 102]}).json()["id"]
+    sinks = owner.get(f"/api/reviews/{rid}/reading").json()["sinks"]
+    assert [(h["label"], h["why"]) for h in sinks] == [("Uart::errors", "marked")]
+    assert any(f["sink"] for f in owner.get(f"/api/reviews/{rid}/findings").json())
+
+
+def test_a_label_with_a_slash_or_percent_is_stored_as_given(env):
+    _, app, _ = env
+    owner = login(app, "owner")
+    assert owner.put("/api/sinks/a%2Fb%3A%3Ac%25d").json()["marked"] == ["a/b::c%d"]
+    assert owner.put("/api/sinks/" + "x" * 301).status_code == 422

@@ -21,6 +21,7 @@ from codetortoise.pipeline import JobRunner
 from codetortoise.provenance import tag_board
 from codetortoise.reading import Check, Reading, headline_from, with_marks
 from codetortoise.services import Services
+from codetortoise.sinks import marks, set_mark
 from codetortoise.swarm import SwarmError
 from codetortoise.tidy import tidy
 from codetortoise.vcs.p4runner import P4Error
@@ -472,6 +473,29 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         overrides[str(level)] = body.name
         store.kv_put("layer_overrides", overrides)
         return overrides
+
+    # ---- shared sinks (spec 2026-10-09-shared-sinks §6) -----------------------
+    def sinks_view() -> dict:
+        return {"threshold": cfg.analysis.sink_threshold, "patterns": cfg.analysis.sink_fields, "marked": marks(store)}
+
+    def sink_label(label: str) -> str:
+        if not label.strip() or len(label) > 300:
+            raise HTTPException(422, "a field's label, as record::field")
+        return label
+
+    @app.get("/api/sinks")
+    def sinks(_: str = Depends(user_of)):
+        return sinks_view()
+
+    @app.put("/api/sinks/{label:path}")
+    def mark_sink(label: str, _: str = Depends(owner_of)):
+        set_mark(store, sink_label(label), True)
+        return sinks_view()
+
+    @app.delete("/api/sinks/{label:path}")
+    def unmark_sink(label: str, _: str = Depends(owner_of)):
+        set_mark(store, sink_label(label), False)
+        return sinks_view()
 
     # ---- AI on demand (spec 2026-10-03) ---------------------------------------
     @app.post("/api/reviews/{rid}/explain", status_code=202)
