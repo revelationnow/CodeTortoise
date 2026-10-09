@@ -73,3 +73,10 @@ export function routeRows(r: Pick<Reading, "threads" | "route">): RouteRow[] {
 /** "How to read this page" is open until the viewer closes it; storage that is missing or throws leaves it open. */
 export const introOpen = (): boolean => load<unknown>(keys.introOpen, true) !== false;
 export const setIntroOpen = (open: boolean): void => save(keys.introOpen, open);
+
+/** A thread card's paragraphs: the strong model's intro alone (it says what the thread does), else the purpose above the
+ * fixed intro, so a card never loses the sentence that says what its thread does. */
+export function cardText(t: Thread): { text: string; ai: boolean }[] {
+  if (t.intro && t.intro_source === "llm") return [{ text: t.intro, ai: true }];
+  return [...(t.purpose ? [{ text: t.purpose, ai: t.text_source === "llm" }] : []), ...(t.intro ? [{ text: t.intro, ai: false }] : [])];
+}

@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import SinkMark from "../components/SinkMark";
 import { setShowSinks, showSinks, sinkLine } from "../lib/sinks";
 import { byThread, letter } from "../reading/checks";
-import { arcLayout, connectionRows, introOpen, routeRows, setIntroOpen, testsLine } from "../reading/overview";
+import { arcLayout, cardText, connectionRows, introOpen, routeRows, setIntroOpen, testsLine } from "../reading/overview";
 import { overviewProgress, progress, threadRead } from "../reading/plan";
 import type { Reading, SinkHit, Thread } from "../reading/types";
 import CheckTile, { Cleared } from "./CheckList";
@@ -76,8 +76,9 @@ function HowToRead() {
           used across the page.</li>
         <li><b>Stories</b> are the steps of a thread, one change and its effects each. A story has a <b>Steps</b> view
           (what it does, before → after, call paths, its code) and a <b>Graph</b> view.</li>
-        <li><b>Arcs</b> between threads are solid when they share calls or data, dashed when they only arrived in the same
-          review — ask the author why.</li>
+        <li><b>Arcs</b> between threads show what else ties them: a shared caller, names or types, a build condition or a
+          folder. A dashed arc means they only arrived in the same review — ask the author why. On a phone each arc is a
+          sentence.</li>
         <li><b>To check</b> lists what needs a reviewer's eye. <b>Looks fine</b> clears a row, <b>Read</b> ticks it for
           you alone, <b>Comment</b> starts a thread, <b>Open</b> shows the code.</li>
         <li><b>Progress</b> counts the stories and checks you have read.</li>
@@ -112,8 +113,8 @@ function WhereToStart({ r }: { r: Reading }) {
   );
 }
 
-/** A thread: name, CLs, open checks and its intro (its purpose on a reading stored before the introduction), then its
- * stories in reading order with why each follows (§5.1). */
+/** A thread: name, CLs, open checks, its purpose and intro (`cardText`), then its stories in reading order with why each
+ * follows (§5.1). */
 function ThreadCard({ t, i, r }: { t: Thread; i: number; r: Reading }) {
   const ws = useWs(), ss = ws.data.stories;
   return (
@@ -127,10 +128,9 @@ function ThreadCard({ t, i, r }: { t: Thread; i: number; r: Reading }) {
         {t.open_checks > 0 && <span className="ck-count">{t.open_checks} open</span>}
         {ws.data.ticks && <span className="ov-read">{threadRead(t.stories, new Set(ws.data.ticks.stories))} read</span>}
       </header>
-      {(t.intro || t.purpose) && (
-        <p className="ov-purpose">{t.intro && t.intro_source === "llm" && <span className="ai-label">AI</span>}
-          <Ticks text={t.intro || t.purpose} /></p>
-      )}
+      {cardText(t).map((p) => (
+        <p key={p.text} className="ov-purpose">{p.ai && <span className="ai-label">AI</span>}<Ticks text={p.text} /></p>
+      ))}
       <ol className="ov-stories">{t.stories.map((sid) => {
         const st = ss?.stories.find((s) => s.id === sid);
         const label = `Go to story ${sid}${st ? `: ${short(st.title)}` : ""}`;
