@@ -681,3 +681,76 @@ def test_a_cl_that_only_deleted_an_earlier_cls_lines_in_a_function_is_one_of_its
     x = NS(texts={"/w/f.c": NS(depot="//d/f.c")}, local=lambda n: "/w/f.c", im=NS(nodes={"N1": NS(key="k")}),
            fa={"k": NS(start_line=1, end_line=3)}, fb={"k": NS(start_line=1, end_line=2)})
     assert rd._cls_of(x, "N1", {"//d/f.c": fl}) == [101, 102]
+
+
+# ---- shared sinks (spec 2026-10-09-shared-sinks §4–§5)
+def _sink(c, label, why="threshold", users=300):
+    from codetortoise.impact import SinkInfo
+    nid = next(n.id for n in c.impact.nodes.values() if n.label == label)
+    c.impact.sinks = {nid: SinkInfo(field=nid, label=label, users=users, why=why)}
+    return nid
+
+
+def _logged():
+    return _world([_edit("config", "drv/cfg.c"), _same("report", "svc/rep.c"), _edit("dump", "svc/dump.c")],
+                  fields=[("config", "Log", "buf", "write", "added"), ("report", "Log", "buf", "read", "unchanged"),
+                          ("dump", "Log", "buf", "read", "unchanged")])
+
+
+def test_a_reader_row_names_its_field_and_a_shared_sink_has_no_reader_rows():
+    c, ss = _logged(), _set(["N1"], ["N3"])
+    (row,) = _checks(c, ss)[0]
+    assert (row.kind, row.field) == ("reader", "Log::buf")
+    _sink(c, "Log::buf")
+    assert _checks(c, ss)[0] == []
+
+
+def test_a_shared_sink_makes_no_data_link():
+    c, ss = _logged(), _set(["N1"], ["N3"])
+    assert [lk.kind for lk in story_links(ss, _x(c))] == ["data"]
+    _sink(c, "Log::buf")
+    assert all(lk.kind != "data" for lk in story_links(ss, _x(c)))
+
+
+def test_the_reading_lists_each_shared_sink_the_change_writes_with_its_writers():
+    c, ss = _logged(), _set(["N1"], ["N3"])
+    reading, _ = build_reading(ss, c)
+    assert reading.sinks == []
+    _sink(c, "Log::buf", why="listed", users=2)
+    reading, _ = build_reading(ss, c)
+    assert [(h.label, h.users, h.why, h.writers) for h in reading.sinks] == [("Log::buf", 2, "listed", ["N1"])]
+
+
+def test_a_shared_sink_the_change_only_reads_is_not_listed():
+    c = _world([_edit("report", "svc/rep.c"), _same("config", "drv/cfg.c")],
+               fields=[("report", "Log", "buf", "read", "added"), ("config", "Log", "buf", "write", "unchanged")])
+    _sink(c, "Log::buf")
+    reading, _ = build_reading(_set(["N1"]), c)
+    assert reading.sinks == []
+
+
+def test_threads_sharing_only_a_shared_sinks_struct_share_no_vocabulary():
+    c = _world([_edit("a_put", "x/a.c"), _edit("b_put", "y/b.c")],
+               fields=[("a_put", "Log", "buf", "write", "added"), ("b_put", "Log", "buf", "write", "added")])
+    ss = _set(["N1"], ["N2"])
+    threads = [Thread(id="T1", name="a", purpose="", stories=["S1"]), Thread(id="T2", name="b", purpose="", stories=["S2"])]
+    assert any(k.kind == "vocabulary" for k in connections(threads, ss, _x(c)))
+    _sink(c, "Log::buf")
+    assert not any(k.kind == "vocabulary" for k in connections(threads, ss, _x(c)))
+
+
+def test_a_sink_finding_is_no_check_and_never_raises_the_headline():
+    c = _world([_edit("send", "drv/uart.c")])
+    ss = _set(["N1"])
+    sunk = _f("F1", kind="field_mutation", severity="low")
+    sunk.sink = True
+    c.findings = [sunk]
+    rows, cleared = _checks(c, ss)
+    assert rows == [] and cleared == []
+    assert headline([], set(), [sunk]).text == "No risks found"
+
+
+def test_a_headline_stored_before_sinks_still_reads():
+    from codetortoise.reading import headline_from
+    facts = {"checks": [], "cleared": [], "findings": [["F1", "contract", "medium", None]]}
+    assert headline_from(facts, {}).text == "Medium risk"
