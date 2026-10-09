@@ -58,10 +58,16 @@ def tier1_review(user: str) -> dict:
 
 
 def threads(user: str) -> dict:
-    """Each thread named after its first story; the whole cites the first thread; connections keep their text."""
+    """Each thread named after its first story, its first listed file its key file; the whole cites the first thread;
+    connections keep their text."""
     rows = re.findall(r"^(T\d+) \|.*?\| (S\d+) ", user, re.M)
+    first = dict(re.findall(r"^(T\d+) \|.*\n  files \(changed functions\): (\S+) \(", user, re.M))
+
+    def pick(t: str) -> dict:
+        f = first.get(t)
+        return {"files": [f], "modules": [f.rsplit("/", 1)[0] + "/"] if "/" in f else []} if f else {}
     return {"threads": [{"id": t, "name": f"Thread of {sid}", "purpose": f"This thread holds {sid} and what builds on it.",
-                         "cites": [sid]} for t, sid in rows],
+                         "cites": [sid], **pick(t)} for t, sid in rows],
             "whole": "The change reworks the UART driver and what calls it. Each thread says what it adds.",
             "whole_cites": [rows[0][0]] if rows else [], "connections": []}
 

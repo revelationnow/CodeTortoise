@@ -90,3 +90,64 @@ def test_thread_text_the_strong_model_fails_is_written_by_the_weak_model():
                               {}, weak=ScriptedLlm(lambda s, u: GOOD, model="small"))
     assert by == "small" and r.whole_source == "llm"
     assert notes == ["thread text: big: invalid JSON twice; fresh try: invalid JSON twice; small wrote it"]
+
+
+FILES = {"T1": [("drv/uart.c", 2), ("drv/regs.h", 1), ("main.c", 1)], "T2": [("drv/init.c", 1)], "T3": []}
+
+
+def _with_picks(**picks):
+    """GOOD with each thread's files and modules: `picks` maps a thread id to (files, modules)."""
+    return {**GOOD, "threads": [{**t, "files": picks.get(t["id"], ([], []))[0], "modules": picks.get(t["id"], ([], []))[1]}
+                                for t in GOOD["threads"]]}
+
+
+def test_the_prompt_lists_each_threads_files_with_their_changed_functions_capped_at_40():
+    r, ss = _reading()
+    many = {"T1": [(f"d/f{i:02}.c", 1) for i in range(45)]}
+    llm = ScriptedLlm(lambda s, u: GOOD)
+    write_threads(llm, None, None, r, ss, {}, files=many)
+    line = next(x for x in llm.prompts[0].splitlines() if x.startswith("  files (changed functions): "))
+    assert line.startswith("  files (changed functions): d/f00.c (1), d/f01.c (1)")
+    assert line.endswith("d/f39.c (1) +5 more")
+    assert sum(x.startswith("  files") for x in llm.prompts[0].splitlines()) == 1     # T2 and T3 have none listed
+    assert '"files"' in llm.prompts[0] and '"modules"' in llm.prompts[0]
+
+
+def test_an_accepted_pick_sets_the_threads_key_files_and_modules():
+    r, ss = _reading()
+    r.threads[0].modules = ["drv/"]
+    r.threads[1].modules = ["drv/"]
+    answer = _with_picks(T1=(["drv/uart.c", "main.c"], ["drv/"]), T2=(["drv/init.c"], ["drv/"]))
+    notes, _ = write_threads(ScriptedLlm(lambda s, u: answer), None, None, r, ss, {}, files=FILES)
+    assert notes == []
+    assert [(t.files, t.modules, t.files_source) for t in r.threads[:2]] == [
+        (["drv/uart.c", "main.c"], ["drv/"], "llm"), (["drv/init.c"], ["drv/"], "llm")]
+    assert r.threads[2].files_source == "template"                     # nothing listed: nothing to pick
+
+
+def test_a_pick_naming_an_unlisted_file_a_module_holding_none_too_many_or_none_keeps_the_rules_pick():
+    many = [(f"drv/f{i}.c", 1) for i in range(9)]
+    cases = [(["drv/nope.c"], ["drv/"]),                              # not one of the thread's files
+             (["drv/uart.c"], ["svc/"]),                              # a module holding none of them
+             (["drv/uart.c"], ["drv"]),                               # not a directory ending in "/"
+             (["drv/uart.c"], ["/"]),
+             ([], ["drv/"]),                                          # no file
+             (["drv/uart.c"], []),                                    # no module though the rules found one
+             ([f"drv/f{i}.c" for i in range(9)], ["drv/"]),           # more than 8 files
+             (["drv/uart.c"], ["drv/", "a/", "b/", "c/", "d/"])]       # more than 4 modules
+    for files, modules in cases:
+        r, ss = _reading()
+        r.threads[0].files, r.threads[0].modules = ["drv/uart.c"], ["drv/"]
+        listed = {"T1": many + [("drv/uart.c", 1)]} if len(files) == 9 else FILES
+        notes, _ = write_threads(ScriptedLlm(lambda s, u, f=files, m=modules: _with_picks(T1=(f, m))), None, None,
+                                 r, ss, {}, files={"T1": listed["T1"]})
+        assert (r.threads[0].files, r.threads[0].modules, r.threads[0].files_source) == (
+            ["drv/uart.c"], ["drv/"], "template"), (files, modules)
+        assert notes == ["thread text: 1 file pick(s) failed the checks; their fixed text stays"], (files, modules)
+
+
+def test_a_thread_whose_files_are_all_at_the_root_may_pick_no_module():
+    r, ss = _reading()
+    notes, _ = write_threads(ScriptedLlm(lambda s, u: _with_picks(T1=(["main.c"], []))), None, None, r, ss, {},
+                             files={"T1": [("main.c", 1)]})
+    assert notes == [] and (r.threads[0].files, r.threads[0].modules, r.threads[0].files_source) == (["main.c"], [], "llm")
