@@ -29,7 +29,7 @@ from codetortoise.llm.threads import write_threads
 from codetortoise.paths import canon
 from codetortoise.pieces import build_pieces
 from codetortoise.provenance import finding_files, impact_node_files, local_files
-from codetortoise.reading import READING_VERSION, build_reading, headline_facts
+from codetortoise.reading import READING_VERSION, build_reading, fixed_introduction, headline_facts, thread_files
 from codetortoise.repeated import find_repeated
 from codetortoise.sequence import file_lines
 from codetortoise.services import Services
@@ -474,23 +474,27 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
             told = "fixed thread text (no strong model)"
         else:
             cls_text = {m.cl: m.description for m in ctx["cs"].cls}
-            key = hashlib.sha256(f"{READING_VERSION}|{strong.model}|{threads_prompt(r, bs.stories, cls_text)}"
+            files = thread_files(r.threads, per)
+            key = hashlib.sha256(f"{READING_VERSION}|{strong.model}|{threads_prompt(r, bs.stories, cls_text, files)}"
                                  .encode()).hexdigest()
             cached = store.get_blob(rid, "thread_text")
             if cached and cached.get("key") == key and not fresh:
                 by: str | None = strong.model
                 for t in r.threads:
                     t.name, t.purpose, t.text_source = cached["threads"].get(t.id, (t.name, t.purpose, t.text_source))
+                    t.files, t.modules, t.files_source = cached["picks"].get(t.id, (t.files, t.modules, t.files_source))
                 r.whole, r.whole_source = cached["whole"], cached["whole_source"]
                 for k in r.connections:
                     k.text = cached["connections"].get(f"{k.a}-{k.b}", k.text)
             else:
-                notes, by = write_threads(svc.strong, svc.ledger, rid, r, bs.stories, cls_text, weak=svc.llm)
+                notes, by = write_threads(svc.strong, svc.ledger, rid, r, bs.stories, cls_text, weak=svc.llm, files=files)
                 if not notes:
                     store.put_blob(rid, "thread_text", {
                         "key": key, "threads": {t.id: (t.name, t.purpose, t.text_source) for t in r.threads},
+                        "picks": {t.id: (t.files, t.modules, t.files_source) for t in r.threads},
                         "whole": r.whole, "whole_source": r.whole_source,
                         "connections": {f"{k.a}-{k.b}": k.text for k in r.connections}})
+            fixed_introduction(r, bs.stories)          # the fixed intros name the modules the threads call picked
             told = (f"thread text by {by}" if by == strong.model else
                     f"thread text by {by} (the strong model failed)" if by else "fixed thread text (the AI's answer failed)")
         store.replace_blobs(rid, ["reading", "reading_head", "lines"], ["story_reading:"],

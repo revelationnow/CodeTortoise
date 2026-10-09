@@ -411,8 +411,13 @@ def _one_story_per_cl(system, user):
         return {"related": [], "merge": []}
     if "THREADS (id" in user:
         rows = re.findall(r"^(T\d+) \|.*?\| (S\d+)", user, re.M)
+        first = dict(re.findall(r"^(T\d+) \|.*\n  files \(changed functions\): (\S+) \(", user, re.M))
+
+        def pick(t):
+            f = first.get(t)
+            return {"files": [f], "modules": [f.rsplit("/", 1)[0] + "/"] if "/" in f else []} if f else {}
         return {"threads": [{"id": t, "name": "UART driver changes", "purpose": "This changes the UART driver.",
-                             "cites": [sid]} for t, sid in rows],
+                             "cites": [sid], **pick(t)} for t, sid in rows],
                 "whole": "The change reworks the UART driver. Its callers see new results.", "whole_cites": ["T1"],
                 "connections": []}
     by_cl: dict[str, list[str]] = {}
@@ -501,12 +506,15 @@ def test_the_strong_model_names_the_threads_once_and_a_rerun_reuses_the_text(fx,
     run_review(rid, svc)
     reading = svc.store.get_blob(rid, "reading")
     assert {t["name"] for t in reading["threads"]} == {"UART driver changes"} and reading["whole_source"] == "llm"
+    t1 = reading["threads"][0]
+    assert t1["files_source"] == "llm" and len(t1["files"]) == 1
     msg = next(s["message"] for s in svc.store.list_stages(rid) if s["name"] == "reading")
     assert msg.endswith("thread text by big")
     asked = sum("THREADS (id" in p for p in llm.prompts)
     run_review(rid, svc)
     assert sum("THREADS (id" in p for p in llm.prompts) == asked == 1
     assert svc.store.get_blob(rid, "reading")["whole_source"] == "llm"
+    assert svc.store.get_blob(rid, "reading")["threads"][0]["files"] == t1["files"]      # the cached pick
 
 
 def test_a_four_cl_review_reads_as_three_connected_threads(fx, tmp_path):
