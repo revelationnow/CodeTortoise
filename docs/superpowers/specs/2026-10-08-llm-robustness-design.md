@@ -51,8 +51,9 @@ llm:
 
 - `request_log: all` keeps every request; `failed` keeps a call's requests only when the call failed, or when any of
   its replies was cut off or needed a repair round; `off` keeps none. Default `all`.
-- `max_output_tokens_cap` should not exceed what the models accept; a server that rejects a raised limit fails that
-  try, which the log then shows.
+- `max_output_tokens_cap` should not exceed what the models accept. A server that rejects a raised limit (HTTP 400 on
+  a limit above the client's own) gets the request again at the client's own limit (none when unset), and that call
+  raises it no further; the log shows both.
 - The existing `llm.max_output_tokens` and `llm.strong.max_output_tokens` stay the starting limits.
 
 ## 4. The client (`llm/client.py`)
@@ -74,7 +75,8 @@ server reported (or none). Other stop reasons are recorded but change nothing.
 
 The chat API now sends the limit as `max_tokens` when one is set. A server that rejects it with a 400 naming
 `max_tokens` and mentioning `max_completion_tokens` (OpenAI's newer models) gets `max_completion_tokens` from then on —
-the same step-down the response format already does. No limit set: no field sent, as today.
+the same step-down the response format already does. No limit set: no field sent, as today. Step-downs are shared
+by every per-try view of a client, so they are learned once, and they cost none of the request's attempts.
 
 ### 4.3 Raising the limit
 

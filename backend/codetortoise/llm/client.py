@@ -37,6 +37,14 @@ class LlmUnreachable(LlmError):
     """Every attempt failed to reach the endpoint or got a server error: later calls this run will fare no better."""
 
 
+class LlmLimitRejected(LlmError):
+    """HTTP 400 on a request whose output limit was raised above the client's own: the model may allow no more."""
+
+    def __init__(self, limit: int, text: str):
+        super().__init__(f"LLM rejected a limit of {limit} tokens: {text[:300]}")
+        self.limit = limit
+
+
 class LlmTruncated(LlmError):
     """The reply stopped at its output-token limit (spec 2026-10-08-llm-robustness §4.1)."""
 
@@ -59,14 +67,15 @@ class LlmClient:
         self.model = model
         self.api = api
         self.max_output_tokens = max_output_tokens
+        self._own = max_output_tokens             # the configured limit: a view falls back to it (with_start)
         self.cap = cap
-        self._limit_param = "max_tokens"          # -> "max_completion_tokens" when a chat server asks for it
         self._view = False                        # a per-try view keeps a raised limit (with_start)
         self.temperature = temperature           # None: the model's own default (some servers reject it)
         self.retries = retries
         self._sleep = sleep
-        # -> "json_schema" (e.g. LM Studio) or "none" as servers reject formats; the Messages API has none to ask for
-        self._format = "none" if api == "messages" else "json_object"
+        # what servers rejected, shared by every view (with_start): the format steps down to "json_schema" (e.g. LM
+        # Studio) or "none" (the Messages API has none to ask for); the chat limit to "max_completion_tokens"
+        self._learned = {"format": "none" if api == "messages" else "json_object", "limit_param": "max_tokens"}
         headers = {"x-api-key": api_key, "anthropic-version": ANTHROPIC_VERSION} if api == "messages" else \
             {"Authorization": f"Bearer {api_key}"}
         self._http = httpx.Client(base_url=base_url.rstrip("/"), timeout=timeout, transport=transport, headers=headers)
@@ -109,9 +118,9 @@ class LlmClient:
         return stop, stop == "length"
 
     def _response_format(self, schema: type[BaseModel] | None) -> dict | None:
-        if self._format == "json_object":
+        if self._learned["format"] == "json_object":
             return {"type": "json_object"}
-        if self._format == "json_schema" and schema is not None:
+        if self._learned["format"] == "json_schema" and schema is not None:
             return {"type": "json_schema",
                     "json_schema": {"name": schema.__name__, "schema": schema.model_json_schema()}}
         return None
@@ -132,7 +141,7 @@ class LlmClient:
             if rf is not None:
                 body["response_format"] = rf
             if limit:
-                body[self._limit_param] = limit
+                body[self._learned["limit_param"]] = limit
         if self.temperature is not None:
             body["temperature"] = self.temperature
         return body
@@ -151,7 +160,8 @@ class LlmClient:
     def _chat(self, system: str, user: str, schema: type[BaseModel] | None, limit: int | None,
               repair: bool = False) -> str:
         last: Exception | None = None
-        for attempt in range(self.retries + 1):
+        attempt = steps = 0                       # a step-down (format, limit field) costs no attempt
+        while attempt <= self.retries:
             rf = self._response_format(schema)
             body = self._body(system, user, rf, limit)
             rec = self._record(body, repair)
@@ -165,16 +175,21 @@ class LlmClient:
             else:
                 if rec is not None:
                     rec.update(elapsed_ms=int((time.monotonic() - t0) * 1000), status=r.status_code, response=r.text)
-                if (r.status_code == 400 and self.api == "chat" and limit and self._limit_param == "max_tokens"
+                if (r.status_code == 400 and self.api == "chat" and limit and steps < 3
+                        and self._learned["limit_param"] == "max_tokens"
                         and "max_tokens" in r.text and "max_completion_tokens" in r.text):
-                    self._limit_param = "max_completion_tokens"      # OpenAI's newer models name the limit so
+                    self._learned["limit_param"] = "max_completion_tokens"      # OpenAI's newer models name it so
+                    steps += 1
                     continue
-                if r.status_code == 400 and rf is not None and _FORMAT_PARAM[self.api] in r.text:
+                if r.status_code == 400 and rf is not None and _FORMAT_PARAM[self.api] in r.text and steps < 3:
                     # server rejects this structured-output form: prefer json_schema if it asks for it, else plain text
-                    wants_schema = self._format == "json_object" and "json_schema" in r.text
-                    self._format = "json_schema" if wants_schema else "none"
+                    wants_schema = self._learned["format"] == "json_object" and "json_schema" in r.text
+                    self._learned["format"] = "json_schema" if wants_schema else "none"
+                    steps += 1
                     continue
                 if r.status_code < 500 and r.status_code != 429:
+                    if r.status_code == 400 and limit and limit > (self._own or DEFAULT_BASE):
+                        raise LlmLimitRejected(limit, r.text)
                     if r.status_code >= 400:
                         raise LlmError(f"LLM HTTP {r.status_code}: {r.text[:300]}")
                     try:
@@ -193,6 +208,7 @@ class LlmClient:
                 last = LlmError(f"LLM HTTP {r.status_code}")
             if attempt < self.retries:
                 self._sleep(2 ** attempt)
+            attempt += 1
         raise LlmUnreachable(f"LLM request failed after {self.retries + 1} attempts: {last}")
 
     def _count(self, data: dict) -> tuple[int, int] | None:
@@ -211,12 +227,16 @@ class LlmClient:
         2026-10-08-llm-robustness §4.3); a complete but invalid one gets one repair round, also at double the limit."""
         system = system + "\n\nReply with a single JSON object matching this JSON schema:\n" + \
             json.dumps(schema.model_json_schema())
-        limit, prompt, repaired = self.max_output_tokens, user, False
+        limit, prompt, repaired, raising = self.max_output_tokens, user, False, True
         while True:
             try:
                 text = self._chat(system, prompt, schema, limit, repaired)
+            except LlmLimitRejected:
+                # the model allows no more: send it again at the client's own limit, and raise no further this call
+                limit, raising = self._own, False
+                continue
             except LlmTruncated:
-                nxt = self._raised(limit)
+                nxt = self._raised(limit) if raising else None
                 if nxt is None:
                     raise
                 limit = nxt
@@ -230,7 +250,7 @@ class LlmClient:
                 repaired = True
                 prompt = (user + "\n\nYour previous reply was:\n" + text[:4000] +
                           f"\n\nIt was invalid: {str(e)[:1000]}\nReply again with valid JSON only.")
-                limit = self._raised(limit) or limit
+                limit = (self._raised(limit) if raising else None) or limit
                 continue
             if self._view:
                 self.max_output_tokens = limit
