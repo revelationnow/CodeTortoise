@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import fnmatch
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -65,6 +65,15 @@ class FanOut(BaseModel):
     by_layer: dict[str, int] = Field(default_factory=dict)
 
 
+class SinkInfo(BaseModel):
+    """A field so many functions touch, or the owner names, that a new write to it says nothing about its users
+    (spec 2026-10-09-shared-sinks §3)."""
+    field: str                                      # the field node id
+    label: str                                      # record::field
+    users: int                                      # distinct unchanged functions reading or writing it
+    why: Literal["marked", "listed", "threshold"]
+
+
 class ImpactModel(BaseModel):
     nodes: dict[str, Node] = Field(default_factory=dict)
     edges: list[Edge] = Field(default_factory=list)
@@ -73,6 +82,7 @@ class ImpactModel(BaseModel):
     blast: list[BlastItem] = Field(default_factory=list)
     fanout: list[FanOut] = Field(default_factory=list)
     capped: dict[str, int] = Field(default_factory=dict)  # name -> heuristic matches skipped (over the cap)
+    sinks: dict[str, SinkInfo] = Field(default_factory=dict)   # field node id -> why it is a shared sink
 
     def node_by_key(self, key: str) -> Node | None:
         return next((n for n in self.nodes.values() if n.key == key), None)
@@ -125,7 +135,8 @@ class _Builder:
 
 
 def build_impact(before: list[Facts], after: list[Facts], dm: DiffMap, sel: TuSelection,
-                 index: SymbolIndex | None, layers: LayerModel | None, cfg: AnalysisConfig) -> ImpactModel:
+                 index: SymbolIndex | None, layers: LayerModel | None, cfg: AnalysisConfig,
+                 marked: Collection[str] = ()) -> ImpactModel:
     fb = {f.usr: f for facts in before for f in facts.functions}
     fa = {f.usr: f for facts in after for f in facts.functions}
     resolve = _name_resolver({**fb, **fa})
@@ -234,6 +245,8 @@ def build_impact(before: list[Facts], after: list[Facts], dm: DiffMap, sel: TuSe
     model.capped = capped
     model.changed = sorted((key_to_id[u] for u in changed_status if u in key_to_id), key=lambda s: int(s[1:]))
 
+    from codetortoise.sinks import find_sinks  # sinks.py builds on this module's models
+    model.sinks = find_sinks(model, cfg.sink_threshold, cfg.sink_fields, marked)
     _flows(model, cfg)
     _blast(model, cfg)
     _fanout(model, sel, index, layers)
@@ -293,6 +306,8 @@ def _blast(model: ImpactModel, cfg: AnalysisConfig) -> None:
             reached: list[tuple[str, Edge, str]] = [(e.src, e, "call") for e in incoming.get(n, [])]
             if n in seeds:
                 for w in writes_from.get(n, []):
+                    if w.dst in model.sinks:              # a shared sink's users are not affected code
+                        continue
                     for u in field_users.get(w.dst, []):
                         if u.src != n:
                             reached.append((u.src, u, "data"))

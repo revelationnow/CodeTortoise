@@ -124,6 +124,8 @@ class AnalysisConfig(BaseModel):
     story_graph_nodes: int = 12    # nodes a story's graph shows before the reader expands it
     entrypoint_patterns: list[str] = Field(
         default_factory=lambda: ["main", "*_isr", "*_irq_handler", "*Callback", "*_callback"])
+    sink_threshold: int = 20       # a field more unchanged functions than this touch is a shared sink; 0 = off
+    sink_fields: list[str] = Field(default_factory=list)   # fnmatch patterns on record::field: always shared sinks
 
 
 class Config(BaseModel):
