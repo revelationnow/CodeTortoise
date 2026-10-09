@@ -91,6 +91,27 @@ def cmd_stories_check(args) -> int:
         return 1
 
 
+def cmd_llm_log(args) -> int:
+    """The request log of a review (spec 2026-10-08-llm-robustness §8.1): one line per request; files with --out."""
+    from codetortoise.llm import request_log
+    from codetortoise.store import Store
+    cfg = load_config(Path(args.config))
+    got = request_log.rows(Store(cfg.server.data_dir / "tortoise.db"), args.review, args.call)
+    if not got:
+        off = " (llm.request_log is off)" if cfg.llm.request_log == "off" else ""
+        print(f"no requests logged for review {args.review}{off}")
+        return 0
+    for r in got:
+        print(request_log.line(r))
+    if args.out:
+        for name, data in request_log.files(got).items():
+            path = Path(args.out) / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        print(f"wrote {len(got)} file(s) under {args.out}")
+    return 0
+
+
 def cmd_init(args) -> int:
     from codetortoise.init_config import render, scan, summary
     from codetortoise.vcs.p4runner import P4Runner
@@ -206,6 +227,12 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("review", type=int)
     s.add_argument("--runs", type=int, default=3)
     s.set_defaults(fn=cmd_stories_check)
+    s = sub.add_parser("llm-log", help="print a review's logged AI requests, and write them out as JSON files")
+    s.add_argument("--config", required=True)
+    s.add_argument("review", type=int)
+    s.add_argument("--call", type=int, help="only this call's requests")
+    s.add_argument("--out", help="a folder to write call-<id>/<seq>.json files into")
+    s.set_defaults(fn=cmd_llm_log)
     s = sub.add_parser("init", help="write a starter tortoise.yaml for the workspace you are in")
     s.add_argument("--root", default=".", help="a folder inside the workspace (default: the current folder)")
     s.add_argument("--out", default="tortoise.yaml")
