@@ -594,8 +594,11 @@ def build_flows(x: _Ctx, impacts: list[Impact]) -> list[Flow]:
     for (cause, land, _), imp in by_key.items():
         F, L = x.label(cause), x.label(land)
         if imp.channel == "state":
-            field_id = next((e.dst for e in x.im.edges if e.src == cause and e.kind == "writes"
-                             and any(e2.dst == e.dst and e2.src == land for e2 in x.im.edges)), None)
+            # the field the landing's note is about; never a shared sink, whose users are not checked
+            field_id = next((r for r in imp.refs or [] if r in x.im.nodes and x.im.nodes[r].kind == "field"
+                             and r not in x.im.sinks), None) or next(
+                (e.dst for e in x.im.edges if e.src == cause and e.kind == "writes" and e.dst not in x.im.sinks
+                 and any(e2.dst == e.dst and e2.src == land for e2 in x.im.edges)), None)
             head = _entry_path(x, cause, warn, frozenset({land}))
             path = head + ([field_id] if field_id else []) + [land]
             fl = x.label(field_id) if field_id else "the field"
@@ -865,13 +868,15 @@ def about_for(about: About, files: set[str], mine: set[str], findings: list[Find
 
 
 def _overview(x: _Ctx, res, about: About, depots: dict[str, str], flows: list[Flow]) -> Overview:
+    quiet = {f.id for f in x.c.findings if f.sink}          # a shared sink's finding is listed, never counted
     infos = []
     for cl in res.clusters:
         infos.append(ClusterInfo(
             id=cl.id, name=cl.name, level=cl.level, also=cl.also, risk=cl.risk, test=cl.test,
             files=sorted({depots[x.local(m)] for m in cl.members if x.local(m) in depots}),
             changed=sum(1 for m in cl.members if x.im.nodes[m].kind == "function"), flows=len(cl.flows),
-            findings=len(cl.findings), finding_ids=list(cl.findings), nodes=list(cl.members)))
+            findings=sum(1 for i in cl.findings if i not in quiet), finding_ids=list(cl.findings),
+            nodes=list(cl.members)))
     owner = {m: cl.id for cl in res.clusters for m in cl.members}
     calls: dict[tuple[str, str], int] = defaultdict(int)
     for e in x.im.edges:
@@ -882,7 +887,7 @@ def _overview(x: _Ctx, res, about: About, depots: dict[str, str], flows: list[Fl
     touches: dict[str, set[str]] = defaultdict(set)
     for e in x.im.edges:
         cid = owner.get(e.src)
-        if cid and e.kind in ("writes", "reads"):
+        if cid and e.kind in ("writes", "reads") and e.dst not in x.im.sinks:      # a shared sink links no parts
             touches[cid].add(e.dst)
             if e.kind == "writes":
                 writes[cid].add(e.dst)
@@ -893,7 +898,7 @@ def _overview(x: _Ctx, res, about: About, depots: dict[str, str], flows: list[Fl
                     | {lv for cl in res.clusters for lv in cl.also}, reverse=True)
     layers = [BoardLayer(level=lv, name=(_layer_name(x, lv) if lv >= 0 else "other")) for lv in levels]
     totals = {"files": len(about.tree and [f for d in about.tree for f in d.files]), "clusters": len(res.clusters),
-              "flows": len(flows), "findings": len(x.c.findings),
+              "flows": len(flows), "findings": len(x.c.findings) - len(quiet),
               "changed": sum(1 for n in x.im.changed if n in x.im.nodes and x.im.nodes[n].kind == "function")}
     return Overview(about=about, clusters=infos, links=links, layers=layers, totals=totals,
                     merged_over_limit=res.merged_over_limit)

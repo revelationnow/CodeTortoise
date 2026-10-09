@@ -402,8 +402,8 @@ def _card(x: _Ctx, p: Piece, ps: PieceSet, a: Analysis, rep: Repeated) -> str:
     mine = set(p.nodes)
     flows = [f"{fl.id} {' → '.join(im.nodes[n].label for n in fl.path if n in im.nodes)} ({fl.tag})"
              for fl in a.flows if (fl.cause or fl.path[-1]) in mine]
-    finds = [f"{f.id} ({f.kind}, {f.title[:60]})" for f in x.c.findings
-             if set(f.nodes) & mine or (p.kind == "declarations" and any(e.file in p.files for e in f.evidence))]
+    finds = [f"{f.id} ({f.kind}, {f.title[:60]})" for f in x.c.findings if not f.sink and (
+             set(f.nodes) & mine or (p.kind == "declarations" and any(e.file in p.files for e in f.evidence)))]
     links = sorted(ps.links_of(p.id), key=lambda lk: (-lk.count, lk.b if lk.a == p.id else lk.a, lk.type))
     lk_text = " · ".join(f"→ {lk.b if lk.a == p.id else lk.a} {lk.type} ×{lk.count}" for lk in links[:6])
     text = "\n".join([head, "files: " + ", ".join(files), fns,

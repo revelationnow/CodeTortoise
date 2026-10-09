@@ -653,7 +653,8 @@ def contract_rows(story: Story, x: _Ctx) -> list[ContractRow]:
             rets.append(ContractRow(kind="returns", node=n, nodes=[n], added=_vals(fa, added), removed=_vals(fb, removed),
                                     text=f"`{label}` " + "; ".join(parts)))
             touched = True
-        writes = [e for e in x.im.edges if e.src == n and e.kind == "writes" and e.status in ("added", "removed")]
+        writes = [e for e in x.im.edges if e.src == n and e.kind == "writes" and e.status in ("added", "removed")
+                  and e.dst not in x.im.sinks]         # a shared sink is listed once, in the overview
         now = [x.label(e.dst) for e in writes if e.status == "added"]
         gone = [x.label(e.dst) for e in writes if e.status == "removed"]
         if now or gone:
@@ -716,7 +717,8 @@ def _change_text(x: _Ctx, n: str) -> str:
     added = [v for v in fa.returns if v not in fb.returns]
     if added:
         return f"which can now return {', '.join(_vals(fa, added))}"
-    now = [x.label(e.dst) for e in x.im.edges if e.src == n and e.kind == "writes" and e.status == "added"]
+    now = [x.label(e.dst) for e in x.im.edges if e.src == n and e.kind == "writes" and e.status == "added"
+           and e.dst not in x.im.sinks]
     if now:
         return f"which now writes `{now[0]}`"
     return "whose body changed"

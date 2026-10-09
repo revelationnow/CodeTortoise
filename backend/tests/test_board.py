@@ -350,3 +350,33 @@ def test_a_field_declarations_note_names_the_field_for_the_owners_mark():
     (decl,) = [i for i in b.impacts if i.node == "N2"]
     assert decl.field == "R::v" and not decl.sink
     assert all(i.field is None for i in b.impacts if i.node != "N2")
+
+
+def test_a_state_flow_runs_through_the_field_its_landing_reads_never_a_shared_sink():
+    ctx = _sunk()                                         # R::v is a sink; set also newly writes R::w, which peek reads
+    w = lambda fn, mode, line: _acc(fn, mode, "/w/a.c" if fn == "c:@F@set" else "/w/b.c", line).model_copy(  # noqa: E731
+        update={"field": "c:@S@R@FI@w", "field_name": "w", "path": "r->w"})
+    ctx.after[0].fields += [w("c:@F@set", "write", 6), w("c:@F@peek", "read", 23)]
+    ctx.impact.nodes["N9"] = Node(id="N9", key="field:c:@S@R@FI@w", kind="field", label="R::w", layer=1)
+    ctx.impact.edges += [Edge(id="E9", src="N1", dst="N9", kind="writes"), Edge(id="E10", src="N3", dst="N9", kind="reads")]
+    b = build_board(ctx)
+    (state,) = [f for f in b.flows if f.tag == "state"]
+    assert "N2" not in state.path and state.path[-2:] == ["N9", "N3"]
+    assert "R::v" not in state.what and "N2" not in {n.id for n in b.nodes}
+
+
+def test_the_overview_map_neither_links_parts_by_a_shared_sink_nor_counts_its_finding():
+    from codetortoise.detectors.base import Finding
+    from codetortoise.impact import SinkInfo
+    ctx, _ = _synthetic(callers=("test_set", "api"))
+    ctx.impact.sinks = {"N2": SinkInfo(field="N2", label="R::v", users=40, why="threshold")}
+    ctx.cfg = ctx.cfg.model_copy(update={"board_max_nodes": 1})     # one part per changed function
+    ctx.impact.changed.append("N3")                                        # peek, which reads R::v, is its own part
+    ctx.impact.edges[0] = ctx.impact.edges[0].model_copy(update={"status": "added"})
+    ctx.findings = [Finding(id="F1", kind="field_mutation", severity="info", title="set now writes R::v", summary="s",
+                            nodes=["N1"], sink=True)]
+    ov = build_boards(ctx).overview
+    assert ov is not None and len(ov.clusters) == 2
+    assert all(lk.fields == 0 for lk in ov.links) and ov.totals["findings"] == 0
+    (mine,) = [cl for cl in ov.clusters if "N1" in cl.nodes]
+    assert mine.findings == 0 and mine.finding_ids == ["F1"]

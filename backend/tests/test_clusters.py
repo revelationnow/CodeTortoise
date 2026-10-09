@@ -262,3 +262,12 @@ def test_a_shared_sink_joins_no_code_and_no_board_requires_it():
     res = g.run()
     assert members(res) == sorted([[a], [b]])
     assert all(buf not in c.required for c in res.clusters)
+
+
+def test_a_shared_sink_finding_stays_on_its_cluster_but_never_sets_its_risk():
+    from codetortoise.detectors.base import Finding
+    g = G()
+    a = g.fn("uart_send", "drv/uart.c")
+    sunk = Finding(id="F1", kind="field_mutation", severity="low", title="t", summary="s", nodes=[a], sink=True)
+    (c,) = g.run([sunk]).clusters
+    assert c.findings == ["F1"] and c.risk is None

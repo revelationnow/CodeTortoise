@@ -613,3 +613,11 @@ def test_shared_sinks_from_the_yaml_and_the_owners_marks_quiet_a_review(fx, tmp_
     assert not [k for k in reading["checks"] if k["kind"] == "reader"]
     assert {"Stats::tx", "Uart::errors"} <= {h["label"] for h in reading["sinks"]}
     assert [f["tag"] for f in svc.store.get_blob(rid, "board")["flows"]] == ["contract", "contract"]   # no state flow
+    import re
+    told = {f["id"] for f in svc.store.get_blob(rid, "story_findings") if f.get("sink")}
+    cards = " ".join(p["card"] for p in svc.store.get_blob(rid, "pieces")["pieces"])
+    assert told and not any(re.search(rf"\b{i} \(", cards) for i in told)      # tier 1 never sees a sink
+    quiet = {f.id for f in svc.store.list_findings(rid) if f.sink}
+    stories = svc.store.get_blob(rid, "stories")["stories"]
+    assert any(set(st["findings"]) & quiet for st in stories)                       # listed under its story...
+    assert all(st["counts"]["findings"] == len(set(st["findings"]) - quiet) for st in stories)   # ...never counted
