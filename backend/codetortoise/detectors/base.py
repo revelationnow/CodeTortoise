@@ -45,6 +45,7 @@ class Finding(BaseModel):
     files: list[str] | None = None          # depot paths behind the finding (spec §14.3); None = unknown
     explain_files: list[str] | None = None  # files behind the LLM explanation, verify steps and hypotheses
     side_effect: bool = False               # a new field write: neutral until the AI judges it
+    sink: bool = False                      # a write to a shared sink: shown only when the reader asks (spec 2026-10-09)
     verdict: Literal["hazard", "needs_review", "no_hazard"] | None = None   # the AI's judgement (None: not assessed)
     verdict_reason: str | None = None
     verdict_cites: list[str] = Field(default_factory=list)      # node ids and file:line the verdict relies on
