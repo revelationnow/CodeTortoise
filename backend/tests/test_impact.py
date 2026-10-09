@@ -143,4 +143,4 @@ def test_name_matches_over_the_cap_count_each_function_once(analysed):
 
     a = analysed
     im = build_impact(a.before, a.after, a.dm, a.sel, Index(), a.layers, AnalysisConfig(module_min_files=1))
-    assert im.capped["Uart::errors"] == 3
+    assert im.capped_fields["Uart::errors"] == 3 and "Uart::errors" not in im.capped    # callers' names stay apart

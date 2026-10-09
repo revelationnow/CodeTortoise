@@ -1054,6 +1054,9 @@ def coverage(x: _Ctx, has_tests: bool, outside: int = 0) -> list[str]:
         out.append(f"{_n(len(fallback), 'file')} read by tree-sitter only")
     for name, n in sorted(x.im.capped.items()):
         out.append(f"{n} callers of `{name}` found by name were not checked (more than {x.c.cfg.heuristic_fanin_cap})")
+    for label, n in sorted(x.im.capped_fields.items()):
+        out.append(f"{_n(n, 'function')} using `{label}` found by name {'was' if n == 1 else 'were'} not checked "
+                   f"(more than {x.c.cfg.heuristic_fanin_cap} references)")
     if outside:
         out.append(f"{_n(outside, 'file')} with callers {'is' if outside == 1 else 'are'} outside every compile database")
     if x.c.cs.drift:

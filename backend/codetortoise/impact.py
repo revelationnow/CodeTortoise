@@ -82,6 +82,7 @@ class ImpactModel(BaseModel):
     blast: list[BlastItem] = Field(default_factory=list)
     fanout: list[FanOut] = Field(default_factory=list)
     capped: dict[str, int] = Field(default_factory=dict)  # name -> heuristic matches skipped (over the cap)
+    capped_fields: dict[str, int] = Field(default_factory=dict)  # field label -> functions using its name, skipped
     sinks: dict[str, SinkInfo] = Field(default_factory=dict)   # field node id -> why it is a shared sink
 
     def node_by_key(self, key: str) -> Node | None:
@@ -187,6 +188,7 @@ def build_impact(before: list[Facts], after: list[Facts], dm: DiffMap, sel: TuSe
     # 3. heuristic edges from the symbol index for code outside the parsed TUs
     parsed = set(sel.selected)
     capped: dict[str, int] = {}
+    capped_fields: dict[str, int] = {}
     by_qual = {}
     for u, f in {**fb, **fa}.items():
         by_qual.setdefault(f.qualname, u)
@@ -217,7 +219,7 @@ def build_impact(before: list[Facts], after: list[Facts], dm: DiffMap, sel: TuSe
             rows = [r for r in index.member_refs(fname) if r.path not in parsed and r.fn
                     and (allowed is None or r.path in allowed)]
             if len(rows) > cfg.heuristic_fanin_cap:
-                capped[label] = len({(r.path, r.fn) for r in rows})     # functions, not references: a sink's users
+                capped_fields[label] = len({(r.path, r.fn) for r in rows})   # functions, not references: a sink's users
                 continue
             for row in rows:
                 key = by_qual.get(row.fn) or f"ts:{row.path}#{row.fn}"
@@ -242,7 +244,7 @@ def build_impact(before: list[Facts], after: list[Facts], dm: DiffMap, sel: TuSe
         status = "unchanged" if len(v) == 2 else ("added" if "after" in v else "removed")
         model.edges.append(Edge(id=f"E{i + 1}", src=key_to_id[k[0]], dst=key_to_id[k[1]], kind=k[2],
                                 status=status, confidence=e["confidence"], file=e["file"], line=e["line"]))
-    model.capped = capped
+    model.capped, model.capped_fields = capped, capped_fields
     model.changed = sorted((key_to_id[u] for u in changed_status if u in key_to_id), key=lambda s: int(s[1:]))
 
     from codetortoise.sinks import find_sinks  # sinks.py builds on this module's models
