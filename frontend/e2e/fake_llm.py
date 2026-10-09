@@ -72,7 +72,23 @@ def threads(user: str) -> dict:
             "whole_cites": [rows[0][0]] if rows else [], "connections": []}
 
 
+def intro(user: str) -> dict:
+    """Every part of the introduction, each citing what it introduces; the route keeps the threads' order."""
+    body = user.split("THREAD DETAILS (id", 1)[1].split("CONNECTIONS (a", 1)[0]
+    rows = re.findall(r"^(T\d+) \| ", body, re.M)
+    first = dict(re.findall(r"^(T\d+) \|.*\n(?:  (?:modules|files): .*\n)*  stories: (S\d+) ", body, re.M))
+    return {"whole": "The change reworks the UART driver. It spans the driver and the code that calls it. Each thread "
+                     "below says what it adds. The main risk is a caller that misses a new result.",
+            "whole_cites": rows[:1],
+            "threads": [{"id": t, "intro": "This thread changes the UART driver. Its code sits in the driver. Its open "
+                                           "checks say what to confirm.", "cites": [first.get(t, t)]} for t in rows],
+            "route": [{"thread": t, "reason": "This thread comes next in the change.", "skim": False, "cites": [t]}
+                      for t in rows]}
+
+
 def answer(system: str, user: str) -> dict:
+    if "THREAD DETAILS (id" in user:
+        return intro(user)
     if "THREADS (id" in user:
         return threads(user)
     if "forming the stories of a change" in system:

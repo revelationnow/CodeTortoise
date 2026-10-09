@@ -21,6 +21,8 @@ from codetortoise.facts_prep import prepare_facts
 from codetortoise.grouping import StoryPlan, rules_plan
 from codetortoise.impact import ImpactModel, build_impact
 from codetortoise.llm.brief_context import brief_context
+from codetortoise.llm.intro import INTRO_VERSION, write_intro
+from codetortoise.llm.intro import prompt as intro_prompt
 from codetortoise.llm.review import apply_verdicts, review_stories
 from codetortoise.llm.stories import STORY_RULES_VERSION, form_stories
 from codetortoise.llm.storyboard import AiContext, build_storyboard, judge_side_effects
@@ -29,7 +31,14 @@ from codetortoise.llm.threads import write_threads
 from codetortoise.paths import canon
 from codetortoise.pieces import build_pieces
 from codetortoise.provenance import finding_files, impact_node_files, local_files
-from codetortoise.reading import READING_VERSION, build_reading, fixed_introduction, headline_facts, thread_files
+from codetortoise.reading import (
+    READING_VERSION,
+    RouteStep,
+    build_reading,
+    fixed_introduction,
+    headline_facts,
+    thread_files,
+)
 from codetortoise.repeated import find_repeated
 from codetortoise.sequence import file_lines
 from codetortoise.services import Services
@@ -497,6 +506,26 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
             fixed_introduction(r, bs.stories)          # the fixed intros name the modules the threads call picked
             told = (f"thread text by {by}" if by == strong.model else
                     f"thread text by {by} (the strong model failed)" if by else "fixed thread text (the AI's answer failed)")
+            if r.threads:
+                ikey = hashlib.sha256(f"{INTRO_VERSION}|{strong.model}|{intro_prompt(r, bs.stories, cls_text)}"
+                                      .encode()).hexdigest()
+                icached = store.get_blob(rid, "intro_text")
+                if icached and icached.get("key") == ikey and not fresh:
+                    iby: str | None = strong.model
+                    r.whole, r.whole_source = icached["whole"], icached["whole_source"]
+                    for t in r.threads:
+                        t.intro, t.intro_source = icached["threads"].get(t.id, (t.intro, t.intro_source))
+                    r.route, r.route_source = [RouteStep(**s) for s in icached["route"]], icached["route_source"]
+                else:
+                    said, iby = write_intro(svc.strong, svc.ledger, rid, r, bs.stories, cls_text, weak=svc.llm)
+                    notes = notes + said
+                    if not said:
+                        store.put_blob(rid, "intro_text", {
+                            "key": ikey, "whole": r.whole, "whole_source": r.whole_source,
+                            "threads": {t.id: (t.intro, t.intro_source) for t in r.threads},
+                            "route": [s.model_dump() for s in r.route], "route_source": r.route_source})
+                told += (f"; introduction by {iby}" if iby == strong.model else
+                         f"; introduction by {iby} (the strong model failed)" if iby else "; fixed introduction")
         store.replace_blobs(rid, ["reading", "reading_head", "lines"], ["story_reading:"],
                             {"reading": r, "reading_head": headline_facts(r, x.c.findings),
                              "lines": {d: fl.model_dump() for d, fl in lines.items()},

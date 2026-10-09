@@ -403,6 +403,10 @@ def _one_story_per_cl(system, user):
     """Every piece of a CL in one story (the pieces' cards name their CL); every finding reviewed as no hazard, citing
     the first node its prompt shows."""
     import re
+
+    from scripted_llm import intro_answer
+    if "THREAD DETAILS (id" in user:
+        return intro_answer(user)
     if "QUESTION:" in user:
         node = re.search(r"\bN\d+\b", user.split("FINDINGS:", 1)[1])[0]
         return {"action": "answer", "verdicts": [{"finding": f, "verdict": "no_hazard", "reason": "Nothing reads it.",
@@ -509,7 +513,7 @@ def test_the_strong_model_names_the_threads_once_and_a_rerun_reuses_the_text(fx,
     t1 = reading["threads"][0]
     assert t1["files_source"] == "llm" and len(t1["files"]) == 1
     msg = next(s["message"] for s in svc.store.list_stages(rid) if s["name"] == "reading")
-    assert msg.endswith("thread text by big")
+    assert msg.endswith("thread text by big; introduction by big")
     asked = sum("THREADS (id" in p for p in llm.prompts)
     run_review(rid, svc)
     assert sum("THREADS (id" in p for p in llm.prompts) == asked == 1
@@ -629,3 +633,47 @@ def test_shared_sinks_from_the_yaml_and_the_owners_marks_quiet_a_review(fx, tmp_
     stories = svc.store.get_blob(rid, "stories")["stories"]
     assert any(set(st["findings"]) & quiet for st in stories)                       # listed under its story...
     assert all(st["counts"]["findings"] == len(set(st["findings"]) - quiet) for st in stories)   # ...never counted
+
+
+def test_the_strong_model_introduces_the_review_once_a_rerun_reuses_it_and_a_fresh_run_asks_again(fx, tmp_path):
+    svc = make_services(fx, tmp_path)
+    llm = _strong(svc, _one_story_per_cl)
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    r = svc.store.get_blob(rid, "reading")
+    assert r["whole_source"] == r["route_source"] == "llm"
+    assert {t["intro_source"] for t in r["threads"]} == {"llm"}
+    assert [s["thread"] for s in r["route"]] == [t["id"] for t in r["threads"]]
+    asked = lambda: sum("THREAD DETAILS (id" in p for p in llm.prompts)     # noqa: E731
+    assert asked() == 1
+    first = llm.prompts.index(next(p for p in llm.prompts if "THREAD DETAILS (id" in p))
+    assert any("THREADS (id" in p for p in llm.prompts[:first])            # after the thread text
+    run_review(rid, svc)
+    assert asked() == 1 and svc.store.get_blob(rid, "reading")["route_source"] == "llm"
+    run_review(rid, svc, fresh=True)
+    assert asked() == 2
+
+
+def test_an_introduction_that_fails_its_checks_keeps_the_rules_text_and_says_so(fx, tmp_path):
+    svc = make_services(fx, tmp_path)
+    _strong(svc, lambda s, u: {} if "THREAD DETAILS (id" in u else _one_story_per_cl(s, u))
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    st = next(s for s in svc.store.list_stages(rid) if s["name"] == "reading")
+    assert st["status"] == "degraded"
+    assert "; introduction by big; introduction: the whole, " in st["message"]
+    assert st["message"].endswith("thread(s) and the route kept the fixed text")
+    r = svc.store.get_blob(rid, "reading")
+    assert r["route_source"] == "template" and r["route"] and r["whole_source"] == "llm"     # the threads call's whole
+    assert all(t["intro"].startswith(f"{len(t['stories'])} stor") for t in r["threads"])
+    assert svc.store.get_blob(rid, "intro_text") is None
+
+
+def test_without_a_strong_model_the_reading_has_the_rules_introduction(fx, tmp_path):
+    svc = make_services(fx, tmp_path)
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    r = svc.store.get_blob(rid, "reading")
+    assert [s["thread"] for s in r["route"]] == [t["id"] for t in r["threads"]] and r["route_source"] == "template"
+    assert all("Starts with “" in t["intro"] and t["intro_source"] == "template" for t in r["threads"])
+    assert all(t["files"] and t["files_source"] == "template" for t in r["threads"])
