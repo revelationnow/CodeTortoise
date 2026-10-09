@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import SinkMark from "../components/SinkMark";
 import { setShowSinks, showSinks, sinkLine } from "../lib/sinks";
 import { byThread, letter } from "../reading/checks";
-import { arcLayout, connectionRows, testsLine } from "../reading/overview";
+import { arcLayout, connectionRows, introOpen, routeRows, setIntroOpen, testsLine } from "../reading/overview";
 import { overviewProgress, progress, threadRead } from "../reading/plan";
 import type { Reading, SinkHit, Thread } from "../reading/types";
 import CheckTile, { Cleared } from "./CheckList";
@@ -63,7 +63,57 @@ function Connections({ r }: { r: Reading }) {
   );
 }
 
-/** A thread: name, CLs, open checks and purpose, then its stories in reading order with why each follows (§5.1). */
+/** What the page's parts are, for a reader new to CodeTortoise (spec 2026-10-09-review-introduction §5.1): open on a
+ * first visit; once closed it stays closed in this browser. */
+function HowToRead() {
+  const [open, setOpen] = useState(introOpen);
+  const toggled = (now: boolean) => { if (now !== open) { setOpen(now); setIntroOpen(now); } };
+  return (
+    <details className="ov-howto" open={open} onToggle={(e) => toggled(e.currentTarget.open)}>
+      <summary><h2 id="ov-howto">How to read this page</h2></summary>
+      <ul>
+        <li><b>Threads</b> group the change's stories that are joined by calls or shared data. Each has a letter (A, B…)
+          used across the page.</li>
+        <li><b>Stories</b> are the steps of a thread, one change and its effects each. A story has a <b>Steps</b> view
+          (what it does, before → after, call paths, its code) and a <b>Graph</b> view.</li>
+        <li><b>Arcs</b> between threads are solid when they share calls or data, dashed when they only arrived in the same
+          review — ask the author why.</li>
+        <li><b>To check</b> lists what needs a reviewer's eye. <b>Looks fine</b> clears a row, <b>Read</b> ticks it for
+          you alone, <b>Comment</b> starts a thread, <b>Open</b> shows the code.</li>
+        <li><b>Progress</b> counts the stories and checks you have read.</li>
+        <li><b>The side panel</b> shows code beside the page; ⤢ on a story's code opens it there.</li>
+      </ul>
+    </details>
+  );
+}
+
+/** Where to start (§5.2): every thread in the suggested order with why, threads worth only a skim muted. The letter and
+ * name go to the thread's card below, as the connections' boxes do; "first story" opens its first story. */
+function WhereToStart({ r }: { r: Reading }) {
+  const ws = useWs();
+  const rows = routeRows(r);
+  if (!rows.length) return null;
+  return (
+    <section aria-labelledby="ov-start">
+      <h2 id="ov-start">{r.route_source === "llm" && <span className="ai-label">AI</span>}Where to start</h2>
+      <ol className="ov-route">{rows.map((row) => (
+        <li key={row.id} className={row.skim ? "skim" : ""}>
+          <button className="link" onClick={() => document.getElementById(`thread-${row.id}`)?.scrollIntoView({ block: "start" })}
+                  aria-label={`Go to thread ${row.letter}: ${short(row.name.replaceAll("`", ""))}`}>
+            <span className="ov-letter">{row.letter}</span> <Ticks text={row.name} />
+          </button>
+          {" — "}<Ticks text={row.reason} />
+          {row.skim && <span className="ov-skim">skim</span>}
+          {row.first && <> · <Link to={ws.link(ws.item({ kind: "story", sid: row.first, view: "steps" }))}
+                                 aria-label={`Open the first story of thread ${row.letter}`}>first story</Link></>}
+        </li>
+      ))}</ol>
+    </section>
+  );
+}
+
+/** A thread: name, CLs, open checks and its intro (its purpose on a reading stored before the introduction), then its
+ * stories in reading order with why each follows (§5.1). */
 function ThreadCard({ t, i, r }: { t: Thread; i: number; r: Reading }) {
   const ws = useWs(), ss = ws.data.stories;
   return (
@@ -77,7 +127,10 @@ function ThreadCard({ t, i, r }: { t: Thread; i: number; r: Reading }) {
         {t.open_checks > 0 && <span className="ck-count">{t.open_checks} open</span>}
         {ws.data.ticks && <span className="ov-read">{threadRead(t.stories, new Set(ws.data.ticks.stories))} read</span>}
       </header>
-      {t.purpose && <p className="ov-purpose"><Ticks text={t.purpose} /></p>}
+      {(t.intro || t.purpose) && (
+        <p className="ov-purpose">{t.intro && t.intro_source === "llm" && <span className="ai-label">AI</span>}
+          <Ticks text={t.intro || t.purpose} /></p>
+      )}
       <ol className="ov-stories">{t.stories.map((sid) => {
         const st = ss?.stories.find((s) => s.id === sid);
         const label = `Go to story ${sid}${st ? `: ${short(st.title)}` : ""}`;
@@ -106,8 +159,9 @@ function SinksLine({ hits }: { hits: SinkHit[] }) {
   );
 }
 
-/** The overview in layout B (spec 2026-10-07-review-reading §5): the change as a whole, how its threads connect and the
- * threads on the left; To check, Build impact and Coverage pinned on the right. */
+/** The overview in layout B (spec 2026-10-07-review-reading §5): the introduction (how to read the page, the change as a
+ * whole, where to start), how its threads connect and the threads on the left; To check, Build impact and Coverage
+ * pinned on the right. */
 export default function Overview({ r }: { r: Reading }) {
   const ws = useWs(), ss = ws.data.stories;
   const tests = r.tests?.stories[0], testsStory = tests ? ss?.stories.find((s) => s.id === tests) : null;
@@ -116,10 +170,12 @@ export default function Overview({ r }: { r: Reading }) {
     <div className="ws-page"><div className="ov2">
       <div className="ov2-left ws-whole">
         {p && <p className={`ov-progress${p.all ? " done" : ""}`}>{overviewProgress(p)}</p>}
+        <HowToRead />
         <section aria-labelledby="ov-whole">
           <h2 id="ov-whole">The change as a whole</h2>
           <p className="ws-lead">{r.whole_source === "llm" && <span className="ai-label">AI</span>}<Ticks text={r.whole} /></p>
         </section>
+        <WhereToStart r={r} />
         <Connections r={r} />
         {r.threads.length > 0 && (
           <section aria-labelledby="ov-threads">
