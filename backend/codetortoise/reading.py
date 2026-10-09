@@ -131,6 +131,7 @@ class Check(BaseModel):
     finding: str | None = None
     cites: list[str] = Field(default_factory=list)
     also: list[Reason] = Field(default_factory=list)   # other kinds at the same place
+    field: str | None = None          # a reader row's field label (the owner may mark it a shared sink)
 
 
 class Headline(BaseModel):
@@ -168,6 +169,15 @@ class StoryReading(BaseModel):
     rewrites: list[Rewrite] = Field(default_factory=list)       # rewrites in its code
 
 
+class SinkHit(BaseModel):
+    """A shared sink the change writes (spec 2026-10-09 §5.1): what the overview says it hid."""
+    field: str
+    label: str
+    users: int
+    why: Literal["marked", "listed", "threshold"]
+    writers: list[str] = Field(default_factory=list)      # changed functions whose write to it the change added or removed
+
+
 class Reading(BaseModel):
     whole: str = ""
     whole_source: Literal["template", "llm"] = "template"
@@ -185,6 +195,7 @@ class Reading(BaseModel):
     tests: TestsRow | None = None
     rewrites: list[Rewrite] = Field(default_factory=list)       # later CLs replacing earlier CLs' lines (phase 2 §4.3)
     gaps: list[Gap] = Field(default_factory=list)               # CLs outside the review between two of its CLs
+    sinks: list[SinkHit] = Field(default_factory=list)          # shared sinks the change writes, hidden (spec 2026-10-09)
 
 
 def rel_path(x: _Ctx, path: str | None) -> str:
@@ -204,6 +215,16 @@ def _live(x: _Ctx, kinds: set[str]):
     return [e for e in x.im.edges if e.kind in kinds and e.status != "removed"]
 
 
+def sink_hits(x: _Ctx) -> list[SinkHit]:
+    """The shared sinks whose writes the change added or removed, each with those writers."""
+    by: dict[str, set[str]] = defaultdict(set)
+    for e in x.im.edges:
+        if e.kind == "writes" and e.status != "unchanged" and e.src in x.changed and e.dst in x.im.sinks:
+            by[e.dst].add(e.src)
+    return [SinkHit(**x.im.sinks[f].model_dump(), writers=sorted(w, key=x.label))
+            for f, w in sorted(by.items(), key=lambda kv: x.im.sinks[kv[0]].label)]
+
+
 def _cls(cls: list[int]) -> str:
     return " and ".join(f"CL {n}" for n in cls)
 
@@ -219,7 +240,7 @@ def story_links(ss: StorySet, x: _Ctx) -> list[StoryLink]:
         if d and u and d != u:
             calls[(d, u)].append(e)
     data: dict[tuple[str, str], list] = defaultdict(list)    # (defines, uses) -> (writer, field, user)
-    new_writes = [e for e in _live(x, {"writes"}) if e.status == "added"]
+    new_writes = [e for e in _live(x, {"writes"}) if e.status == "added" and e.dst not in x.im.sinks]
     users = defaultdict(list)
     for e in _live(x, {"reads", "writes"}):
         users[e.dst].append(e)
@@ -447,7 +468,7 @@ def _profiles(threads: list[Thread], ss: StorySet, x: _Ctx, pieces: PieceSet | N
         fns = sorted(n for n in p.nodes if n in x.im.nodes and x.im.nodes[n].kind == "function")
         p.callers = _callers_within(x, set(fns), CALLER_HOPS)
         for e in _live(x, {"reads", "writes"}):
-            if e.src in p.nodes:
+            if e.src in p.nodes and e.dst not in x.im.sinks:        # a shared sink's struct is no shared vocabulary
                 rec = x.label(e.dst).rsplit("::", 1)[0]
                 p.structs.setdefault(rec, e.dst)
         bodies, conds = [], None
@@ -821,6 +842,8 @@ def build_checks(ss: StorySet, threads: list[Thread], conns: list[Connection], x
     # 1–2: the strong model's verdicts; without one, high and medium findings (not header fan-out) to confirm
     cleared: list[Check] = []
     for f in findings:
+        if f.sink:                                 # a shared sink's write is no check (spec 2026-10-09 §4)
+            continue
         n = next((m for m in f.nodes if m in x.im.nodes and x.im.nodes[m].kind == "function"), None)
         ev = next((e for e in f.evidence if e.file and e.line), None)
         path, line = (ev.file, ev.line) if ev else (_def_place(x, n) if n else (None, None))
@@ -880,14 +903,16 @@ def build_checks(ss: StorySet, threads: list[Thread], conns: list[Connection], x
                                                              f"{_cmp_text(c)}; it can now return {vals}")
     # 5: unchanged readers of fields the change now writes
     for n in changed:
-        for w in (e for e in x.im.edges if e.src == n and e.kind == "writes" and e.status == "added"):
+        for w in (e for e in x.im.edges if e.src == n and e.kind == "writes" and e.status == "added"
+                  and e.dst not in x.im.sinks):
             for r in sorted({e.src for e in _live(x, {"reads"}) if e.dst == w.dst}, key=lambda m: x.label(m)):
                 if r in x.changed or x.is_test_path(r):
                     continue
                 acc = next((a for a in x.fields_after if f"field:{a.field}" == x.im.nodes[w.dst].key
                             and a.fn == x.im.nodes[r].key and a.mode == "read"), None)
                 path, line = (acc.file, acc.line) if acc else _def_place(x, r)
-                add("reader", n, r, path, line, f"`{x.label(r)}` reads `{x.label(w.dst)}`, which `{x.label(n)}` now writes")
+                add("reader", n, r, path, line, f"`{x.label(r)}` reads `{x.label(w.dst)}`, which `{x.label(n)}` now writes",
+                    field=x.label(w.dst))
     # 6: a changed header included only by files of another target
     if targets is not None and includers is not None:
         mine = {t for f in x.c.cs.files if not is_header(f.local) for t in targets.get(f.local, [])} - {UNKNOWN}
@@ -984,7 +1009,8 @@ def headline(checks: list[Check], marked: set[str], findings: list[Finding]) -> 
             return Headline(text=f"{cf} to confirm", tone="confirm")
         return Headline(text="No hazards found", tone="none")
     done = {k.finding for k in checks if k.finding and k.key in marked}
-    sev = [f.severity for f in findings if f.kind != "header_fanout" and f.id not in done]
+    sev = [f.severity for f in findings
+           if f.kind != "header_fanout" and not getattr(f, "sink", False) and f.id not in done]
     top = max(sev, key=lambda v: SEVERITY_RANK.get(v, 0), default=None)
     if top is None:
         return Headline(text="No risks found", tone="none", rules_only=True)
@@ -1128,7 +1154,7 @@ def build_reading(ss: StorySet, c: BoardContext, details: dict[str, StoryDetail]
                       cleared=cleared, build_impact=build_impact(x), coverage=coverage(x, has_tests, outside),
                       headline=headline(rows, set(), x.c.findings),
                       rules_only=not any(f.verdict_source == "tier1" for f in x.c.findings),
-                      tests=_tests_row(ss, threads, x), whole=fixed_whole(threads, conns))
+                      tests=_tests_row(ss, threads, x), whole=fixed_whole(threads, conns), sinks=sink_hits(x))
     lines = file_lines(c.cs) if lines is None else lines
     reading.rewrites = rewrites(lines, [f for fx in c.after for f in fx.functions])
     reading.gaps = [g for fl in lines.values() for g in fl.gaps]
@@ -1202,7 +1228,7 @@ def headline_facts(r: Reading, findings: list[Finding]) -> dict:
     """What the headline needs, stored beside the reading so the Reviews list reads a small blob, not the reading."""
     return {"checks": [[k.key, k.kind, k.finding, k.source_line] for k in r.checks],
             "cleared": [[k.key, k.source_line] for k in r.cleared],
-            "findings": [[f.id, f.kind, f.severity, f.verdict_source] for f in findings]}
+            "findings": [[f.id, f.kind, f.severity, f.verdict_source] for f in findings if not f.sink]}
 
 
 def headline_from(facts: dict, marks: dict[str, dict]) -> Headline:
