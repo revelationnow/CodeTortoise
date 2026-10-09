@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import posixpath
 from collections import Counter, defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
 
 from codetortoise.detectors.base import SEVERITY_RANK, Finding
@@ -53,7 +53,7 @@ def cluster_change(im: ImpactModel, flows: list[_FlowLike], findings: list[Findi
     chg = set(changed)
     touches: dict[str, set[str]] = defaultdict(set)          # changed function -> fields whose access changed
     for e in im.edges:
-        if altered_access(e) and e.src in chg and e.dst in im.nodes:
+        if altered_access(e, im.sinks) and e.src in chg and e.dst in im.nodes:
             touches[e.src].add(e.dst)
     flows_of: dict[str, list[_FlowLike]] = defaultdict(list)
     for f in flows:
@@ -262,9 +262,10 @@ def _flow_groups(m: str, flows: list[_FlowLike], required: Callable, max_nodes: 
                     of=m) for i, g in enumerate(groups)]
 
 
-def altered_access(e) -> bool:
-    """A field access the change added or removed: what joins code and what a board must show."""
-    return e.kind in ("writes", "reads") and e.status != "unchanged"
+def altered_access(e, sinks: Collection[str] = ()) -> bool:
+    """A field access the change added or removed: what joins code and what a board must show. A shared sink's
+    (spec 2026-10-09) joins nothing."""
+    return e.kind in ("writes", "reads") and e.status != "unchanged" and e.dst not in sinks
 
 
 def _name(files: list[str], root: str) -> str:

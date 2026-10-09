@@ -326,3 +326,27 @@ def test_a_board_requires_the_fields_its_own_changed_code_altered_not_a_visitors
                 effect="e", check="c", cause="N1")
     req = _required(_Ctx(ctx), ["N1"], [flow])
     assert req == ["N1", "N3", "N2"]                      # set, the visitor on its flow, set's own altered field
+
+
+def _sunk(why="threshold", users=40):
+    from codetortoise.impact import SinkInfo
+    ctx, _ = _synthetic()
+    ctx.impact.sinks = {"N2": SinkInfo(field="N2", label="R::v", users=users, why=why)}
+    return ctx
+
+
+def test_a_write_to_a_shared_sink_is_one_quiet_note_on_the_writer_and_no_flow():
+    b = build_board(_sunk())
+    state = [i for i in b.impacts if i.channel == "state"]
+    assert [(i.node, i.line, i.severity, i.sink, i.landing, i.text) for i in state] == [
+        ("N1", 5, "info", True, False,
+         "writes R::v through alias `p` — a shared sink (40 functions); its users are not checked")]
+    assert [f.tag for f in b.flows] == ["contract"]
+    assert "N2" not in {n.id for n in b.nodes}
+
+
+def test_a_field_declarations_note_names_the_field_for_the_owners_mark():
+    b = build_board(_synthetic()[0])
+    (decl,) = [i for i in b.impacts if i.node == "N2"]
+    assert decl.field == "R::v" and not decl.sink
+    assert all(i.field is None for i in b.impacts if i.node != "N2")

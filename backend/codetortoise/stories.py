@@ -247,8 +247,8 @@ def build_stories(c: BoardContext, home: dict[str, str] | None = None, analysis:
             if n in node_draft:
                 d = node_draft[n]
             elif n in im.nodes and im.nodes[n].kind == "field":
-                d = next((node_draft[e.src] for e in im.edges if e.dst == n and altered_access(e) and e.src in node_draft),
-                         None)
+                d = next((node_draft[e.src] for e in im.edges
+                          if e.dst == n and altered_access(e, im.sinks) and e.src in node_draft), None)
             d = d or next((b for b in behaviour if any(n in fl.path for fl in b.flows)), None)   # on a story's flow
         for e in f.evidence:
             if d is not None:

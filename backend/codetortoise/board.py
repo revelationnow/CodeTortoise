@@ -25,6 +25,7 @@ from codetortoise.diffmap import DiffMap
 from codetortoise.facts.model import CallEdge, Facts, FieldAccess, Function
 from codetortoise.impact import Edge, ImpactModel
 from codetortoise.layers import LayerModel
+from codetortoise.sinks import why_text
 from codetortoise.vcs.model import ChangeSet
 
 Channel = Literal["contract", "signature", "state"]
@@ -105,6 +106,8 @@ class Impact(BaseModel):
     cause: str | None = None         # the changed node this impact comes from
     landing: bool = False            # a flow may land here (ignoring caller, field reader, signature caller)
     refs: list[str] | None = None    # other nodes its text names (readers, writers, the field); None = stored before refs
+    sink: bool = False               # a write to a shared sink: drawn only when the reader shows them (spec 2026-10-09)
+    field: str | None = None         # a field declaration's note: the field's label (the owner may mark it a sink)
     files: Files = None
 
 
@@ -414,13 +417,18 @@ def _new_writes(x: _Ctx, usr: str) -> dict[str, list[FieldAccess]]:
     return res
 
 
+def _how(a: FieldAccess) -> str:
+    alias = [v for v in a.via if not v.startswith("call:")]
+    return f" through alias `{alias[0]}`" if alias else (f" via {a.via[0][5:]}()" if a.via else "")
+
+
 def build_impacts(x: _Ctx) -> list[Impact]:
     out: list[Impact] = []
     sev_of = {f.id: f.severity for f in x.c.findings}
     seen: set[tuple] = set()
 
     def add(node: str | None, local: str, line: int, sev: Sev, channel: Channel, title: str, text: str, finding=None,
-            landing=False, refs=()):
+            landing=False, refs=(), sink=False, field=None):
         if not node or not line:
             return
         k = (node, local, line, channel, text)
@@ -430,7 +438,7 @@ def build_impacts(x: _Ctx) -> list[Impact]:
         out.append(Impact(node=node, path=local, line=line, severity=sev, channel=channel, title=title,
                           text=text, finding=finding, cause=cause,
                           landing=landing and (sev == "warn" or channel == "state") and node != cause,
-                          refs=sorted({r for r in refs if r})))
+                          refs=sorted({r for r in refs if r}), sink=sink, field=field))
 
     for nid in sorted(x.changed, key=lambda s: int(s[1:])):
         node, cause = x.im.nodes[nid], nid
@@ -476,16 +484,24 @@ def build_impacts(x: _Ctx) -> list[Impact]:
         for field, accs in sorted(_new_writes(x, node.key).items()):
             a0 = accs[0]
             fid = x.id_of.get(f"field:{field}")
+            label = f"{a0.record}::{a0.field_name}" if a0.record else a0.field_name
+            sink = x.im.sinks.get(fid) if fid else None
+            if sink is not None:
+                # a shared sink (spec 2026-10-09 §4): the writer's own lines, quiet; nobody else is annotated
+                fm = next((f.id for f in x.c.findings if f.sink and f.kind == "field_mutation" and nid in f.nodes
+                           and f.title.startswith(f"{node.label} now writes {label}")), None)
+                for a in accs:
+                    add(nid, a.file, a.line, "info", "state", "State",
+                        f"writes {label}{_how(a)} — a shared sink ({why_text(sink)}); its users are not checked", fm,
+                        refs=[fid], sink=True)
+                continue
             # the finding for this field (a function writing several fields has one finding per field)
             fm = next((i for i in x.finding_by.get(("field_mutation", nid), []) if fid and i in x.finding_by.get(
                 ("field_mutation", fid), [])), None) or x.finding("field_mutation", nid)
             # a side effect warns only once the AI has judged it a hazard; until then it is shown, neutral
             st: Sev = "warn" if SEVERITY_RANK.get(sev_of.get(fm or "", "info"), 0) >= SEVERITY_RANK["medium"] else "info"
-            label = f"{a0.record}::{a0.field_name}" if a0.record else a0.field_name
             for a in accs:
-                alias = [v for v in a.via if not v.startswith("call:")]
-                how = f" through alias `{alias[0]}`" if alias else (f" via {a.via[0][5:]}()" if a.via else "")
-                add(nid, a.file, a.line, st, "state", "State", f"writes {label}{how}", fm, refs=[fid])
+                add(nid, a.file, a.line, st, "state", "State", f"writes {label}{_how(a)}", fm, refs=[fid])
             wline = a0.line
             modes: dict[tuple[str, str, int], set[str]] = defaultdict(set)   # one annotation per line: r, w or both
             for o in x.fields_after:
@@ -515,7 +531,7 @@ def build_impacts(x: _Ctx) -> list[Impact]:
                     if writers:
                         text += f" · other writers: {', '.join(sorted(writers))}"
                     add(fid, a0.record_file, a0.decl_line, st if readers or writers else "info", "state", "State",
-                        text, fm, refs=named)
+                        text, fm, refs=named, field=label)
     return out
 
 
@@ -682,7 +698,7 @@ def _required(x: _Ctx, members: list[str], flows: list[Flow], fields: bool = Tru
     for f in flows:
         out.update(dict.fromkeys(n for n in f.path if n in x.im.nodes))
     for e in x.im.edges if fields else ():
-        if altered_access(e) and e.src in own and e.dst in x.im.nodes:
+        if altered_access(e, x.im.sinks) and e.src in own and e.dst in x.im.nodes:
             out.setdefault(e.dst)
     return list(out)
 
@@ -695,7 +711,8 @@ def _neighbours(x: _Ctx, impacts: list[Impact], scope: set[str]) -> list[str]:
         if i.cause in scope and i.node in x.im.nodes and not x.is_test(i.node):
             out.setdefault(i.node)
     for e in x.im.edges:                                  # fields the changed code touches as it did before
-        if e.kind in ("writes", "reads") and e.src in scope and e.src in x.changed and e.dst in x.im.nodes:
+        if (e.kind in ("writes", "reads") and e.src in scope and e.src in x.changed and e.dst in x.im.nodes
+                and e.dst not in x.im.sinks):
             out.setdefault(e.dst)
     for b in x.im.blast:
         if b.path and b.path[-1] in scope and not x.is_test(b.node):
