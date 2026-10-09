@@ -1,3 +1,4 @@
+import itertools
 import json
 
 import httpx
@@ -314,3 +315,76 @@ def test_the_chat_api_sends_its_limit_as_max_tokens_and_moves_to_max_completion_
     c = client(handler, max_output_tokens=3000)
     assert c.chat("s", "u") == "hi" and c.chat("s", "u") == "hi"
     assert [("max_tokens" in b, b.get("max_completion_tokens")) for b in bodies] == [(True, None), (False, 3000), (False, 3000)]
+
+
+def test_each_http_attempt_is_recorded_without_the_key():
+    n = itertools.count()
+
+    def handler(req):
+        if next(n) == 0:
+            return httpx.Response(503, text="busy")
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"answer": "x", "n": 1}'},
+                                                      "finish_reason": "stop"}],
+                                         "usage": {"prompt_tokens": 11, "completion_tokens": 4}})
+    c = client(handler, max_output_tokens=500)
+    c.start_log()
+    c.complete_json("s", "u", Out)
+    recs = c.take_log()
+    assert [(r["seq"], r["status"], r["stop_reason"], r["truncated"], r["repair"]) for r in recs] == [
+        (1, 503, None, False, False), (2, 200, "stop", False, False)]
+    r = recs[1]
+    assert set(r) == {"seq", "sent_at", "elapsed_ms", "url", "model", "status", "error", "stop_reason", "truncated",
+                      "repair", "max_output_tokens", "prompt_tokens", "completion_tokens", "request", "response"}
+    assert (r["url"], r["model"], r["max_output_tokens"]) == ("/v1/chat/completions", "m", 500)
+    assert (r["prompt_tokens"], r["completion_tokens"]) == (11, 4) and r["request"]["messages"][1]["content"] == "u"
+    assert json.loads(r["response"])["choices"][0]["finish_reason"] == "stop"
+    assert r["elapsed_ms"] >= 0 and r["sent_at"].startswith("20") and recs[0]["response"] == "busy"
+    assert "sk-test" not in json.dumps(recs)
+    assert c.take_log() == []                                                # taken: cleared
+
+
+def test_a_network_error_a_cut_off_reply_and_a_repair_are_recorded():
+    n = itertools.count()
+
+    def handler(req):
+        i = next(n)
+        if i == 0:
+            raise httpx.ConnectError("refused")
+        if i == 1:
+            return cut()
+        if i == 2:
+            return reply('{"answer": "x"}')
+        return reply('{"answer": "x", "n": 1}')
+    c = client(handler, max_output_tokens=1000)
+    c.start_log()
+    c.complete_json("s", "u", Out)
+    recs = c.take_log()
+    assert [(r["status"], r["truncated"], r["repair"], r["max_output_tokens"]) for r in recs] == [
+        (None, False, False, 1000), (200, True, False, 1000), (200, False, False, 2000), (200, False, True, 4000)]
+    assert recs[0]["error"] == "ConnectError: refused" and recs[0]["response"] is None
+    assert recs[1]["stop_reason"] == "length"
+
+
+def test_nothing_is_recorded_unless_a_log_was_started():
+    c = client(lambda r: reply('{"answer": "x", "n": 1}'))
+    c.complete_json("s", "u", Out)
+    assert c.take_log() == []
+
+
+def test_a_view_shares_the_log_and_keeps_a_raised_limit_for_the_rest_of_its_try():
+    bodies = []
+
+    def handler(req):
+        body = json.loads(req.content)
+        bodies.append(body["max_tokens"])
+        return cut() if body["max_tokens"] < 2000 else reply('{"answer": "x", "n": 1}')
+    c = client(handler, max_output_tokens=1000)
+    v = c.with_start(1000)
+    c.start_log()
+    v.complete_json("s", "u", Out)
+    v.complete_json("s", "u", Out)
+    assert bodies == [1000, 2000, 2000] and len(c.take_log()) == 3
+    bodies.clear()
+    c.complete_json("s", "u", Out)
+    c.complete_json("s", "u", Out)
+    assert bodies == [1000, 2000, 1000, 2000] and c.max_output_tokens == 1000     # the shared client keeps its own

@@ -6,6 +6,22 @@ class ScriptedLlm:
     def __init__(self, answer: Callable[[str, str], dict], model: str = "big"):
         self.answer, self.model, self.prompts = answer, model, []
 
+    max_output_tokens = None
+    cap = 32768
+
+    @property
+    def base(self):
+        return 8192
+
+    def with_start(self, limit):
+        return self
+
+    def start_log(self):
+        pass
+
+    def take_log(self):
+        return []
+
     def complete_json(self, system, user, schema):
         self.prompts.append(user)
         out = self.answer(system, user)
