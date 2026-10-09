@@ -24,7 +24,8 @@ test.describe("desktop", () => {
   test("the overview tells the change as threads, how they connect and what to check", async ({ page }) => {
     await startReview(page, FOUR);
     const left = page.locator(".ov2-left");
-    await expect(left.locator("h2")).toHaveText(["The change as a whole", "How the threads connect", "Threads", "Discussion"]);
+    await expect(left.locator("h2")).toHaveText(["How to read this page", "The change as a whole", "Where to start",
+                                                 "How the threads connect", "Threads", "Discussion"]);
     await expect(left.locator(".ws-lead")).toHaveText("3 threads: A and B: both run inside main; B and C: nothing besides arriving in CL 104.");
     const conn = page.locator(".ov-conn");
     await expect(conn.locator(".ov-box")).toHaveCount(3);
@@ -49,6 +50,34 @@ test.describe("desktop", () => {
     await expectNamed(page);
     await threads.first().getByRole("link", { name: /^Go to story S1/ }).click();
     await expect(page).toHaveURL(/\/s\/S1$/);
+  });
+
+  test("the overview introduces the review: how to read it, where to start and each thread's intro", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    const how = page.locator(".ov-howto");
+    await expect(how.locator("ul")).toBeVisible();                                       // open on a first visit
+    await expect(how).toContainText("Threads group the change's stories");
+    await how.locator("summary").click();
+    await expect(how.locator("ul")).toBeHidden();
+    await page.reload();
+    await expect(how.locator("ul")).toBeHidden();                                        // stays closed in this browser
+    await how.locator("summary").click();
+    await page.reload();
+    await expect(how.locator("ul")).toBeVisible();
+
+    const route = page.getByRole("region", { name: "Where to start" }).locator(".ov-route li");
+    await expect(route).toHaveCount(3);
+    await expect(route).toHaveText([/^A hal_write in hal — 5 checks open\./, /^B logger_init in service — Nothing is open\./,
+                                    /^C svc::Engine::step in cpp — 1 check open\./]);
+    await expect(page.getByRole("region", { name: "Where to start" }).locator(".ai-label")).toHaveCount(0);
+    await route.nth(2).getByRole("button", { name: /^Go to thread C/ }).click();
+    await expect(page.locator("#thread-T3")).toBeInViewport();
+    const card = page.locator(".ov-thread").first();
+    await expect(card.locator(".ov-purpose")).toContainText("Starts with “hal_write's signature changed");
+    await expect(card.locator(".ov-purpose .ai-label")).toHaveCount(0);
+    await route.first().getByRole("link", { name: "Open the first story of thread A" }).click();
+    await expect(page).toHaveURL(new RegExp(`${base}/s/S\\d+$`));
+    await expectNamed(page);
   });
 
   test("Looks fine marks a check for everyone, greys it below the open ones and survives a re-run", async ({ page }) => {

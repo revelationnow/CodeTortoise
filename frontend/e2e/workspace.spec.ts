@@ -32,7 +32,8 @@ test.describe("desktop", () => {
   test("the overview: the change as a whole, its one thread and what to check", async ({ page }) => {
     await startReview(page);
     const left = page.locator(".ov2-left");
-    await expect(left.locator("h2")).toHaveText(["The change as a whole", "How the threads connect", "Threads", "Discussion"]);
+    await expect(left.locator("h2")).toHaveText(["How to read this page", "The change as a whole", "Where to start",
+                                                 "How the threads connect", "Threads", "Discussion"]);
     await expect(left.locator(".ws-lead")).toHaveText("One thread: hal_write in hal.");
     await expect(left).toContainText("One thread: all stories are connected by calls or shared data.");
     await expect(page.getByRole("region", { name: "To check" }).locator(".ck-row")).toHaveCount(5);
