@@ -33,6 +33,7 @@ from codetortoise.reading import READING_VERSION, build_reading, headline_facts
 from codetortoise.repeated import find_repeated
 from codetortoise.sequence import file_lines
 from codetortoise.services import Services
+from codetortoise.sinks import marks as sink_marks
 from codetortoise.stories import build_stories
 from codetortoise.swarm import SwarmError
 from codetortoise.targets import resolve_targets
@@ -235,10 +236,12 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
         return summary
 
     def impact():
-        im = build_impact(ctx["before"], ctx["after"], ctx["dm"], ctx["sel"], svc.index, ctx.get("layers"), cfg.analysis)
+        im = build_impact(ctx["before"], ctx["after"], ctx["dm"], ctx["sel"], svc.index, ctx.get("layers"), cfg.analysis,
+                          marked=sink_marks(store))
         ctx["impact"] = im
         store.put_blob(rid, "impact", im)
-        return f"{len(im.nodes)} node(s), {len(im.edges)} edge(s), blast {len(im.blast)}"
+        return (f"{len(im.nodes)} node(s), {len(im.edges)} edge(s), blast {len(im.blast)}"
+                + (f", {len(im.sinks)} shared sink(s)" if im.sinks else ""))
 
     def detectors():
         findings = run_detectors(DetectorContext(ctx["before"], ctx["after"], ctx["dm"], ctx["impact"], cfg.analysis))

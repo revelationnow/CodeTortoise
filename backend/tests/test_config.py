@@ -141,3 +141,10 @@ def test_the_request_log_keeps_every_request_for_14_days_unless_told_otherwise()
     assert Config.model_validate({**base, "llm": {"request_log": "failed"}}).llm.request_log == "failed"
     with pytest.raises(pydantic.ValidationError, match="request_log"):
         Config.model_validate({**base, "llm": {"request_log": "some"}})
+
+
+def test_shared_sink_settings_default_to_a_threshold_of_20_and_no_patterns():
+    from codetortoise.config import AnalysisConfig
+    a = AnalysisConfig()
+    assert (a.sink_threshold, a.sink_fields) == (20, [])
+    assert AnalysisConfig.model_validate({"sink_threshold": 0, "sink_fields": ["log_t::*"]}).sink_fields == ["log_t::*"]
