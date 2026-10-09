@@ -8,7 +8,7 @@ from codetortoise.config import LlmBudget, StrongLlmConfig
 from codetortoise.detectors.base import Finding
 from codetortoise.facts_prep import finding_key, prepare_facts
 from codetortoise.grouping import Placement, PlannedStory, StoryPlan
-from codetortoise.llm.client import LlmUnreachable
+from codetortoise.llm.client import LlmError, LlmUnreachable
 from codetortoise.llm.ledger import Ledger
 from codetortoise.llm.review import apply_verdicts, review_stories
 from codetortoise.pieces import build_pieces
@@ -186,10 +186,33 @@ def test_call_sites_in_files_without_a_piece_are_marked_by_their_own_targets():
 def test_an_unreachable_strong_model_is_asked_once_and_the_rest_stay_as_the_detectors_left_them():
     out, findings, llm = _review(lambda s, u: LlmUnreachable("LLM request failed after 3 attempts: ReadTimeout"))
     assert len(llm.prompts) == 1 and out.verdicts == {} and out.reviewed == []
-    assert out.notes == ["story a: LlmUnreachable: LLM request failed after 3 attempts: ReadTimeout",
+    assert out.notes == ["story a: big: unreachable; its findings stay as the detectors left them",
                          "story b: the strong model is unreachable; its findings stay as the detectors left them"]
 
 
 @pytest.fixture(autouse=True)
 def _no_network(monkeypatch):
     monkeypatch.setattr("httpx.Client.post", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no network")))
+
+
+def test_a_story_the_strong_model_fails_is_judged_by_the_weak_model_but_not_marked_reviewed():
+    def answer(system, user):
+        if "F1" in user:
+            return _verdicts(("F1", "hazard", "old_user still calls hal_write the old way.", ["drv/old.c:3", "N3"]))
+        return _verdicts(("F2", "no_hazard", "Nothing outside the DSP uses the result.", ["N4"]))
+    a, ps, plan, findings, facts = _change()
+    strong = ScriptedLlm(lambda s, u: LlmError("LLM returned invalid JSON twice: x"))
+    weak = ScriptedLlm(answer, model="small")
+    out = review_stories(strong, None, None, plan, ps, a.x, CFG, findings, facts, weak=weak)
+    assert len(out.verdicts) == 2 and out.reviewed == []          # the next run asks the strong model again
+    assert out.notes == ["story a: big: invalid JSON twice; fresh try: invalid JSON twice; small judged its findings",
+                         "story b: big: invalid JSON twice; fresh try: invalid JSON twice; small judged its findings"]
+
+
+def test_a_story_every_model_fails_keeps_the_detectors_verdicts():
+    a, ps, plan, findings, facts = _change()
+    fail = ScriptedLlm(lambda s, u: LlmError("LLM returned invalid JSON twice: x"))
+    out = review_stories(fail, None, None, plan, ps, a.x, CFG, findings, facts,
+                         weak=ScriptedLlm(lambda s, u: RuntimeError("down"), model="small"))
+    assert out.verdicts == {} and out.notes[0] == ("story a: big: invalid JSON twice; fresh try: invalid JSON twice; "
+                                                   "small: RuntimeError: down; its findings stay as the detectors left them")

@@ -1,6 +1,7 @@
 """Thread names, purposes and the change as a whole from the strong model (spec 2026-10-07-review-reading §9)."""
 from scripted_llm import ScriptedLlm
 
+from codetortoise.llm.client import LlmError
 from codetortoise.llm.ledger import TIER1, Refused
 from codetortoise.llm.threads import write_threads
 from codetortoise.reading import Connection, Reading, Thread
@@ -36,7 +37,7 @@ GOOD = {"threads": [{"id": "T1", "name": "UART send takes unsigned lengths", "pu
 def test_a_checked_answer_names_the_threads_writes_the_whole_and_rewords_connections():
     r, ss = _reading()
     llm = ScriptedLlm(lambda s, u: GOOD)
-    assert write_threads(llm, None, None, r, ss, {11: "Make send unsigned", 12: "Init and engine"}) == []
+    assert write_threads(llm, None, None, r, ss, {11: "Make send unsigned", 12: "Init and engine"}) == ([], "big")
     assert [(t.name, t.purpose, t.text_source) for t in r.threads] == [
         ("UART send takes unsigned lengths", "Callers pass lengths as unsigned.", "llm"),
         ("UART init", "Init programs the baud rate.", "llm"), ("Engine step", "The engine takes a new step.", "llm")]
@@ -56,7 +57,8 @@ def test_answers_citing_unknown_ids_too_long_names_or_dropping_a_connections_fac
            "whole": "Whole. Text.", "whole_cites": ["T7"],
            "connections": [{"a": "T1", "b": "T2", "text": "both start up together"},
                            {"a": "T2", "b": "T3", "text": "they belong together"}]}
-    notes = write_threads(ScriptedLlm(lambda s, u: bad), None, None, r, ss, {})
+    notes, by = write_threads(ScriptedLlm(lambda s, u: bad), None, None, r, ss, {})
+    assert by == "big"
     assert [(t.name, t.text_source) for t in r.threads] == [("`send` in drv", "template"), ("`init` in drv", "template"),
                                                            ("`step` in cpp", "template")]
     assert (r.whole, r.whole_source) == ("3 threads.", "template")
@@ -66,16 +68,25 @@ def test_answers_citing_unknown_ids_too_long_names_or_dropping_a_connections_fac
 
 def test_a_failed_or_refused_call_keeps_every_fixed_text_and_says_why():
     r, ss = _reading()
-    notes = write_threads(ScriptedLlm(lambda s, u: RuntimeError("down")), None, None, r, ss, {})
-    assert notes == ["thread text: RuntimeError: down; the fixed text stays"] and r.whole_source == "template"
+    notes, by = write_threads(ScriptedLlm(lambda s, u: RuntimeError("down")), None, None, r, ss, {})
+    assert notes == ["thread text: big: RuntimeError: down; fresh try: RuntimeError: down; the fixed text stays"]
+    assert by is None and r.whole_source == "template"
 
     class Budget:
         def call(self, llm, rid, user, purpose, target, fn):
             assert (purpose, target) == ("threads", "threads")
             raise Refused("this review has used its 10 tier-1 AI calls")
-    notes = write_threads(ScriptedLlm(lambda s, u: GOOD), Budget(), 1, r, ss, {})
+    notes, _ = write_threads(ScriptedLlm(lambda s, u: GOOD), Budget(), 1, r, ss, {})
     assert notes == ["thread text: AI budget: this review has used its 10 tier-1 AI calls; the fixed text stays"]
 
 
 def test_the_thread_text_counts_against_the_tier_1_budget():
     assert "threads" in TIER1
+
+
+def test_thread_text_the_strong_model_fails_is_written_by_the_weak_model():
+    r, ss = _reading()
+    notes, by = write_threads(ScriptedLlm(lambda s, u: LlmError("LLM returned invalid JSON twice: x")), None, None, r, ss,
+                              {}, weak=ScriptedLlm(lambda s, u: GOOD, model="small"))
+    assert by == "small" and r.whole_source == "llm"
+    assert notes == ["thread text: big: invalid JSON twice; fresh try: invalid JSON twice; small wrote it"]

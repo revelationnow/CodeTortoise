@@ -123,6 +123,8 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
     seen (no cached brief)."""
     store, cfg = svc.store, svc.cfg
     store.reset_stages(rid, STAGES)
+    if svc.ledger:
+        svc.ledger.prune()                      # logged requests past llm.request_log_days
     store.clear_ticks(rid)                     # a re-run starts every reader's reading plan over
     store.set_review_status(rid, "running")
     status: dict[str, str] = {}
@@ -287,7 +289,8 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
                 brief = Brief.model_validate(hit)
                 brief.pieces, brief.overview, plan = ps, ps.overview, brief.plan
             else:
-                plan = form_stories(svc.strong, svc.ledger, rid, ps, ctx["analysis"].x, strong, ctx["findings"])
+                plan = form_stories(svc.strong, svc.ledger, rid, ps, ctx["analysis"].x, strong, ctx["findings"],
+                                    weak=svc.llm)
                 brief = Brief(key=key, model=strong.model, complete=plan.complete, overview=ps.overview, pieces=ps,
                               plan=plan)
             unsorted = sum(len(s.placements) for s in plan.stories if s.unsorted)
@@ -312,7 +315,7 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
             store.put_brief(rid, brief.key, brief)
             return f"no strong model: {len(findings)} finding(s) left to the detectors and the AI's side-effect pass"
         got = review_stories(svc.strong, svc.ledger, rid, ctx["plan"], ps, x, strong, findings, brief.facts,
-                             skip=set(brief.reviewed))
+                             skip=set(brief.reviewed), weak=svc.llm)
         brief.verdicts.update(got.verdicts)
         brief.reviewed = list(dict.fromkeys(brief.reviewed + got.reviewed))
         apply_verdicts(findings, brief.verdicts)
@@ -469,19 +472,21 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
                                  .encode()).hexdigest()
             cached = store.get_blob(rid, "thread_text")
             if cached and cached.get("key") == key and not fresh:
+                by: str | None = strong.model
                 for t in r.threads:
                     t.name, t.purpose, t.text_source = cached["threads"].get(t.id, (t.name, t.purpose, t.text_source))
                 r.whole, r.whole_source = cached["whole"], cached["whole_source"]
                 for k in r.connections:
                     k.text = cached["connections"].get(f"{k.a}-{k.b}", k.text)
             else:
-                notes = write_threads(svc.strong, svc.ledger, rid, r, bs.stories, cls_text)
+                notes, by = write_threads(svc.strong, svc.ledger, rid, r, bs.stories, cls_text, weak=svc.llm)
                 if not notes:
                     store.put_blob(rid, "thread_text", {
                         "key": key, "threads": {t.id: (t.name, t.purpose, t.text_source) for t in r.threads},
                         "whole": r.whole, "whole_source": r.whole_source,
                         "connections": {f"{k.a}-{k.b}": k.text for k in r.connections}})
-            told = f"thread text by {strong.model}"
+            told = (f"thread text by {by}" if by == strong.model else
+                    f"thread text by {by} (the strong model failed)" if by else "fixed thread text (the AI's answer failed)")
         store.replace_blobs(rid, ["reading", "reading_head", "lines"], ["story_reading:"],
                             {"reading": r, "reading_head": headline_facts(r, x.c.findings),
                              "lines": {d: fl.model_dump() for d, fl in lines.items()},

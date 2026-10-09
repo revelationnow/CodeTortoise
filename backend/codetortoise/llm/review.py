@@ -19,11 +19,12 @@ from codetortoise.config import StrongLlmConfig
 from codetortoise.detectors.base import Finding, renumber
 from codetortoise.facts_prep import finding_key
 from codetortoise.grouping import PlannedStory, StoryPlan
-from codetortoise.llm.client import LlmClient, LlmUnreachable
+from codetortoise.llm.client import LlmClient
 from codetortoise.llm.ledger import Ledger, Refused
 from codetortoise.llm.stories import Tools, ask, pieces_of
 from codetortoise.llm.storyboard import _styled
 from codetortoise.llm.style import MODES, STYLE
+from codetortoise.llm.tiers import TiersFailed, done_text, tried_note, try_tiers
 from codetortoise.pieces import PieceSet
 from codetortoise.tidy import tidy
 
@@ -109,11 +110,12 @@ def _shown(cite: str, text: str) -> bool:
 
 def review_stories(strong: LlmClient, ledger: Ledger | None, rid: int | None, plan: StoryPlan, ps: PieceSet, x: _Ctx,
                    cfg: StrongLlmConfig, findings: list[Finding], facts: dict[str, str],
-                   skip: set[str] | None = None) -> Reviewed:
-    """Tier 1's verdicts on the findings of every story not in `skip`. The budget running out, or a call failing, leaves
-    the remaining findings as the detectors left them; the notes say so."""
+                   skip: set[str] | None = None, weak: LlmClient | None = None) -> Reviewed:
+    """Tier 1's verdicts on the findings of every story not in `skip`. A story the strong model fails is tried fresh,
+    then on the weak model; the budget running out, or a call failing on every model (spec 2026-10-08-llm-robustness
+    §6), leaves the remaining findings as the detectors left them; the notes say so."""
     tools, out, taken = Tools(x, ps), Reviewed(), set()
-    refused = unreachable = False
+    refused = gone = False
     for s in plan.stories:
         mine = [f for f in findings if f.id not in taken and set(pieces_of(f, ps)) & set(s.pieces)]
         taken |= {f.id for f in mine}
@@ -123,7 +125,7 @@ def review_stories(strong: LlmClient, ledger: Ledger | None, rid: int | None, pl
         if refused:
             out.notes.append(f"story {s.key}: AI budget: the tier-1 budget ran out; its findings stay as the detectors left them")
             continue
-        if unreachable:
+        if gone and weak is None:
             out.notes.append(f"story {s.key}: the strong model is unreachable; its findings stay as the detectors left them")
             continue
         seen: list[str] = []
@@ -133,16 +135,21 @@ def review_stories(strong: LlmClient, ledger: Ledger | None, rid: int | None, pl
             return ask(llm, parts, tools, cfg.rounds, int(cfg.context_tokens * 4 * 0.9), SYSTEM, _ReviewStep,
                        f"\nReasons: {MODES['explanation']}", seen)
         try:
-            step = ledger.call(strong, rid, None, "review", f"story {s.key}", fn) if ledger is not None else fn(strong)
+            t = try_tiers(ledger, rid, "review", f"story {s.key}", fn, strong, weak, skip_strong=gone)
         except Refused as e:
             refused = True
             out.notes.append(f"story {s.key}: AI budget: {e.reason}; its findings stay as the detectors left them")
             continue
-        except Exception as e:  # this story's findings stay as the detectors left them; the others go on
-            unreachable = isinstance(e, LlmUnreachable)          # no point waiting on it again this run
-            out.notes.append(f"story {s.key}: {type(e).__name__}: {e}"[:300])
+        except TiersFailed as e:  # this story's findings stay as the detectors left them; the others go on
+            gone = gone or e.strong_unreachable
+            out.notes.append(tried_note(f"story {s.key}", e.failures, "its findings stay as the detectors left them"))
             continue
-        out.reviewed.append(s.key)
+        gone = gone or t.strong_unreachable
+        step = t.value
+        if t.tier != "strong":
+            out.notes.append(tried_note(f"story {s.key}", t.failures, done_text(t, "judged its findings")))
+        if t.tier != "weak":          # a story the weak model judged is asked of the strong model again next run
+            out.reviewed.append(s.key)
         by_id, shown = {f.id: f for f in mine}, "\n".join(seen)
         for v in step.verdicts:
             f = by_id.get(v.finding)
