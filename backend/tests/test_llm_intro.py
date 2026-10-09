@@ -22,7 +22,7 @@ GOOD = {"whole": "The change makes UART lengths unsigned. It also sets the baud 
                  "with CL 12. The main risk is a caller that still passes a signed length.",
         "whole_cites": ["T1", "T2", "T3"],
         "threads": [{"id": "T1", "intro": "Send now takes an unsigned length. The change sits in `drv/`. A caller "
-                                          "passing a negative length breaks.", "cites": ["S1", "N1"]},
+                                          "passing a negative length breaks.", "cites": ["S1", "CL11"]},
                     {"id": "T2", "intro": "Init programs the baud rate. The change sits in `drv/`. Nothing is open.",
                      "cites": ["S2"]},
                     {"id": "T3", "intro": "The engine takes a new step. It arrives with CL 12. Nothing is open.",
@@ -67,6 +67,8 @@ def test_each_failing_part_keeps_its_fixed_text_and_only_that_part():
         "intro6": (_with(threads=[{**GOOD["threads"][0], "intro": "A. B. C. D. E. F."}, *GOOD["threads"][1:]]),
                    "1 thread(s)"),
         "unlisted": (_with(threads=[{**GOOD["threads"][0], "cites": ["S9"]}, *GOOD["threads"][1:]]), "1 thread(s)"),
+        "a function id": (_with(threads=[{**GOOD["threads"][0], "cites": ["S1", "N1"]}, *GOOD["threads"][1:]]),
+                          "1 thread(s)"),                        # the intro prompt lists no function ids
         "missing": (_with(route=GOOD["route"][:2]), "the route"),
         "twice": (_with(route=[*GOOD["route"][:2], GOOD["route"][0]]), "the route"),
         "two sentences": (_with(route=[{**GOOD["route"][0], "reason": "It is first. It has checks."},
@@ -128,3 +130,9 @@ def test_a_thread_with_open_checks_is_never_marked_skim():
     route = [{**GOOD["route"][0], "skim": True}, *GOOD["route"][1:]]
     notes, _ = write_intro(ScriptedLlm(lambda s, u: _with(route=route)), None, None, r, ss, {})
     assert notes == [] and [s.skim for s in r.route] == [False, False, True]
+
+
+def test_the_ask_offers_only_the_kinds_of_id_the_prompt_lists():
+    r, ss = _intro_reading()
+    text = prompt(r, ss, {})
+    assert "(T1, S2, CL12)" in text and "N4" not in text
