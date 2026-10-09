@@ -28,6 +28,9 @@ export const keys = {
   railW: "ct.ws.railW",
   detailW: "ct.ws.detailW",
   railOpen: "ct.ws.rail.open",
+  /** The story page's To check column width and the review header's height, once dragged. */
+  checkW: "ct.ws.checkW",
+  headH: "ct.ws.headH",
   /** Neighbours drawn as tiles or as the call tree. */
   nbView: "ct.ws.nb.view",
 };

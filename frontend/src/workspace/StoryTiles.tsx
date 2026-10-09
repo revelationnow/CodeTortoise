@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { keys, save } from "../board/prefs";
+import Resizer from "../board/Resizer";
 import type { StoryDetail } from "../board/types";
 import Comments from "../components/Comments";
 import { byEntry, codeOrder, foldPath, readOrder, rewriteText, whereByCl, whereTree } from "../reading/story";
@@ -9,6 +11,7 @@ import { useWs } from "./context";
 import FunctionCode from "./FunctionCode";
 import NameText, { Ticks } from "./NameText";
 import { MechanicalStory, TestsStory } from "./StoryBodies";
+import { CHECK_W, checkMax, loadCheckW } from "./layout";
 import { StoryWhy } from "./StoryPlan";
 
 /** A contract row (§8.1): its sentence; a signature with the part that differs marked; repeated and body-only edits
@@ -158,7 +161,10 @@ function Code({ sr, detail }: { sr: StoryReading; detail: StoryDetail }) {
         return (
           <details key={f.node} className="st-fn" onToggle={(e) => toggle(f.node, (e.target as HTMLDetailsElement).open)}>
             <summary><b className="mono">{f.label}</b> <span className="cnt"><span className="p">+{f.add}</span> <span className="m">−{f.rem}</span></span>
-              {f.cl !== null && <span className="ws-chip">CL {f.cl}</span>}{file && <span className="muted small mono"> {file.path}</span>}</summary>
+              {f.cl !== null && <span className="ws-chip">CL {f.cl}</span>}{file && <span className="muted small mono"> {file.path}</span>}
+              {/* the bigger panel: Function | Full file, annotations, comments; the row itself stays as it is */}
+              <Link className="bd-ibtn st-side" to={ws.link(ws.opened({ node: f.node }))} onClick={(e) => e.stopPropagation()}
+                    title="Open in the side panel" aria-label={`Open ${f.label} in the side panel`}>⤢</Link></summary>
             {open.has(f.node) && (node?.path && node.range ? <FunctionCode node={node} board={detail.board} />
               : file?.depot ? <Link to={ws.link(ws.opened({ file: file.depot, line: f.line }))}>Open {file.path}</Link>
                 : <p className="muted small">No code for {f.label} in this review.</p>)}
@@ -174,8 +180,10 @@ function Code({ sr, detail }: { sr: StoryReading; detail: StoryDetail }) {
 export default function StoryTiles({ detail, sr }: { detail: StoryDetail; sr: StoryReading }) {
   const ws = useWs(), d = ws.data, st = detail.story;
   const suggested = st.check ?? [], questions = st.questions ?? [];
+  const page = useRef<HTMLDivElement>(null);
+  const [checkW, setCheckW] = useState(loadCheckW);
   return (
-    <div className="ov2 st-tiles">
+    <div className="ov2 st-tiles" ref={page} style={{ ["--cw" as string]: `${checkW}px` }}>
       <div className="ov2-left">
         <section aria-labelledby="st-what">
           <h3 id="st-what">What it does</h3>
@@ -195,15 +203,20 @@ export default function StoryTiles({ detail, sr }: { detail: StoryDetail; sr: St
           <Comments reviewId={d.id} comments={d.comments} kind="story" anchor={{ id: st.id }} onChange={d.loadComments} compact />
         </section>
       </div>
-      <aside className="ov2-right" aria-label="What to check in this story">
-        <CheckTile groups={[{ label: null, checks: sr.checks }]} ofTotal footer={<>
-          {suggested.length > 0 && (
-            <div className="st-suggested"><h4><span className="ai-label">AI</span>The strong model also suggests</h4>
-              <ul>{suggested.map((c, k) => <li key={k}><NameText text={c} /></li>)}</ul></div>
-          )}
-          <Cleared checks={(d.reading?.cleared ?? []).filter((k) => k.story === st.id)} />
-        </>} />
-      </aside>
+      <div className="st-check">
+        <Resizer size={checkW} edge="left" min={CHECK_W.min} max={() => checkMax(page.current?.clientWidth ?? 0)}
+                 onSize={setCheckW} onDone={(w) => save(keys.checkW, w)}
+                 onReset={() => { setCheckW(CHECK_W.def); save(keys.checkW, CHECK_W.def); }} />
+        <aside className="ov2-right" aria-label="What to check in this story">
+          <CheckTile groups={[{ label: null, checks: sr.checks }]} ofTotal footer={<>
+            {suggested.length > 0 && (
+              <div className="st-suggested"><h4><span className="ai-label">AI</span>The strong model also suggests</h4>
+                <ul>{suggested.map((c, k) => <li key={k}><NameText text={c} /></li>)}</ul></div>
+            )}
+            <Cleared checks={(d.reading?.cleared ?? []).filter((k) => k.story === st.id)} />
+          </>} />
+        </aside>
+      </div>
     </div>
   );
 }

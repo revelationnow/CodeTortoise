@@ -250,6 +250,9 @@ body.bd-resizing-v, body.bd-resizing-v * { cursor: row-resize !important; user-s
 .ws-head h1 { font-size: 16px; margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ws-head h1 a { color: var(--ink); text-decoration: none; }
 .ws-head .rerun { margin-left: auto; }
+/* the header is as tall as its content until the reader drags its bottom edge; then what doesn't fit scrolls */
+.ws-headbox { flex: none; position: relative; z-index: 8; display: flex; flex-direction: column; }
+.ws-headbox > .ws-head { flex: 1 1 auto; min-height: 0; overflow-y: auto; align-content: flex-start; }
 .ws-menu { display: none; font-size: 17px; line-height: 1; padding: 3px 9px; }
 .ws-body { flex: 1; min-height: 0; display: flex; position: relative; }
 
@@ -577,7 +580,8 @@ a.ws-chip { text-decoration: none; }
   white-space: pre-wrap; overflow-wrap: anywhere; }
 .ck-mark { margin-top: 3px; font-size: 12px; color: var(--muted); }
 .ck-mark.changed { color: var(--warn); font-weight: 600; }
-.ck-acts { display: flex; gap: 12px; margin-top: 4px; font-size: 12px; }
+.ck-acts { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; font-size: 12px; }
+.ck-acts > * { white-space: nowrap; }
 .ck-acts a { text-decoration: none; }
 .ck-cleared { margin-top: 8px; font-size: 12px; }
 .ck-cleared summary { cursor: pointer; color: var(--muted); }
@@ -615,7 +619,17 @@ a.ws-chip { text-decoration: none; }
   .ov2 { grid-template-columns: minmax(0, 1fr); }
   .ov2-right { order: -1; position: static; max-height: none; }
 }
-.st-page { max-width: 1280px; margin: 0 auto; }
+.st-page { margin: 0 auto; }
+/* the story page fills the centre; its To check column is as wide as the reader drags it (owner feedback, sub-project C) */
+.ov2.st-tiles { max-width: none; grid-template-columns: minmax(0, 1fr) min(var(--cw, 340px), 60%); }
+.st-check { position: sticky; top: 0; align-self: start; min-width: 0; }
+.st-check > .ov2-right { position: static; }
+.st-check > .bd-resizer { left: -19px; }
+.st-side { margin-left: 6px; text-decoration: none; }
+@media (max-width: 900px) {
+  .ov2.st-tiles { grid-template-columns: minmax(0, 1fr); }
+  .st-check { order: -1; position: static; }
+}
 .st-crumb { margin: 0 0 4px; font-size: 13px; }
 .st-crumb a { text-decoration: none; font-weight: 600; }
 .st-tiles .ov2-left > section { margin: 0 0 22px; }
