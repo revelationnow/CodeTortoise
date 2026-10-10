@@ -276,7 +276,8 @@ body.bd-resizing-v, body.bd-resizing-v * { cursor: row-resize !important; user-s
 .ws-row.dim { opacity: .38; }
 .ws-row.done .ws-row-title { color: var(--muted); text-decoration: line-through; }
 .ws-row-top { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
-.ws-row-title { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.ws-row-title { flex: 1; min-width: 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
+  line-clamp: 3; overflow: hidden; }   /* the row carries the whole title on hover */
 .ws-row-title code, .ws-centre code { font-family: var(--mono); font-size: .92em; }
 .ws-row-sub { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ws-home { flex-direction: row; align-items: center; gap: 8px; font-weight: 600; padding: 8px 14px; }
@@ -303,6 +304,9 @@ a.ws-handle { text-decoration: none; }
 .ws-crumbs [aria-current] { color: var(--ink); font-weight: 600; }
 .ws-crumbs .sep { color: var(--muted); padding: 0 2px; }
 .ws-page { flex: 1; min-height: 0; overflow: auto; padding: 18px 24px 48px; }
+/* a long name breaks where it must instead of sticking out of its column (owner feedback 2026-10-10); one-line labels
+   end in an ellipsis instead and carry the whole text as their title */
+.ws-page, .ws-rail { overflow-wrap: anywhere; }
 .ws-page.graph { padding: 0; display: flex; flex-direction: column; overflow: hidden; }
 .ws-name { font-family: var(--mono); font-size: .92em; color: inherit; border: 0; text-decoration: underline dotted 1px;
   text-decoration-color: color-mix(in srgb, currentColor 35%, transparent); text-underline-offset: 3px; }
@@ -564,7 +568,8 @@ a.ws-chip { text-decoration: none; }
 .ck-row.marked { color: var(--muted); }
 .ck-row.marked .ck-tag { filter: grayscale(1); opacity: .7; }
 .ck-row.lit { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); box-shadow: -3px 0 0 var(--accent); }
-.ck-top { display: flex; gap: 6px; align-items: baseline; }
+.ck-top { display: flex; flex-wrap: wrap; gap: 3px 6px; align-items: baseline; }
+.ck-text { flex: 1 1 12em; min-width: 0; }   /* a narrow column puts the text under a long tag, not in a sliver beside it */
 .ck-top + .ck-top { margin-top: 3px; }
 .ck-tag { flex: none; font: 600 10.5px/1.5 var(--sans); padding: 0 6px; border-radius: 4px; background: var(--gap-bg); color: var(--ink); }
 /* one colour scale for check kinds (§12): what to act on red, then amber, then the analysis' own kinds in blue */
@@ -573,7 +578,9 @@ a.ws-chip { text-decoration: none; }
 .ck-tag.caller, .ck-tag.result, .ck-tag.reader, .ck-tag.target { background: color-mix(in srgb, var(--accent) 12%, var(--surface));
   color: var(--accent); }
 .ck-tag.ask { background: color-mix(in srgb, var(--accent) 6%, var(--surface)); color: var(--accent); border: 1px dashed var(--accent); }
-.ck-place { margin-top: 3px; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.ck-place { display: flex; margin-top: 3px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.ck-place > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ck-file { flex: none; max-width: 100%; }
 .ck-src { display: block; margin-top: 3px; padding: 2px 6px; font-size: 12px; background: var(--gap-bg); border-radius: 4px;
   white-space: pre-wrap; overflow-wrap: anywhere; }
 .ck-mark { margin-top: 3px; font-size: 12px; color: var(--muted); }
@@ -660,6 +667,7 @@ a.ws-chip { text-decoration: none; }
 .st-file { margin: 2px 0 0 12px; font-size: 13px; }
 .st-file ul { list-style: none; margin: 0; padding: 0 0 0 14px; }
 .st-file li { display: flex; gap: 8px; align-items: baseline; padding: 1px 0; }
+.st-file li > a, .st-file li > span.mono { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Where in reading order (spec 2026-10-07-review-reading-phase2 §5.3) */
 .st-order { margin: 0 0 6px; font-size: 13px; color: var(--ink); }
 .st-clgroup + .st-clgroup { margin-top: 10px; }

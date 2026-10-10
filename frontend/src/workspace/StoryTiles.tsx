@@ -50,7 +50,7 @@ function WhereDirs({ files }: { files: (WhereFile & { also?: number[] })[] }) {
               return (
                 <li key={f.node}>
                   {file.depot ? <Link className="mono" to={ws.link(ws.opened({ file: file.depot, line: f.line }))} title={label}
-                                      aria-label={label}>{f.label}</Link> : <span className="mono">{f.label}</span>}
+                                      aria-label={label}>{f.label}</Link> : <span className="mono" title={f.label}>{f.label}</span>}
                   <span className="cnt"><span className="p">+{f.add}</span> <span className="m">−{f.rem}</span></span>
                   {showCl && f.cl !== null && <span className="ws-chip">CL {f.cl}</span>}
                 </li>

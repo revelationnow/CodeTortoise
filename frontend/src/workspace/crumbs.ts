@@ -1,10 +1,12 @@
 /** The centre's breadcrumb (spec 2026-10-04-review-workspace §2.4): every part but the current one is a link up. */
 import type { Finding } from "../api";
 import type { Story } from "../board/types";
+import { descriptionParts, plainTitle } from "../lib/markdown";
 import { tidy } from "../lib/tidy";
 import { href, type Place } from "./address";
 
-export interface Crumb { label: string; to: string | null; handle?: string }
+/** `title` is the whole text when `label` is cut short, for hovering. */
+export interface Crumb { label: string; to: string | null; handle?: string; title?: string }
 export interface CrumbContext {
   base: string;
   title: string;
@@ -26,6 +28,12 @@ export function short(text: string, n = 46): string {
   return `${t.slice(0, cut > 0 ? cut : n - 1)}…`;
 }
 
+/** A crumb's label cut to fit, carrying the whole text when it was cut. */
+function named(text: string): { label: string; title?: string } {
+  const label = short(text);
+  return label.endsWith("…") ? { label, title: text.replace(/`/g, "").trim() } : { label };
+}
+
 const missing = (): Crumb => ({ label: "Not found", to: null });
 
 export function crumbs(place: Place, c: CrumbContext): Crumb[] {
@@ -43,23 +51,23 @@ export function crumbs(place: Place, c: CrumbContext): Crumb[] {
       const parent = up ? { label: up, to: c.base } : section("Stories", "stories");
       if (!st) return [home, parent, missing()];
       const graph = place.view === "graph";
-      const me: Crumb = { label: short(st.title), handle: st.id,
+      const me: Crumb = { ...named(st.title), handle: st.id,
                           to: graph ? href(c.base, { place: { ...place, view: "steps" }, flow: null, open: null, tab: "diff" }) : null };
       return [home, parent, me, ...(graph ? [{ label: "Graph", to: null }] : [])];
     }
     case "finding": {
       const f = c.findings.find((x) => x.id === place.fid);
-      return [home, section("Findings", "findings"), f ? { label: short(tidy(f.title)), handle: f.id, to: null } : missing()];
+      return [home, section("Findings", "findings"), f ? { ...named(tidy(f.title)), handle: f.id, to: null } : missing()];
     }
     case "cl": {
       const cl = c.cls.find((x) => x.cl === place.cl);
-      const first = cl?.description?.trim().split("\n")[0];
+      const first = plainTitle(descriptionParts(cl?.description ?? "").title);
       return [home, section("Change set", "changeset"),
-              cl ? { label: short(`CL ${cl.cl}${first ? ` · ${first}` : ""}`), to: null } : missing()];
+              cl ? { ...named(`CL ${cl.cl}${first ? ` · ${first}` : ""}`), to: null } : missing()];
     }
     case "cluster": {
       const k = c.clusters.find((x) => x.id === place.cid);
-      return [home, section("Map", "map"), k ? { label: short(k.name), to: null } : missing()];
+      return [home, section("Map", "map"), k ? { ...named(k.name), to: null } : missing()];
     }
     case "index":
       return [home, { label: INDEX_LABEL[place.tab], to: null }];

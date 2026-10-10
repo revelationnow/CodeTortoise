@@ -109,7 +109,8 @@ test.describe("desktop", () => {
     await page.goto(`${base}/cl/102`);
     await expect(page.locator(".ws-finding h2")).toHaveText("CL 102 · uart: flags field");
     await page.goto(`${base}/i/cls`);
-    await expect(page.getByRole("link", { name: "Open CL 102" })).toContainText("uart: flags field");
+    // the CL's row, whether the rail lists the CLs (before the reading arrives) or the Index does
+    await expect(page.locator("li", { has: page.getByRole("link", { name: "Open CL 102" }) }).first()).toContainText("uart: flags field");
     await page.goto(`${base}/cl/102`);
     const desc = page.locator(".ws-desc");
     await expect(desc.locator("li")).toHaveCount(2);

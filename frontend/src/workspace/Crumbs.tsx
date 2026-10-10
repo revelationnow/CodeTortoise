@@ -9,8 +9,8 @@ export default function Crumbs({ items }: { items: Crumb[] }) {
       {items.map((c, i) => (
         <Fragment key={i}>
           {i > 0 && <span className="sep" aria-hidden> › </span>}
-          {c.to ? <Link to={c.to} title={`Go to ${c.label}`} aria-label={`Go to ${c.label}`}>{c.label}{c.handle && <span className="ws-handle">{c.handle}</span>}</Link>
-            : <span aria-current="page">{c.label}{c.handle && <span className="ws-handle">{c.handle}</span>}</span>}
+          {c.to ? <Link to={c.to} title={`Go to ${c.title ?? c.label}`} aria-label={`Go to ${c.title ?? c.label}`}>{c.label}{c.handle && <span className="ws-handle">{c.handle}</span>}</Link>
+            : <span aria-current="page" title={c.title}>{c.label}{c.handle && <span className="ws-handle">{c.handle}</span>}</span>}
         </Fragment>
       ))}
     </nav>

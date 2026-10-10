@@ -21,11 +21,11 @@ describe("the breadcrumb", () => {
     expect(crumbs({ kind: "story", sid: "S1", view: "graph" }, ctx)).toEqual([
       { label: "Review 7", to: "/r/7" },
       { label: "Stories", to: "/r/7#stories" },
-      { label: "frame_pop writes pool->free from two threads…", handle: "S1", to: "/r/7/s/S1" },
+      { label: "frame_pop writes pool->free from two threads…", title: "frame_pop writes pool->free from two threads at once", handle: "S1", to: "/r/7/s/S1" },
       { label: "Graph", to: null },
     ]);
     expect(crumbs({ kind: "story", sid: "S1", view: "steps" }, ctx).at(-1)).toEqual(
-      { label: "frame_pop writes pool->free from two threads…", handle: "S1", to: null });
+      { label: "frame_pop writes pool->free from two threads…", title: "frame_pop writes pool->free from two threads at once", handle: "S1", to: null });
   });
 
   it("names findings, changelists and clusters under their sections", () => {
@@ -41,7 +41,7 @@ describe("the breadcrumb", () => {
     const r = { ...ctx, threadOf: (sid: string) => (sid === "S1" ? "Thread A" : null) };
     const home = { label: "Review 7", to: "/r/7" };
     expect(crumbs({ kind: "story", sid: "S1", view: "steps" }, r)).toEqual([home, { label: "Thread A", to: "/r/7" },
-      { label: "frame_pop writes pool->free from two threads…", handle: "S1", to: null }]);
+      { label: "frame_pop writes pool->free from two threads…", title: "frame_pop writes pool->free from two threads at once", handle: "S1", to: null }]);
     expect(crumbs({ kind: "cluster", cid: "C1" }, r)).toEqual([home, { label: "Map", to: "/r/7/i/map" }, { label: "driver/uart", to: null }]);
     expect(crumbs({ kind: "cl", cl: 101 }, r)).toEqual([home, { label: "CLs", to: "/r/7/i/cls" },
       { label: "CL 101 · uart: count tx stats", to: null }]);
@@ -50,12 +50,18 @@ describe("the breadcrumb", () => {
     expect(crumbs({ kind: "index", tab: "files" }, r)).toEqual([home, { label: "Files", to: null }]);
   });
 
+  it("names a changelist by its first line without HTML, the way its page heading does", () => {
+    const c = { ...ctx, cls: [{ cl: 8, description: '<span style="color:red">[DRV]</span> Fix uart &amp; spi\n\nbody' }] };
+    expect(crumbs({ kind: "cl", cl: 8 }, c).at(-1)).toEqual({ label: "CL 8 · [DRV] Fix uart & spi", to: null });
+  });
+
   it("names a changelist without a description by number, and cuts a long one", () => {
     const c = { ...ctx, cls: [{ cl: 5, description: null }, { cl: 6, description: "  \n" },
                               { cl: 7, description: "uart: count tx stats, rx stats, framing errors and parity errors per port" }] };
     expect(crumbs({ kind: "cl", cl: 5 }, c).at(-1)).toEqual({ label: "CL 5", to: null });
     expect(crumbs({ kind: "cl", cl: 6 }, c).at(-1)).toEqual({ label: "CL 6", to: null });
-    expect(crumbs({ kind: "cl", cl: 7 }, c).at(-1)).toEqual({ label: "CL 7 · uart: count tx stats, rx stats,…", to: null });
+    expect(crumbs({ kind: "cl", cl: 7 }, c).at(-1)).toEqual({ label: "CL 7 · uart: count tx stats, rx stats,…",
+      title: "CL 7 · uart: count tx stats, rx stats, framing errors and parity errors per port", to: null });
   });
 
   it("says when the item does not exist, under its section", () => {

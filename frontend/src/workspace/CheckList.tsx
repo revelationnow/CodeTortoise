@@ -29,13 +29,15 @@ function CheckRow({ k, lit }: { k: Check; lit: boolean }) {
   useEffect(() => { if (lit) li.current?.scrollIntoView({ block: "center" }); }, [lit]);
   const talks = d.comments.filter((c) => c.parent_id === null && c.anchor_kind === "check" && c.anchor.key === k.key).length;
   const where = placeOf(k), place = `${k.path}${k.line ? ` at line ${k.line}` : ""}`;
+  const dir = k.path.slice(0, k.path.lastIndexOf("/") + 1);   // gives way first when the line is too long
   return (
     <li ref={li} className={`ck-row${marked ? " marked" : ""}${read ? " read" : ""}${lit ? " lit" : ""}`} data-key={k.key} data-finding={k.finding ?? undefined}>
       {[{ kind: k.kind, text: k.text }, ...k.also].map((r, i) => (
         <div key={i} className="ck-top"><span className={`ck-tag ${r.kind}`}>{KIND_LABEL[r.kind]}</span>
           <span className="ck-text"><Ticks text={r.text} /></span></div>
       ))}
-      {where && <div className="ck-place mono"><Ticks text={where} /></div>}
+      {where && <div className="ck-place mono" title={where.replace(/`/g, "")}>
+        <span className="ck-dir">{dir}</span><span className="ck-file"><Ticks text={where.slice(dir.length)} /></span></div>}
       {k.source_line && <code className="ck-src">{k.source_line}</code>}
       {m && <div className={`ck-mark${m.changed ? " changed" : ""}`}>{markLine(m)}</div>}
       <div className="ck-acts">
