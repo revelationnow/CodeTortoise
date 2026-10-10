@@ -158,3 +158,54 @@ def test_the_facts_stage_makes_anonymous_record_places_workspace_relative():
     fx = [Facts(tu=TuInfo(file="/ws/src/a.c", variant="after"), fields=[acc, named])]
     relative_records(fx, "/ws/")
     assert [a.record for a in fx[0].fields] == ["anonymous struct (src/a.c:3)", "outer.frame"]
+
+
+REG_H = """typedef union { unsigned word; struct { unsigned lo:16, hi:16; } bits; } reg_t;
+struct dev {
+  int id;
+  union { unsigned raw; struct { unsigned en:1, mode:3; }; } ctl;
+  union { int i; float f; };
+  struct { int x, y; } pos[2];
+  struct { int q; } *p;
+};
+static struct { int a; } g_anon;
+"""
+REG_C = """#include "reg.h"
+void f(struct dev *d, reg_t *r) { r->bits.lo = 1; r->word = 2; d->ctl.en = 1; d->ctl.raw = 0; d->i = 3; d->pos[0].x = 1;
+  d->p->q = 1; g_anon.a = 1; d->id = 0; }
+"""
+
+
+def _accesses(tmp_path, sub, header):
+    load_libclang(None)
+    d = tmp_path / sub
+    d.mkdir()
+    (d / "reg.h").write_text(header)
+    (d / "main.c").write_text(REG_C)
+    tu = ci.Index.create().parse(str(d / "main.c"), args=["-xc"])
+    assert not [x for x in tu.diagnostics if x.severity >= ci.Diagnostic.Error]
+    fn = next(c for c in tu.cursor.walk_preorder()
+              if c.spelling == "f" and c.kind == ci.CursorKind.FUNCTION_DECL and c.is_definition())
+    return FunctionAnalyzer(fn, fn.get_usr()).analyze()[0]
+
+
+def test_a_fields_id_does_not_move_with_its_header_and_names_where_it_lives(tmp_path):
+    """Owner, 2026-10-09: untouched union fields flooded the review whenever their header shifted."""
+    before = _accesses(tmp_path, "a", REG_H)
+    after = _accesses(tmp_path, "b", "/* one more line */\n" + REG_H)
+    assert {(a.field_name, a.mode, a.field) for a in before} == {(a.field_name, a.mode, a.field) for a in after}
+    got = {a.field_name: (a.field, a.record) for a in before if a.mode == "write"}
+    assert got["raw"] == ("c:@S@dev@U>ctl@FI@raw", "dev.ctl")
+    assert got["en"] == ("c:@S@dev@U>ctl@Sa@FI@en", "dev.ctl")
+    assert got["lo"] == ("c:@UA@reg_t@S>bits@FI@lo", "reg_t.bits")
+    assert got["x"] == ("c:@S@dev@S>pos@FI@x", "dev.pos")
+    assert got["q"] == ("c:@S@dev@S>p@FI@q", "dev.p")
+    assert got["a"][0] == "c:reg.h@S~g_anon@FI@a" and got["a"][1].startswith("anonymous struct (")
+    assert (got["word"][0], got["i"][0], got["id"][0]) == ("c:@UA@reg_t@FI@word", "c:@S@dev@Ua@FI@i", "c:@S@dev@FI@id")
+    assert (got["word"][1], got["i"][1], got["id"][1]) == ("reg_t", "dev", "dev")
+
+
+def test_a_nameless_record_with_no_variable_of_its_own_is_named_by_its_fields(tmp_path):
+    fields, _, _ = writes(tmp_path, "local.c", "void h(void) { struct { int s, t; } v; v.s = 1; }\n", ["-xc"], "h")
+    (s,) = [a for a in fields if a.field_name == "s" and a.mode == "write"]
+    assert s.field == "c:local.c@S~s,t@FI@s"

@@ -161,3 +161,41 @@ def test_no_longer_writing_a_shared_sink_is_flagged_too():
     ctx.impact.sinks = {"N2": SinkInfo(field="N2", label="B::ptr", users=3, why="marked")}
     (f,) = detect_field_mutation(ctx)
     assert f.title == "f no longer writes B::ptr" and f.sink
+
+
+SHIFT_H = "struct dev { int id; union { unsigned raw; struct { unsigned en:1; }; } ctl; };\n"
+SHIFT_C_BEFORE = """#include "reg.h"
+int get(struct dev *d) { return d->ctl.raw + d->ctl.en; }
+void set(struct dev *d, unsigned v) { d->ctl.raw = v; }
+"""
+SHIFT_C_AFTER = SHIFT_C_BEFORE.replace("{ d->ctl.raw = v; }", "{ v = v + 1; d->ctl.raw = v; }")
+
+
+def test_a_header_shift_above_a_union_leaves_its_untouched_fields_alone(tmp_path):
+    """Spec 2026-10-10-union-fields §1.1: a line inserted above the union plus a body edit of its writer."""
+    from codetortoise.config import AnalysisConfig
+    from codetortoise.diffmap import map_changes
+    from codetortoise.facts.clang_extractor import TuRequest, extract_tu
+    from codetortoise.impact import build_impact
+    from codetortoise.tu_select import TuSelection
+    from codetortoise.vcs.model import ChangeSet, ClMeta, FileChange
+
+    h, c = tmp_path / "reg.h", tmp_path / "a.c"
+    h_after = "/* one more line */\n" + SHIFT_H
+    h.write_text(h_after)
+    c.write_text(SHIFT_C_AFTER)
+    hp, cp = str(h.resolve()), str(c.resolve())
+    cs = ChangeSet(cls=[ClMeta(cl=1, status="pending")],
+                   files=[FileChange(depot="//d/reg.h", local=hp, action="edit", before=SHIFT_H, after=h_after),
+                          FileChange(depot="//d/a.c", local=cp, action="edit", before=SHIFT_C_BEFORE, after=SHIFT_C_AFTER)])
+    dm = map_changes(cs)
+    args = ["-xc", f"-I{tmp_path}"]
+    before = [extract_tu(TuRequest(file=cp, args=args, variant="before", unsaved={hp: SHIFT_H, cp: SHIFT_C_BEFORE}))]
+    after = [extract_tu(TuRequest(file=cp, args=args, variant="after", unsaved={hp: h_after, cp: SHIFT_C_AFTER}))]
+    cfg = AnalysisConfig(module_min_files=1)
+    im = build_impact(before, after, dm, TuSelection(selected=[cp]), None, None, cfg)
+    assert [im.nodes[n].label for n in im.changed] == ["set"]
+    moved = [(im.nodes[e.src].label, im.nodes[e.dst].label, e.status) for e in im.edges
+             if e.kind in ("reads", "writes") and e.status != "unchanged"]
+    assert moved == []
+    assert [f.title for f in run_detectors(DetectorContext(before, after, dm, im, cfg)) if f.kind == "field_mutation"] == []

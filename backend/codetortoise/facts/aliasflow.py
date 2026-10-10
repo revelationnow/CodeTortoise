@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import ctypes
 import fnmatch
+import os
+import re
 from dataclasses import dataclass
 
 import clang.cindex as ci
@@ -71,25 +73,79 @@ class AP:
 
 
 _RECORDS = (K.STRUCT_DECL, K.UNION_DECL, K.CLASS_DECL)
+_ARRAYS = (T.CONSTANTARRAY, T.INCOMPLETEARRAY, T.VARIABLEARRAY, T.DEPENDENTSIZEDARRAY)
+_OFFSET = re.compile(r"@\d+(?=@|$)")      # libclang's file offset in an anonymous record's USR: it moves with the header
+
+
+def _bare(t: ci.Type) -> ci.Type:
+    """A type with its arrays and pointers stripped: `struct {…} pos[2]` and `struct {…} *p` hold that struct."""
+    t = t.get_canonical()
+    while True:
+        if t.kind in _ARRAYS:
+            t = t.element_type.get_canonical()
+        elif t.kind == T.POINTER:
+            t = t.get_pointee().get_canonical()
+        else:
+            return t
+
+
+def _holder(outer: ci.Cursor, rec: ci.Cursor) -> ci.Cursor | None:
+    """The member of `outer` whose type (arrays and pointers stripped) is the record `rec`."""
+    return next((m for m in outer.get_children() if m.kind == K.FIELD_DECL and _bare(m.type).get_declaration() == rec),
+                None)
 
 
 def record_name(rec: ci.Cursor | None) -> str:
-    """A field's record as people name it (spec 2026-10-04-change-stories §2.5): its name; an anonymous record by the
-    named record and member holding it ("filesystem_iterator_frame.entries"); else "anonymous struct (<file>:<line>)"
-    (the facts stage makes the file workspace-relative). libclang names a typedef'd anonymous struct by its typedef."""
+    """A field's record as people name it (spec 2026-10-04-change-stories §2.5, 2026-10-10-union-fields §3.3): its name;
+    an anonymous record by the named record and member holding it ("filesystem_iterator_frame.entries", arrays and
+    pointers too); an anonymous member by its enclosing record, whose fields its fields read as; else
+    "anonymous struct (<file>:<line>)" (the facts stage makes the file workspace-relative). libclang names a typedef'd
+    anonymous struct by its typedef."""
     if rec is None:
         return ""
     if not rec.is_anonymous():
         return rec.spelling
     outer = rec.semantic_parent
     if outer is not None and outer.kind in _RECORDS:
-        member = next((m for m in outer.get_children() if m.kind == K.FIELD_DECL
-                       and m.type.get_canonical().get_declaration() == rec), None)
-        if member is not None:
-            return f"{record_name(outer)}.{member.spelling}"
+        member = _holder(outer, rec)
+        return f"{record_name(outer)}.{member.spelling}" if member is not None else record_name(outer)
     what = "union" if rec.kind == K.UNION_DECL else "struct"
     loc = rec.location
     return f"anonymous {what} ({canon(loc.file.name) if loc.file else '?'}:{loc.line})"
+
+
+def record_id(rec: ci.Cursor, cache: dict[int, str] | None = None) -> str:
+    """A record's id that does not move with its header (spec 2026-10-10-union-fields §3.1): libclang's USR unless it
+    holds a file offset; else the enclosing record's id and the member holding it (`c:@S@dev@U>ctl`), or `Ua`/`Sa` for
+    an anonymous member; with no enclosing record, the file's base name and the first variable of the type
+    (`c:reg.h@S~g_anon`), or its field names."""
+    if cache is not None and rec.hash in cache:
+        return cache[rec.hash]
+    usr = rec.get_usr()
+    if not _OFFSET.search(usr):
+        out = usr
+    else:
+        kind = "U" if rec.kind == K.UNION_DECL else "S"
+        outer = rec.semantic_parent
+        if outer is not None and outer.kind in _RECORDS:
+            member = _holder(outer, rec)
+            out = f"{record_id(outer, cache)}@{kind}" + (f">{member.spelling}" if member is not None else "a")
+        else:
+            var = next((c.spelling for c in (outer.get_children() if outer is not None else ())
+                        if c.kind == K.VAR_DECL and _bare(c.type).get_declaration() == rec), None)
+            name = var or ",".join(f.spelling for f in rec.get_children() if f.kind == K.FIELD_DECL)
+            base = os.path.basename(rec.location.file.name) if rec.location.file else "?"
+            out = f"c:{base}@{kind}~{name}"
+    if cache is not None:
+        cache[rec.hash] = out
+    return out
+
+
+def field_id(f: ci.Cursor, cache: dict[int, str] | None = None) -> str:
+    """A field's id (spec 2026-10-10-union-fields §3.1): its USR, unless that holds a file offset, then its record's
+    stable id and its name."""
+    usr = f.get_usr()
+    return usr if not _OFFSET.search(usr) else f"{record_id(f.semantic_parent, cache)}@FI@{f.spelling}"
 
 
 def _strip(c: ci.Cursor) -> tuple[ci.Cursor, bool]:
@@ -254,16 +310,17 @@ class FunctionAnalyzer:
         for i, p in enumerate(fn.get_arguments() or []):
             self.params[p.get_usr()] = (i, p)
         self.alias: dict[str, set[AP]] = {}
-        self.field_files: dict[str, str] = {}  # FieldDecl USR -> canonical file declaring it
-        self.field_lines: dict[str, int] = {}  # FieldDecl USR -> declaration line
+        self.field_files: dict[str, str] = {}  # field id -> canonical file declaring it
+        self.field_lines: dict[str, int] = {}  # field id -> declaration line
         self.fresh: set[str] = set()  # local pointers holding freshly allocated objects
+        self.record_ids: dict[int, str] = {}  # record cursor hash -> stable record id (field_id's cache)
 
     def _field_file(self, f: ci.Cursor) -> str:
-        usr = f.get_usr()
-        if usr not in self.field_files:
-            self.field_files[usr] = canon(f.location.file.name) if f.location.file else ""
-            self.field_lines[usr] = f.location.line
-        return self.field_files[usr]
+        fid = field_id(f, self.record_ids)
+        if fid not in self.field_files:
+            self.field_files[fid] = canon(f.location.file.name) if f.location.file else ""
+            self.field_lines[fid] = f.location.line
+        return self.field_files[fid]
 
     # ---- path resolution -------------------------------------------------
     def _var_root(self, ref: ci.Cursor) -> AP | None:
@@ -294,7 +351,7 @@ class FunctionAnalyzer:
         elif s.kind == K.MEMBER_REF_EXPR and s.referenced is not None and s.referenced.kind == K.FIELD_DECL:
             f = s.referenced
             self._field_file(f)
-            step = (f.get_usr(), f.spelling, record_name(f.semantic_parent))
+            step = (field_id(f, self.record_ids), f.spelling, record_name(f.semantic_parent))
             kids = [k for k in s.get_children() if k.kind.is_expression()]
             if not kids:
                 bases = {AP("this", "this")}
@@ -435,7 +492,7 @@ class FunctionAnalyzer:
                 if s.kind == K.MEMBER_REF_EXPR and s.referenced is not None and s.referenced.kind == K.FIELD_DECL:
                     f = s.referenced
                     fields.append(FieldAccess(
-                        fn=self.fn_usr, field=f.get_usr(), field_name=f.spelling,
+                        fn=self.fn_usr, field=field_id(f, self.record_ids), field_name=f.spelling,
                         record=record_name(f.semantic_parent),
                         record_file=self._field_file(f),
                         decl_line=f.location.line, path="?." + f.spelling, root_kind="unknown", mode=mode,
@@ -477,7 +534,7 @@ class FunctionAnalyzer:
                 path = next(iter(sorted(a.display() for a in aps)), "?." + f.spelling)
                 root = next(iter(sorted(a.root_kind for a in aps)), "unknown")
                 fields.append(FieldAccess(
-                    fn=self.fn_usr, field=f.get_usr(), field_name=f.spelling,
+                    fn=self.fn_usr, field=field_id(f, self.record_ids), field_name=f.spelling,
                     record=record_name(f.semantic_parent),
                     record_file=self._field_file(f),
                     decl_line=f.location.line, path=path, root_kind=root, mode="read", file=file, line=c.location.line,

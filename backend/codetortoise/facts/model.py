@@ -48,7 +48,7 @@ class CallEdge(BaseModel):
 
 class FieldAccess(BaseModel):
     fn: str
-    field: str            # FieldDecl USR, or "name:<field>" when heuristic
+    field: str            # stable field id (aliasflow.field_id), or "name:<field>" when heuristic
     field_name: str
     record: str
     record_file: str = ""  # file declaring the record (restricts heuristic name matches)
