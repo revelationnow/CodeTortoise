@@ -89,15 +89,18 @@ A new function `field_id(f: Cursor) -> str` in `facts/aliasflow.py` gives a FIEL
    - for an anonymous record that is an anonymous member of `outer` (no member names it):
      `record_id(outer) + "@" + kind + "a"`, matching libclang's own `Ua`/`Sa`
      (`en` is `c:@S@dev@U>ctl@Sa@FI@en`);
-   - for an anonymous record with no enclosing record (file scope or function scope): `c:` + the base name of its
-     file + `@` + kind + `~` + the name of the first variable declared with that type among the record's semantic
-     parent's children, or, if there is none, the record's field names joined with `,`
-     (`c:a.h@S~g_anon`, so `a` is `c:a.h@S~g_anon@FI@a`).
+   - for a record with no enclosing record (file, namespace or function scope; a named record declared in a function
+     carries an offset too): a scope — `c:` + the base name of its file at file scope, else the USR of the function or
+     namespace declaring it — then `@` + kind + `~` + the record's name if it has one, else the first variable declared
+     with that type among the record's semantic parent's children, else the record's field names joined with `,`
+     (`c:a.h@S~g_anon`, so `a` is `c:a.h@S~g_anon@FI@a`; `struct point` inside `f1` is `c:@F@f1@S~point`).
+     Amended after the final review: without the scope, records declared in different functions shared one id.
+
 
 The member lookup is a new helper `_holder(outer, rec) -> Cursor | None`: the FIELD_DECL of `outer` whose canonical
 type, after stripping arrays and pointers (`element_type` / `get_pointee()` until neither applies), is declared by
 `rec`. Today's `record_name()` lookup does not strip arrays or pointers; it switches to `_holder` (§3.3). `record_id`
-results are cached per record cursor hash within one `FunctionAnalyzer`.
+results are cached per record cursor hash, one cache per TU.
 
 ### 3.2 Where ids are used
 

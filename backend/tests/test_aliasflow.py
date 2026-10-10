@@ -208,4 +208,16 @@ def test_a_fields_id_does_not_move_with_its_header_and_names_where_it_lives(tmp_
 def test_a_nameless_record_with_no_variable_of_its_own_is_named_by_its_fields(tmp_path):
     fields, _, _ = writes(tmp_path, "local.c", "void h(void) { struct { int s, t; } v; v.s = 1; }\n", ["-xc"], "h")
     (s,) = [a for a in fields if a.field_name == "s" and a.mode == "write"]
-    assert s.field == "c:local.c@S~s,t@FI@s"
+    assert s.field == "c:@F@h@S~s,t@FI@s"                     # the function holding it is part of its id
+
+
+def test_records_declared_in_different_functions_keep_different_ids(tmp_path):
+    """Final review: a struct declared inside f1 and one inside f2 are different fields, named or not."""
+    src = ("void f1(void) { struct point { int x, y; } p; p.x = 1; struct { int s; } q; q.s = 1; }\n"
+           "void f2(void) { struct point { int x, y; } p; p.x = 2; struct { int s; } q; q.s = 2; }\n")
+    ids = {}
+    for fn in ("f1", "f2"):
+        fields, _, _ = writes(tmp_path, "two.c", src, ["-xc"], fn)
+        ids[fn] = {a.field_name: (a.field, a.record) for a in fields if a.mode == "write"}
+    assert ids["f1"]["x"] == ("c:@F@f1@S~point@FI@x", "point") and ids["f2"]["x"] == ("c:@F@f2@S~point@FI@x", "point")
+    assert ids["f1"]["s"][0] == "c:@F@f1@S~s@FI@s" and ids["f2"]["s"][0] == "c:@F@f2@S~s@FI@s"

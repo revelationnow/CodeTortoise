@@ -103,3 +103,17 @@ def test_return_lines_and_field_declaration_lines(fx, fx_source):
     assert fn.return_lines == {"-2": 18, "0": 24}
     errors = [a for a in facts.fields if a.field_name == "errors" and a.fn == fn.usr]
     assert errors and all(a.decl_line == 14 and a.record_file.endswith("driver/uart.h") for a in errors)
+
+
+def test_one_tu_shares_its_record_ids_across_its_functions(fx, monkeypatch):
+    """Final review: a file-scope anonymous record's id is worked out once per TU, not once per function."""
+    from codetortoise.facts import clang_extractor as ce
+    seen = []
+
+    class Spy(ce.FunctionAnalyzer):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            seen.append(self.record_ids)
+    monkeypatch.setattr(ce, "FunctionAnalyzer", Spy)
+    extract_tu(TuRequest(file=str(fx.root / "hal/regs.c"), args=args(fx), variant="before"))
+    assert len(seen) >= 2 and all(s is seen[0] for s in seen)

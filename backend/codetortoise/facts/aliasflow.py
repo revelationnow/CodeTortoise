@@ -117,8 +117,9 @@ def record_name(rec: ci.Cursor | None) -> str:
 def record_id(rec: ci.Cursor, cache: dict[int, str] | None = None) -> str:
     """A record's id that does not move with its header (spec 2026-10-10-union-fields §3.1): libclang's USR unless it
     holds a file offset; else the enclosing record's id and the member holding it (`c:@S@dev@U>ctl`), or `Ua`/`Sa` for
-    an anonymous member; with no enclosing record, the file's base name and the first variable of the type
-    (`c:reg.h@S~g_anon`), or its field names."""
+    an anonymous member; with no enclosing record, the id of the function or namespace declaring it (the file's base
+    name at file scope) and its name, else the first variable of the type (`c:reg.h@S~g_anon`), else its field names
+    (`c:@F@h@S~s,t`)."""
     if cache is not None and rec.hash in cache:
         return cache[rec.hash]
     usr = rec.get_usr()
@@ -131,11 +132,16 @@ def record_id(rec: ci.Cursor, cache: dict[int, str] | None = None) -> str:
             member = _holder(outer, rec)
             out = f"{record_id(outer, cache)}@{kind}" + (f">{member.spelling}" if member is not None else "a")
         else:
-            var = next((c.spelling for c in (outer.get_children() if outer is not None else ())
-                        if c.kind == K.VAR_DECL and _bare(c.type).get_declaration() == rec), None)
-            name = var or ",".join(f.spelling for f in rec.get_children() if f.kind == K.FIELD_DECL)
+            # a record declared in a function or namespace: that scope's own id; at file scope, the file's base name
             base = os.path.basename(rec.location.file.name) if rec.location.file else "?"
-            out = f"c:{base}@{kind}~{name}"
+            top = outer is None or outer.kind == K.TRANSLATION_UNIT
+            scope = f"c:{base}" if top else (outer.get_usr() or f"c:{base}")
+            var = None if not rec.is_anonymous() else next(
+                (c.spelling for c in (outer.get_children() if outer is not None else ())
+                 if c.kind == K.VAR_DECL and _bare(c.type).get_declaration() == rec), None)
+            name = rec.spelling if not rec.is_anonymous() else \
+                var or ",".join(f.spelling for f in rec.get_children() if f.kind == K.FIELD_DECL)
+            out = f"{scope}@{kind}~{name}"
     if cache is not None:
         cache[rec.hash] = out
     return out
@@ -303,7 +309,7 @@ def _is_allocation(c: ci.Cursor) -> bool:
 
 
 class FunctionAnalyzer:
-    def __init__(self, fn: ci.Cursor, fn_usr: str):
+    def __init__(self, fn: ci.Cursor, fn_usr: str, record_ids: dict[int, str] | None = None):
         self.fn = fn
         self.fn_usr = fn_usr
         self.params: dict[str, tuple[int, ci.Cursor]] = {}
@@ -313,7 +319,8 @@ class FunctionAnalyzer:
         self.field_files: dict[str, str] = {}  # field id -> canonical file declaring it
         self.field_lines: dict[str, int] = {}  # field id -> declaration line
         self.fresh: set[str] = set()  # local pointers holding freshly allocated objects
-        self.record_ids: dict[int, str] = {}  # record cursor hash -> stable record id (field_id's cache)
+        # record cursor hash -> stable record id (field_id's cache); one TU's functions share it
+        self.record_ids: dict[int, str] = {} if record_ids is None else record_ids
 
     def _field_file(self, f: ci.Cursor) -> str:
         fid = field_id(f, self.record_ids)
