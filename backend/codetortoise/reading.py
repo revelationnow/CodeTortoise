@@ -1061,17 +1061,19 @@ def build_impact(x: _Ctx) -> list[BuildImpact]:
 def name_only_users(x: _Ctx) -> dict[str, int]:
     """Field label -> the unchanged, non-test functions that use a field the change newly writes only by a member of
     the same name (spec 2026-10-10-union-fields §4.2): not checked, only counted. A shared sink's users are never
-    listed, so it has none here."""
-    out: dict[str, int] = {}
+    listed, so it has none here. A function clang saw read the field is a reader check instead; one clang saw only
+    write it, but that uses it by name too, is counted. Fields sharing a label share a count."""
+    out: dict[str, set[str]] = {}
     written = {w.dst for w in x.im.edges if w.src in x.changed and w.kind == "writes" and w.status == "added"
                and w.dst not in x.im.sinks}
     for fid in sorted(written, key=x.label):
         live = [e for e in _live(x, {"reads", "writes"}) if e.dst == fid and e.src not in x.changed
                 and not x.is_test_path(e.src)]
-        named = {e.src for e in live if e.confidence == "heuristic"} - {e.src for e in live if e.confidence != "heuristic"}
+        named = {e.src for e in live if e.confidence == "heuristic"} - \
+            {e.src for e in live if e.confidence != "heuristic" and e.kind == "reads"}
         if named:
-            out[x.label(fid)] = len(named)
-    return out
+            out.setdefault(x.label(fid), set()).update(named)
+    return {label: len(fns) for label, fns in out.items()}
 
 
 def coverage(x: _Ctx, has_tests: bool, outside: int = 0) -> list[str]:

@@ -743,6 +743,33 @@ def test_readers_matched_by_name_only_are_one_coverage_line_not_checks():
     assert coverage(_x(c), has_tests=True) == ["1 function uses a field named `errors`, matched by name only — not checked"]
 
 
+def test_two_written_fields_sharing_a_label_add_up_their_name_only_users():
+    """Deferred minor (union-fields review): the second field's count replaced the first's."""
+    from codetortoise.impact import Edge, Node
+    c = _world([_edit("config", "drv/cfg.c"), _same("peek", "svc/peek.c"), _same("poke", "svc/poke.c")],
+               fields=[("config", "Uart", "errors", "write", "added"), ("peek", "Uart", "errors", "read", "added")])
+    _named(c, "peek")
+    by = {n.label: n.id for n in c.impact.nodes.values()}
+    c.impact.nodes["N99"] = Node(id="N99", key="field:c:@S@Uart2@FI@errors", kind="field", label="Uart::errors")
+    c.impact.edges += [Edge(id="E98", src=by["config"], dst="N99", kind="writes", status="added"),
+                       Edge(id="E99", src=by["poke"], dst="N99", kind="reads", status="added", confidence="heuristic")]
+    assert coverage(_x(c), has_tests=True) == ["2 functions use a field named `errors`, matched by name only — not checked"]
+
+
+def test_a_function_that_writes_a_field_and_reads_it_only_by_name_is_counted():
+    """Deferred minor: a precise write plus a name-only read made it neither a reader check nor a name-only user."""
+    c = _world([_edit("config", "drv/cfg.c"), _same("peek", "svc/peek.c")],
+               fields=[("config", "Uart", "errors", "write", "added"), ("peek", "Uart", "errors", "write", "unchanged"),
+                       ("peek", "Uart", "errors", "read", "added")])
+    peek = next(n.id for n in c.impact.nodes.values() if n.label == "peek")
+    for e in c.impact.edges:
+        if e.src == peek and e.kind == "reads":
+            e.confidence = "heuristic"
+    open_, _ = _checks(c, _set(["N1"]))
+    assert [k for k in open_ if k.kind == "reader"] == []
+    assert coverage(_x(c), has_tests=True) == ["1 function uses a field named `errors`, matched by name only — not checked"]
+
+
 def test_a_shared_sinks_name_matches_add_no_coverage_line():
     c = _world([_edit("config", "drv/cfg.c"), _same("peek", "svc/peek.c")],
                fields=[("config", "Log", "buf", "write", "added"), ("peek", "Log", "buf", "read", "added")])

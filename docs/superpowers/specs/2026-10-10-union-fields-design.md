@@ -90,15 +90,16 @@ A new function `field_id(f: Cursor) -> str` in `facts/aliasflow.py` gives a FIEL
      `record_id(outer) + "@" + kind + "a"`, matching libclang's own `Ua`/`Sa`
      (`en` is `c:@S@dev@U>ctl@Sa@FI@en`);
    - for a record with no enclosing record (file, namespace or function scope; a named record declared in a function
-     carries an offset too): a scope — `c:` + the base name of its file at file scope, else the USR of the function or
-     namespace declaring it — then `@` + kind + `~` + the record's name if it has one, else the first variable declared
+     carries an offset too): a scope — `c:` + the canonical path of its file at file scope, else the USR of the function or
+     namespace declaring it — then `@` + kind + `~` + the record's name if it has one, else the first variable or typedef declared
      with that type among the record's semantic parent's children, else the record's field names joined with `,`
-     (`c:a.h@S~g_anon`, so `a` is `c:a.h@S~g_anon@FI@a`; `struct point` inside `f1` is `c:@F@f1@S~point`).
-     Amended after the final review: without the scope, records declared in different functions shared one id.
+     (`c:/w/inc/a.h@S~g_anon`, so `a` is `c:/w/inc/a.h@S~g_anon@FI@a`; `struct point` inside `f1` is `c:@F@f1@S~point`).
+     Amended after the final review: without the scope, records declared in different functions shared one id; with
+     only the base name, same-named headers in different folders did; a pointer typedef now names its record.
 
 
 The member lookup is a new helper `_holder(outer, rec) -> Cursor | None`: the FIELD_DECL of `outer` whose canonical
-type, after stripping arrays and pointers (`element_type` / `get_pointee()` until neither applies), is declared by
+type, after stripping arrays, pointers and references (`element_type` / `get_pointee()` until neither applies), is declared by
 `rec`. Today's `record_name()` lookup does not strip arrays or pointers; it switches to `_holder` (§3.3). `record_id`
 results are cached per record cursor hash, one cache per TU.
 
@@ -116,7 +117,7 @@ Downstream code keys on `field:<FieldAccess.field>` only (impact, board, reading
 
 `record_name(rec)` for an anonymous record becomes:
 
-- held by a named member of an enclosing record (found by `_holder`, so arrays and pointers count):
+- held by a named member of an enclosing record (found by `_holder`, so arrays, pointers and references count):
   `record_name(outer) + "." + member` — as today, plus the array/pointer case (`dev.pos`);
 - an anonymous member of an enclosing record: `record_name(outer)`, since its fields are written as fields of `outer`
   (`d->ctl.en`, so `en` is labelled `dev.ctl::en`);
@@ -148,8 +149,9 @@ unchanged. The docstring and the shared-sinks spec's §3.1 wording are updated (
 ### 4.2 Reader checks
 
 `reading.py` check 5 ("Unchanged reader") takes readers only from non-heuristic `reads` edges. For each field the
-change newly writes (the same fields check 5 visits), the unchanged non-test functions that reach it only through
-heuristic edges are counted instead, and `coverage()` gains one line per such field:
+change newly writes (the same fields check 5 visits), the unchanged non-test functions with a heuristic edge into it
+and no non-heuristic read of it are counted instead (a function clang saw only write it is counted too), and
+`coverage()` gains one line per label (fields sharing a label share one count of distinct functions):
 
 `N functions use a field named `x`, matched by name only — not checked` (`1 function uses …` for one)
 
