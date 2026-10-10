@@ -112,3 +112,13 @@ def test_the_summary_counts_what_tree_sitter_added_to_degraded_parses():
              Facts(tu=TuInfo(file="c.c", variant="after", confidence="degraded", diagnostics=["c.c:1: x"]))]
     assert runner.parse_summary(facts) == ("3 parse(s): 1 precise, 2 degraded; tree-sitter added 3 call(s) or field "
                                            "access(es) to 1 degraded parse(s); most common problem (2): x")
+
+
+def test_the_summary_names_the_missing_files_its_parses_left_out():
+    from codetortoise.facts.model import Facts, TuInfo
+    gone = "/b/build_pgo_opts.txt"
+    facts = [Facts(tu=TuInfo(file="a.c", variant="before", missing_files=[gone])),
+             Facts(tu=TuInfo(file="a.c", variant="after", missing_files=[gone])),
+             Facts(tu=TuInfo(file="b.c", variant="after", missing_files=[gone, "/b/x.prof"]))]
+    assert runner.parse_summary(facts) == ("3 parse(s): 3 precise; left out 2 missing file(s) named in compile flags: "
+                                           "`/b/build_pgo_opts.txt` (2 TU(s)), `/b/x.prof` (1 TU(s))")

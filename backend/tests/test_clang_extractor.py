@@ -103,3 +103,13 @@ def test_return_lines_and_field_declaration_lines(fx, fx_source):
     assert fn.return_lines == {"-2": 18, "0": 24}
     errors = [a for a in facts.fields if a.field_name == "errors" and a.fn == fn.usr]
     assert errors and all(a.decl_line == 14 and a.record_file.endswith("driver/uart.h") for a in errors)
+
+
+def test_a_flag_naming_a_missing_file_is_left_out_and_the_parse_stays_precise(fx, tmp_path):
+    """A profile or option file the build makes but the workspace lacks is not needed to parse (owner, 2026-10-09)."""
+    gone = str(tmp_path / "build_pgo_opts.txt")
+    for flag in (f"-fprofile-sample-use={gone}", f"-fprofile-use={gone}"):     # an error; no TU at all
+        facts = extract_tu(TuRequest(file=str(fx.root / "hal/regs.c"), args=args(fx) + [flag], variant="before"))
+        assert facts.tu.confidence == "precise", (flag, facts.tu.diagnostics)
+        assert facts.tu.missing_files == [gone] and facts.tu.stripped_flags == [], flag
+        assert {f.qualname for f in facts.functions} == {"hal_read", "hal_write"}

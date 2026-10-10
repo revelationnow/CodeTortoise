@@ -59,10 +59,10 @@ def test_response_files_are_expanded_relative_to_the_entry_and_recursively(tmp_p
     assert facts.tu.confidence == "precise", facts.tu.diagnostics
 
 
-def test_a_missing_response_file_is_kept_and_reported(tmp_path):
+def test_a_missing_response_file_is_left_out_and_reported(tmp_path):
     b = _src(tmp_path)
     db = _db(tmp_path, [{"directory": b, "file": "../src/a.c", "command": "gcc @nope.rsp -c ../src/a.c"}])
-    assert "@nope.rsp" in db.entries[0].args
+    assert not any(a.startswith("@") for a in db.entries[0].args)
     assert db.problems == [f"response file not found: {b}/nope.rsp (for ../src/a.c)"]
 
 

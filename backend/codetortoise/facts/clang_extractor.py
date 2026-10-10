@@ -1,6 +1,7 @@
 """libclang-based FactExtractor. Designed to run inside worker processes."""
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 
@@ -20,6 +21,7 @@ K = ci.CursorKind
 _FUNC_KINDS = {K.FUNCTION_DECL, K.CXX_METHOD, K.CONSTRUCTOR, K.DESTRUCTOR, K.FUNCTION_TEMPLATE}
 _SCOPE_KINDS = {K.NAMESPACE, K.CLASS_DECL, K.STRUCT_DECL, K.UNION_DECL, K.CLASS_TEMPLATE}
 _BAD_FLAG = re.compile(r"(?:unknown argument:?|unsupported option) '([^']+)'")
+_MISSING = re.compile(r"no such file or directory: '([^']+)'")
 # flags kept when a TU cannot be created at all with the full argument list
 _SAFE_WITH_VALUE = {"-I", "-isystem", "-iquote", "-idirafter", "-include", "-imacros", "-D", "-U", "-x",
                     "--sysroot", "-isysroot", "-resource-dir", "-working-directory"}
@@ -181,29 +183,83 @@ def _diag_text(d: ci.Diagnostic) -> str:
     return loc + d.spelling
 
 
+def _cwd(args: list[str]) -> str:
+    i = args.index("-working-directory") if "-working-directory" in args else -1
+    return args[i + 1] if 0 <= i < len(args) - 1 else os.getcwd()
+
+
+def _named(a: str) -> str:
+    """The path an argument names: X for @X or -flag=X, else the argument itself."""
+    return a[1:] if a.startswith("@") else a.split("=", 1)[1] if a.startswith("-") and "=" in a else a
+
+
+def _absent(args: list[str]) -> set[str]:
+    """Paths named by @X or -flag=X that do not exist (only values that look like paths)."""
+    cwd = _cwd(args)
+    return {p for a in args if (a.startswith("@") or (a.startswith("-") and "=" in a))
+            and (p := _named(a)) and ("/" in p or "\\" in p) and "=" not in p
+            and not os.path.exists(os.path.join(cwd, p))}
+
+
+def _drop_naming(args: list[str], paths: set[str], own: str) -> tuple[list[str], list[str]]:
+    """Leave out every argument naming one of `paths` (X, @X, -flag=X, or a flag and its value X), never the TU's
+    own file; returns the arguments kept and the paths left out, as absolute paths."""
+    if not paths:
+        return args, []
+    cwd = _cwd(args)
+    key = lambda p: os.path.normpath(os.path.join(cwd, p))      # noqa: E731
+    want, mine = {key(p) for p in paths}, key(own)
+    out: list[str] = []
+    hit: set[str] = set()
+    i = 0
+    while i < len(args):
+        a, nxt = args[i], args[i + 1] if i + 1 < len(args) else None
+        if a.startswith("-") and "=" not in a and nxt is not None and key(nxt) in want and key(nxt) != mine:
+            hit.add(key(nxt))
+            i += 2
+            continue
+        if key(_named(a)) in want and key(a) != mine:
+            hit.add(key(_named(a)))
+        else:
+            out.append(a)
+        i += 1
+    return out, sorted(hit)
+
+
 def extract_tu(req: TuRequest) -> Facts:
     """Parse one TU and emit facts for functions defined in the main file or any focus file.
 
-    Flags libclang reports as unknown/unsupported are stripped and the parse retried; if no TU can be
-    created at all, it is retried once with `safe_subset(args)` and marked degraded.
+    Flags libclang reports as unknown/unsupported are stripped and the parse retried; flags naming a file that does
+    not exist (a profile, an option file the build makes) are left out and the parse retried, without counting
+    against precision; if no TU can be created at all, it is retried once with `safe_subset(args)` and marked degraded.
     """
     index = ci.Index.create()
     args = list(req.args)
     stripped: list[str] = []
+    missing: list[str] = []
     reduced = False
-    try:
-        tu = _parse(index, req, args)
-    except ci.TranslationUnitLoadError:
-        tu = None
-    if tu is not None:
+    tu = None
+    for _ in range(4):
+        try:
+            tu = _parse(index, req, args)
+        except ci.TranslationUnitLoadError:
+            tu = None
+            args, gone = _drop_naming(args, _absent(args), req.file)
+            missing += gone
+            if not gone:
+                break
+            continue
         bad = [m.group(1) for d in tu.diagnostics if (m := _BAD_FLAG.search(d.spelling))]
-        if bad:
-            stripped = [a for a in args if any(_matches_bad(a, b) for b in bad)]
-            args = [a for a in args if a not in stripped]
-            try:
-                tu = _parse(index, req, args)
-            except ci.TranslationUnitLoadError:
-                tu = None
+        cut = [a for a in args if any(_matches_bad(a, b) for b in bad)]
+        if cut:
+            stripped += cut
+            args = [a for a in args if a not in cut]
+            continue
+        args, gone = _drop_naming(args, {m.group(1) for d in tu.diagnostics if d.severity >= ci.Diagnostic.Error
+                                         and (m := _MISSING.search(d.spelling))}, req.file)
+        missing += gone
+        if not gone:
+            break
     if tu is None:
         safe = safe_subset(args)
         stripped += [a for a in args if a not in safe]
@@ -212,13 +268,14 @@ def extract_tu(req: TuRequest) -> Facts:
             tu = _parse(index, req, safe)
         except ci.TranslationUnitLoadError as e:
             return Facts(tu=TuInfo(file=_norm(req.file), variant=req.variant, confidence="failed",
-                                   diagnostics=[str(e)], stripped_flags=stripped))
+                                   diagnostics=[str(e)], stripped_flags=stripped, missing_files=missing))
     errors = [d for d in tu.diagnostics if d.severity >= ci.Diagnostic.Error]
     diags = [_diag_text(d) for d in errors[:20]]
     if reduced:
         diags.insert(0, "parsed with a reduced flag set (full argument list could not create a TU)")
     info = TuInfo(file=_norm(req.file), variant=req.variant, error_count=len(errors), diagnostics=diags,
-                  confidence="precise" if not errors and not reduced else "degraded", stripped_flags=stripped)
+                  confidence="precise" if not errors and not reduced else "degraded", stripped_flags=stripped,
+                  missing_files=missing)
     focus = {_norm(f) for f in req.focus} | {_norm(req.file)}
     facts = Facts(tu=info)
     seen: set[str] = set()

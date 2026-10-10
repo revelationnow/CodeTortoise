@@ -106,7 +106,7 @@ _LOCATION = re.compile(r"^\S+?:\d+(:\d+)?: ")
 
 def parse_summary(facts: list[Facts]) -> str:
     """"N parse(s): a precise, b degraded, c tree-sitter fallback; tree-sitter added n call(s) or field access(es) to m
-    degraded parse(s); most common problem (k): <message>"."""
+    degraded parse(s); most common problem (k): <message>; left out j missing file(s) named in compile flags: `p` (t TU(s))"."""
     precise = sum(f.tu.confidence == "precise" for f in facts)
     fallback = sum(f.tu.extractor == "treesitter" for f in facts)
     degraded = len(facts) - precise - fallback
@@ -121,4 +121,8 @@ def parse_summary(facts: list[Facts]) -> str:
     if problems:
         text, n = problems.most_common(1)[0]
         out += f"; most common problem ({n}): {text}"
+    gone = Counter(p for p, _ in {(p, f.tu.file) for f in facts for p in f.tu.missing_files})
+    if gone:
+        out += f"; left out {len(gone)} missing file(s) named in compile flags: " + \
+               ", ".join(f"`{p}` ({n} TU(s))" for p, n in sorted(gone.items(), key=lambda x: (-x[1], x[0])))
     return out

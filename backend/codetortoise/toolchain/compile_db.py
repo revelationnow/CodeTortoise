@@ -54,8 +54,7 @@ def _expand(args: list[str], directory: str, problems: list[str], what: str, dep
                 words = shlex.split(Path(path).read_text(errors="replace"))
             except (OSError, ValueError):
                 problems.append(f"response file not found: {path} (for {what})")
-                out.append(a)
-                continue
+                continue                 # left out: clang would only warn, and the rest of the line still parses
             out += _expand(words, directory, problems, what, depth + 1)
         else:
             out.append(a)
