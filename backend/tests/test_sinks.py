@@ -28,8 +28,16 @@ def test_a_removed_access_does_not_count():
     assert find_sinks(im, 2, [], ()) == {}
 
 
-def test_name_matches_over_the_cap_count():
-    assert find_sinks(_im(1, capped=40), 20, [], ())["N2"].users == 41
+def test_name_matches_never_count_toward_a_sink():
+    """Spec 2026-10-10-union-fields §4.1: a member name shared by unrelated records says nothing about this field."""
+    assert find_sinks(_im(1, capped=40), 20, [], ()) == {}                    # over the cap: not counted
+    im = _im(0)
+    for i in range(30):
+        nid = f"N{10 + i}"
+        im.nodes[nid] = Node(id=nid, key=f"ts:x.c#h{i}", label=f"h{i}", confidence="heuristic")
+        im.edges.append(Edge(id=f"E{100 + i}", src=nid, dst="N2", kind="reads", confidence="heuristic"))
+    assert find_sinks(im, 20, [], ()) == {}
+    assert find_sinks(_im(3), 2, [], ())["N2"].users == 3                     # the precise readers still count
 
 
 def test_a_threshold_of_zero_turns_it_off():
