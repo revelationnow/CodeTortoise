@@ -279,6 +279,7 @@ def extract_tu(req: TuRequest) -> Facts:
     focus = {_norm(f) for f in req.focus} | {_norm(req.file)}
     facts = Facts(tu=info)
     seen: set[str] = set()
+    record_ids: dict[int, str] = {}                 # stable record ids, worked out once per TU (aliasflow.record_id)
     for c in tu.cursor.walk_preorder():
         if c.kind not in _FUNC_KINDS or not c.is_definition() or c.location.file is None:
             continue
@@ -290,7 +291,7 @@ def extract_tu(req: TuRequest) -> Facts:
         seen.add(usr)
         facts.functions.append(function_fact(c))
         facts.calls.extend(_calls(c, usr))
-        fa, ga = FunctionAnalyzer(c, usr).analyze()
+        fa, ga = FunctionAnalyzer(c, usr, record_ids).analyze()
         facts.fields.extend(fa)
         facts.globals.extend(ga)
     return facts

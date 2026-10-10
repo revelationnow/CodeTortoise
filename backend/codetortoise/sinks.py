@@ -14,18 +14,20 @@ MARKS_KEY = "sink_marks"          # the store's kv row: the owner's marked label
 
 def find_sinks(im: ImpactModel, threshold: int, patterns: list[str], marked: Collection[str]) -> dict[str, SinkInfo]:
     """Field node id -> why it is a sink: the owner marked its label, a pattern matches it, or more than `threshold`
-    unchanged functions read or write it (precise and name-matched alike, plus name matches over the fan-in cap)."""
+    unchanged functions read or write it. Only clang's own accesses count; a match by member name alone never does
+    (spec 2026-10-10-union-fields §4.1)."""
     changed = set(im.changed)
     who: dict[str, set[str]] = defaultdict(set)
     for e in im.edges:
-        if e.kind in ("reads", "writes") and e.status != "removed" and e.src not in changed:
+        if e.kind in ("reads", "writes") and e.status != "removed" and e.src not in changed \
+                and e.confidence != "heuristic":
             who[e.dst].add(e.src)
     marked = set(marked)
     out: dict[str, SinkInfo] = {}
     for nid, n in im.nodes.items():
         if n.kind != "field":
             continue
-        users = len(who.get(nid, ())) + im.capped_fields.get(n.label, 0)
+        users = len(who.get(nid, ()))
         if n.label in marked:
             why = "marked"
         elif any(fnmatch.fnmatchcase(n.label, p) for p in patterns):

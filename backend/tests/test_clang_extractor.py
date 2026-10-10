@@ -113,3 +113,17 @@ def test_a_flag_naming_a_missing_file_is_left_out_and_the_parse_stays_precise(fx
         assert facts.tu.confidence == "precise", (flag, facts.tu.diagnostics)
         assert facts.tu.missing_files == [gone] and facts.tu.stripped_flags == [], flag
         assert {f.qualname for f in facts.functions} == {"hal_read", "hal_write"}
+
+
+def test_one_tu_shares_its_record_ids_across_its_functions(fx, monkeypatch):
+    """Final review: a file-scope anonymous record's id is worked out once per TU, not once per function."""
+    from codetortoise.facts import clang_extractor as ce
+    seen = []
+
+    class Spy(ce.FunctionAnalyzer):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            seen.append(self.record_ids)
+    monkeypatch.setattr(ce, "FunctionAnalyzer", Spy)
+    extract_tu(TuRequest(file=str(fx.root / "hal/regs.c"), args=args(fx), variant="before"))
+    assert len(seen) >= 2 and all(s is seen[0] for s in seen)

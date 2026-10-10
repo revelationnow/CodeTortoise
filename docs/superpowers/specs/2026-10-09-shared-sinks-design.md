@@ -45,8 +45,9 @@ without a re-run; per-review or per-reviewer sinks.
 A field node (kind `field`, label `record::field`, or the bare field name when it has no record) is a sink when any of:
 
 - **threshold:** more than `analysis.sink_threshold` distinct functions **outside the change** read or write it,
-  counting precise and name-matched (heuristic) accesses, in the impact graph's live edges (`reads`/`writes`, status not
-  `removed`). `0` turns the threshold off.
+  counting precise and may accesses, in the impact graph's live edges (`reads`/`writes`, status not `removed`). Matches
+  by member name alone (heuristic edges, and name matches over the fan-in cap) do not count
+  (spec 2026-10-10-union-fields §4.1). `0` turns the threshold off.
 - **listed:** its label matches a pattern in `analysis.sink_fields` (`fnmatch`, case-sensitive), e.g. `log_t::*`,
   `*::trace_buf`, `stats_t::tx_*`.
 - **marked:** the owner marked its label (§6).
