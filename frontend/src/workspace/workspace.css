@@ -303,7 +303,6 @@ a.ws-handle { text-decoration: none; }
 .ws-crumbs [aria-current] { color: var(--ink); font-weight: 600; }
 .ws-crumbs .sep { color: var(--muted); padding: 0 2px; }
 .ws-page { flex: 1; min-height: 0; overflow: auto; padding: 18px 24px 48px; }
-.ws-page > .ws-text { max-width: 880px; margin: 0 auto; }
 .ws-page.graph { padding: 0; display: flex; flex-direction: column; overflow: hidden; }
 .ws-name { font-family: var(--mono); font-size: .92em; color: inherit; border: 0; text-decoration: underline dotted 1px;
   text-decoration-color: color-mix(in srgb, currentColor 35%, transparent); text-underline-offset: 3px; }
@@ -547,8 +546,7 @@ a.ws-chip { text-decoration: none; }
 .bd-hl .bd-ibtn { background: transparent !important; padding: 0 8px !important; }
 
 /* review reading (spec 2026-10-07-review-reading): the overview and story page in two columns, the right one pinned */
-.ov2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); gap: 28px; max-width: 1280px; margin: 0 auto;
-  align-items: start; }
+.ov2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); gap: 28px; align-items: start; }
 .ov2-right { position: sticky; top: 0; max-height: calc(100vh - 140px); overflow: auto; display: flex; flex-direction: column; gap: 14px; }
 .ws-tile { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
 .ws-tile > h3, .ws-tile > summary > h3 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; font-size: 12px;
@@ -632,15 +630,16 @@ a.ws-chip { text-decoration: none; }
   .ov2-right { order: -1; position: static; max-height: none; }
 }
 .st-page { margin: 0 auto; }
-/* the story page fills the centre; its To check column is as wide as the reader drags it (owner feedback, sub-project C) */
-.ov2.st-tiles { max-width: none; grid-template-columns: minmax(0, 1fr) min(var(--cw, 340px), 60%); }
-.st-check { position: sticky; top: 0; align-self: start; min-width: 0; }
-.st-check > .ov2-right { position: static; }
-.st-check > .bd-resizer { left: -19px; }
+/* the overview and story page fill the centre; their To check column is as wide as the reader drags it (owner feedback
+   2026-10-08 C, 2026-10-09) */
+.ov2.ov2-cols { grid-template-columns: minmax(0, 1fr) min(var(--cw, 340px), 60%); }
+.ov2-check { position: sticky; top: 0; align-self: start; min-width: 0; }
+.ov2-check > .ov2-right { position: static; }
+.ov2-check > .bd-resizer { left: -19px; }
 .st-side { margin-left: 6px; text-decoration: none; }
 @media (max-width: 900px) {
-  .ov2.st-tiles { grid-template-columns: minmax(0, 1fr); }
-  .st-check { order: -1; position: static; }
+  .ov2.ov2-cols { grid-template-columns: minmax(0, 1fr); }
+  .ov2-check { order: -1; position: static; }
 }
 .st-crumb { margin: 0 0 4px; font-size: 13px; }
 .st-crumb a { text-decoration: none; font-weight: 600; }
