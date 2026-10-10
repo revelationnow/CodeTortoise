@@ -2,7 +2,7 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import { startReview } from "./helpers";
 
 /** Layout (owner feedback 2026-10-08, sub-project C): a wider story page with a divider, code in the side panel, a
- * resizable review header. */
+ * resizable review header; the overview and the text pages as wide (owner feedback 2026-10-09). */
 
 test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -31,12 +31,12 @@ test("the story fills the centre and a divider sets the To check column's width,
   const centre = page.getByRole("region", { name: "Centre" });
   expect(await width(tiles)).toBeGreaterThan((await width(centre)) - 80);     // no 1280px cap: only the page padding
   const before = await width(check);
-  await drag(page, page.locator(".st-check > .bd-resizer"), -120, 0);
+  await drag(page, page.locator(".st-tiles > .ov2-check > .bd-resizer"), -120, 0);
   await expect.poll(() => width(check)).toBeGreaterThan(before + 100);
   const after = await width(check);
   await page.reload();
   await expect.poll(() => width(page.getByRole("complementary", { name: "What to check in this story" }))).toBe(after);
-  await page.locator(".st-check > .bd-resizer").dblclick();
+  await page.locator(".st-tiles > .ov2-check > .bd-resizer").dblclick();
   await expect.poll(() => width(check)).toBe(before);
 });
 
@@ -77,4 +77,33 @@ test("a check row's actions wrap inside the To check column at its narrowest", a
   await expect(mark).toBeVisible();
   const right = (l: Locator) => l.evaluate((el) => el.getBoundingClientRect().right);
   expect(await right(mark)).toBeLessThanOrEqual(await right(check));
+});
+
+test("the overview fills the centre and shares the story's To check divider", async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1000 });
+  await startReview(page);
+  const cols = page.locator(".ws-page > .ov2"), check = page.getByRole("complementary", { name: "What to check", exact: true });
+  const centre = page.getByRole("region", { name: "Centre" });
+  expect(await width(cols)).toBeGreaterThan((await width(centre)) - 80);      // no 1280px cap
+  const before = await width(check);
+  const grip = cols.locator("> .ov2-check > .bd-resizer");
+  await drag(page, grip, -150, 0);
+  await expect.poll(() => width(check)).toBeGreaterThan(before + 120);
+  const after = await width(check);
+  await page.reload();
+  await expect.poll(() => width(page.getByRole("complementary", { name: "What to check", exact: true }))).toBe(after);
+  await page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ }).click();     // one width for both pages
+  await expect.poll(() => width(page.getByRole("complementary", { name: "What to check in this story" }))).toBe(after);
+});
+
+test("a CL page and a finding page fill the centre", async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1000 });
+  const base = await startReview(page);
+  const centre = page.getByRole("region", { name: "Centre" });
+  for (const path of ["/cl/101", "/f/F4?details=1"]) {
+    await page.goto(base + path);
+    const text = page.locator(".ws-page > .ws-text");
+    await expect(text.locator("h2").first()).toBeVisible();
+    expect(await width(text), path).toBeGreaterThan((await width(centre)) - 80);   // no 880px cap
+  }
 });

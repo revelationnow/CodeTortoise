@@ -1,17 +1,15 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { keys, save } from "../board/prefs";
-import Resizer from "../board/Resizer";
 import type { StoryDetail } from "../board/types";
 import Comments from "../components/Comments";
 import { byEntry, codeOrder, foldPath, readOrder, rewriteText, whereByCl, whereTree } from "../reading/story";
 import type { CallPath, ContractRow, StoryReading, WhereFile } from "../reading/types";
 import CheckTile, { Cleared } from "./CheckList";
+import CheckColumns from "./CheckColumns";
 import { useWs } from "./context";
 import FunctionCode from "./FunctionCode";
 import NameText, { Ticks } from "./NameText";
 import { MechanicalStory, TestsStory } from "./StoryBodies";
-import { CHECK_W, checkMax, loadCheckW } from "./layout";
 import { StoryWhy } from "./StoryPlan";
 
 /** A contract row (§8.1): its sentence; a signature with the part that differs marked; repeated and body-only edits
@@ -180,10 +178,8 @@ function Code({ sr, detail }: { sr: StoryReading; detail: StoryDetail }) {
 export default function StoryTiles({ detail, sr }: { detail: StoryDetail; sr: StoryReading }) {
   const ws = useWs(), d = ws.data, st = detail.story;
   const suggested = st.check ?? [], questions = st.questions ?? [];
-  const page = useRef<HTMLDivElement>(null);
-  const [checkW, setCheckW] = useState(loadCheckW);
   return (
-    <div className="ov2 st-tiles" ref={page} style={{ ["--cw" as string]: `${checkW}px` }}>
+    <CheckColumns className="st-tiles" left={
       <div className="ov2-left">
         <section aria-labelledby="st-what">
           <h3 id="st-what">What it does</h3>
@@ -202,11 +198,7 @@ export default function StoryTiles({ detail, sr }: { detail: StoryDetail; sr: St
             <li key={k}><span className="ai-label">AI</span><NameText text={q} /></li>))}</ul>}
           <Comments reviewId={d.id} comments={d.comments} kind="story" anchor={{ id: st.id }} onChange={d.loadComments} compact />
         </section>
-      </div>
-      <div className="st-check">
-        <Resizer size={checkW} edge="left" min={CHECK_W.min} max={() => checkMax(page.current?.clientWidth ?? 0)}
-                 onSize={setCheckW} onDone={(w) => save(keys.checkW, w)}
-                 onReset={() => { setCheckW(CHECK_W.def); save(keys.checkW, CHECK_W.def); }} />
+      </div>}>
         <aside className="ov2-right" aria-label="What to check in this story">
           <CheckTile groups={[{ label: null, checks: sr.checks }]} ofTotal footer={<>
             {suggested.length > 0 && (
@@ -216,7 +208,6 @@ export default function StoryTiles({ detail, sr }: { detail: StoryDetail; sr: St
             <Cleared checks={(d.reading?.cleared ?? []).filter((k) => k.story === st.id)} />
           </>} />
         </aside>
-      </div>
-    </div>
+    </CheckColumns>
   );
 }

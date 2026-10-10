@@ -7,6 +7,7 @@ import { arcLayout, cardText, connectionRows, introOpen, routeRows, setIntroOpen
 import { overviewProgress, progress, threadRead } from "../reading/plan";
 import type { Reading, SinkHit, Thread } from "../reading/types";
 import CheckTile, { Cleared } from "./CheckList";
+import CheckColumns from "./CheckColumns";
 import { useWs } from "./context";
 import { short } from "./crumbs";
 import { Ticks } from "./NameText";
@@ -167,7 +168,7 @@ export default function Overview({ r }: { r: Reading }) {
   const tests = r.tests?.stories[0], testsStory = tests ? ss?.stories.find((s) => s.id === tests) : null;
   const p = ws.data.ticks ? progress(r, ws.data.ticks) : null;          // the reader's progress (phase 2 §6.2, §6.4)
   return (
-    <div className="ws-page"><div className="ov2">
+    <div className="ws-page"><CheckColumns left={
       <div className="ov2-left ws-whole">
         {p && <p className={`ov-progress${p.all ? " done" : ""}`}>{overviewProgress(p)}</p>}
         <HowToRead />
@@ -190,7 +191,7 @@ export default function Overview({ r }: { r: Reading }) {
           </section>
         )}
         <Discussion />
-      </div>
+      </div>}>
       <aside className="ov2-right" aria-label="What to check">
         <CheckTile id="checks" groups={byThread(r)} ofTotal={false} footer={<>
           {r.rules_only && <p className="muted small">Risks judged by rules only.</p>}
@@ -214,6 +215,6 @@ export default function Overview({ r }: { r: Reading }) {
           </section>
         )}
       </aside>
-    </div></div>
+    </CheckColumns></div>
   );
 }
