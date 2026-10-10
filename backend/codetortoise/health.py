@@ -1,9 +1,13 @@
 """Startup validation. Hard checks gate review creation."""
 from __future__ import annotations
 
+import functools
 import ipaddress
+import json
 import os
+import subprocess
 from datetime import UTC, datetime
+from pathlib import Path
 from urllib.parse import urlparse
 
 from pydantic import BaseModel
@@ -20,6 +24,39 @@ class Check(BaseModel):
     ok: bool
     hard: bool
     detail: str = ""
+
+
+STATIC = Path(__file__).parent / "web" / "static"     # the built pages (web/app.py serves them)
+_REBUILD = "cd frontend && npm ci && npm run build"
+
+
+@functools.cache
+def server_commit() -> str | None:
+    """The commit the server runs, or None outside a git checkout."""
+    try:
+        out = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=Path(__file__).parent, capture_output=True,
+                             text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return (out.stdout.strip() or None) if out.returncode == 0 else None
+
+
+def frontend_check(static: Path, commit: str | None) -> Check:
+    """Whether the served pages were built from the server's commit (vite writes build.json): the built pages are not
+    in git, so a pull without a build keeps serving old ones (owner feedback 2026-10-10)."""
+    try:
+        built = json.loads((static / "build.json").read_text()).get("commit")
+    except (OSError, ValueError, AttributeError):
+        built = None
+    if built is None:
+        return Check(name="frontend build", ok=False, hard=False,
+                     detail=f"pages built before build stamps (older than {commit or 'this server'}) — rebuild: {_REBUILD}")
+    if commit is None:
+        return Check(name="frontend build", ok=True, hard=False, detail=f"built from {built} (server commit unknown)")
+    if built != commit:
+        return Check(name="frontend build", ok=False, hard=False,
+                     detail=f"pages built from {built}, server runs {commit} — rebuild: {_REBUILD}")
+    return Check(name="frontend build", ok=True, hard=False, detail=f"built from {built}")
 
 
 class HealthReport(BaseModel):
@@ -119,6 +156,7 @@ def run_health(svc: Services, deep: bool = False) -> HealthReport:
     day = datetime.now(UTC).date().isoformat()
     today = svc.store._all("SELECT COUNT(*) AS n FROM llm_calls WHERE outcome != 'refused' AND started_at >= ?", (day,))
     ai = {"limits": cfg.llm.budget.model_dump(), "calls_today": today[0]["n"] if today else 0}
+    checks.append(frontend_check(STATIC, server_commit()))
     return HealthReport(checks=checks, ready=all(c.ok for c in checks if c.hard),
                         index_generation=svc.index.generation(),
                         libclang=lc.version if lc else None, strip_flags=sorted(svc.toolchain.strip),

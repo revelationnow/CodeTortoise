@@ -18,6 +18,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from codetortoise.cltext import first_line
 from codetortoise.clusters import altered_access, cluster_change
 from codetortoise.config import AnalysisConfig
 from codetortoise.detectors.base import SEVERITY_RANK, Finding
@@ -937,7 +938,7 @@ def drift_kind(expected: str, actual: str) -> Literal["ahead", "behind", "missin
 def build_about(c: BoardContext) -> About:
     files = c.cs.files
     fn_count = len(c.dm.functions)
-    descs = "; ".join(f"CL {m.cl}: {m.description}" for m in c.cs.cls if m.description)
+    descs = "; ".join(f"CL {m.cl}: {first_line(m.description)}" for m in c.cs.cls if first_line(m.description))
     intent = (f"{fn_count} function(s) changed in {len(files)} file(s). " + (descs + "." if descs else "")).strip()
     why = [AboutWhy(severity=f.severity, text=f.title, finding=f.id) for f in c.findings[:4]]
     cls = [AboutCl(cl=m.cl, user=m.user, description=m.description,

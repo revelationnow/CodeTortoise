@@ -35,3 +35,48 @@ describe("descriptionParts", () => {
     expect(descriptionParts("")).toEqual({ title: "", body: "" });
   });
 });
+
+const html = (text: string) => renderToStaticMarkup(createElement(Markdown, { text }));
+
+describe("Markdown renders a Perforce description as people write it (owner, 2026-10-10)", () => {
+  it("makes indented bullets a list and keeps the next line its own paragraph", () => {
+    const out = html("Changes:\n    * reset FIFO on overrun\n    * count errors\nTested on board rev B");
+    expect(out).toContain("<li>reset FIFO on overrun</li>");
+    expect(out).toContain("<li>count errors</li>");
+    expect(out).toContain("<p>Tested on board rev B</p>");
+    expect(out).not.toContain("* reset");
+  });
+  it("keeps the nesting of tab-indented bullets", () => {
+    const out = html("Steps:\n\t- one\n\t\t- sub\n\t- two");
+    expect(out.replace(/\n/g, "")).toContain("<li>one<ul><li>sub</li></ul></li><li>two</li>");
+  });
+  it("keeps every line break", () => {
+    expect(html("line one\nline two")).toContain("line one<br/>");
+  });
+  it("reads indented text as text, and only fenced code as code", () => {
+    expect(html("Notes:\n\n    this was indented")).toContain("<p>this was indented</p>");
+    expect(html("```\n  x = 1;\n```")).toContain("<pre><code>  x = 1;");
+  });
+  it("renders HTML spans with their colours and Markdown inside a div", () => {
+    expect(html('Fixed <span style="color:red">critical</span> bug')).toContain('<span style="color:red">critical</span>');
+    expect(html('<font color="red">r</font>')).toContain('<font color="red">r</font>');
+    const div = html("<div>\nInside **bold** text\n</div>");
+    expect(div).toContain("<div>");
+    expect(div).toContain("<strong>bold</strong>");
+  });
+  it("keeps only colour and font styling, and nothing that runs, loads or covers the page", () => {
+    expect(html('<span style="position:fixed;color:blue;background:url(http://x/y.png)">t</span>'))
+      .toContain('<span style="color:blue">t</span>');
+    const out = html('<script>alert(1)</script><a href="javascript:alert(1)" onclick="x()">x</a> '
+      + '<img src="http://x/t.png" alt="logo"> <iframe src="http://x"></iframe><style>body{display:none}</style>');
+    for (const bad of ["<script", "javascript:", "onclick", "<img", "<iframe", "<style", "display:none"]) expect(out).not.toContain(bad);
+    expect(out).toContain("logo");
+    expect(html("[site](https://example.com)")).toContain('target="_blank"');
+  });
+});
+
+describe("plainTitle with HTML", () => {
+  it("drops tags and decodes entities", () => {
+    expect(plainTitle('<span style="color:red">Fix</span> uart &amp; spi &lt;3')).toBe("Fix uart & spi <3");
+  });
+});

@@ -13,6 +13,7 @@ from pathlib import Path
 from codetortoise import boardstore
 from codetortoise.board import BoardContext, analyse, build_boards, is_test_path
 from codetortoise.brief import Brief, cache_key
+from codetortoise.cltext import prompt_text
 from codetortoise.detectors.base import DetectorContext, renumber, run_detectors
 from codetortoise.diffmap import map_changes
 from codetortoise.facts.model import Facts, relative_records
@@ -482,7 +483,7 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
         if svc.strong is None or strong is None:
             told = "fixed thread text (no strong model)"
         else:
-            cls_text = {m.cl: m.description for m in ctx["cs"].cls}
+            cls_text = {m.cl: prompt_text(m.description) for m in ctx["cs"].cls}   # no HTML for the model to echo
             files = thread_files(r.threads, per)
             key = hashlib.sha256(f"{READING_VERSION}|{strong.model}|{threads_prompt(r, bs.stories, cls_text, files)}"
                                  .encode()).hexdigest()

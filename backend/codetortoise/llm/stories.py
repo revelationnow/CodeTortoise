@@ -21,6 +21,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from codetortoise.board import _Ctx
+from codetortoise.cltext import prompt_text
 from codetortoise.config import StrongLlmConfig
 from codetortoise.detectors.base import Finding
 from codetortoise.grouping import REASONS, Placement, PlannedStory, StoryPlan, rules_plan
@@ -175,8 +176,8 @@ class Tools:
         if meta is None:
             return f"no CL {n} in this change"
         files = [f.depot for f in self.x.c.cs.files if any(p.cl == num for p in f.per_cl)]
-        return (f"CL {num} ({meta.status}" + (f", {meta.user}" if meta.user else "") + f"):\n{meta.description}\nfiles: "
-                + ", ".join(files))
+        return (f"CL {num} ({meta.status}" + (f", {meta.user}" if meta.user else "")
+                + f"):\n{prompt_text(meta.description)}\nfiles: " + ", ".join(files))
 
     def run(self, tool: str, arg: str | int) -> str:
         fn = {"piece_code": self.piece_code, "diff": self.diff, "neighbours": self.neighbours, "cl": self.cl}.get(tool)
@@ -463,7 +464,7 @@ def form_stories(strong: LlmClient, ledger: Ledger | None, rid: int | None, ps: 
     2026-10-08-llm-robustness §6); one every model fails (or the budget refuses) is grouped by the rules. The plan's
     notes say which."""
     limit = int(cfg.context_tokens * 4 * CHUNK_SHARE)
-    cls = {m.cl: m.description for m in x.c.cs.cls}
+    cls = {m.cl: prompt_text(m.description) for m in x.c.cs.cls}
     tools = Tools(x, ps)
     groups = chunks(ps, findings, limit)
     stories: list[PlannedStory] = []

@@ -17,6 +17,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from codetortoise.board import Analysis, BoardContext, _count, _Ctx, _opcodes
+from codetortoise.cltext import first_line, prompt_text
 from codetortoise.clusters import altered_access
 from codetortoise.cparse import is_header
 from codetortoise.repeated import Repeated, _note, _plural, _spans, find_repeated
@@ -372,7 +373,7 @@ def _cl_line(x: _Ctx, cl: int | None) -> str:
     if cl is None:
         return "no CL"
     meta = next((m for m in x.c.cs.cls if m.cl == cl), None)
-    first = (meta.description.strip().splitlines() or [""])[0].strip() if meta else ""
+    first = first_line(meta.description) if meta else ""
     return f'CL {cl} "{first[:60]}"' if first else f"CL {cl}"
 
 
@@ -421,7 +422,7 @@ def change_overview(c: BoardContext, x: _Ctx, targets: dict[str, list[str]], lim
     total_add, total_rem = sum(s[0] for s in stats.values()), sum(s[1] for s in stats.values())
     head = [f"CHANGE: {_plural(len(c.cs.cls), 'CL')}, {_plural(len(files), 'file')}, +{total_add} −{total_rem} lines"]
     for m in c.cs.cls:
-        desc = m.description.strip()
+        desc = prompt_text(m.description)
         desc = desc if len(desc) <= CL_CHARS else desc[:CL_CHARS - 1] + "…"
         head.append(f"CL {m.cl} ({m.status}{', ' + m.user if m.user else ''}): {desc or '(no description)'}")
     tg = {f.local: targets.get(f.local) or [UNKNOWN] for f in files}
