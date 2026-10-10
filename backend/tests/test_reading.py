@@ -718,6 +718,39 @@ def test_a_reader_row_names_its_field_and_a_shared_sink_has_no_reader_rows():
     assert _checks(c, ss)[0] == []
 
 
+def _named(c, *fns):
+    """Make the given functions' edges into the written field matches by name only."""
+    ids = {n.id for n in c.impact.nodes.values() if n.label in fns}
+    for e in c.impact.edges:
+        if e.src in ids and e.kind in ("reads", "writes"):
+            e.confidence = "heuristic"
+
+
+def test_readers_matched_by_name_only_are_one_coverage_line_not_checks():
+    """Spec 2026-10-10-union-fields §4.2."""
+    c = _world([_edit("config", "drv/cfg.c"), _same("report", "svc/rep.c"), _same("peek", "svc/peek.c"),
+                _same("poke", "svc/poke.c"), _edit("dump", "svc/dump.c")],
+               fields=[("config", "Uart", "errors", "write", "added"), ("report", "Uart", "errors", "read", "unchanged"),
+                       ("peek", "Uart", "errors", "read", "added"), ("poke", "Uart", "errors", "read", "added"),
+                       ("poke", "Uart", "errors", "write", "added")])
+    _named(c, "peek", "poke")
+    open_, _ = _checks(c, _set(["N1"], ["N5"]))
+    assert [(k.kind, k.function) for k in open_] == [("reader", "report")]
+    assert coverage(_x(c), has_tests=True) == ["2 functions use a field named `errors`, matched by name only — not checked"]
+    c.impact.edges.append(c.impact.edges[-1].model_copy(update={"id": "E99", "kind": "reads", "confidence": "precise"}))
+    open_, _ = _checks(c, _set(["N1"], ["N5"]))                 # a precise read as well: a reader check, not a name match
+    assert sorted(k.function for k in open_) == ["poke", "report"]
+    assert coverage(_x(c), has_tests=True) == ["1 function uses a field named `errors`, matched by name only — not checked"]
+
+
+def test_a_shared_sinks_name_matches_add_no_coverage_line():
+    c = _world([_edit("config", "drv/cfg.c"), _same("peek", "svc/peek.c")],
+               fields=[("config", "Log", "buf", "write", "added"), ("peek", "Log", "buf", "read", "added")])
+    _named(c, "peek")
+    _sink(c, "Log::buf")
+    assert coverage(_x(c), has_tests=True) == []
+
+
 def test_a_shared_sink_makes_no_data_link():
     c, ss = _logged(), _set(["N1"], ["N3"])
     assert [lk.kind for lk in story_links(ss, _x(c))] == ["data"]

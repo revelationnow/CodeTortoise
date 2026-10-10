@@ -924,7 +924,8 @@ def build_checks(ss: StorySet, threads: list[Thread], conns: list[Connection], x
     for n in changed:
         for w in (e for e in x.im.edges if e.src == n and e.kind == "writes" and e.status == "added"
                   and e.dst not in x.im.sinks):
-            for r in sorted({e.src for e in _live(x, {"reads"}) if e.dst == w.dst}, key=lambda m: x.label(m)):
+            for r in sorted({e.src for e in _live(x, {"reads"}) if e.dst == w.dst and e.confidence != "heuristic"},
+                            key=lambda m: x.label(m)):
                 if r in x.changed or x.is_test_path(r):
                     continue
                 acc = next((a for a in x.fields_after if f"field:{a.field}" == x.im.nodes[w.dst].key
@@ -1057,6 +1058,22 @@ def build_impact(x: _Ctx) -> list[BuildImpact]:
     return sorted(out, key=lambda b: -b.files)
 
 
+def name_only_users(x: _Ctx) -> dict[str, int]:
+    """Field label -> the unchanged, non-test functions that use a field the change newly writes only by a member of
+    the same name (spec 2026-10-10-union-fields §4.2): not checked, only counted. A shared sink's users are never
+    listed, so it has none here."""
+    out: dict[str, int] = {}
+    written = {w.dst for w in x.im.edges if w.src in x.changed and w.kind == "writes" and w.status == "added"
+               and w.dst not in x.im.sinks}
+    for fid in sorted(written, key=x.label):
+        live = [e for e in _live(x, {"reads", "writes"}) if e.dst == fid and e.src not in x.changed
+                and not x.is_test_path(e.src)]
+        named = {e.src for e in live if e.confidence == "heuristic"} - {e.src for e in live if e.confidence != "heuristic"}
+        if named:
+            out[x.label(fid)] = len(named)
+    return out
+
+
 def coverage(x: _Ctx, has_tests: bool, outside: int = 0) -> list[str]:
     """What the analysis could not see fully (§5.2, §7.5); empty counts are left out."""
     facts = x.c.before + x.c.after
@@ -1074,6 +1091,9 @@ def coverage(x: _Ctx, has_tests: bool, outside: int = 0) -> list[str]:
     for label, n in sorted(x.im.capped_fields.items()):
         out.append(f"{_n(n, 'function')} using `{label}` found by name {'was' if n == 1 else 'were'} not checked "
                    f"(more than {x.c.cfg.heuristic_fanin_cap} references)")
+    for label, n in name_only_users(x).items():
+        out.append(f"{_n(n, 'function')} {'uses' if n == 1 else 'use'} a field named `{label.split('::')[-1]}`, matched by "
+                   "name only — not checked")
     if outside:
         out.append(f"{_n(outside, 'file')} with callers {'is' if outside == 1 else 'are'} outside every compile database")
     if x.c.cs.drift:
