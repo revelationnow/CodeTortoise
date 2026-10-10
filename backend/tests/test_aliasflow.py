@@ -1,6 +1,7 @@
 import clang.cindex as ci
 
 from codetortoise.facts.aliasflow import FunctionAnalyzer
+from codetortoise.paths import canon
 from codetortoise.toolchain.libclang import load_libclang
 
 ALIAS_C = """struct Inner { int n; };
@@ -179,7 +180,7 @@ void f(struct dev *d, reg_t *r) { r->bits.lo = 1; r->word = 2; d->ctl.en = 1; d-
 def _accesses(tmp_path, sub, header):
     load_libclang(None)
     d = tmp_path / sub
-    d.mkdir()
+    d.mkdir(exist_ok=True)
     (d / "reg.h").write_text(header)
     (d / "main.c").write_text(REG_C)
     tu = ci.Index.create().parse(str(d / "main.c"), args=["-xc"])
@@ -192,7 +193,7 @@ def _accesses(tmp_path, sub, header):
 def test_a_fields_id_does_not_move_with_its_header_and_names_where_it_lives(tmp_path):
     """Owner, 2026-10-09: untouched union fields flooded the review whenever their header shifted."""
     before = _accesses(tmp_path, "a", REG_H)
-    after = _accesses(tmp_path, "b", "/* one more line */\n" + REG_H)
+    after = _accesses(tmp_path, "a", "/* one more line */\n" + REG_H)
     assert {(a.field_name, a.mode, a.field) for a in before} == {(a.field_name, a.mode, a.field) for a in after}
     got = {a.field_name: (a.field, a.record) for a in before if a.mode == "write"}
     assert got["raw"] == ("c:@S@dev@U>ctl@FI@raw", "dev.ctl")
@@ -200,7 +201,8 @@ def test_a_fields_id_does_not_move_with_its_header_and_names_where_it_lives(tmp_
     assert got["lo"] == ("c:@UA@reg_t@S>bits@FI@lo", "reg_t.bits")
     assert got["x"] == ("c:@S@dev@S>pos@FI@x", "dev.pos")
     assert got["q"] == ("c:@S@dev@S>p@FI@q", "dev.p")
-    assert got["a"][0] == "c:reg.h@S~g_anon@FI@a" and got["a"][1].startswith("anonymous struct (")
+    assert got["a"][0] == f"c:{canon(str(tmp_path / 'a' / 'reg.h'))}@S~g_anon@FI@a"
+    assert got["a"][1].startswith("anonymous struct (")
     assert (got["word"][0], got["i"][0], got["id"][0]) == ("c:@UA@reg_t@FI@word", "c:@S@dev@Ua@FI@i", "c:@S@dev@FI@id")
     assert (got["word"][1], got["i"][1], got["id"][1]) == ("reg_t", "dev", "dev")
 
@@ -221,3 +223,37 @@ def test_records_declared_in_different_functions_keep_different_ids(tmp_path):
         ids[fn] = {a.field_name: (a.field, a.record) for a in fields if a.mode == "write"}
     assert ids["f1"]["x"] == ("c:@F@f1@S~point@FI@x", "point") and ids["f2"]["x"] == ("c:@F@f2@S~point@FI@x", "point")
     assert ids["f1"]["s"][0] == "c:@F@f1@S~s@FI@s" and ids["f2"]["s"][0] == "c:@F@f2@S~s@FI@s"
+
+
+def test_records_held_through_reference_members_are_told_apart(tmp_path):
+    """Deferred minor (union-fields review): `_bare` stripped arrays and pointers but not C++ references."""
+    src = ("struct R { struct { int v; } &r1; struct { int v; } &r2; };\n"
+           "void f(R &x) { x.r1.v = 1; x.r2.v = 2; }\n")
+    fields, _, _ = writes(tmp_path, "ref.cpp", src, ["-xc++"], "f")
+    got = sorted((a.field, a.record) for a in fields if a.mode == "write")
+    assert got == [("c:@S@R@S>r1@FI@v", "R.r1"), ("c:@S@R@S>r2@FI@v", "R.r2")]
+
+
+def test_file_scope_records_in_same_named_headers_of_different_folders_are_told_apart(tmp_path):
+    """Deferred minor: the id named the header by its base name only, so a/cfg.h and b/cfg.h shared their fields."""
+    load_libclang(None)
+    ids = []
+    for sub in ("a", "b"):
+        d = tmp_path / sub
+        d.mkdir()
+        (d / "cfg.h").write_text("static struct { int n; } cfg;\n")
+        (d / "main.c").write_text('#include "cfg.h"\nvoid f(void) { cfg.n = 1; }\n')
+        tu = ci.Index.create().parse(str(d / "main.c"), args=["-xc"])
+        fn = next(c for c in tu.cursor.walk_preorder() if c.spelling == "f" and c.kind == ci.CursorKind.FUNCTION_DECL)
+        (n,) = [a for a in FunctionAnalyzer(fn, fn.get_usr()).analyze()[0] if a.field_name == "n"]
+        ids.append(n.field)
+    assert ids == [f"c:{canon(str(tmp_path / s / 'cfg.h'))}@S~cfg@FI@n" for s in ("a", "b")]
+
+
+def test_a_nameless_record_named_only_by_a_pointer_typedef_takes_the_typedefs_name(tmp_path):
+    """Deferred minor: `typedef struct {…} *h_t;` declares no variable, so its id fell back to its field names."""
+    src = ("typedef struct { int n; } *h_t;\nstatic struct { int n; } other;\n"
+           "void f(h_t h) { h->n = 1; other.n = 2; }\n")
+    fields, _, _ = writes(tmp_path, "ptr.c", src, ["-xc"], "f")
+    here = canon(str(tmp_path / "ptr.c"))
+    assert sorted(a.field for a in fields if a.mode == "write") == [f"c:{here}@S~h_t@FI@n", f"c:{here}@S~other@FI@n"]

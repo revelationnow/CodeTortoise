@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import ctypes
 import fnmatch
-import os
 import re
 from dataclasses import dataclass
 
@@ -78,12 +77,13 @@ _OFFSET = re.compile(r"@\d+(?=@|$)")      # libclang's file offset in an anonymo
 
 
 def _bare(t: ci.Type) -> ci.Type:
-    """A type with its arrays and pointers stripped: `struct {…} pos[2]` and `struct {…} *p` hold that struct."""
+    """A type with its arrays, pointers and references stripped: `struct {…} pos[2]`, `struct {…} *p` and
+    `struct {…} &r` hold that struct."""
     t = t.get_canonical()
     while True:
         if t.kind in _ARRAYS:
             t = t.element_type.get_canonical()
-        elif t.kind == T.POINTER:
+        elif t.kind in (T.POINTER, T.LVALUEREFERENCE, T.RVALUEREFERENCE):
             t = t.get_pointee().get_canonical()
         else:
             return t
@@ -117,9 +117,9 @@ def record_name(rec: ci.Cursor | None) -> str:
 def record_id(rec: ci.Cursor, cache: dict[int, str] | None = None) -> str:
     """A record's id that does not move with its header (spec 2026-10-10-union-fields §3.1): libclang's USR unless it
     holds a file offset; else the enclosing record's id and the member holding it (`c:@S@dev@U>ctl`), or `Ua`/`Sa` for
-    an anonymous member; with no enclosing record, the id of the function or namespace declaring it (the file's base
-    name at file scope) and its name, else the first variable of the type (`c:reg.h@S~g_anon`), else its field names
-    (`c:@F@h@S~s,t`)."""
+    an anonymous member; with no enclosing record, the id of the function or namespace declaring it (the file's path at
+    file scope) and its name, else the first variable or typedef of the type (`c:/w/inc/reg.h@S~g_anon`), else its
+    field names (`c:@F@h@S~s,t`)."""
     if cache is not None and rec.hash in cache:
         return cache[rec.hash]
     usr = rec.get_usr()
@@ -132,13 +132,14 @@ def record_id(rec: ci.Cursor, cache: dict[int, str] | None = None) -> str:
             member = _holder(outer, rec)
             out = f"{record_id(outer, cache)}@{kind}" + (f">{member.spelling}" if member is not None else "a")
         else:
-            # a record declared in a function or namespace: that scope's own id; at file scope, the file's base name
-            base = os.path.basename(rec.location.file.name) if rec.location.file else "?"
+            # a record declared in a function or namespace: that scope's own id; at file scope, the file's path (two
+            # headers may share a base name)
+            path = canon(rec.location.file.name) if rec.location.file else "?"
             top = outer is None or outer.kind == K.TRANSLATION_UNIT
-            scope = f"c:{base}" if top else (outer.get_usr() or f"c:{base}")
+            scope = f"c:{path}" if top else (outer.get_usr() or f"c:{path}")
             var = None if not rec.is_anonymous() else next(
                 (c.spelling for c in (outer.get_children() if outer is not None else ())
-                 if c.kind == K.VAR_DECL and _bare(c.type).get_declaration() == rec), None)
+                 if c.kind in (K.VAR_DECL, K.TYPEDEF_DECL) and _bare(c.type).get_declaration() == rec), None)
             name = rec.spelling if not rec.is_anonymous() else \
                 var or ",".join(f.spelling for f in rec.get_children() if f.kind == K.FIELD_DECL)
             out = f"{scope}@{kind}~{name}"
