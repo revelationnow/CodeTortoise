@@ -467,6 +467,28 @@ class FunctionAnalyzer:
                 return
 
     # ---- access recording ------------------------------------------------
+    @staticmethod
+    def place(c: ci.Cursor) -> set[int]:
+        """The expressions naming the place `c` stores to, whose own value is not read: `s->cells` and `s->cells[i]`
+        in `s->cells[i].f = 1`, an array or a struct on the way. A pointer followed (`s->p` in `s->p->f = 1`) and an
+        index are read."""
+        out: set[int] = set()
+        s, _ = _strip(c)
+        if s.kind == K.UNARY_OPERATOR and operator_of(s) == "pre&":          # memset(&s->one, ...)
+            kids = list(s.get_children())
+            s = _strip(kids[0])[0] if kids else s
+        out.add(s.hash)
+        while s.kind in (K.MEMBER_REF_EXPR, K.ARRAY_SUBSCRIPT_EXPR):
+            kids = [k for k in s.get_children() if k.kind.is_expression()]
+            if not kids:
+                break
+            base, _ = _strip(kids[0])
+            if _type_kind(base) not in _ARRAY and (s.kind == K.ARRAY_SUBSCRIPT_EXPR or _type_kind(base) in _PTR):
+                break
+            out.add(base.hash)
+            s = base
+        return out
+
     def analyze(self) -> tuple[list[FieldAccess], list[GlobalAccess]]:
         self.collect_aliases()
         fields: list[FieldAccess] = []
@@ -510,17 +532,18 @@ class FunctionAnalyzer:
             k = c.kind
             if k == K.BINARY_OPERATOR and operator_of(c) == "=" or k == K.COMPOUND_ASSIGNMENT_OPERATOR:
                 lhs = list(c.get_children())[0]
-                write_targets.add(_strip(lhs)[0].hash)
+                write_targets |= self.place(lhs)
                 emit(self.lval(lhs), lhs, "write")
             elif k == K.UNARY_OPERATOR and operator_of(c)[-2:] in ("++", "--"):
                 kids = list(c.get_children())
                 if kids:
-                    write_targets.add(_strip(kids[0])[0].hash)
+                    write_targets |= self.place(kids[0])
                     emit(self.lval(kids[0]), kids[0], "write")
             elif k == K.CALL_EXPR and c.referenced is not None and c.referenced.kind in _FUNC_KINDS:
                 callee = c.referenced
                 args = list(c.get_arguments())
                 if callee.spelling in _MEMFUNCS and args:
+                    write_targets |= self.place(args[0])
                     emit(self.pointee(args[0]), args[0], "write", extra_via=f"call:{callee.spelling}")
                     continue
                 params = list(callee.get_arguments() or [])
@@ -532,6 +555,9 @@ class FunctionAnalyzer:
                         emit(self.pointee(arg), arg, "may_write", extra_via=f"call:{callee.spelling}")
                     elif pt.kind == T.LVALUEREFERENCE and not pt.get_pointee().is_const_qualified():
                         emit(self.lval(arg), arg, "may_write", extra_via=f"call:{callee.spelling}")
+        for c in self.fn.walk_preorder():                 # sizeof's operand is never evaluated
+            if c.kind == K.CXX_UNARY_EXPR:
+                write_targets |= {k.hash for k in c.walk_preorder()}
         for c in self.fn.walk_preorder():
             if c.kind == K.MEMBER_REF_EXPR and c.referenced is not None and c.referenced.kind == K.FIELD_DECL:
                 if c.hash in write_targets:

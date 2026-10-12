@@ -257,3 +257,34 @@ def test_a_nameless_record_named_only_by_a_pointer_typedef_takes_the_typedefs_na
     fields, _, _ = writes(tmp_path, "ptr.c", src, ["-xc"], "f")
     here = canon(str(tmp_path / "ptr.c"))
     assert sorted(a.field for a in fields if a.mode == "write") == [f"c:{here}@S~h_t@FI@n", f"c:{here}@S~other@FI@n"]
+
+
+PLACES_C = """struct Cell { int f; int g; };
+struct Ctx { struct Cell cells[4]; int arr[4]; struct Cell one; struct Cell *ptr; int idx; };
+struct Ctx g_ctx;
+int g_arr[4];
+struct Ctx *get_ctx(void);
+void *memset(void *s, int c, unsigned long n);
+void fill(struct Ctx *s, int i) {
+  s->cells[i].f = 1;
+  s->arr[i] = 2;
+  s->one.g += 3;
+  s->arr[s->idx]++;
+  g_arr[i] = 4;
+  g_ctx.cells[0].g = 5;
+  get_ctx()->cells[i].f = 6;
+  s->ptr->f = 7;
+  memset(s->cells, 0, sizeof(s->cells));
+  memset(&s->one, 0, sizeof s->one);
+}
+"""
+
+
+def test_the_place_an_assignment_stores_to_is_not_a_read(tmp_path):
+    """`s->cells` in `s->cells[i].f = 1` names where to store; only values used on the way (an index, a pointer
+    followed) are read. Owner feedback 2026-10-12: element assignments showed as unchanged readers."""
+    fields, globs, w = writes(tmp_path, "places.c", PLACES_C, ["-xc"], "fill")
+    assert {(a.line, a.field_name) for a in fields if a.mode == "read"} == {(11, "idx"), (15, "ptr")}
+    assert [g.var_name for g in globs if g.mode == "read"] == []
+    assert {(line, path) for line, path, *_ in w} >= {(8, "s.cells[].f"), (9, "s.arr[]"), (10, "s.one.g"),
+                                                    (11, "s.arr[]"), (15, "s.ptr->f"), (16, "s.cells[]"), (17, "s.one")}
