@@ -184,7 +184,14 @@ class Toolchain:
         if g.target:
             args += [f"--target={g.target}"]
         lang = lang_of(entry.file)
-        info = None if g.libclang.vendor else self._query(g, lang)
+        own = g.libclang.vendor
+        if own and os.path.isfile(g.compiler):
+            # libclang runs its driver as a bare "clang": told where the toolchain lives, it finds that toolchain's
+            # target headers (<bin>/../target/<arch>/include and the like) the way the compiler does
+            args += ["-ccc-install-dir", os.path.dirname(os.path.realpath(g.compiler))]
+        # a toolchain's own library still takes the compiler's include paths when it may run (wrappers and config
+        # files add some), but not its macros: the library defines them itself
+        info = None if own and self.not_run(g.compiler) else self._query(g, lang)
         rd = self.cfg.resource_dir or g.libclang.resource_dir or (info.resource_dir if info else None)
         if rd:
             args += ["-resource-dir", rd]
@@ -194,7 +201,10 @@ class Toolchain:
                 if any(os.path.normpath(d).startswith(b) for b in builtins) or (rd and _GCC_INTERNAL.search(d)):
                     continue
                 args += ["-isystem", d]
-            args += ["-include", str(g.preludes[lang]), "-Wno-macro-redefined", "-Wno-builtin-macro-redefined"]
+            if not own:
+                args += ["-include", str(g.preludes[lang]), "-Wno-macro-redefined", "-Wno-builtin-macro-redefined"]
+        for d in ov.system_include_dirs if ov else ():
+            args += ["-isystem", d if os.path.isabs(d) or not self.root else os.path.join(self.root, d)]
         return args
 
     def explain(self, file: str) -> dict:

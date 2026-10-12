@@ -35,6 +35,8 @@ class ToolchainOverride(BaseModel):
     clang: str | None = None         # compiler to query for built-in includes and macros
     target: str | None = None        # e.g. "dsp"
     libclang: str | None = None
+    # more -isystem folders for matching files (relative to the workspace root), after the compiler's own
+    system_include_dirs: list[str] = Field(default_factory=list)
 
 
 class ToolchainConfig(BaseModel):

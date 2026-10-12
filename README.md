@@ -171,6 +171,8 @@ toolchain:
       clang: /opt/dsp/bin/dsp-clang
       target: dsp
       libclang: /opt/dsp/lib/libclang.so
+      system_include_dirs: [/opt/dsp/target/dsp/include]   # optional: more -isystem folders for these
+                                    #   files, after the compiler's own (relative ones from the workspace root)
 swarm:
   url: "https://swarm.example.com"  # optional
 llm:                                # optional; without it, narratives use built-in templates
@@ -283,6 +285,13 @@ PowerPC). A newer library knows more recent flags. The library for a group is, i
 `toolchain.search_paths`; one installed with `codetortoise fetch-libclang`; the newest system LLVM
 (`/usr/lib/llvm-*`); the one bundled with CodeTortoise (18.1.1). Groups that need different libraries parse in
 separate worker processes.
+
+A toolchain's own library (an override's or `toolchain.libclang`, or the one next to a clang compiler) is told where
+that toolchain is installed (`-ccc-install-dir`, the compiler's real folder), so it finds the toolchain's target
+headers (`<bin>/../target/<arch>/include` and the like) the way the compiler does, even when compilers may not run.
+When the compiler may run, its include paths are added too, but not its macros, which the library defines itself.
+Each group gets only its own compiler's paths, so files of one target never see another target's headers. When a
+compiler can't be run or misses a folder, name it with an override's `system_include_dirs`.
 
 ```bash
 uv run --project backend codetortoise fetch-libclang --config tortoise.yaml       # LLVM 23.1.2, ~2 GB streamed, ~230 MB kept
