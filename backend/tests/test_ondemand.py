@@ -120,11 +120,12 @@ def test_explain_is_refused_over_the_budget_and_the_owner_raises_it(ai):
     svc, app, owner, rid, _ = ai
     bob = login(app, "bob")
     used = owner.get(f"/api/reviews/{rid}/ai").json()["used"]
-    assert used == 5                    # the run: the side-effect verdicts, then 1 flow, 1 story, 1 finding, the summary
+    assert used == 7                    # the run: the side-effect verdicts, then 1 flow, 1 story, 1 finding, the summary,
+    #                                     and the reading's account of each of its 2 behaviour stories
     assert bob.put(f"/api/reviews/{rid}/ai/budget", json={"budget": 10}).status_code == 403
     assert owner.put(f"/api/reviews/{rid}/ai/budget", json={"budget": used}).json()["budget"] == used
     r = bob.post(f"/api/reviews/{rid}/explain", json={"kind": "finding", "target": "F1"})
-    assert r.status_code == 429 and "this review has used its 5 AI calls" in r.json()["detail"]
+    assert r.status_code == 429 and "this review has used its 7 AI calls" in r.json()["detail"]
     owner.put(f"/api/reviews/{rid}/ai/budget", json={"budget": used + 5})
     assert bob.post(f"/api/reviews/{rid}/explain", json={"kind": "finding", "target": "F1"}).status_code == 202
 
@@ -148,10 +149,11 @@ def test_the_ai_view_reports_limits_and_calls(ai):
     assert (u["budget"], u["me_limit"], u["per_mention"], u["llm"]) == (200, 100, 10, True)
     assert "calls" not in u                                            # polled often: the list is fetched apart
     calls = owner.get(f"/api/reviews/{rid}/ai/calls").json()
-    assert [c["purpose"] for c in calls] == ["verdict", "flow", "story", "finding", "summary"]
+    assert [c["purpose"] for c in calls] == ["verdict", "flow", "story", "finding", "summary", "story_account",
+                                             "story_account"]
     assert all(c["prompt_tokens"] == 1000 for c in calls)
     h = owner.get("/api/health").json()                               # + layer naming, once per index
-    assert h["ai"]["calls_today"] == 6 and h["ai"]["limits"] == {"per_review": 200, "per_person_daily": 100,
+    assert h["ai"]["calls_today"] == 8 and h["ai"]["limits"] == {"per_review": 200, "per_person_daily": 100,
                                                                  "per_mention": 6, "tier1_per_review": 40}
 
 

@@ -181,8 +181,9 @@ def test_llm_text_stored_by_a_review_records_its_prompt_files(fx, tmp_path):
     assert len(llm_flows) == 3 and any(f.severity == "high" for f in found)
     assert all((f.explanation is not None) == (f.severity == "high") for f in found)
     usage = svc.ledger.usage(rid)
-    assert usage["by_purpose"] == {"verdict": 1, "flow": 3, "story": 2, "finding": 2, "summary": 1}, usage["by_purpose"]
-    assert usage["by_person"] == {"pipeline": 9}                       # the fixture's 3 high findings, under the cap of 5
+    assert usage["by_purpose"] == {"verdict": 1, "flow": 3, "story": 2, "finding": 2, "summary": 1,
+                                   "story_account": 2}, usage["by_purpose"]          # an account per behaviour story
+    assert usage["by_person"] == {"pipeline": 11}                      # the fixture's 3 high findings, under the cap of 5
 
 
 def test_the_llm_stage_reports_text_dropped_for_breaking_the_style(fx, tmp_path):
@@ -677,3 +678,70 @@ def test_without_a_strong_model_the_reading_has_the_rules_introduction(fx, tmp_p
     assert [s["thread"] for s in r["route"]] == [t["id"] for t in r["threads"]] and r["route_source"] == "template"
     assert all("Starts with “" in t["intro"] and t["intro_source"] == "template" for t in r["threads"])
     assert all(t["files"] and t["files_source"] == "template" for t in r["threads"])
+
+
+def _weak(svc, answer, model="small"):
+    from scripted_llm import ScriptedLlm
+    svc.llm = ScriptedLlm(answer, model)
+    return svc.llm
+
+
+def _account_answer(system, user):
+    """A passing account for any account prompt (spec 2026-10-12 §1); every other weak-model call fails, so its stage
+    keeps its fixed text."""
+    import re
+    if "Write a reviewer's account" not in user:
+        return RuntimeError("not scripted")
+    cites = re.search(r"^CITE FROM: (.*)$", user, re.M)[1].split(", ")[:1]
+    flows = re.findall(r"^FLOW (FL\d+) \| ", user, re.M)
+    return {"sections": [
+        {"kind": "purpose", "cites": cites, "text": "This story changes what uart_send reports. You see it in its callers."},
+        *({"kind": "flow", "flow": f, "cites": cites,
+           "text": "The caller reaches uart_send on this path. The new result changes what it gets back."} for f in flows),
+        {"kind": "effects", "cites": cites, "text": "Code that reads the result now sees a new value. Check the readers you own."}]}
+
+
+def _behaviour(svc, rid):
+    return [s for s in svc.store.get_blob(rid, "stories")["stories"] if s["kind"] == "behaviour" and not s["collapsed"]]
+
+
+def test_the_weak_model_writes_each_behaviour_storys_account_once_and_a_fresh_run_asks_again(fx, tmp_path):
+    svc = make_services(fx, tmp_path)
+    llm = _weak(svc, _account_answer)
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    stories = _behaviour(svc, rid)
+    assert stories
+    for s in stories:
+        acc = svc.store.get_blob(rid, f"story_reading:{s['id']}")["account"]
+        assert acc[0]["heading"] == "What it is for" and acc[-1]["heading"] == "What it means for the rest"
+        assert all(p["kind"] == "flow" for p in acc[1:-1])
+    st = next(s for s in svc.store.list_stages(rid) if s["name"] == "reading")
+    assert f"; {len(stories)} story account(s)" in st["message"]
+    asked = lambda: sum("Write a reviewer's account" in p for p in llm.prompts)     # noqa: E731
+    assert asked() == len(stories)
+    run_review(rid, svc)
+    assert asked() == len(stories)
+    assert svc.store.get_blob(rid, f"story_reading:{stories[0]['id']}")["account"]     # reused, not lost
+    run_review(rid, svc, fresh=True)
+    assert asked() == 2 * len(stories)
+
+
+def test_without_a_weak_model_no_story_has_an_account_and_the_stage_says_nothing_of_them(fx, tmp_path):
+    svc = make_services(fx, tmp_path)
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    assert all(not svc.store.get_blob(rid, f"story_reading:{s['id']}")["account"] for s in _behaviour(svc, rid))
+    st = next(s for s in svc.store.list_stages(rid) if s["name"] == "reading")
+    assert "account" not in st["message"]
+
+
+def test_when_every_account_call_fails_the_reading_is_degraded_and_says_why(fx, tmp_path):
+    svc = make_services(fx, tmp_path)
+    _weak(svc, lambda s, u: RuntimeError("the endpoint is down"))
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    st = next(s for s in svc.store.list_stages(rid) if s["name"] == "reading")
+    assert st["status"] == "degraded"
+    assert "story account(s) not written: RuntimeError: the endpoint is down" in st["message"]
+    assert svc.store.get_blob(rid, "reading") is not None                     # the reading itself still stands

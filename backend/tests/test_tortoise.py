@@ -26,6 +26,8 @@ class Script:
             return self._reply({"layers": []})
         if "Judge each side effect" in user:                                           # the run's verdicts
             return self._reply({"verdicts": []})
+        if "Write a reviewer's account" in user:                                       # the reading's story accounts
+            return self._reply({"sections": []})
         if "Explain the risk of this finding" in user:                                 # the up-front pass
             return self._reply({"explanation": "e", "verify_steps": [], "hypotheses": []})
         if any(k in user for k in ("Summarize the whole change", "Describe this call flow",
