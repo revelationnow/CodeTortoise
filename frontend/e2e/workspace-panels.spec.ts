@@ -126,8 +126,10 @@ test("Index › CLs expands a CL's files in place and opens a file's diff in the
   await page.getByRole("button", { name: "Show CL 101's files" }).click();
   const file = page.getByRole("link", { name: /^Open .+'s diff in CL 101$/ }).first();
   await file.click();
-  await expect(page).toHaveURL(new RegExp(`${base}/i/cls\\?open=file`));
-  await expect(page.getByRole("complementary", { name: /^Code: / })).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`${base}/i/cls\\?open=file.*&cl=101$`));
+  const panel = page.getByRole("complementary", { name: /^Code: / });
+  await expect(panel).toBeVisible();
+  await expect(panel.getByLabel("Changelist")).toHaveValue("101");                       // that CL's diff, not all CLs
   await expect(page.getByRole("button", { name: "Hide CL 101's files" })).toBeVisible();      // the list stays as it was
   await page.getByRole("button", { name: "Expand all" }).click();
   await expect(page.getByRole("button", { name: "Hide CL 102's files" })).toBeVisible();

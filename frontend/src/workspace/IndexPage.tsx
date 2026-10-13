@@ -56,8 +56,8 @@ function ClsTab() {
           {first && <div className="ix-sub">{first}</div>}
           {on && (mine.length ? <ul className="ix-files">{mine.map((f) => (
             <li key={f.path}>
-              <Link className="mono" to={ws.link(ws.opened({ file: f.path, line: null }))} title={`Open ${f.path}'s diff`}
-                    aria-label={`Open ${f.name}'s diff in CL ${c.cl}`}>{f.path}</Link>
+              <Link className="mono" to={ws.link(ws.opened({ file: f.path, line: null, cl: c.cl }))}
+                    title={`Open ${f.path}'s diff in CL ${c.cl}`} aria-label={`Open ${f.name}'s diff in CL ${c.cl}`}>{f.path}</Link>
               <span className="muted small"> {f.action}</span>
               <span className="cnt"> <span className="p">+{f.add}</span> <span className="m">−{f.rem}</span></span>
             </li>

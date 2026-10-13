@@ -87,8 +87,9 @@ export default function Detail() {
     if (node?.path && node.range && !full) return <FunctionCode node={node} board={found!.board} />;
     if (!path) return <p className="muted">No code to show for {label}.</p>;
     const line = "file" in open ? open.line : node?.range?.[0] ?? name?.line ?? null;
-    return <FileDiff key={path} path={path} line={line} anns={anns} wide={wide}
-                     cl={ws.addr.place.kind === "cl" && !("file" in open && open.all) ? ws.addr.place.cl : null} />;
+    const cl = "file" in open && open.cl ? open.cl
+      : ws.addr.place.kind === "cl" && !("file" in open && open.all) ? ws.addr.place.cl : null;
+    return <FileDiff key={`${path}@${cl ?? "all"}`} path={path} line={line} anns={anns} wide={wide} cl={cl} />;
   };
   return (
     <aside className={`ws-detail${focused ? " focus" : ""}`} style={{ ["--w" as string]: `${shownW}px` }} aria-label={fid ? `Finding: ${fid}` : `Code: ${label ?? "not found"}`}>

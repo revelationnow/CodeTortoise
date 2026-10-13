@@ -37,7 +37,8 @@ function isOpen(o: unknown): o is Open {
   if (!isObj(o)) return false;
   if ("node" in o) return str(o.node);
   if ("finding" in o) return str(o.finding);
-  return str(o.file) && (o.line === null || (Number.isInteger(o.line) && (o.line as number) > 0));
+  return str(o.file) && (o.line === null || (Number.isInteger(o.line) && (o.line as number) > 0))
+    && (o.cl === undefined || (Number.isInteger(o.cl) && (o.cl as number) > 0));
 }
 
 /** A stored entry is used only if it is an address filed under its own item. */

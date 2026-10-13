@@ -41,6 +41,14 @@ describe("href", () => {
       .toBe("/w/7/cl/101?open=file%3A%2F%2Fd%2Fa.c%3A4&cl=all");       // in all CLs, whatever the page's CL
   });
 
+  it("names the CL a file opened in from a page that is about no CL (Index › CLs)", () => {
+    const a: Address = { place: { kind: "index", tab: "cls" }, flow: null, open: { file: "//d/a.c", line: null, cl: 102 }, tab: "diff" };
+    expect(href("/w/7", a)).toBe("/w/7/i/cls?open=file%3A%2F%2Fd%2Fa.c&cl=102");
+    expect(readAddress("/i/cls", new URLSearchParams("open=file://d/a.c&cl=102"))).toEqual(a);
+    expect(readAddress("/i/cls", new URLSearchParams("open=file://d/a.c&cl=0")).open).toEqual({ file: "//d/a.c", line: null });
+    expect(readAddress("/i/cls", new URLSearchParams("open=N3&cl=102")).open).toEqual({ node: "N3" });
+  });
+
   it("round-trips every place", () => {
     for (const [path, view] of [["", ""], ["", "graph"], ["/s/S2", "graph"], ["/f/F1", ""], ["/cl/102", ""], ["/c/C1", ""]]) {
       const a = readAddress(path, q(`flow=3&open=file://d/x.h&view=${view}`));
