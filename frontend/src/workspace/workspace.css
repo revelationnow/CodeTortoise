@@ -719,3 +719,12 @@ a.ws-chip { text-decoration: none; }
 .ws-panel-finding { padding: 4px 2px; }
 .ws-panel-title { font-size: 16px; margin: 0; }
 .ws-detail-links { display: inline-flex; gap: 10px; font-size: 12.5px; }
+
+/* the side panel's tabs (spec 2026-10-12-story-account-and-panels §2.2) */
+.ws-ptabs { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 2px; }
+.ws-ptab { display: inline-flex; align-items: center; gap: 2px; flex: none; max-width: 160px; border: 1px solid var(--line);
+  border-radius: 6px; padding: 1px 2px 1px 8px; font-size: 12px; }
+.ws-ptab a { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; color: var(--muted); }
+.ws-ptab.on { border-color: var(--accent); }
+.ws-ptab.on a { color: var(--ink); font-weight: 600; }
+.ws-ptab-x { border: 0; background: none; color: var(--muted); padding: 0 4px; cursor: pointer; font-size: 14px; line-height: 1; }

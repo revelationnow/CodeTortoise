@@ -31,3 +31,19 @@ test("a finding the review lacks shows Not found in the panel", async ({ page })
   await page.goto(`${base}/s/S1?open=finding:F999`);
   await expect(page.getByRole("complementary", { name: "Finding: F999" })).toContainText("Finding F999 isn't in this review.");
 });
+test("the panel keeps a tab per item opened; a tab switches back and × closes it", async ({ page }) => {
+  const base = await startReview(page, FOUR);
+  const sig = (await findingsOf(page, base)).find((f) => f.title === "hal_write: signature changed")!;
+  await page.goto(`${base}/s/S2`);
+  const row = page.getByRole("region", { name: "To check" }).locator(`.ck-row[data-finding="${sig.id}"]`);
+  await row.getByRole("link", { name: `Finding ${sig.id}'s details` }).click();
+  await row.getByRole("link", { name: /^Open / }).click();                 // the row's file, at its line
+  const tabs = page.getByRole("tablist", { name: "Open items" });
+  await expect(tabs.getByRole("tab")).toHaveCount(2);
+  await expect(tabs.getByRole("tab", { selected: true })).toHaveText(/\.[ch]$/);
+  await tabs.getByRole("tab", { name: sig.id }).click();
+  await expect(page.getByRole("complementary", { name: `Finding: ${sig.id}` })).toBeVisible();
+  await tabs.getByRole("button", { name: `Close ${sig.id}` }).click();     // the active one, first: its right neighbour shows
+  await expect(page.getByRole("complementary", { name: /^Code: / })).toBeVisible();
+  await expect(page.getByRole("tablist", { name: "Open items" })).toHaveCount(0);   // one tab left: no bar
+});

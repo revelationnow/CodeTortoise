@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import type { Address, Open, Place, Tab } from "./address";
+import type { Address, Item, Open, Place, Tab } from "./address";
 import type { useSources } from "../board/useSources";
 import type { Screen } from "./media";
 import type { ReviewData } from "./useReview";
@@ -22,6 +22,9 @@ export interface Ws {
   /** The story the pointer (or focus) is on in the rail: maps light its nodes. */
   hover: string | null;
   setHover: (sid: string | null) => void;
+  /** The side panel's tabs this visit, oldest first (spec 2026-10-12 §2.2); the address holds the active one. */
+  tabs: Item[];
+  closeTab: (o: Item) => void;
 }
 
 export const WsContext = createContext<Ws | null>(null);

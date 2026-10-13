@@ -14,6 +14,7 @@ import FileDiff from "./FileDiff";
 import FindingBody from "./FindingBody";
 import FunctionCode from "./FunctionCode";
 import Neighbours from "./Neighbours";
+import { openKey, tabLabel } from "./tabs";
 
 /** The detail panel (spec 2026-10-04-review-workspace §3.7): a node's code or a file's diff, opened on demand; on a
  * phone a full-screen sheet whose top bar names its item. */
@@ -98,6 +99,19 @@ export default function Detail() {
         </div>
       )}
       <div className="ws-detail-head">
+        {ws.screen !== "phone" && ws.tabs.length > 1 && (
+          <div className="ws-ptabs" role="tablist" aria-label="Open items">
+            {ws.tabs.map((t) => {
+              const on = openKey(t) === openKey(open), tname = tabLabel(t, d.names);
+              return (
+                <span key={openKey(t)} role="presentation" className={`ws-ptab${on ? " on" : ""}`}>
+                  <Link role="tab" aria-selected={on} to={ws.link(ws.opened(t))} title={`Show ${tname}`}>{tname}</Link>
+                  <button className="ws-ptab-x" aria-label={`Close ${tname}`} title={`Close ${tname}`} onClick={() => ws.closeTab(t)}>×</button>
+                </span>
+              );
+            })}
+          </div>
+        )}
         <div className="ws-detail-name">
           <b className="mono">{label ?? "Not found"}</b>
           {badge && <span className={`ws-badge ${badge}`}>{badge}</span>}

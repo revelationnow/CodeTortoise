@@ -12,7 +12,7 @@ import Stages from "../components/Stages";
 import { AiProvider, useAi } from "../lib/ai";
 import { threadLabel } from "../reading/checks";
 import { progress, progressText } from "../reading/plan";
-import { type Address, at, href, type Open, type Place, readAddress, type Tab } from "./address";
+import { type Address, at, href, type Item, type Open, type Place, readAddress, type Tab } from "./address";
 import { useWs, type Ws, WsContext } from "./context";
 import Crumbs, { PhoneBar } from "./Crumbs";
 import Detail from "./Detail";
@@ -25,6 +25,7 @@ import FindingPage from "./FindingPage";
 import IndexPage from "./IndexPage";
 import Rail from "./Rail";
 import StoryPage from "./StoryPage";
+import { addTab, closeTab as closeOf } from "./tabs";
 import { HEAD_MIN, headMax, loadHeadH } from "./layout";
 import { indexFor, legacy } from "./legacy";
 import { useReview } from "./useReview";
@@ -56,8 +57,16 @@ export default function Workspace() {
   const item = useCallback((p: Place) => recall(memory, p), [memory]);
   const opened = useCallback((open: Open, tab: Tab = "diff") => ({ ...addr, open, tab }), [addr]);
   const [hover, setHover] = useState<string | null>(null);
-  const ws: Ws = useMemo(() => ({ base: root, data, addr, screen, sources, link, go, item, opened, hover, setHover }),
-                         [root, data, addr, screen, sources, link, go, item, opened, hover]);
+  const [tabs, setTabs] = useState<Item[]>([]);
+  useEffect(() => { if (addr.open) setTabs((t) => addTab(t, addr.open!)); }, [addr.open]);
+  const closeTab = useCallback((o: Item) => {
+    const { tabs: rest, next } = closeOf(tabs, o, addr.open);
+    setTabs(rest);
+    if (next !== undefined) go({ ...addr, open: next, tab: "diff" });
+  }, [tabs, addr, go]);
+  const ws: Ws = useMemo(() => ({ base: root, data, addr, screen, sources, link, go, item, opened, hover, setHover,
+                                  tabs, closeTab }),
+                         [root, data, addr, screen, sources, link, go, item, opened, hover, tabs, closeTab]);
 
   const d = data.detail;
   const r = data.reading;
