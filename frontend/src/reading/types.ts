@@ -67,12 +67,17 @@ export interface CallPath {
   steps: string[]; labels: string[]; kind: "contract" | "state" | "call"; entry: string | null; hidden: string[];
   text: string; flow: string | null;
 }
+/** One section of a behaviour story's account (spec 2026-10-12-story-account-and-panels §1). */
+export interface AccountPart { kind: "purpose" | "flow" | "effects"; heading: string; text: string; cites: string[] }
+
 export interface StoryReading {
   story: string; contracts: ContractRow[]; where: WhereFile[]; paths: CallPath[]; checks: Check[];
   /** Its place in its thread: "Uses what story 1 adds." */
   place_text: string; thread: string | null; position: number | null;
   /** The order to read the story's CLs in, and the rewrites inside its code (phase 2 §4.4); absent before phase 2. */
   cl_order?: number[]; rewrites?: Rewrite[];
+  /** The weak model's account, section by section (spec 2026-10-12 §1); absent or empty: the short text stands. */
+  account?: AccountPart[]; account_files?: string[] | null;
 }
 
 /** Who wrote each line of a file several CLs edit (phase 2 §4.3); JSON keys of `rewritten` are strings. */

@@ -86,6 +86,19 @@ def intro(user: str) -> dict:
                       for t in rows]}
 
 
+def account(user: str) -> dict:
+    """A story's account (spec 2026-10-12-story-account-and-panels §1): purpose, one section per flow, effects."""
+    cites = re.search(r"^CITE FROM: (.*)$", user, re.M).group(1).split(", ")[:1]
+    flows = re.findall(r"^FLOW (FL\d+) \| ", user, re.M)
+    return {"sections": [
+        {"kind": "purpose", "flow": None, "cites": cites,
+         "text": "This story makes uart_send count its transmit errors. You see the count through uart_errors."},
+        *({"kind": "flow", "flow": f, "cites": cites,
+           "text": "The caller reaches uart_send on this path. The new error count changes what it reports."} for f in flows),
+        {"kind": "effects", "flow": None, "cites": cites,
+         "text": "Code that reads Uart::errors now sees transmit errors too. Check the readers you own."}]}
+
+
 def answer(system: str, user: str) -> dict:
     if "THREAD DETAILS (id" in user:
         return intro(user)
@@ -108,6 +121,8 @@ def answer(system: str, user: str) -> dict:
     if "Describe this call flow" in user:
         return {"what": "The new -2 from uart_send reaches logger_flush, which drops it.", "title": "Flush drops the new error",
                 "cites": CITES}
+    if "Write a reviewer's account" in user:
+        return account(user)
     if "Retell this change story" in user:
         return {"title": "uart_send's new error count reaches uart_errors",
                 "summary": "uart_send now counts errors in Uart::errors, which uart_errors reports.", "cites": CITES}

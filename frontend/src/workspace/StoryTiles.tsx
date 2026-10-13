@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import type { StoryDetail } from "../board/types";
 import Comments from "../components/Comments";
 import { byEntry, codeOrder, foldPath, readOrder, rewriteText, whereByCl, whereTree } from "../reading/story";
-import type { CallPath, ContractRow, StoryReading, WhereFile } from "../reading/types";
+import type { AccountPart, CallPath, ContractRow, StoryReading, WhereFile } from "../reading/types";
 import CheckTile, { Cleared } from "./CheckList";
 import CheckColumns from "./CheckColumns";
 import { useWs } from "./context";
@@ -173,6 +173,22 @@ function Code({ sr, detail }: { sr: StoryReading; detail: StoryDetail }) {
   );
 }
 
+/** The weak model's account of a behaviour story (spec 2026-10-12-story-account-and-panels §1.1): its purpose, one
+ * section per flow and what it means for the rest, each with the AI label; its place in its thread after. */
+function StoryAccount({ parts, place }: { parts: AccountPart[]; place: string }) {
+  return (
+    <div className="st-account">
+      {parts.map((p, k) => (
+        <div key={k} className={`st-acc st-acc-${p.kind}`}>
+          <h4 className={p.kind === "flow" ? "mono" : undefined}>{p.heading}</h4>
+          <p><span className="ai-label">AI</span><NameText text={p.text} /></p>
+        </div>
+      ))}
+      {place && <p className="st-place">{place}</p>}
+    </div>
+  );
+}
+
 /** A story in layout B (spec 2026-10-07-review-reading §6): what it does, Before → after beside Where and its call
  * paths on the left, its To check pinned on the right; its code and questions below. */
 export default function StoryTiles({ detail, sr }: { detail: StoryDetail; sr: StoryReading }) {
@@ -183,8 +199,9 @@ export default function StoryTiles({ detail, sr }: { detail: StoryDetail; sr: St
       <div className="ov2-left">
         <section aria-labelledby="st-what">
           <h3 id="st-what">What it does</h3>
-          <p>{st.text_source === "llm" && <span className="ai-label">AI</span>}<NameText text={st.purpose || st.summary} />
-            {sr.place_text && <span className="st-place"> {sr.place_text}</span>}</p>
+          {st.kind === "behaviour" && (sr.account?.length ?? 0) > 0 ? <StoryAccount parts={sr.account!} place={sr.place_text} />
+            : <p>{st.text_source === "llm" && <span className="ai-label">AI</span>}<NameText text={st.purpose || st.summary} />
+              {sr.place_text && <span className="st-place"> {sr.place_text}</span>}</p>}
           {st.kind === "unsorted" && <StoryWhy detail={detail} />}
         </section>
         {st.kind === "mechanical" ? <MechanicalStory detail={detail} /> : st.kind === "tests" ? <TestsStory detail={detail} /> : <>
