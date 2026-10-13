@@ -36,6 +36,7 @@ function isOpen(o: unknown): o is Open {
   if (o === null) return true;
   if (!isObj(o)) return false;
   if ("node" in o) return str(o.node);
+  if ("finding" in o) return str(o.finding);
   return str(o.file) && (o.line === null || (Number.isInteger(o.line) && (o.line as number) > 0));
 }
 

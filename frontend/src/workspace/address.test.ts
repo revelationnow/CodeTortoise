@@ -87,3 +87,16 @@ describe("the Index and lit checks", () => {
     expect(readAddress("/f/F2", q("")).details).toBeUndefined();
   });
 });
+
+describe("a finding in the panel", () => {
+  it("reads and writes ?open=finding:F4", () => {
+    const a = readAddress("/s/S1", q("open=finding:F4"));
+    expect(a.open).toEqual({ finding: "F4" });
+    expect(href("/r/7", a)).toBe("/r/7/s/S1?open=finding%3AF4");
+    expect(readAddress("/s/S1", new URLSearchParams(href("/r/7", a).split("?")[1])).open).toEqual({ finding: "F4" });
+  });
+
+  it("reads an empty finding as nothing open", () => {
+    expect(readAddress("", q("open=finding:")).open).toBeNull();
+  });
+});
