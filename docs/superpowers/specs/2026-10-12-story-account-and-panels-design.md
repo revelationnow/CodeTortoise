@@ -59,9 +59,9 @@ The **reading** stage writes the accounts, after `build_reading` (call paths and
 the thread text and introduction:
 
 - every behaviour story that is not collapsed gets one call; calls run in parallel up to `llm.concurrency`;
-- each call goes through the ledger as the review's owner (purpose `story_account`, target the story id), so the
-  review's AI budget and the request log apply; a refused or failed call leaves that story without an account and adds
-  a stage note ("N story accounts not written: …");
+- each call goes through the ledger as the pipeline, as every up-front stage's calls do (purpose `story_account`,
+  target the story id), so the review's AI budget and the request log apply; a refused or failed call leaves that
+  story without an account and adds a stage note ("N story account(s) not written: …");
 - the answers are cached per review in the blob `story_account`, keyed by
   `sha256(ACCOUNT_VERSION | weak model | inputs)` per story, where the inputs are the prompt's facts less what a model
   rewrites earlier in each run (the story's and its flows' retold text, the findings' verdict severities); an
@@ -155,8 +155,8 @@ caller and needs a login (owner-only where it changes shared state).
 ## 7. Errors and limits
 
 - An account call that times out, is refused by the budget or answers invalid JSON leaves that story's short text; the
-  stage stays ok when at least one account was written, degraded ("story accounts not written: no answer") when none
-  of several were.
+  stage stays ok when at least one account was written, degraded ("N story account(s) not written: <first error>")
+  when a call failed and no story got an account.
 - A finding id in `?open=finding:` that the review lacks shows "Not found" in the panel, as a missing node does.
 - Long names in the new views follow the long-text rules (one-line labels end in an ellipsis with the whole text on
   hover; sentences wrap).

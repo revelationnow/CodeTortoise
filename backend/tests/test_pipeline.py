@@ -745,3 +745,21 @@ def test_when_every_account_call_fails_the_reading_is_degraded_and_says_why(fx, 
     assert st["status"] == "degraded"
     assert "story account(s) not written: RuntimeError: the endpoint is down" in st["message"]
     assert svc.store.get_blob(rid, "reading") is not None                     # the reading itself still stands
+
+
+def test_when_no_account_survives_and_some_calls_failed_the_reading_is_degraded(fx, tmp_path):
+    svc = make_services(fx, tmp_path)
+    seen = []
+
+    def answer(system, user):
+        if "Write a reviewer's account" not in user:
+            return RuntimeError("not scripted")
+        seen.append(user)
+        return RuntimeError("timed out") if len(seen) == 1 else {"sections": []}    # the rest answer, but say nothing
+    _weak(svc, answer)
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    assert len(seen) > 1
+    st = next(s for s in svc.store.list_stages(rid) if s["name"] == "reading")
+    assert st["status"] == "degraded" and "; 0 story account(s)" in st["message"]
+    assert "1 story account(s) not written: RuntimeError: timed out" in st["message"]

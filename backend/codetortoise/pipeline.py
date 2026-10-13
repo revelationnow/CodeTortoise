@@ -535,10 +535,11 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
                                                      store.get_blob(rid, "story_account") or {}, fresh=fresh,
                                                      concurrency=cfg.llm.concurrency, ledger=svc.ledger, rid=rid)
             store.put_blob(rid, "story_account", accounts)
-            told += f"; {sum(bool(per[sid].account) for sid in accounts)} story account(s)"
+            written = sum(bool(per[sid].account) for sid in accounts)
+            told += f"; {written} story account(s)"
             if dropped:
                 told += f"; {dropped} account section(s) broke the house style and were dropped"
-            if said and not accounts:
+            if said and not written:
                 notes = notes + said           # not one account: the stage is degraded
             elif said:
                 told += "; " + said[0]
