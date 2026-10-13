@@ -18,15 +18,14 @@ export default function CheckColumns({ className = "", left, children, foldName 
     <div className={`ov2 ov2-cols${folded ? " check-folded" : ""} ${className}`.trim()} ref={page}
          style={{ ["--cw" as string]: `${checkW}px` }}>
       {left}
-      {folded ? <Strip name={foldName} label="To check" side="right" onUnfold={() => ws.setFold("check", false)} /> : (
-        <div className="ov2-check">
-          <Resizer size={checkW} edge="left" min={CHECK_W.min} max={() => checkMax(page.current?.clientWidth ?? 0)}
-                   onSize={setCheckW} onDone={(w) => save(keys.checkW, w)}
-                   onReset={() => { setCheckW(CHECK_W.def); save(keys.checkW, CHECK_W.def); }} />
-          {desktop && <FoldButton label="To check" side="right" onFold={() => ws.setFold("check", true)} />}
-          {children}
-        </div>
-      )}
+      {folded && <Strip name={foldName} label="To check" side="right" onUnfold={() => ws.setFold("check", false)} />}
+      <div className="ov2-check" hidden={folded}>{/* hidden, not unmounted: an open comment box survives a fold */}
+        <Resizer size={checkW} edge="left" min={CHECK_W.min} max={() => checkMax(page.current?.clientWidth ?? 0)}
+                 onSize={setCheckW} onDone={(w) => save(keys.checkW, w)}
+                 onReset={() => { setCheckW(CHECK_W.def); save(keys.checkW, CHECK_W.def); }} />
+        {desktop && <FoldButton label="To check" side="right" onFold={() => ws.setFold("check", true)} />}
+        {children}
+      </div>
     </div>
   );
 }

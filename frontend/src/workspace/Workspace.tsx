@@ -62,7 +62,7 @@ export default function Workspace() {
   const closeTab = useCallback((o: Item) => {
     const { tabs: rest, next } = closeOf(tabs, o, addr.open);
     setTabs(rest);
-    if (next !== undefined) go({ ...addr, open: next, tab: "diff" });
+    if (next !== undefined) go({ ...addr, open: next, tab: "diff" }, true);   // closing is not a step to go Back over
   }, [tabs, addr, go]);
   const [folds, setFolds] = useState<Folds>(() => ({ rail: load<unknown>(keys.railFolded, false) === true,
                                                      check: load<unknown>(keys.checkFolded, false) === true }));

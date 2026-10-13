@@ -18,6 +18,19 @@ import { openKey, tabLabel } from "./tabs";
 
 /** The detail panel (spec 2026-10-04-review-workspace §3.7): a node's code or a file's diff, opened on demand; on a
  * phone a full-screen sheet whose top bar names its item. */
+/** The window's width, followed while `on` (Focus sizes the panel to the room the window leaves). */
+function useWindowWidth(on: boolean): number {
+  const [w, setW] = useState(() => window.innerWidth);
+  useEffect(() => {
+    if (!on) return;
+    const size = () => setW(window.innerWidth);
+    size();
+    window.addEventListener("resize", size);
+    return () => window.removeEventListener("resize", size);
+  }, [on]);
+  return w;
+}
+
 export default function Detail() {
   const ws = useWs(), d = ws.data, open = ws.addr.open!;
   const [width, setWidth] = useState(() => Math.max(320, loadWidth(keys.detailW, Math.round(window.innerWidth * 0.45))));
@@ -70,7 +83,8 @@ export default function Detail() {
   const sid = name?.story ?? null, st = sid ? d.stories?.stories.find((s) => s.id === sid) : null;
   const anns = found?.board.impacts ?? own?.detail?.board.impacts ?? d.board?.impacts ?? [];
   const focused = ws.focus && ws.screen === "desktop";
-  const shownW = focused ? Math.max(width, window.innerWidth - 28 - 360) : width;   // the centre keeps 360px
+  const winW = useWindowWidth(focused);
+  const shownW = focused ? Math.max(width, winW - 28 - 360) : width;   // the centre keeps 360px
   const wide = ws.screen === "desktop" && shownW > 900;
 
   const closeLabel = fid ? "Close the finding" : "Close the code";
@@ -103,17 +117,17 @@ export default function Detail() {
       )}
       <div className="ws-detail-head">
         {ws.screen !== "phone" && ws.tabs.length > 1 && (
-          <div className="ws-ptabs" role="tablist" aria-label="Open items">
+          <ul className="ws-ptabs" aria-label="Open items">
             {ws.tabs.map((t) => {
               const on = openKey(t) === openKey(open), tname = tabLabel(t, d.names);
               return (
-                <span key={openKey(t)} role="presentation" className={`ws-ptab${on ? " on" : ""}`}>
-                  <Link role="tab" aria-selected={on} to={ws.link(ws.opened(t))} title={`Show ${tname}`}>{tname}</Link>
+                <li key={openKey(t)} className={`ws-ptab${on ? " on" : ""}`}>
+                  <Link aria-current={on || undefined} to={ws.link(ws.opened(t))} title={`Show ${tname}`} aria-label={`Show ${tname}`}>{tname}</Link>
                   <button className="ws-ptab-x" aria-label={`Close ${tname}`} title={`Close ${tname}`} onClick={() => ws.closeTab(t)}>×</button>
-                </span>
+                </li>
               );
             })}
-          </div>
+          </ul>
         )}
         <div className="ws-detail-name">
           <b className="mono">{label ?? "Not found"}</b>

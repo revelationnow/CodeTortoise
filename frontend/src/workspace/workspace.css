@@ -553,7 +553,7 @@ a.ws-chip { text-decoration: none; }
 .ov2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); gap: 28px; align-items: start; }
 .ov2-right { position: sticky; top: 0; max-height: calc(100vh - 140px); overflow: auto; display: flex; flex-direction: column; gap: 14px; }
 .ws-tile { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
-.ws-tile > h3, .ws-tile > summary > h3 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; font-size: 12px;
+.ws-tile > h3, .ws-tile > summary > h3, .ws-tile > .ck-head > h3 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; font-size: 12px;
   text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
 .ws-tile > summary { cursor: pointer; list-style: none; }
 .ws-tile > summary > h3 { display: inline-flex; margin: 0; }
@@ -721,7 +721,7 @@ a.ws-chip { text-decoration: none; }
 .ws-detail-links { display: inline-flex; gap: 10px; font-size: 12.5px; }
 
 /* the side panel's tabs (spec 2026-10-12-story-account-and-panels §2.2) */
-.ws-ptabs { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 2px; }
+.ws-ptabs { display: flex; gap: 4px; overflow-x: auto; padding: 0 0 2px; margin: 0; list-style: none; }
 .ws-ptab { display: inline-flex; align-items: center; gap: 2px; flex: none; max-width: 160px; border: 1px solid var(--line);
   border-radius: 6px; padding: 1px 2px 1px 8px; font-size: 12px; }
 .ws-ptab a { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; color: var(--muted); }
@@ -738,7 +738,8 @@ a.ws-chip { text-decoration: none; }
 .ws-rail > .ws-fold { position: absolute; top: 6px; right: 8px; z-index: 2; }
 .ws-rail .ws-home { padding-right: 36px; }
 .ov2-check > .ws-fold { position: absolute; top: 6px; right: 6px; z-index: 2; }
-.ov2-check .ck-tile > h3 { padding-right: 30px; }
+.ov2-check .ck-tile > .ck-head { padding-right: 30px; }
+.ws-rail[hidden], .ov2-check[hidden] { display: none; }
 .ws-detail.focus { max-width: none; }
 .ws-focus { margin-left: auto; }
 .ws-focus.on { border-color: var(--accent); color: var(--ink); }
@@ -746,9 +747,12 @@ a.ws-chip { text-decoration: none; }
 
 /* Index › Findings (spec 2026-10-12-story-account-and-panels §4) */
 .ix-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 8px 0 12px; font-size: 13px; }
-.ix-findings-list li.on { background: var(--hover, transparent); }
+.ix-findings-list li.on { background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
 .ix-ftitle { flex: 1 1 240px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ck-all { margin-left: auto; font-size: 12px; font-weight: 400; }
+.ck-head { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; }
+.ck-head > h3 { flex: 1; min-width: 0; margin: 0 !important; }
+.ck-all { margin-left: auto; font-size: 12px; font-weight: 400; flex: none; }
+.ck-all-p { margin: 0 0 8px; text-align: right; }
 
 /* Index › CLs: a CL's files in place (spec 2026-10-12-story-account-and-panels §5) */
 .ix-tools { display: flex; justify-content: flex-end; margin: 4px 0 8px; }

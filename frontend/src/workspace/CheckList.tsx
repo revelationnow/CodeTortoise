@@ -79,9 +79,9 @@ export default function CheckTile({ groups, ofTotal, footer, id, allFindings }:
   const ws = useWs(), marks = ws.data.reading?.marks ?? {}, lit = ws.addr.check ?? null;
   const all = groups.flatMap((g) => g.checks);
   const count = openCount(all.filter((k) => isOpen(k, marks)).length, all.length, ofTotal);
-  const head = <>To check{count && <span className="ck-count">{count}</span>}
-    {allFindings && ws.data.findings.length > 0 && <Link className="ck-all" to={ws.link(at({ kind: "index", tab: "findings" }))}
-                                                         title="Every finding of the review">All findings</Link>}</>;
+  const head = <>To check{count && <span className="ck-count">{count}</span>}</>;
+  const toAll = allFindings && ws.data.findings.length > 0
+    && <Link className="ck-all" to={ws.link(at({ kind: "index", tab: "findings" }))} title="Every finding of the review">All findings</Link>;
   const body = <>
     {all.length === 0 && <p className="muted small">Nothing to check.</p>}
     {groups.map((g) => {
@@ -96,6 +96,7 @@ export default function CheckTile({ groups, ofTotal, footer, id, allFindings }:
     {footer}
   </>;
   return ws.screen === "phone"
-    ? <details className="ws-tile ck-tile" aria-label="To check" id={id} open={!!lit || undefined}><summary><h3>{head}</h3></summary>{body}</details>
-    : <section className="ws-tile ck-tile" aria-label="To check" id={id}><h3>{head}</h3>{body}</section>;
+    ? <details className="ws-tile ck-tile" aria-label="To check" id={id} open={!!lit || undefined}><summary><h3>{head}</h3></summary>
+        {toAll && <p className="ck-all-p">{toAll}</p>}{body}</details>
+    : <section className="ws-tile ck-tile" aria-label="To check" id={id}><div className="ck-head"><h3>{head}</h3>{toAll}</div>{body}</section>;
 }

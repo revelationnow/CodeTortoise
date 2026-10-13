@@ -38,19 +38,27 @@ test("the panel keeps a tab per item opened; a tab switches back and × closes i
   const row = page.getByRole("region", { name: "To check" }).locator(`.ck-row[data-finding="${sig.id}"]`);
   await row.getByRole("link", { name: `Finding ${sig.id}'s details` }).click();
   await row.getByRole("link", { name: /^Open / }).click();                 // the row's file, at its line
-  const tabs = page.getByRole("tablist", { name: "Open items" });
-  await expect(tabs.getByRole("tab")).toHaveCount(2);
-  await expect(tabs.getByRole("tab", { selected: true })).toHaveText(/\.[ch]$/);
-  await tabs.getByRole("tab", { name: sig.id }).click();
+  const tabs = page.getByRole("list", { name: "Open items" });
+  await expect(tabs.getByRole("link", { name: /^Show / })).toHaveCount(2);
+  await expect(tabs.locator("a[aria-current='true']")).toHaveText(/\.[ch]$/);
+  await tabs.getByRole("link", { name: `Show ${sig.id}` }).click();
   await expect(page.getByRole("complementary", { name: `Finding: ${sig.id}` })).toBeVisible();
+  const entries = await page.evaluate(() => history.length);
   await tabs.getByRole("button", { name: `Close ${sig.id}` }).click();     // the active one, first: its right neighbour shows
   await expect(page.getByRole("complementary", { name: /^Code: / })).toBeVisible();
-  await expect(page.getByRole("tablist", { name: "Open items" })).toHaveCount(0);   // one tab left: no bar
+  await expect(page.getByRole("list", { name: "Open items" })).toHaveCount(0);   // one tab left: no bar
+  expect(await page.evaluate(() => history.length)).toBe(entries);          // closing is not a step to go Back over
 });
 
 test("the rail and To check fold to strips and stay folded; Focus folds both and widens the panel until pressed again", async ({ page }) => {
   const base = await startReview(page);
   await page.goto(`${base}/s/S1`);
+  const talk = page.getByRole("region", { name: "To check" }).getByRole("button", { name: /^Comment/ }).first();
+  await talk.click();
+  await expect(talk).toHaveAttribute("aria-expanded", "true");
+  await page.getByRole("button", { name: "Fold To check" }).click();
+  await page.getByRole("button", { name: "Unfold To check" }).click();
+  await expect(talk).toHaveAttribute("aria-expanded", "true");               // folding hides the column, it keeps its state
   await page.getByRole("button", { name: "Fold the contents" }).click();
   await expect(page.locator(".ws-rail.folded")).toContainText("Contents");
   await page.getByRole("button", { name: "Fold To check" }).click();
@@ -71,6 +79,11 @@ test("the rail and To check fold to strips and stay folded; Focus folds both and
   await expect(page.locator(".ws-strip.right")).toBeVisible();
   expect((await panel.boundingBox())!.width).toBeGreaterThan(before);
   expect((await page.getByRole("region", { name: "Centre" }).boundingBox())!.width).toBeGreaterThanOrEqual(359);
+  const focusedW = (await panel.boundingBox())!.width;
+  await page.setViewportSize({ width: 1700, height: 900 });                  // a wider window: the panel takes the room
+  await expect.poll(async () => (await panel.boundingBox())!.width).toBeGreaterThan(focusedW + 250);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await expect.poll(async () => (await panel.boundingBox())!.width).toBeLessThan(focusedW + 2);
   await panel.getByRole("button", { name: "Focus" }).click();                // pressed again: as it was
   await expect(page.locator(".ws-rail.folded")).toHaveCount(0);
   expect(Math.abs((await panel.boundingBox())!.width - before)).toBeLessThan(2);
@@ -97,6 +110,7 @@ test("Index › Findings lists every finding worst first, filters by severity an
   const base = await startReview(page);
   const all = await findingsOf(page, base);
   await expect(page.locator(".ws-rail").getByRole("link", { name: "Open the Index: Findings" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "To check" }).getByRole("heading").getByRole("link")).toHaveCount(0);
   await page.getByRole("region", { name: "To check" }).getByRole("link", { name: "All findings" }).click();
   await expect(page).toHaveURL(new RegExp(`${base}/i/findings$`));
   await expect(page.getByRole("tab", { name: `Findings (${all.length})` })).toHaveAttribute("aria-selected", "true");
@@ -118,6 +132,8 @@ test("Index › Findings lists every finding worst first, filters by severity an
   await expect(page).toHaveURL(new RegExp(`/i/findings\\?open=finding%3AF\\d+&sev=${top}$`));
   await expect(page.getByRole("complementary", { name: /^Finding: F\d+$/ }).locator("h2")).toBeVisible();
   await expect(rows.first()).toBeVisible();                                   // the list stays
+  const bg = (el: Element) => getComputedStyle(el).backgroundColor;
+  expect(await rows.first().evaluate(bg)).not.toBe("rgba(0, 0, 0, 0)");    // the opened row is marked
 });
 
 test("Index › CLs expands a CL's files in place and opens a file's diff in the panel without leaving", async ({ page }) => {
