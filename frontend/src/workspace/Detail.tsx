@@ -4,11 +4,14 @@ import { keys, loadWidth, save } from "../board/prefs";
 import Resizer from "../board/Resizer";
 import { api, ApiError, type NodeName } from "../api";
 import type { Board, StoryDetail } from "../board/types";
+import { SeverityBadge } from "../components/Badges";
+import { tidy } from "../lib/tidy";
 import { at } from "./address";
 import { useWs } from "./context";
 import { short } from "./crumbs";
 import { detailBoards, locateNode } from "./detail";
 import FileDiff from "./FileDiff";
+import FindingBody from "./FindingBody";
 import FunctionCode from "./FunctionCode";
 import Neighbours from "./Neighbours";
 
@@ -18,6 +21,7 @@ export default function Detail() {
   const ws = useWs(), d = ws.data, open = ws.addr.open!;
   const [width, setWidth] = useState(() => Math.max(320, loadWidth(keys.detailW, Math.round(window.innerWidth * 0.45))));
   const nid = "node" in open ? open.node : null, known = nid ? d.names[nid] : null;
+  const fid = "finding" in open ? open.finding : null, finding = fid ? d.findings.find((x) => x.id === fid) ?? null : null;
   // a node off every board (a Neighbours row's caller or callee) is named by its neighbours (§4.3); null: no such node
   const [asked, setAsked] = useState<{ nid: string; name: NodeName | null; error?: string } | null>(null);
   useEffect(() => {
@@ -57,7 +61,7 @@ export default function Detail() {
   const waiting = !!name?.story && !own && !(found?.node.path && found.node.range);
   const node = found?.node;
   const path = "file" in open ? open.file : node?.path ?? name?.path ?? null;
-  const label = "file" in open ? path!.slice(path!.lastIndexOf("/") + 1) : node?.label ?? name?.label ?? null;
+  const label = fid ? (finding ? fid : null) : "file" in open ? path!.slice(path!.lastIndexOf("/") + 1) : node?.label ?? name?.label ?? null;
   const lines = node?.range ? `lines ${node.range[0]}–${node.range[1]}` : "file" in open && open.line ? `line ${open.line}`
     : name?.line ? `line ${name.line}` : null;
   const badge = !nid ? null : node?.kind === "field" || node?.kind === "struct" || name?.kind === "field" ? "field"
@@ -66,7 +70,12 @@ export default function Detail() {
   const anns = found?.board.impacts ?? own?.detail?.board.impacts ?? d.board?.impacts ?? [];
   const wide = ws.screen === "desktop" && width > 900;
 
+  const closeLabel = fid ? "Close the finding" : "Close the code";
   const body = () => {
+    if (fid) return finding
+      ? <div className="ws-finding ws-panel-finding"><FindingBody fid={fid} ids="ws-p" head={
+          <h2 className="ws-panel-title"><SeverityBadge severity={finding.severity} /> {tidy(finding.title)}</h2>} /></div>
+      : <div className="banner warn">Finding {fid} isn't in this review. <Link to={ws.link(at({ kind: "index", tab: "findings" }))}>All findings</Link></div>;
     if (nid && !name && !node && !off) return <div className="bd-note">Finding this function…</div>;
     if (nid && !name && !node && off?.error) return <div className="bd-note error">{off.error}</div>;
     if (nid && !name && !node)
@@ -79,12 +88,12 @@ export default function Detail() {
                      cl={ws.addr.place.kind === "cl" && !("file" in open && open.all) ? ws.addr.place.cl : null} />;
   };
   return (
-    <aside className="ws-detail" style={{ ["--w" as string]: `${width}px` }} aria-label={`Code: ${label ?? "not found"}`}>
+    <aside className="ws-detail" style={{ ["--w" as string]: `${width}px` }} aria-label={fid ? `Finding: ${fid}` : `Code: ${label ?? "not found"}`}>
       {ws.screen === "desktop" && <Resizer size={width} edge="left" min={320} max={() => window.innerWidth * 0.75}
                                            onSize={setWidth} onDone={(w) => save(keys.detailW, w)} />}
       {ws.screen === "phone" && (
         <div className="ws-phonebar">
-          <Link to={close} aria-label="Close the code" title="Close the code">‹ {st ? st.id : "Back"}</Link>
+          <Link to={close} aria-label={closeLabel} title={closeLabel}>‹ {st ? st.id : "Back"}</Link>
           <span className="sep" aria-hidden>·</span><b>{label}</b>
         </div>
       )}
@@ -95,7 +104,11 @@ export default function Detail() {
           {st && <Link className="ws-detail-story" to={ws.link(ws.item({ kind: "story", sid: st.id, view: "steps" }))}
                        title={`Go to story ${st.id}: ${short(st.title)}`} aria-label={`Go to story ${st.id}: ${short(st.title)}`}>
             {short(st.title, 40)}<span className="ws-handle">{st.id}</span></Link>}
-          {ws.screen !== "phone" && <Link className="ws-x" to={close} aria-label="Close the code" title="Close the code">✕</Link>}
+          {fid && finding && <span className="ws-detail-links">
+            <Link to={ws.link(at({ kind: "finding", fid }, { details: true }))} title={`Open finding ${fid} as a page`}>Open as a page</Link>
+            <Link to={ws.link(at({ kind: "index", tab: "findings" }, { open }))} title="Every finding of the review">All findings</Link>
+          </span>}
+          {ws.screen !== "phone" && <Link className="ws-x" to={close} aria-label={closeLabel} title={closeLabel}>✕</Link>}
         </div>
         {path && <div className="ws-detail-path mono">{path}{lines && <span className="muted"> · {lines}</span>}</div>}
         {nid && (name || node) && (

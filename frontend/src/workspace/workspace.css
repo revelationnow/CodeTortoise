@@ -714,3 +714,8 @@ a.ws-chip { text-decoration: none; }
 .st-account .st-acc:first-child h4 { margin-top: 0; }
 .st-account p { margin: 0 0 6px; }
 .st-account > .st-place { color: var(--muted); }
+
+/* a finding in the side panel (spec 2026-10-12-story-account-and-panels §2.1) */
+.ws-panel-finding { padding: 4px 2px; }
+.ws-panel-title { font-size: 16px; margin: 0; }
+.ws-detail-links { display: inline-flex; gap: 10px; font-size: 12.5px; }
