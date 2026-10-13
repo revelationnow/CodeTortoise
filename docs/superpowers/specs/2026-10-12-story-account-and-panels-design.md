@@ -63,7 +63,9 @@ the thread text and introduction:
   review's AI budget and the request log apply; a refused or failed call leaves that story without an account and adds
   a stage note ("N story accounts not written: …");
 - the answers are cached per review in the blob `story_account`, keyed by
-  `sha256(ACCOUNT_VERSION | weak model | prompt)` per story; an unchanged story on a re-run reuses its account, a
+  `sha256(ACCOUNT_VERSION | weak model | inputs)` per story, where the inputs are the prompt's facts less what a model
+  rewrites earlier in each run (the story's and its flows' retold text, the findings' verdict severities); an
+  unchanged story on a re-run reuses its account, a
   forced re-run (`fresh`) rewrites every account. `ACCOUNT_VERSION = 1` lives beside the prompt and is bumped with
   every change to it.
 
