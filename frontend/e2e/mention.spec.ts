@@ -80,15 +80,15 @@ test.describe("with an AI", () => {
     await startReview(page);
     await page.getByRole("button", { name: /^AI \d+\/200$/ }).click();
     const usage = page.getByRole("dialog", { name: "AI usage" });
-    await usage.getByLabel("New budget").fill("4");                      // the run used 4: verdicts, summary, 1 flow, 1 finding
+    await usage.getByLabel("New budget").fill("6");          // the run used 6: verdicts, summary, 1 flow, 1 finding, 2 story accounts
     await usage.getByRole("button", { name: "Raise budget" }).click();
-    await expect(page.getByRole("button", { name: "AI 4/4" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "AI 6/6" })).toBeVisible();
     await usage.getByRole("button", { name: "Close" }).click();
     const { viewer, box } = await commentOnReturn(page);
     await box.fill("@tortoise does this leak?");
     await viewer.getByRole("button", { name: "Comment", exact: true }).click();
     const reply = viewer.locator(".comment.ai");
-    await expect(reply).toContainText("I couldn't answer: this review has used its 4 AI calls; the owner can raise it.");
+    await expect(reply).toContainText("I couldn't answer: this review has used its 6 AI calls; the owner can raise it.");
     await reply.getByRole("button", { name: "Raise budget" }).click();
     await expect(page.getByRole("dialog", { name: "AI usage" })).toBeVisible();
   });

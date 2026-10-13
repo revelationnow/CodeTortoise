@@ -553,7 +553,7 @@ a.ws-chip { text-decoration: none; }
 .ov2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); gap: 28px; align-items: start; }
 .ov2-right { position: sticky; top: 0; max-height: calc(100vh - 140px); overflow: auto; display: flex; flex-direction: column; gap: 14px; }
 .ws-tile { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
-.ws-tile > h3, .ws-tile > summary > h3 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; font-size: 12px;
+.ws-tile > h3, .ws-tile > summary > h3, .ws-tile > .ck-head > h3 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; font-size: 12px;
   text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
 .ws-tile > summary { cursor: pointer; list-style: none; }
 .ws-tile > summary > h3 { display: inline-flex; margin: 0; }
@@ -653,7 +653,7 @@ a.ws-chip { text-decoration: none; }
 .st-tiles .ov2-left > section { margin: 0 0 22px; }
 .st-tiles .ov2-left h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 8px; }
 .st-place { color: var(--muted); }
-.st-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin: 0 0 22px; }
+.st-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 14px; margin: 0 0 22px; }
 .st-contracts { list-style: none; margin: 0; padding: 0; font-size: 13px; }
 .st-contract { padding: 5px 0; border-top: 1px solid var(--line); }
 .st-contract:first-child { border-top: 0; }
@@ -708,3 +708,55 @@ a.ws-chip { text-decoration: none; }
 .ix-sub { flex-basis: 100%; color: var(--muted); font-size: 13px; }
 .ix-dir h3 { font-size: 12px; color: var(--muted); margin: 14px 0 4px; }
 .ix-page .cnt { font: 11px var(--mono); } .ix-page .cnt .p { color: var(--ok); } .ix-page .cnt .m { color: var(--bad); }
+
+/* a behaviour story's account (spec 2026-10-12-story-account-and-panels §1.1) */
+.st-account h4 { margin: 14px 0 4px; font-size: 13px; color: var(--muted); font-weight: 600; }
+.st-account .st-acc:first-child h4 { margin-top: 0; }
+.st-account p { margin: 0 0 6px; }
+.st-account > .st-place { color: var(--muted); }
+
+/* a finding in the side panel (spec 2026-10-12-story-account-and-panels §2.1) */
+.ws-panel-finding { padding: 4px 2px; overflow-wrap: anywhere; }
+.ws-panel-title { font-size: 16px; margin: 0; }
+.ws-detail-links { display: inline-flex; gap: 10px; font-size: 12.5px; }
+
+/* the side panel's tabs (spec 2026-10-12-story-account-and-panels §2.2) */
+.ws-ptabs { display: flex; gap: 4px; overflow-x: auto; padding: 0 0 2px; margin: 0; list-style: none; }
+.ws-ptab { display: inline-flex; align-items: center; gap: 2px; flex: none; max-width: 160px; border: 1px solid var(--line);
+  border-radius: 6px; padding: 1px 2px 1px 8px; font-size: 12px; }
+.ws-ptab a { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; color: var(--muted); }
+.ws-ptab.on { border-color: var(--accent); }
+.ws-ptab.on a { color: var(--ink); font-weight: 600; }
+.ws-ptab-x { border: 0; background: none; color: var(--muted); padding: 0 4px; cursor: pointer; font-size: 14px; line-height: 1; }
+
+/* folded columns and Focus (spec 2026-10-12-story-account-and-panels §3) */
+.ws-rail.folded { width: 28px; }
+.ws-strip { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 8px 0; width: 28px; }
+.ws-strip.right { position: sticky; top: 0; align-self: start; min-height: 200px; border-left: 1px solid var(--line); }
+.ws-strip-name { writing-mode: vertical-rl; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.ov2.ov2-cols.check-folded { grid-template-columns: minmax(0, 1fr) 28px; }
+.ws-rail > .ws-fold { position: absolute; top: 6px; right: 8px; z-index: 2; }
+.ws-rail .ws-home { padding-right: 36px; }
+.ov2-check > .ws-fold { position: absolute; top: 6px; right: 6px; z-index: 2; }
+.ov2-check .ck-tile > .ck-head { padding-right: 30px; }
+.ws-rail[hidden], .ov2-check[hidden] { display: none; }
+.ws-detail.focus { max-width: none; }
+.ws-focus { margin-left: auto; }
+.ws-focus.on { border-color: var(--accent); color: var(--ink); }
+.ws-focus + .ws-x { margin-left: 0; }
+
+/* Index › Findings (spec 2026-10-12-story-account-and-panels §4) */
+.ix-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 8px 0 12px; font-size: 13px; }
+.ix-findings-list li.on { background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+.ix-ftitle { flex: 1 1 240px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ck-head { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; }
+.ck-head > h3 { flex: 1; min-width: 0; margin: 0 !important; }
+.ck-all { margin-left: auto; font-size: 12px; font-weight: 400; flex: none; }
+.ck-all-p { margin: 0 0 8px; text-align: right; }
+
+/* Index › CLs: a CL's files in place (spec 2026-10-12-story-account-and-panels §5) */
+.ix-tools { display: flex; justify-content: flex-end; margin: 4px 0 8px; }
+.ix-exp { padding: 0 6px; }
+.ix-files { flex-basis: 100%; list-style: none; margin: 4px 0 0 28px; padding: 0; }
+.ix-list .ix-files li { border-bottom: 0; padding: 2px 0; }
+.ix-files a { min-width: 0; overflow-wrap: anywhere; }

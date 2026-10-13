@@ -46,7 +46,7 @@ function CheckRow({ k, lit }: { k: Check; lit: boolean }) {
                                                       onChange={() => run(() => d.tick("check", k.key, !read))} /> Read</label>}
         <button className="link" onClick={() => setTalk(!talk)} aria-expanded={talk}>Comment{talks ? ` (${talks})` : ""}</button>
         {k.depot && <Link to={ws.link(ws.opened({ file: k.depot, line: k.line }))} title={`Open ${place}`} aria-label={`Open ${place}`}>Open</Link>}
-        {k.finding && <Link to={ws.link(at({ kind: "finding", fid: k.finding }, { details: true }))} title={`Finding ${k.finding}'s details`}
+        {k.finding && <Link to={ws.link(ws.opened({ finding: k.finding }))} title={`Finding ${k.finding}'s details`}
                             aria-label={`Finding ${k.finding}'s details`}>Details</Link>}
         {k.kind === "reader" && k.field && <SinkMark label={k.field} />}
       </div>
@@ -74,12 +74,14 @@ export function Cleared({ checks }: { checks: Check[] }) {
   );
 }
 
-export default function CheckTile({ groups, ofTotal, footer, id }:
-  { groups: CheckGroup[]; ofTotal: boolean; footer?: ReactNode; id?: string }) {
+export default function CheckTile({ groups, ofTotal, footer, id, allFindings }:
+  { groups: CheckGroup[]; ofTotal: boolean; footer?: ReactNode; id?: string; allFindings?: boolean }) {
   const ws = useWs(), marks = ws.data.reading?.marks ?? {}, lit = ws.addr.check ?? null;
   const all = groups.flatMap((g) => g.checks);
   const count = openCount(all.filter((k) => isOpen(k, marks)).length, all.length, ofTotal);
   const head = <>To check{count && <span className="ck-count">{count}</span>}</>;
+  const toAll = allFindings && ws.data.findings.length > 0
+    && <Link className="ck-all" to={ws.link(at({ kind: "index", tab: "findings" }))} title="Every finding of the review">All findings</Link>;
   const body = <>
     {all.length === 0 && <p className="muted small">Nothing to check.</p>}
     {groups.map((g) => {
@@ -94,6 +96,7 @@ export default function CheckTile({ groups, ofTotal, footer, id }:
     {footer}
   </>;
   return ws.screen === "phone"
-    ? <details className="ws-tile ck-tile" aria-label="To check" id={id} open={!!lit || undefined}><summary><h3>{head}</h3></summary>{body}</details>
-    : <section className="ws-tile ck-tile" aria-label="To check" id={id}><h3>{head}</h3>{body}</section>;
+    ? <details className="ws-tile ck-tile" aria-label="To check" id={id} open={!!lit || undefined}><summary><h3>{head}</h3></summary>
+        {toAll && <p className="ck-all-p">{toAll}</p>}{body}</details>
+    : <section className="ws-tile ck-tile" aria-label="To check" id={id}><div className="ck-head"><h3>{head}</h3>{toAll}</div>{body}</section>;
 }

@@ -46,7 +46,8 @@ test("long names stay inside their boxes on every page, cut-short labels showing
   const base = await startReview(page);
   await page.evaluate(() => { localStorage.setItem("ct.ws.checkW", "260"); });
   const seen: string[] = [];
-  for (const path of ["", "/s/S1", "/s/S2", "/cl/101", "/f/F4?details=1", "/i/cls", "/i/files", "/i/checks"]) {
+  for (const path of ["", "/s/S1", "/s/S2", "/cl/101", "/f/F4?details=1", "/i/cls", "/i/files", "/i/checks", "/i/findings",
+                      "/s/S1?open=finding:F4"]) {
     await page.goto(base + path);
     await expect(page.getByRole("region", { name: "Centre" })).toContainText(/\S/);
     await page.waitForLoadState("networkidle");
@@ -89,4 +90,18 @@ test("check locations, the story's file tree and the breadcrumb stay one line, t
   const title = page.locator(".ws-rail .ws-row-title").filter({ hasText: "logger_flush" }).first();
   const box = await title.evaluate((el) => el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight));
   expect(Math.round(box)).toBeLessThanOrEqual(3);
+});
+
+test.describe("with an AI", () => {
+  test.use({ baseURL: "http://127.0.0.1:8798" });       // e2e/serve-ai.sh: the fake model writes story accounts
+
+  test("a story's account keeps long names inside its box", async ({ page }) => {
+    test.setTimeout(180_000);
+    await longNames(page);
+    const base = await startReview(page);
+    await page.goto(`${base}/s/S1`);
+    await expect(page.locator(".st-acc").first()).toBeVisible({ timeout: 30_000 });
+    await page.waitForLoadState("networkidle");
+    expect(await problems(page)).toEqual([]);
+  });
 });

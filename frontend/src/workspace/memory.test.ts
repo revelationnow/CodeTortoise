@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Address } from "./address";
+import { type Address, at } from "./address";
 import { loadMemory, recall, remember, saveMemory } from "./memory";
 
 const story: Address = { place: { kind: "story", sid: "S1", view: "graph" }, flow: 2, open: { node: "N9" }, tab: "neighbours" };
@@ -51,6 +51,20 @@ describe("stored memory", () => {
     expect(Object.keys(items)).toEqual(["ct.ws.7.memory"]);
   });
 
+  it("keeps an item whose panel showed a finding", () => {
+    storage();
+    const m = { "s:S1": at({ kind: "story", sid: "S1", view: "steps" }, { open: { finding: "F4" } }) };
+    saveMemory(1, m);
+    expect(loadMemory(1)).toEqual(m);
+  });
+
+  it("keeps a file opened in a named CL", () => {
+    storage();
+    const m = { "cl:101": at({ kind: "cl", cl: 101 }, { open: { file: "//d/a.c", line: 3, cl: 102 } }) };
+    saveMemory(1, m);
+    expect(loadMemory(1)).toEqual(m);
+  });
+
   it("drops stored entries that are not addresses, or not at their own item", () => {
     const finding: Address = { place: { kind: "finding", fid: "F2" }, flow: null, open: { file: "//d/a.c", line: null }, tab: "diff" };
     storage({ "ct.ws.7.memory": JSON.stringify({
@@ -60,6 +74,7 @@ describe("stored memory", () => {
       "s:S3": { place: { kind: "story", sid: "S3", view: "steps" }, flow: -1, open: null, tab: "diff" },
       "s:S4": { place: { kind: "story", sid: "S4", view: "steps" }, flow: null, open: { node: 4 }, tab: "diff" },
       "s:S5": { place: { kind: "story", sid: "S5", view: "steps" }, flow: null, open: null, tab: "nope" },
+      "s:S6": { place: { kind: "story", sid: "S6", view: "steps" }, flow: null, open: { file: "//d/a.c", line: null, cl: "x" }, tab: "diff" },
       "cl:1": "CL 1", "whole": null }) });
     expect(loadMemory(7)).toEqual({ "s:S1": story, "f:F2": finding });
   });

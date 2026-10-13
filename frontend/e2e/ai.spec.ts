@@ -123,9 +123,9 @@ test.describe("with an AI", () => {
     expect(await contrast(page, ".ws-head .ai-pill")).toBeGreaterThanOrEqual(4.5);   // readable on the light head
     await pill.click();
     const usage = page.getByRole("dialog", { name: "AI usage" });
-    await expect(usage).toContainText("By purpose: finding 1 · flow 1 · summary 1 · verdict 1");
+    await expect(usage).toContainText("By purpose: story_account 2 · finding 1 · flow 1 · summary 1 · verdict 1");
     await usage.getByText(/^All calls/).click();                          // the call list loads when opened
-    await expect(usage.locator(".ai-calls tbody tr")).toHaveCount(4);
+    await expect(usage.locator(".ai-calls tbody tr")).toHaveCount(6);                // + an account per behaviour story
     await usage.getByLabel("New budget").fill("300");
     await usage.getByRole("button", { name: "Raise budget" }).click();
     await expect(page.getByRole("button", { name: /^AI \d+\/300$/ })).toBeVisible();
@@ -152,5 +152,16 @@ test.describe("with an AI", () => {
     const card = page.locator(".card", { has: page.getByRole("heading", { name: "AI calls" }) });
     await expect(card).toContainText("Limits: 200 a review · 100 a person a day · 10 rounds for one @tortoise answer (1 call");
     await expect(card).toContainText(/Today: \d+ calls across reviews/);
+  });
+
+  test("a story's What it does is the weak model's account: purpose, its flows and what it means, each AI-labelled", async ({ page }) => {
+    await startReview(page);
+    await page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ }).click();
+    const what = page.getByRole("region", { name: "What it does" });
+    await expect(what.locator(".st-acc").first()).toBeVisible({ timeout: 30_000 });
+    await expect(what.locator(".st-acc h4").first()).toHaveText("What it is for");
+    await expect(what.locator(".st-acc h4").last()).toHaveText("What it means for the rest");
+    await expect(what.locator(".st-acc .ai-label")).toHaveCount(await what.locator(".st-acc").count());
+    await expect(what).toContainText("This story makes uart_send count its transmit errors.");
   });
 });

@@ -171,9 +171,9 @@ test.describe("desktop", () => {
     await expect(page).toHaveURL(new RegExp(`${base}/s/S2\\?check=${sig.id}$`));
     const lit = page.getByRole("region", { name: "To check" }).locator(".ck-row.lit");
     await expect(lit).toContainText("hal_write: signature changed");
-    await lit.getByRole("link", { name: `Finding ${sig.id}'s details` }).click();     // the finding's own page stays one click away
-    await expect(page).toHaveURL(new RegExp(`${base}/f/${sig.id}\\?details=1$`));
-    await expect(page.locator(".ws-finding h2")).toContainText("hal_write: signature changed");
+    await lit.getByRole("link", { name: `Finding ${sig.id}'s details` }).click();     // the finding opens beside its story
+    await expect(page).toHaveURL(new RegExp(`${base}/s/S2\\?open=finding%3A${sig.id}&check=${sig.id}$`));   // in the panel
+    await expect(page.locator(".ws-detail .ws-finding h2")).toContainText("hal_write: signature changed");
     const info = findings.find((f) => f.severity === "info")!;                      // no row for it: its own page
     await page.goto(`${base}/f/${info.id}`);
     await expect(page.locator(".ws-finding h2")).toBeVisible();

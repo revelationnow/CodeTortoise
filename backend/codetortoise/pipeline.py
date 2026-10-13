@@ -21,6 +21,7 @@ from codetortoise.facts.runner import build_requests, parse_summary, run_extract
 from codetortoise.facts_prep import prepare_facts
 from codetortoise.grouping import StoryPlan, rules_plan
 from codetortoise.impact import ImpactModel, build_impact
+from codetortoise.llm.account import write_accounts
 from codetortoise.llm.brief_context import brief_context
 from codetortoise.llm.intro import INTRO_VERSION, write_intro
 from codetortoise.llm.intro import prompt as intro_prompt
@@ -527,6 +528,21 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
                             "route": [s.model_dump() for s in r.route], "route_source": r.route_source})
                 told += (f"; introduction by {iby}" if iby == strong.model else
                          f"; introduction by {iby} (the strong model failed)" if iby else "; fixed introduction")
+        if svc.llm is not None:                # each behaviour story's account (spec 2026-10-12 §1.4)
+            aictx = AiContext(ctx["impact"], x.c.findings, collect_snippets(ctx["impact"], ctx["cs"], ctx["after"]),
+                              cfg.llm.max_context_tokens, ctx.get("node_files"))
+            accounts, dropped, said = write_accounts(svc.llm, aictx, bs.story_details, per,
+                                                     store.get_blob(rid, "story_account") or {}, fresh=fresh,
+                                                     concurrency=cfg.llm.concurrency, ledger=svc.ledger, rid=rid)
+            store.put_blob(rid, "story_account", accounts)
+            written = sum(bool(per[sid].account) for sid in accounts)
+            told += f"; {written} story account(s)"
+            if dropped:
+                told += f"; {dropped} account section(s) broke the house style and were dropped"
+            if said and not written:
+                notes = notes + said           # not one account: the stage is degraded
+            elif said:
+                told += "; " + said[0]
         store.replace_blobs(rid, ["reading", "reading_head", "lines"], ["story_reading:"],
                             {"reading": r, "reading_head": headline_facts(r, x.c.findings),
                              "lines": {d: fl.model_dump() for d, fl in lines.items()},

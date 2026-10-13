@@ -1,5 +1,7 @@
 /** Workspace addresses (spec 2026-10-04-review-workspace §2.3): every place has one, so reload, shared links and Back
  * work. Ids appear here and nowhere in visible text. */
+import type { Severity } from "../api";
+import { FINDING_STATES, type FindingState, SEVERITIES } from "./findings";
 
 export type Place =
   | { kind: "whole"; view?: "graph" }
@@ -11,12 +13,15 @@ export type Place =
   | { kind: "unknown"; path: string };
 
 /** The Index's tabs (spec 2026-10-07-review-reading §11): what the rail no longer lists. */
-export const INDEX_TABS = ["cls", "files", "checks", "map"] as const;
+export const INDEX_TABS = ["cls", "files", "checks", "findings", "map"] as const;
 export type IndexTab = typeof INDEX_TABS[number];
 
-/** What the detail panel shows: a node's code, or a file's diff (at a line). */
-/** `all`: the file in all CLs, whatever CL the page is about (phase 2 §5.4: a rewrite's line is a final-text line). */
-export type Open = { node: string } | { file: string; line: number | null; all?: true } | null;
+/** What the detail panel shows: a node's code, a file's diff (at a line) or a finding (spec 2026-10-12 §2.1). */
+/** `all`: the file in all CLs, whatever CL the page is about (phase 2 §5.4: a rewrite's line is a final-text line).
+ * `cl`: the file in that CL, from a page about no CL (Index › CLs, spec 2026-10-12-story-account-and-panels §5). */
+export type Open = { node: string } | { file: string; line: number | null; all?: true; cl?: number } | { finding: string } | null;
+/** One thing the panel can show. */
+export type Item = Exclude<Open, null>;
 export type Tab = "diff" | "neighbours";
 
 export interface Address {
@@ -31,6 +36,9 @@ export interface Address {
   check?: string | null;
   /** A finding's own page, from its row's Details, rather than its story. */
   details?: boolean;
+  /** Index › Findings' filters (spec 2026-10-12 §4); only on that tab. */
+  sev?: Severity | null;
+  status?: FindingState | null;
 }
 
 function readPlace(path: string, q: URLSearchParams): Place {
@@ -48,26 +56,32 @@ function readPlace(path: string, q: URLSearchParams): Place {
 
 function readOpen(raw: string | null): Open {
   if (!raw) return null;
+  if (raw.startsWith("finding:")) return raw.length > 8 ? { finding: raw.slice(8) } : null;
   if (!raw.startsWith("file:")) return { node: raw };
   const m = /^(.+?)(?::(\d+))?$/.exec(raw.slice(5));
   return m ? { file: m[1], line: m[2] && Number(m[2]) > 0 ? Number(m[2]) : null } : null;
 }
 
-function withAll(open: Open, all: boolean): Open {
-  return all && open && "file" in open ? { ...open, all: true } : open;
+function withCl(open: Open, cl: string | null): Open {
+  if (!open || !("file" in open)) return open;
+  if (cl === "all") return { ...open, all: true };
+  return cl && /^[1-9]\d*$/.test(cl) ? { ...open, cl: Number(cl) } : open;
 }
 
 /** The address of `path` (what follows `/r/:id`) and its query. */
 export function readAddress(path: string, q: URLSearchParams): Address {
   const flow = Number(q.get("flow"));
+  const place = readPlace(path, q), findings = place.kind === "index" && place.tab === "findings";
   return {
-    place: readPlace(path, q),
+    place,
     flow: Number.isInteger(flow) && flow > 0 ? flow : null,
-    open: withAll(readOpen(q.get("open")), q.get("cl") === "all"),
+    open: withCl(readOpen(q.get("open")), q.get("cl")),
     tab: q.get("tab") === "neighbours" ? "neighbours" : "diff",
     ...(q.get("story") ? { story: q.get("story") } : {}),
     ...(q.get("check") ? { check: q.get("check") } : {}),
     ...(q.get("details") === "1" ? { details: true } : {}),
+    ...(findings && (SEVERITIES as string[]).includes(q.get("sev") ?? "") ? { sev: q.get("sev") as Severity } : {}),
+    ...(findings && (FINDING_STATES as string[]).includes(q.get("status") ?? "") ? { status: q.get("status") as FindingState } : {}),
   };
 }
 
@@ -89,11 +103,16 @@ export function href(base: string, a: Address): string {
   if ((a.place.kind === "story" || a.place.kind === "whole") && a.place.view === "graph") q.set("view", "graph");
   if (a.story && (a.place.kind === "whole" || a.place.kind === "cluster")) q.set("story", a.story);
   if (a.flow) q.set("flow", String(a.flow));
-  if (a.open) q.set("open", "node" in a.open ? a.open.node : `file:${a.open.file}${a.open.line ? `:${a.open.line}` : ""}`);
-  if (a.open && "file" in a.open && a.open.all) q.set("cl", "all");
+  if (a.open) q.set("open", "node" in a.open ? a.open.node : "finding" in a.open ? `finding:${a.open.finding}`
+    : `file:${a.open.file}${a.open.line ? `:${a.open.line}` : ""}`);
+  if (a.open && "file" in a.open && (a.open.all || a.open.cl)) q.set("cl", a.open.all ? "all" : String(a.open.cl));
   if (a.tab !== "diff") q.set("tab", a.tab);
   if (a.check) q.set("check", a.check);
   if (a.details && a.place.kind === "finding") q.set("details", "1");
+  if (a.place.kind === "index" && a.place.tab === "findings") {
+    if (a.sev) q.set("sev", a.sev);
+    if (a.status) q.set("status", a.status);
+  }
   return `${base}${placePath(a.place)}${q.size ? `?${q}` : ""}`;
 }
 

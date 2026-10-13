@@ -14,7 +14,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from codetortoise.board import BoardContext, Flow, _count, _covered, _Ctx, analyse, is_test_path
+from codetortoise.board import BoardContext, Files, Flow, _count, _covered, _Ctx, analyse, is_test_path
 from codetortoise.cparse import is_header, preproc_spans
 from codetortoise.detectors.base import SEVERITY_RANK, Finding
 from codetortoise.pieces import PieceSet, node_cl
@@ -164,6 +164,14 @@ class TestsRow(BaseModel):
     untested: list[str] = Field(default_factory=list)
 
 
+class AccountPart(BaseModel):
+    """One section of a behaviour story's account (spec 2026-10-12-story-account-and-panels §1.4)."""
+    kind: Literal["purpose", "flow", "effects"]
+    heading: str                      # "What it is for", the flow's label, "What it means for the rest"
+    text: str
+    cites: list[str] = Field(default_factory=list)
+
+
 class StoryReading(BaseModel):
     story: str
     contracts: list[ContractRow] = Field(default_factory=list)
@@ -175,6 +183,8 @@ class StoryReading(BaseModel):
     position: int | None = None       # 1-based, within its thread
     cl_order: list[int] = Field(default_factory=list)           # the order to read its CLs in (phase 2 §4.4)
     rewrites: list[Rewrite] = Field(default_factory=list)       # rewrites in its code
+    account: list[AccountPart] = Field(default_factory=list)   # the weak model's account (spec 2026-10-12 §1)
+    account_files: Files = None       # provenance: the files whose code was in its prompt
 
 
 class SinkHit(BaseModel):

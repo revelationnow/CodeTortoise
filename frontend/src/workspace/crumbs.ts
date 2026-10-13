@@ -18,7 +18,7 @@ export interface CrumbContext {
   threadOf?: (sid: string) => string | null;
 }
 
-export const INDEX_LABEL = { cls: "CLs", files: "Files", checks: "Checks", map: "Map" } as const;
+export const INDEX_LABEL = { cls: "CLs", files: "Files", checks: "Checks", findings: "Findings", map: "Map" } as const;
 
 /** `text` without backticks, cut at a word to fit `n` characters with its ellipsis. */
 export function short(text: string, n = 46): string {

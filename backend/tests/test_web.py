@@ -119,7 +119,7 @@ def test_swarm_actions(env):
     assert owner.post(f"/api/reviews/{rid}/cls/555/swarm/refresh").status_code == 404
 
 
-def test_health_and_layer_rename(env):
+def test_health(env):
     svc, app, _ = env
     owner = login(app, "owner")
     svc.cfg.workspace.p4_sources = {"p4port": "P4CONFIG file /w/.p4config"}   # as load_config records it
@@ -127,11 +127,6 @@ def test_health_and_layer_rename(env):
     assert h["ready"] is True
     assert h["p4_sources"] == {"p4port": "P4CONFIG file /w/.p4config"}
     assert {c["name"] for c in h["checks"]} >= {"workspace root", "compile_commands", "libclang"}
-    assert owner.put("/api/layers/2", json={"name": "Drivers"}).json() == {"2": "Drivers"}
-    rid = owner.post("/api/reviews", json={"cls": [101]}).json()["id"]
-    names = [layer["name"] for layer in owner.get(f"/api/reviews/{rid}/board").json()["layers"]]
-    assert "Drivers" in names and "L2: driver" not in names
-    assert login(app, "bob").put("/api/layers/2", json={"name": "x"}).status_code == 403
 
 
 def test_review_creation_blocked_when_not_ready(fx, tmp_path):
@@ -198,19 +193,25 @@ def _review(app):
     return owner, rid
 
 
-def test_board_endpoint_serves_the_board_with_layer_renames(env):
+def test_board_endpoint_serves_the_board(env):
     svc, app, _ = env
     owner, rid = _review(app)
     assert owner.get("/api/reviews/999/board").status_code == 404
     board = owner.get(f"/api/reviews/{rid}/board").json()
     assert [f["id"] for f in board["flows"]] == ["FL1", "FL2", "FL3"]
-    level = next(l["level"] for l in board["layers"] if l["name"] == "driver")
-    owner.put(f"/api/layers/{level}", json={"name": "Drivers"})
-    names = {l["level"]: l["name"] for l in owner.get(f"/api/reviews/{rid}/board").json()["layers"]}
-    assert names[level] == "Drivers"
     svc.store.put_blob(rid, "board", None)
     r = owner.get(f"/api/reviews/{rid}/board")
     assert r.status_code == 404 and "not built" in r.json()["detail"]
+
+
+def test_the_layer_rename_route_is_gone_and_stored_names_no_longer_apply(env):
+    svc, app, _ = env
+    owner, rid = _review(app)
+    assert owner.put("/api/layers/2", json={"name": "Drivers"}).status_code in (404, 405)
+    levels = [l["level"] for l in owner.get(f"/api/reviews/{rid}/board").json()["layers"]]
+    svc.store.kv_put("layer_overrides", {str(level): "Drivers" for level in levels})    # what the route once stored
+    assert "Drivers" not in {l["name"] for l in owner.get(f"/api/reviews/{rid}/board").json()["layers"]}
+    assert "Drivers" not in {l.name for l in svc.layers.get().layers}
 
 
 def test_source_endpoint_serves_changed_and_unchanged_files(env):

@@ -3,7 +3,7 @@ import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } 
 import { api } from "../api";
 import { useMe } from "../App";
 import { driftSummary } from "../board/drift";
-import { keys, save } from "../board/prefs";
+import { keys, load, save } from "../board/prefs";
 import Resizer from "../board/Resizer";
 import AiPill from "../components/AiPill";
 import HeadlinePill from "../components/HeadlinePill";
@@ -12,8 +12,8 @@ import Stages from "../components/Stages";
 import { AiProvider, useAi } from "../lib/ai";
 import { threadLabel } from "../reading/checks";
 import { progress, progressText } from "../reading/plan";
-import { type Address, at, href, type Open, type Place, readAddress, type Tab } from "./address";
-import { useWs, type Ws, WsContext } from "./context";
+import { type Address, at, href, type Item, type Open, type Place, readAddress, type Tab } from "./address";
+import { type Folds, useWs, type Ws, WsContext } from "./context";
 import Crumbs, { PhoneBar } from "./Crumbs";
 import Detail from "./Detail";
 import { type Crumb, crumbs } from "./crumbs";
@@ -25,6 +25,7 @@ import FindingPage from "./FindingPage";
 import IndexPage from "./IndexPage";
 import Rail from "./Rail";
 import StoryPage from "./StoryPage";
+import { addTab, closeTab as closeOf } from "./tabs";
 import { HEAD_MIN, headMax, loadHeadH } from "./layout";
 import { indexFor, legacy } from "./legacy";
 import { useReview } from "./useReview";
@@ -56,8 +57,30 @@ export default function Workspace() {
   const item = useCallback((p: Place) => recall(memory, p), [memory]);
   const opened = useCallback((open: Open, tab: Tab = "diff") => ({ ...addr, open, tab }), [addr]);
   const [hover, setHover] = useState<string | null>(null);
-  const ws: Ws = useMemo(() => ({ base: root, data, addr, screen, sources, link, go, item, opened, hover, setHover }),
-                         [root, data, addr, screen, sources, link, go, item, opened, hover]);
+  const [tabs, setTabs] = useState<Item[]>([]);
+  useEffect(() => { if (addr.open) setTabs((t) => addTab(t, addr.open!)); }, [addr.open]);
+  const closeTab = useCallback((o: Item) => {
+    const { tabs: rest, next } = closeOf(tabs, o, addr.open);
+    setTabs(rest);
+    if (next !== undefined) go({ ...addr, open: next, tab: "diff" }, true);   // closing is not a step to go Back over
+  }, [tabs, addr, go]);
+  const [folds, setFolds] = useState<Folds>(() => ({ rail: load<unknown>(keys.railFolded, false) === true,
+                                                     check: load<unknown>(keys.checkFolded, false) === true }));
+  const [focus, setFocus] = useState(false);
+  const setFold = useCallback((which: keyof Folds, folded: boolean) => {
+    setFocus(false);                                       // unfolding by hand ends Focus
+    setFolds((f) => ({ ...f, [which]: folded }));
+    save(which === "rail" ? keys.railFolded : keys.checkFolded, folded);
+  }, []);
+  const toggleFocus = useCallback(() => setFocus((x) => !x), []);
+  useEffect(() => { if (!addr.open) setFocus(false); }, [addr.open]);   // closing the panel restores the columns
+  const shown = useMemo(() => (focus ? { rail: true, check: true } : folds), [focus, folds]);
+  const [clsOpen, setClsOpen] = useState<ReadonlySet<number>>(() => new Set());
+  const ws: Ws = useMemo(() => ({ base: root, data, addr, screen, sources, link, go, item, opened, hover, setHover,
+                                  tabs, closeTab, folds: shown, setFold, focus, toggleFocus,
+                                  clsOpen, setClsOpen }),
+                         [root, data, addr, screen, sources, link, go, item, opened, hover, tabs, closeTab, shown, setFold, focus,
+                          toggleFocus, clsOpen]);
 
   const d = data.detail;
   const r = data.reading;

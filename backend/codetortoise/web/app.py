@@ -80,10 +80,6 @@ class SwarmPostIn(BaseModel):
     confirm_repeat: bool = False
 
 
-class LayerNameIn(BaseModel):
-    name: str = Field(min_length=1, max_length=80)
-
-
 RERUNNING = "the review is being re-run"
 
 
@@ -220,12 +216,6 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
 
         return StreamingResponse(gen(), media_type="text/event-stream")
 
-    def named(layers: list[dict]) -> None:
-        overrides = store.kv_get("layer_overrides") or {}
-        for layer in layers:
-            if str(layer["level"]) in overrides:
-                layer["name"] = overrides[str(layer["level"])]
-
     @app.get("/api/reviews/{rid}/overview")
     def overview(rid: int, _: str = Depends(user_of)):
         """A split review's overview (spec 2026-10-03-large-change-boards §4); 404 for a review shown as one board."""
@@ -233,9 +223,7 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         ov = boardstore.overview(store, rid)
         if ov is None:
             raise HTTPException(404, "this review is shown as one board")
-        out = ov.model_dump()
-        named(out["layers"])
-        return out
+        return ov.model_dump()
 
     @app.get("/api/reviews/{rid}/board")
     def board(rid: int, cluster: str | None = None, _: str = Depends(user_of)):
@@ -250,9 +238,7 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         # boards stored by an older version get current defaults and file tags (spec §14.3)
         tags = {f.id: f.files for f in store.list_findings(rid)}
         b = tag_board(b, tags)
-        out = b.model_dump()
-        named(out.get("layers", []))
-        return out
+        return b.model_dump()
 
     NO_STORIES = "this review has no stories: re-run it"
 
@@ -279,9 +265,6 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         if d.graph is not None:
             d.graph = tag_board(d.graph, tags)
         out = d.model_dump()
-        named(out["board"].get("layers", []))
-        if out["graph"]:
-            named(out["graph"].get("layers", []))
         out["reading"] = store.get_blob(rid, f"story_reading:{sid}")
         return out
 
@@ -466,14 +449,6 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         cs = store.get_blob(rid, "changeset") or {}
         lines = store.get_blob(rid, "lines") or {}        # who wrote each line of a multi-CL file (phase 2 §4)
         return [{**f, "lines": lines[f["depot"]]} if f["depot"] in lines else f for f in cs.get("files", [])]
-
-    # ---- layers ------------------------------------------------------------
-    @app.put("/api/layers/{level}")
-    def rename_layer(level: int, body: LayerNameIn, _: str = Depends(owner_of)):
-        overrides = store.kv_get("layer_overrides") or {}
-        overrides[str(level)] = body.name
-        store.kv_put("layer_overrides", overrides)
-        return overrides
 
     # ---- shared sinks (spec 2026-10-09-shared-sinks §6) -----------------------
     def sinks_view() -> dict:

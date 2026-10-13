@@ -13,7 +13,7 @@ test.describe("desktop", () => {
     await expect(rail.getByRole("link", { name: "Go to the overview" })).toHaveAttribute("aria-current", "page");
     const home = (await rail.locator(".ws-home").boundingBox())!, first = (await rail.locator(".ws-sec-t").first().boundingBox())!;
     expect(first.y - (home.y + home.height)).toBeLessThan(12);               // sections follow on: the grip takes no room
-    await expect(rail.locator(".ws-index-row")).toHaveText(["CLs", "Files", "Checks", "Map"]);
+    await expect(rail.locator(".ws-index-row")).toHaveText(["CLs", "Files", "Checks", "Findings", "Map"]);
     const s1 = rail.getByRole("link", { name: /^Go to story S1/ });
     await s1.click();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S1$`));

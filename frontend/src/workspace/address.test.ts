@@ -41,6 +41,14 @@ describe("href", () => {
       .toBe("/w/7/cl/101?open=file%3A%2F%2Fd%2Fa.c%3A4&cl=all");       // in all CLs, whatever the page's CL
   });
 
+  it("names the CL a file opened in from a page that is about no CL (Index › CLs)", () => {
+    const a: Address = { place: { kind: "index", tab: "cls" }, flow: null, open: { file: "//d/a.c", line: null, cl: 102 }, tab: "diff" };
+    expect(href("/w/7", a)).toBe("/w/7/i/cls?open=file%3A%2F%2Fd%2Fa.c&cl=102");
+    expect(readAddress("/i/cls", new URLSearchParams("open=file://d/a.c&cl=102"))).toEqual(a);
+    expect(readAddress("/i/cls", new URLSearchParams("open=file://d/a.c&cl=0")).open).toEqual({ file: "//d/a.c", line: null });
+    expect(readAddress("/i/cls", new URLSearchParams("open=N3&cl=102")).open).toEqual({ node: "N3" });
+  });
+
   it("round-trips every place", () => {
     for (const [path, view] of [["", ""], ["", "graph"], ["/s/S2", "graph"], ["/f/F1", ""], ["/cl/102", ""], ["/c/C1", ""]]) {
       const a = readAddress(path, q(`flow=3&open=file://d/x.h&view=${view}`));
@@ -85,5 +93,33 @@ describe("the Index and lit checks", () => {
     expect(readAddress("/f/F2", q("details=1")).details).toBe(true);
     expect(href("/r/7", at({ kind: "finding", fid: "F2" }, { details: true }))).toBe("/r/7/f/F2?details=1");
     expect(readAddress("/f/F2", q("")).details).toBeUndefined();
+  });
+});
+
+describe("a finding in the panel", () => {
+  it("reads and writes ?open=finding:F4", () => {
+    const a = readAddress("/s/S1", q("open=finding:F4"));
+    expect(a.open).toEqual({ finding: "F4" });
+    expect(href("/r/7", a)).toBe("/r/7/s/S1?open=finding%3AF4");
+    expect(readAddress("/s/S1", new URLSearchParams(href("/r/7", a).split("?")[1])).open).toEqual({ finding: "F4" });
+  });
+
+  it("reads an empty finding as nothing open", () => {
+    expect(readAddress("", q("open=finding:")).open).toBeNull();
+  });
+});
+
+describe("the findings index's filters", () => {
+  it("reads and writes ?sev= and ?status= on the findings tab, after the panel's item", () => {
+    const a = readAddress("/i/findings", q("sev=high&status=ack&open=finding:F2"));
+    expect([a.sev, a.status]).toEqual(["high", "ack"]);
+    expect(href("/r/7", a)).toBe("/r/7/i/findings?open=finding%3AF2&sev=high&status=ack");
+  });
+
+  it("ignores filter values it does not know, and writes them only on the findings tab", () => {
+    const a = readAddress("/i/findings", q("sev=critical&status=closed"));
+    expect([a.sev ?? null, a.status ?? null]).toEqual([null, null]);
+    expect(readAddress("/i/checks", q("sev=high")).sev ?? null).toBeNull();
+    expect(href("/r/7", { ...at({ kind: "index", tab: "checks" }), sev: "high" })).toBe("/r/7/i/checks");
   });
 });
