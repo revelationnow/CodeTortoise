@@ -82,15 +82,33 @@ def account_job(ctx: AiContext, d: StoryDetail, sr: StoryReading) -> Job:
     return Job("story_account", st.id, prompt, _AccountOut, apply)
 
 
+def account_key(ctx: AiContext, d: StoryDetail, sr: StoryReading) -> str:
+    """What a story's account is written from, less what a model may rewrite earlier in each run (spec §1.4): the
+    story's title and short text and its flows' text (the rule text behind them follows from the facts kept here), and
+    the findings' severities the verdicts set. A plain re-run whose code and analysis are unchanged then reuses the
+    account although those answers came back worded otherwise."""
+    st = d.story
+    flows = [fl for fl in d.board.flows if fl.id in st.flows]
+    nodes = [n for n in dict.fromkeys(st.nodes + [n for fl in flows for n in fl.path]) if n in ctx.impact.nodes]
+    said = [st.purpose, *(f"{p.piece}: {p.reason}" for p in st.placements), *st.check, *st.questions]
+    found = [(f.id, f.kind, f.title, f.nodes, [(e.text, e.file, e.line) for e in f.evidence])
+             for f in ctx.findings if f.id in st.findings and not f.sink]
+    return repr((st.id, st.kind, st.source, said, st.nodes, st.findings,
+                 [(fl.id, fl.text, fl.path) for fl in flows],
+                 [p.model_dump() for p in sr.paths], [c.model_dump() for c in sr.contracts],
+                 [w.model_dump() for w in sr.where], found, _facts_for_nodes(ctx.impact, nodes),
+                 [ctx.snippets.get(n) for n in nodes], ctx.per_call))
+
+
 def write_accounts(llm: LlmClient, ctx: AiContext, details: dict[str, StoryDetail], per: dict[str, StoryReading],
                    cached: dict, *, fresh: bool = False, concurrency: int = 1, ledger: Ledger | None = None,
                    rid: int | None = None) -> tuple[dict, int, list[str]]:
     """Write the account of every behaviour story that is not collapsed (spec §1.4): one call each, in parallel; a
-    story whose prompt (and weak model) is unchanged reuses its cached account unless `fresh`. Returns the cache to
+    story whose inputs (`account_key`) and weak model are unchanged reuses its cached account unless `fresh`. Returns the cache to
     store (sid → key, account, files), the sections dropped for style and the stage notes."""
     jobs = {sid: account_job(ctx, d, per[sid]) for sid, d in details.items()
             if sid in per and d.story.kind == "behaviour" and not d.story.collapsed}
-    keys = {sid: hashlib.sha256(f"{ACCOUNT_VERSION}|{llm.model}|{j.prompt}".encode()).hexdigest()
+    keys = {sid: hashlib.sha256(f"{ACCOUNT_VERSION}|{llm.model}|{account_key(ctx, details[sid], per[sid])}".encode()).hexdigest()
             for sid, j in jobs.items()}
     cache: dict = {}
     todo: list[str] = []

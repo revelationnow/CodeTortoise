@@ -131,3 +131,23 @@ def test_a_failed_call_leaves_that_story_without_an_account_and_says_why():
     cache, _, notes = write_accounts(fake_llm(lambda s, u: {"sections": "not a list"}), _ctx(), details, per, {})
     assert cache == {} and per["S1"].account == []
     assert len(notes) == 1 and notes[0].startswith("1 story account(s) not written: ")
+
+
+def test_a_rerun_that_only_rewrote_ai_text_reuses_the_account():
+    ctx, asked = _ctx(), []
+
+    def respond(s, u):
+        asked.append(u)
+        return _sections()
+    details = {"S1": _detail("S1")}
+    cache = write_accounts(fake_llm(respond), ctx, details, {"S1": StoryReading(story="S1")}, {})[0]
+    st = details["S1"].story             # the up-front pass retold the story; the verdicts moved a finding's severity
+    st.title, st.summary, st.text_source = "uart_send reports -2", "uart_send can now fail.", "llm"
+    ctx.findings[0].severity = "high"
+    details["S1"].board.flows[0].what = "logger_flush now hands the uart error back."
+    again = {"S1": StoryReading(story="S1")}
+    write_accounts(fake_llm(respond), ctx, details, again, cache)
+    assert len(asked) == 1 and again["S1"].account
+    ctx.snippets["N2"] = "int uart_send(void) { return -3; }"     # the code changed: ask again
+    write_accounts(fake_llm(respond), ctx, details, {"S1": StoryReading(story="S1")}, cache)
+    assert len(asked) == 2
