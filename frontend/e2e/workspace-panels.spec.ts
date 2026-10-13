@@ -92,3 +92,30 @@ test("with storage blocked the columns still fold for the visit", async ({ page 
   await page.getByRole("button", { name: "Fold the contents" }).click();
   await expect(page.locator(".ws-rail.folded")).toBeVisible();
 });
+
+test("Index › Findings lists every finding worst first, filters by severity and status, and opens one in the panel", async ({ page }) => {
+  const base = await startReview(page);
+  const all = await findingsOf(page, base);
+  await expect(page.locator(".ws-rail").getByRole("link", { name: "Open the Index: Findings" })).toBeVisible();
+  await page.getByRole("region", { name: "To check" }).getByRole("link", { name: "All findings" }).click();
+  await expect(page).toHaveURL(new RegExp(`${base}/i/findings$`));
+  await expect(page.getByRole("tab", { name: `Findings (${all.length})` })).toHaveAttribute("aria-selected", "true");
+  const list = page.getByRole("region", { name: "Findings" });
+  const rows = list.locator(".ix-findings-list > li");
+  await expect(rows).toHaveCount(all.length);
+  const rank = ["high", "medium", "low", "info"];
+  const sevs = (await rows.locator(".badge").allTextContents()).map((s) => rank.indexOf(s.trim()));
+  expect(sevs).toEqual([...sevs].sort((a, b) => a - b));
+  const top = rank[sevs[0]];
+  await list.getByLabel("Severity").selectOption(top);
+  await expect(page).toHaveURL(new RegExp(`/i/findings\\?sev=${top}$`));
+  await expect(rows).toHaveCount(all.filter((f) => f.severity === top).length);
+  await list.getByLabel("Status").selectOption("dismissed");
+  await expect(page).toHaveURL(new RegExp(`sev=${top}&status=dismissed$`));
+  await expect(list).toContainText("No findings match.");
+  await list.getByLabel("Status").selectOption("");
+  await rows.first().getByRole("link", { name: /^Open finding F\d+ in the side panel$/ }).click();
+  await expect(page).toHaveURL(new RegExp(`/i/findings\\?open=finding%3AF\\d+&sev=${top}$`));
+  await expect(page.getByRole("complementary", { name: /^Finding: F\d+$/ }).locator("h2")).toBeVisible();
+  await expect(rows.first()).toBeVisible();                                   // the list stays
+});

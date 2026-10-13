@@ -219,7 +219,7 @@ export default function StoryTiles({ detail, sr }: { detail: StoryDetail; sr: St
         </section>
       </div>}>
         <aside className="ov2-right" aria-label="What to check in this story">
-          <CheckTile groups={[{ label: null, checks: sr.checks }]} ofTotal footer={<>
+          <CheckTile allFindings groups={[{ label: null, checks: sr.checks }]} ofTotal footer={<>
             {suggested.length > 0 && (
               <div className="st-suggested"><h4><span className="ai-label">AI</span>The strong model also suggests</h4>
                 <ul>{suggested.map((c, k) => <li key={k}><NameText text={c} /></li>)}</ul></div>

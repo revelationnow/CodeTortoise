@@ -743,3 +743,9 @@ a.ws-chip { text-decoration: none; }
 .ws-focus { margin-left: auto; }
 .ws-focus.on { border-color: var(--accent); color: var(--ink); }
 .ws-focus + .ws-x { margin-left: 0; }
+
+/* Index › Findings (spec 2026-10-12-story-account-and-panels §4) */
+.ix-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 8px 0 12px; font-size: 13px; }
+.ix-findings-list li.on { background: var(--hover, transparent); }
+.ix-ftitle { flex: 1 1 240px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ck-all { margin-left: auto; font-size: 12px; font-weight: 400; }

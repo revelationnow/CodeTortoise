@@ -100,3 +100,18 @@ describe("a finding in the panel", () => {
     expect(readAddress("", q("open=finding:")).open).toBeNull();
   });
 });
+
+describe("the findings index's filters", () => {
+  it("reads and writes ?sev= and ?status= on the findings tab, after the panel's item", () => {
+    const a = readAddress("/i/findings", q("sev=high&status=ack&open=finding:F2"));
+    expect([a.sev, a.status]).toEqual(["high", "ack"]);
+    expect(href("/r/7", a)).toBe("/r/7/i/findings?open=finding%3AF2&sev=high&status=ack");
+  });
+
+  it("ignores filter values it does not know, and writes them only on the findings tab", () => {
+    const a = readAddress("/i/findings", q("sev=critical&status=closed"));
+    expect([a.sev ?? null, a.status ?? null]).toEqual([null, null]);
+    expect(readAddress("/i/checks", q("sev=high")).sev ?? null).toBeNull();
+    expect(href("/r/7", { ...at({ kind: "index", tab: "checks" }), sev: "high" })).toBe("/r/7/i/checks");
+  });
+});

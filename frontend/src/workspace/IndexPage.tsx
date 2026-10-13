@@ -5,6 +5,7 @@ import { at, INDEX_TABS, type IndexTab } from "./address";
 import CheckTile from "./CheckList";
 import ClusterPage from "./ClusterPage";
 import { useWs } from "./context";
+import FindingsIndex from "./FindingsIndex";
 import { INDEX_LABEL } from "./crumbs";
 import { Ticks } from "./NameText";
 import { MapSection } from "./WholePage";
@@ -14,6 +15,7 @@ export function IndexTabs({ tab }: { tab: IndexTab }) {
   const ws = useWs(), r = ws.data.reading, d = ws.data;
   const count: Partial<Record<IndexTab, number>> = {
     cls: d.detail?.cls.length, files: d.about?.tree.reduce((n, t) => n + t.files.length, 0), checks: r ? r.checks.length : undefined,
+    findings: d.findings.length,
   };
   return (
     <nav className="ws-switch ix-tabs" role="tablist" aria-label="Index">
@@ -74,6 +76,7 @@ export default function IndexPage({ tab, cid }: { tab: IndexTab; cid?: string })
           </section>
         )}
       </>}
+      {tab === "findings" && <FindingsIndex />}
       {tab === "map" && <MapSection />}
     </div></div>
   );

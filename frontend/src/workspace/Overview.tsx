@@ -194,7 +194,7 @@ export default function Overview({ r }: { r: Reading }) {
         <Discussion />
       </div>}>
       <aside className="ov2-right" aria-label="What to check">
-        <CheckTile id="checks" groups={byThread(r)} ofTotal={false} footer={<>
+        <CheckTile id="checks" allFindings groups={byThread(r)} ofTotal={false} footer={<>
           {r.rules_only && <p className="muted small">Risks judged by rules only.</p>}
           <Cleared checks={r.cleared} />
         </>} />

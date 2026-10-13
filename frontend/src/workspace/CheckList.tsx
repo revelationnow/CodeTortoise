@@ -5,6 +5,7 @@ import Comments from "../components/Comments";
 import SinkMark from "../components/SinkMark";
 import { isOpen, KIND_LABEL, markLine, openCount, placeOf, splitChecks } from "../reading/checks";
 import type { Check } from "../reading/types";
+import { at } from "./address";
 import { useWs } from "./context";
 import { Ticks } from "./NameText";
 
@@ -73,12 +74,14 @@ export function Cleared({ checks }: { checks: Check[] }) {
   );
 }
 
-export default function CheckTile({ groups, ofTotal, footer, id }:
-  { groups: CheckGroup[]; ofTotal: boolean; footer?: ReactNode; id?: string }) {
+export default function CheckTile({ groups, ofTotal, footer, id, allFindings }:
+  { groups: CheckGroup[]; ofTotal: boolean; footer?: ReactNode; id?: string; allFindings?: boolean }) {
   const ws = useWs(), marks = ws.data.reading?.marks ?? {}, lit = ws.addr.check ?? null;
   const all = groups.flatMap((g) => g.checks);
   const count = openCount(all.filter((k) => isOpen(k, marks)).length, all.length, ofTotal);
-  const head = <>To check{count && <span className="ck-count">{count}</span>}</>;
+  const head = <>To check{count && <span className="ck-count">{count}</span>}
+    {allFindings && ws.data.findings.length > 0 && <Link className="ck-all" to={ws.link(at({ kind: "index", tab: "findings" }))}
+                                                         title="Every finding of the review">All findings</Link>}</>;
   const body = <>
     {all.length === 0 && <p className="muted small">Nothing to check.</p>}
     {groups.map((g) => {

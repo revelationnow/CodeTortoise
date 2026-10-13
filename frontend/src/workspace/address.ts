@@ -1,5 +1,7 @@
 /** Workspace addresses (spec 2026-10-04-review-workspace §2.3): every place has one, so reload, shared links and Back
  * work. Ids appear here and nowhere in visible text. */
+import type { Severity } from "../api";
+import { FINDING_STATES, type FindingState, SEVERITIES } from "./findings";
 
 export type Place =
   | { kind: "whole"; view?: "graph" }
@@ -33,6 +35,9 @@ export interface Address {
   check?: string | null;
   /** A finding's own page, from its row's Details, rather than its story. */
   details?: boolean;
+  /** Index › Findings' filters (spec 2026-10-12 §4); only on that tab. */
+  sev?: Severity | null;
+  status?: FindingState | null;
 }
 
 function readPlace(path: string, q: URLSearchParams): Place {
@@ -63,14 +68,17 @@ function withAll(open: Open, all: boolean): Open {
 /** The address of `path` (what follows `/r/:id`) and its query. */
 export function readAddress(path: string, q: URLSearchParams): Address {
   const flow = Number(q.get("flow"));
+  const place = readPlace(path, q), findings = place.kind === "index" && place.tab === "findings";
   return {
-    place: readPlace(path, q),
+    place,
     flow: Number.isInteger(flow) && flow > 0 ? flow : null,
     open: withAll(readOpen(q.get("open")), q.get("cl") === "all"),
     tab: q.get("tab") === "neighbours" ? "neighbours" : "diff",
     ...(q.get("story") ? { story: q.get("story") } : {}),
     ...(q.get("check") ? { check: q.get("check") } : {}),
     ...(q.get("details") === "1" ? { details: true } : {}),
+    ...(findings && (SEVERITIES as string[]).includes(q.get("sev") ?? "") ? { sev: q.get("sev") as Severity } : {}),
+    ...(findings && (FINDING_STATES as string[]).includes(q.get("status") ?? "") ? { status: q.get("status") as FindingState } : {}),
   };
 }
 
@@ -98,6 +106,10 @@ export function href(base: string, a: Address): string {
   if (a.tab !== "diff") q.set("tab", a.tab);
   if (a.check) q.set("check", a.check);
   if (a.details && a.place.kind === "finding") q.set("details", "1");
+  if (a.place.kind === "index" && a.place.tab === "findings") {
+    if (a.sev) q.set("sev", a.sev);
+    if (a.status) q.set("status", a.status);
+  }
   return `${base}${placePath(a.place)}${q.size ? `?${q}` : ""}`;
 }
 
