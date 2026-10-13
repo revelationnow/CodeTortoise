@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import SinkMark from "../components/SinkMark";
 import { setShowSinks, showSinks, sinkLine } from "../lib/sinks";
-import { byThread, letter } from "../reading/checks";
+import { byThread, isOpen, letter } from "../reading/checks";
 import { arcLayout, cardText, connectionRows, introOpen, routeRows, setIntroOpen, testsLine } from "../reading/overview";
 import { overviewProgress, progress, threadRead } from "../reading/plan";
 import type { Reading, SinkHit, Thread } from "../reading/types";
@@ -167,8 +167,9 @@ export default function Overview({ r }: { r: Reading }) {
   const ws = useWs(), ss = ws.data.stories;
   const tests = r.tests?.stories[0], testsStory = tests ? ss?.stories.find((s) => s.id === tests) : null;
   const p = ws.data.ticks ? progress(r, ws.data.ticks) : null;          // the reader's progress (phase 2 §6.2, §6.4)
+  const openChecks = r.checks.filter((k) => isOpen(k, r.marks)).length;
   return (
-    <div className="ws-page"><CheckColumns left={
+    <div className="ws-page"><CheckColumns foldName={`To check · ${openChecks} open`} left={
       <div className="ov2-left ws-whole">
         {p && <p className={`ov-progress${p.all ? " done" : ""}`}>{overviewProgress(p)}</p>}
         <HowToRead />

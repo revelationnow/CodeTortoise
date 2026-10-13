@@ -728,3 +728,18 @@ a.ws-chip { text-decoration: none; }
 .ws-ptab.on { border-color: var(--accent); }
 .ws-ptab.on a { color: var(--ink); font-weight: 600; }
 .ws-ptab-x { border: 0; background: none; color: var(--muted); padding: 0 4px; cursor: pointer; font-size: 14px; line-height: 1; }
+
+/* folded columns and Focus (spec 2026-10-12-story-account-and-panels §3) */
+.ws-rail.folded { width: 28px; }
+.ws-strip { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 8px 0; width: 28px; }
+.ws-strip.right { position: sticky; top: 0; align-self: start; min-height: 200px; border-left: 1px solid var(--line); }
+.ws-strip-name { writing-mode: vertical-rl; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.ov2.ov2-cols.check-folded { grid-template-columns: minmax(0, 1fr) 28px; }
+.ws-rail > .ws-fold { position: absolute; top: 6px; right: 8px; z-index: 2; }
+.ws-rail .ws-home { padding-right: 36px; }
+.ov2-check > .ws-fold { position: absolute; top: 6px; right: 6px; z-index: 2; }
+.ov2-check .ck-tile > h3 { padding-right: 30px; }
+.ws-detail.focus { max-width: none; }
+.ws-focus { margin-left: auto; }
+.ws-focus.on { border-color: var(--accent); color: var(--ink); }
+.ws-focus + .ws-x { margin-left: 0; }

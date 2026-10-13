@@ -4,6 +4,9 @@ import type { useSources } from "../board/useSources";
 import type { Screen } from "./media";
 import type { ReviewData } from "./useReview";
 
+/** Which columns are folded to strips (spec 2026-10-12 §3). */
+export interface Folds { rail: boolean; check: boolean }
+
 /** The workspace as every page and panel sees it: the review's data, the current address and ways to move. */
 export interface Ws {
   base: string;
@@ -25,6 +28,12 @@ export interface Ws {
   /** The side panel's tabs this visit, oldest first (spec 2026-10-12 §2.2); the address holds the active one. */
   tabs: Item[];
   closeTab: (o: Item) => void;
+  /** The folds shown (both, while focused) and how the reader changes them; desktop only. */
+  folds: Folds;
+  setFold: (which: keyof Folds, folded: boolean) => void;
+  /** Focus: the rail and To check folded and the panel widened, until pressed again or the panel closes. */
+  focus: boolean;
+  toggleFocus: () => void;
 }
 
 export const WsContext = createContext<Ws | null>(null);

@@ -47,3 +47,48 @@ test("the panel keeps a tab per item opened; a tab switches back and × closes i
   await expect(page.getByRole("complementary", { name: /^Code: / })).toBeVisible();
   await expect(page.getByRole("tablist", { name: "Open items" })).toHaveCount(0);   // one tab left: no bar
 });
+
+test("the rail and To check fold to strips and stay folded; Focus folds both and widens the panel until pressed again", async ({ page }) => {
+  const base = await startReview(page);
+  await page.goto(`${base}/s/S1`);
+  await page.getByRole("button", { name: "Fold the contents" }).click();
+  await expect(page.locator(".ws-rail.folded")).toContainText("Contents");
+  await page.getByRole("button", { name: "Fold To check" }).click();
+  await expect(page.locator(".ws-strip.right .ws-strip-name")).toHaveText(/^To check · \d+ open$/);
+  await page.reload();
+  await expect(page.locator(".ws-rail.folded")).toBeVisible();
+  await expect(page.locator(".ws-strip.right")).toBeVisible();
+  await page.getByRole("button", { name: "Unfold the contents" }).click();
+  await page.getByRole("button", { name: "Unfold To check" }).click();
+  await expect(page.locator(".ws-rail.folded")).toHaveCount(0);
+  await expect(page.locator(".ws-strip.right")).toHaveCount(0);
+
+  await page.getByRole("region", { name: "To check" }).getByRole("link", { name: /^Open / }).first().click();
+  const panel = page.locator(".ws-detail");
+  const before = (await panel.boundingBox())!.width;
+  await panel.getByRole("button", { name: "Focus" }).click();
+  await expect(page.locator(".ws-rail.folded")).toBeVisible();
+  await expect(page.locator(".ws-strip.right")).toBeVisible();
+  expect((await panel.boundingBox())!.width).toBeGreaterThan(before);
+  expect((await page.getByRole("region", { name: "Centre" }).boundingBox())!.width).toBeGreaterThanOrEqual(359);
+  await panel.getByRole("button", { name: "Focus" }).click();                // pressed again: as it was
+  await expect(page.locator(".ws-rail.folded")).toHaveCount(0);
+  expect(Math.abs((await panel.boundingBox())!.width - before)).toBeLessThan(2);
+  await panel.getByRole("button", { name: "Focus" }).click();
+  await page.goBack();                                                       // the panel closes: the columns come back
+  await expect(page.locator(".ws-detail")).toHaveCount(0);
+  await expect(page.locator(".ws-rail.folded")).toHaveCount(0);
+  await expect(page.locator(".ws-strip.right")).toHaveCount(0);
+});
+
+test("with storage blocked the columns still fold for the visit", async ({ page }) => {
+  const base = await startReview(page);
+  await page.addInitScript(() => {
+    Storage.prototype.getItem = () => { throw new Error("blocked"); };
+    Storage.prototype.setItem = () => { throw new Error("blocked"); };
+  });
+  await page.goto(`${base}/s/S1`);
+  await expect(page.locator(".ws-rail.folded")).toHaveCount(0);
+  await page.getByRole("button", { name: "Fold the contents" }).click();
+  await expect(page.locator(".ws-rail.folded")).toBeVisible();
+});

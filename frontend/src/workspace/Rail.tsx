@@ -14,6 +14,7 @@ import { useWs } from "./context";
 import { INDEX_LABEL, short } from "./crumbs";
 import { Ticks } from "./NameText";
 import { bySeverity, litStories, storyCls } from "./rail";
+import Strip, { FoldButton } from "./Strip";
 
 export type Section = "changeset" | "stories" | "findings" | "files";
 const scrollKey = (rid: number) => `ct.ws.${rid}.railScroll`;
@@ -25,7 +26,18 @@ function loadOpen(): Record<Section, boolean> {
 
 /** The rail (spec 2026-10-04-review-workspace §2.2): everything in the review, the stories visibly drawn from the change
  * set. `show` names a section to open and scroll to (an address's #stories). */
-export default function Rail({ show, onPick, hidden = false }: { show: string | null; onPick: () => void; hidden?: boolean }) {
+type RailProps = { show: string | null; onPick: () => void; hidden?: boolean };
+
+/** The rail, or on a desktop the strip it folds to (spec 2026-10-12 §3). */
+export default function Rail(props: RailProps) {
+  const ws = useWs();
+  if (ws.screen === "desktop" && ws.folds.rail)
+    return <aside className="ws-rail folded" aria-label="Review contents">
+      <Strip name="Contents" label="the contents" side="left" onUnfold={() => ws.setFold("rail", false)} /></aside>;
+  return <RailBody {...props} />;
+}
+
+function RailBody({ show, onPick, hidden = false }: RailProps) {
   const ws = useWs(), d = ws.data;
   const [open, setOpen] = useState(loadOpen);
   const [width, setWidth] = useState(() => Math.min(600, Math.max(200, loadWidth(keys.railW, 280))));
@@ -99,6 +111,7 @@ export default function Rail({ show, onPick, hidden = false }: { show: string | 
     return (
       <aside className="ws-rail" style={{ ["--w" as string]: `${width}px` }} aria-label="Review contents" inert={hidden}>
         <Resizer size={width} edge="right" min={200} max={() => 600} onSize={setWidth} onDone={(w) => save(keys.railW, w)} />
+        {ws.screen === "desktop" && <FoldButton label="the contents" side="left" onFold={() => ws.setFold("rail", true)} />}
         <div className="ws-rail-scroll" ref={box}>
         <Link to={ws.base} state={{ page: true }} className="ws-row ws-home" aria-current={here({ kind: "whole" })}
               title="Go to the overview" aria-label="Go to the overview" onClick={onPick}>
@@ -138,6 +151,7 @@ export default function Rail({ show, onPick, hidden = false }: { show: string | 
     <aside className="ws-rail" style={{ ["--w" as string]: `${width}px` }} aria-label="Review contents" inert={hidden}>
       {/* the grip sits on the frame, outside the scrolling box, so the scrollbar never covers it */}
       <Resizer size={width} edge="right" min={200} max={() => 600} onSize={setWidth} onDone={(w) => save(keys.railW, w)} />
+        {ws.screen === "desktop" && <FoldButton label="the contents" side="left" onFold={() => ws.setFold("rail", true)} />}
       <div className="ws-rail-scroll" ref={box}>
       <Link to={ws.base} state={{ page: true }} className="ws-row ws-home" aria-current={here({ kind: "whole" })}
             title="Go to the whole change" aria-label="Go to the whole change" onClick={onPick}>

@@ -69,7 +69,9 @@ export default function Detail() {
     : node?.change ? "changed" : "context";
   const sid = name?.story ?? null, st = sid ? d.stories?.stories.find((s) => s.id === sid) : null;
   const anns = found?.board.impacts ?? own?.detail?.board.impacts ?? d.board?.impacts ?? [];
-  const wide = ws.screen === "desktop" && width > 900;
+  const focused = ws.focus && ws.screen === "desktop";
+  const shownW = focused ? Math.max(width, window.innerWidth - 28 - 360) : width;   // the centre keeps 360px
+  const wide = ws.screen === "desktop" && shownW > 900;
 
   const closeLabel = fid ? "Close the finding" : "Close the code";
   const body = () => {
@@ -89,8 +91,8 @@ export default function Detail() {
                      cl={ws.addr.place.kind === "cl" && !("file" in open && open.all) ? ws.addr.place.cl : null} />;
   };
   return (
-    <aside className="ws-detail" style={{ ["--w" as string]: `${width}px` }} aria-label={fid ? `Finding: ${fid}` : `Code: ${label ?? "not found"}`}>
-      {ws.screen === "desktop" && <Resizer size={width} edge="left" min={320} max={() => window.innerWidth * 0.75}
+    <aside className={`ws-detail${focused ? " focus" : ""}`} style={{ ["--w" as string]: `${shownW}px` }} aria-label={fid ? `Finding: ${fid}` : `Code: ${label ?? "not found"}`}>
+      {ws.screen === "desktop" && !focused && <Resizer size={width} edge="left" min={320} max={() => window.innerWidth * 0.75}
                                            onSize={setWidth} onDone={(w) => save(keys.detailW, w)} />}
       {ws.screen === "phone" && (
         <div className="ws-phonebar">
@@ -122,6 +124,9 @@ export default function Detail() {
             <Link to={ws.link(at({ kind: "finding", fid }, { details: true }))} title={`Open finding ${fid} as a page`}>Open as a page</Link>
             <Link to={ws.link(at({ kind: "index", tab: "findings" }, { open }))} title="Every finding of the review">All findings</Link>
           </span>}
+          {ws.screen === "desktop" && <button className={`bd-ibtn ws-focus${focused ? " on" : ""}`} aria-pressed={focused}
+                                              title={focused ? "Bring back the contents and To check" : "Fold the contents and To check, and widen this panel"}
+                                              onClick={ws.toggleFocus}>Focus</button>}
           {ws.screen !== "phone" && <Link className="ws-x" to={close} aria-label={closeLabel} title={closeLabel}>✕</Link>}
         </div>
         {path && <div className="ws-detail-path mono">{path}{lines && <span className="muted"> · {lines}</span>}</div>}

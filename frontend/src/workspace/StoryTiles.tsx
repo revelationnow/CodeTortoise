@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { StoryDetail } from "../board/types";
 import Comments from "../components/Comments";
+import { isOpen } from "../reading/checks";
 import { byEntry, codeOrder, foldPath, readOrder, rewriteText, whereByCl, whereTree } from "../reading/story";
 import type { AccountPart, CallPath, ContractRow, StoryReading, WhereFile } from "../reading/types";
 import CheckTile, { Cleared } from "./CheckList";
@@ -194,8 +195,9 @@ function StoryAccount({ parts, place }: { parts: AccountPart[]; place: string })
 export default function StoryTiles({ detail, sr }: { detail: StoryDetail; sr: StoryReading }) {
   const ws = useWs(), d = ws.data, st = detail.story;
   const suggested = st.check ?? [], questions = st.questions ?? [];
+  const openChecks = sr.checks.filter((k) => isOpen(k, d.reading?.marks ?? {})).length;
   return (
-    <CheckColumns className="st-tiles" left={
+    <CheckColumns className="st-tiles" foldName={`To check · ${openChecks} open`} left={
       <div className="ov2-left">
         <section aria-labelledby="st-what">
           <h3 id="st-what">What it does</h3>
