@@ -119,3 +119,18 @@ test("Index › Findings lists every finding worst first, filters by severity an
   await expect(page.getByRole("complementary", { name: /^Finding: F\d+$/ }).locator("h2")).toBeVisible();
   await expect(rows.first()).toBeVisible();                                   // the list stays
 });
+
+test("Index › CLs expands a CL's files in place and opens a file's diff in the panel without leaving", async ({ page }) => {
+  const base = await startReview(page);
+  await page.goto(`${base}/i/cls`);
+  await page.getByRole("button", { name: "Show CL 101's files" }).click();
+  const file = page.getByRole("link", { name: /^Open .+'s diff in CL 101$/ }).first();
+  await file.click();
+  await expect(page).toHaveURL(new RegExp(`${base}/i/cls\\?open=file`));
+  await expect(page.getByRole("complementary", { name: /^Code: / })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Hide CL 101's files" })).toBeVisible();      // the list stays as it was
+  await page.getByRole("button", { name: "Expand all" }).click();
+  await expect(page.getByRole("button", { name: "Hide CL 102's files" })).toBeVisible();
+  await page.getByRole("button", { name: "Collapse all" }).click();
+  await expect(page.getByRole("link", { name: /'s diff in CL \d+$/ })).toHaveCount(0);
+});

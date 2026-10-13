@@ -34,6 +34,9 @@ export interface Ws {
   /** Focus: the rail and To check folded and the panel widened, until pressed again or the panel closes. */
   focus: boolean;
   toggleFocus: () => void;
+  /** The CLs whose files are expanded on Index › CLs this visit (spec 2026-10-12 §5). */
+  clsOpen: ReadonlySet<number>;
+  setClsOpen: (cls: ReadonlySet<number>) => void;
 }
 
 export const WsContext = createContext<Ws | null>(null);

@@ -75,10 +75,12 @@ export default function Workspace() {
   const toggleFocus = useCallback(() => setFocus((x) => !x), []);
   useEffect(() => { if (!addr.open) setFocus(false); }, [addr.open]);   // closing the panel restores the columns
   const shown = useMemo(() => (focus ? { rail: true, check: true } : folds), [focus, folds]);
+  const [clsOpen, setClsOpen] = useState<ReadonlySet<number>>(() => new Set());
   const ws: Ws = useMemo(() => ({ base: root, data, addr, screen, sources, link, go, item, opened, hover, setHover,
-                                  tabs, closeTab, folds: shown, setFold, focus, toggleFocus }),
+                                  tabs, closeTab, folds: shown, setFold, focus, toggleFocus,
+                                  clsOpen, setClsOpen }),
                          [root, data, addr, screen, sources, link, go, item, opened, hover, tabs, closeTab, shown, setFold, focus,
-                          toggleFocus]);
+                          toggleFocus, clsOpen]);
 
   const d = data.detail;
   const r = data.reading;

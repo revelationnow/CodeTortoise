@@ -749,3 +749,10 @@ a.ws-chip { text-decoration: none; }
 .ix-findings-list li.on { background: var(--hover, transparent); }
 .ix-ftitle { flex: 1 1 240px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ck-all { margin-left: auto; font-size: 12px; font-weight: 400; }
+
+/* Index › CLs: a CL's files in place (spec 2026-10-12-story-account-and-panels §5) */
+.ix-tools { display: flex; justify-content: flex-end; margin: 4px 0 8px; }
+.ix-exp { padding: 0 6px; }
+.ix-files { flex-basis: 100%; list-style: none; margin: 4px 0 0 28px; padding: 0; }
+.ix-list .ix-files li { border-bottom: 0; padding: 2px 0; }
+.ix-files a { min-width: 0; overflow-wrap: anywhere; }
