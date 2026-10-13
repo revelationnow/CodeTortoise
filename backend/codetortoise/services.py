@@ -56,10 +56,6 @@ class LayersProvider:
                         pass
                 self.store.kv_put(self._key(), model)
                 self._model = model
-            overrides = self.store.kv_get("layer_overrides") or {}
-            for layer in self._model.layers:
-                if str(layer.level) in overrides:
-                    layer.name = overrides[str(layer.level)]
             return self._model
 
 
