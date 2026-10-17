@@ -5,7 +5,7 @@ from test_reading import _caller_world, _checks, _f, _set, _x
 from test_stories import _edit, _same, _world
 
 from codetortoise.board import Flow
-from codetortoise.causes import build_causes, cause_id
+from codetortoise.causes import build_causes, cause_id, change_for
 from codetortoise.reading import Thread, build_reading
 
 
@@ -107,3 +107,56 @@ def test_the_reading_and_each_storys_reading_hold_their_causes():
     assert [z.text for z in reading.causes] == ["2 places read `Uart::errors`, which `config` now writes"]
     assert per["S1"].causes == reading.causes
     assert all(k.cause == reading.causes[0].id for k in reading.checks)
+
+
+def _lines(ch):
+    return [(ln.sign, ln.text.strip(), ln.line) for ln in ch.lines]
+
+
+def test_a_reader_cause_shows_the_new_write_with_a_line_around_it():
+    c = _world([("config", "drv/cfg.c", ["a = 0;"], ["a = 0;", "r->errors = 1;"]), _same("report", "svc/rep.c")],
+               fields=[("config", "Uart", "errors", "write", "added"), ("report", "Uart", "errors", "read", "unchanged")])
+    next(a for a in c.after[0].fields if a.fn == "c:@F@config").line = 4
+    rows, (cause,) = _causes(c, _set(["N1"]))
+    assert cause.change.path == "drv/cfg.c" and cause.change.function == "config"
+    assert _lines(cause.change) == [(" ", "a = 0;", 3), ("+", "r->errors = 1;", 4), (" ", "}", 5)]
+
+
+def test_a_caller_cause_shows_the_signature_before_and_after():
+    c, ss = _caller_world()
+    _, (cause,) = _causes(c, ss)
+    assert _lines(cause.change) == [("-", "int send(int len)", 1), ("+", "int send(unsigned len)", 1)]
+
+
+def test_a_result_cause_shows_the_new_return():
+    c = _world([("send", "drv/uart.c", ["a = 0;"], ["a = 0;", "if (full) return -2;", "a = 1;"]), _same("a", "x/a.c")],
+               calls=[("a", "send")])
+    from test_reading import _sig
+    _sig(c, "send", returns=(["0"], ["0", "-2"]))
+    next(f for f in c.after[0].functions if f.name == "send").return_lines = {"-2": 4}
+    next(e for e in c.after[0].calls if e.caller == "c:@F@a").result_used = False
+    _, (cause,) = _causes(c, _set(["N1"]))
+    assert ("+", "if (full) return -2;", 4) in _lines(cause.change) and len(cause.change.lines) <= 6
+
+
+def test_without_its_own_line_a_cause_shows_the_functions_first_changed_block_and_never_more_than_six_lines():
+    body_b = ["a = 0;"]
+    body_a = ["a = 0;", *(f"x{i} = {i};" for i in range(9))]
+    c = _world([("send", "drv/uart.c", body_b, body_a)])
+    c.impact.capped = {"send": 90}
+    rows, (cause,) = _causes(c, _set(["N1"]))
+    assert cause.kind == "unanalysed" and len(cause.change.lines) == 6
+    assert all(ln.sign == "+" for ln in cause.change.lines)
+
+
+def test_a_cause_without_a_changed_function_has_no_change():
+    from codetortoise.reading import Check
+    c = _world([_edit("a", "x/a.c")])
+    ask = Check(key="ask|||a", kind="ask", text="Ask the author")
+    assert change_for("ask", [ask], _x(c)) is None
+
+
+def test_the_change_names_its_depot_file():
+    c = _readers("report")
+    reading, _ = build_reading(_set(["N1"]), c)
+    assert reading.causes[0].change.depot == "//d/w/drv/cfg.c"

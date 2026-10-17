@@ -1307,6 +1307,13 @@ def build_reading(ss: StorySet, c: BoardContext, details: dict[str, StoryDetail]
     flows_of = {s.id: [fl for fl in (details[s.id].board.flows if details and s.id in details else a.flows)
                        if fl.id in s.flows] for s in ss.stories}
     causes = build_causes(rows, x, threads, order, flows_of)
+    root = c.root.rstrip("/")
+    paths = {z.change.path: z.change.path if z.change.path.startswith("/") or not root else f"{root}/{z.change.path}"
+             for z in causes if z.change}
+    found = c.depots_for(sorted(set(paths.values()))) if paths else {}
+    for z in causes:
+        if z.change:
+            z.change.depot = found.get(paths[z.change.path])
     outside = 0
     if targets is not None:
         mine = {x.im.nodes[n].key for n in x.changed if n in x.im.nodes}
