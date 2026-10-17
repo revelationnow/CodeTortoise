@@ -581,3 +581,15 @@ def test_all_look_fine_marks_every_place_of_a_cause_in_one_request_or_none(env):
     assert [m["user"] for m in out["marked"]] == ["bob", "bob"]
     assert set(owner.get(f"/api/reviews/{rid}/reading").json()["marks"]) == set(keys)
     assert set(bob.get(f"/api/reviews/{rid}/ticks").json()["checks"]) >= set(keys)
+
+
+def test_all_look_fine_reads_the_reading_once_and_marks_a_repeated_key_once(env, monkeypatch):
+    from codetortoise.reading import Reading
+    svc, app, _ = env
+    owner, rid = _review(app)
+    k0, k1 = [k["key"] for k in owner.get(f"/api/reviews/{rid}/reading").json()["checks"]][:2]
+    validate, calls = Reading.model_validate, []
+    monkeypatch.setattr(Reading, "model_validate", lambda raw, **kw: calls.append(1) or validate(raw, **kw))
+    out = owner.post(f"/api/reviews/{rid}/checks/marks", json={"keys": [k1, k0, k1, k0]}).json()
+    assert [m["key"] for m in out["marked"]] == [k1, k0] and len(calls) == 1
+    assert svc.store.list_ticks(rid, "owner")["checks"].count(k1) == 1
