@@ -202,7 +202,7 @@ class StoryReading(BaseModel):
     where: list[WhereFile] = Field(default_factory=list)
     paths: list[CallPath] = Field(default_factory=list)
     checks: list[Check] = Field(default_factory=list)
-    causes: list[Cause] = Field(default_factory=list)
+    causes: list[Cause] | None = None  # none on a reading stored before causes (its viewer says to re-run)
     place_text: str = ""              # its place in its thread: "Uses what story 1 adds."
     thread: str | None = None
     position: int | None = None       # 1-based, within its thread
@@ -240,7 +240,7 @@ class Reading(BaseModel):
     links: list[StoryLink] = Field(default_factory=list)
     checks: list[Check] = Field(default_factory=list)
     cleared: list[Check] = Field(default_factory=list)        # findings judged no hazard
-    causes: list[Cause] = Field(default_factory=list)         # checks by cause, in reading order (spec 2026-10-16 §4)
+    causes: list[Cause] | None = None  # checks by cause, in reading order (spec 2026-10-16 §4); none: stored before causes
     build_impact: list[BuildImpact] = Field(default_factory=list)
     coverage: list[str] = Field(default_factory=list)
     headline: Headline = Field(default_factory=lambda: Headline(text="No risks found", tone="none", rules_only=True))

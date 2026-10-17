@@ -53,8 +53,9 @@ export interface Reading {
   tests: TestsRow | null; marks: Record<string, Mark>;
   /** Later CLs replacing lines earlier ones added, and CLs outside the review in between (phase 2 §4.3). */
   rewrites?: Rewrite[]; gaps?: Gap[];
-  /** Checks by cause, in reading order; absent on a reading stored before causes. */
-  causes?: Cause[];
+  /** Checks by cause, in reading order; null (the review's reading) or absent (a story's) on a reading stored before
+   * causes. */
+  causes?: Cause[] | null;
   /** Shared sinks the change writes; absent on a reading stored before them. */
   sinks?: SinkHit[];
   /** Every thread once, in the order to read them; absent on a reading stored before the introduction. */
@@ -87,8 +88,9 @@ export interface StoryReading {
   place_text: string; thread: string | null; position: number | null;
   /** The order to read the story's CLs in, and the rewrites inside its code (phase 2 §4.4); absent before phase 2. */
   cl_order?: number[]; rewrites?: Rewrite[];
-  /** Checks by cause, in reading order; absent on a reading stored before causes. */
-  causes?: Cause[];
+  /** Checks by cause, in reading order; null (the review's reading) or absent (a story's) on a reading stored before
+   * causes. */
+  causes?: Cause[] | null;
   /** The weak model's account, section by section (spec 2026-10-12 §1); absent or empty: the short text stands. */
   account?: AccountPart[]; account_files?: string[] | null;
 }

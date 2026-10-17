@@ -32,9 +32,9 @@ export function closeTab(tabs: Item[], o: Item, active: Item | null): { tabs: It
 }
 
 /** A tab's name: the finding's id, the file's name, the function's name or the check's line, shortened. */
-export function tabLabel(o: Item, names: Names, causes: Cause[] = []): string {
+export function tabLabel(o: Item, names: Names, causes?: Cause[] | null): string {
   if ("finding" in o) return o.finding;
-  if ("cause" in o) { const c = causes.find((x) => x.id === o.cause); return c ? short(plainNames(c.text, names), 40) : "Check"; }
+  if ("cause" in o) { const c = causes?.find((x) => x.id === o.cause); return c ? short(plainNames(c.text, names), 40) : "Check"; }
   if ("file" in o) return o.file.slice(o.file.lastIndexOf("/") + 1);
   return names[o.node]?.label ?? "function";
 }

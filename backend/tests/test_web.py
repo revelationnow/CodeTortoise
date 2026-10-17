@@ -557,6 +557,17 @@ def test_a_label_with_a_slash_or_percent_is_stored_as_given(env):
     assert owner.put("/api/sinks/" + "x" * 301).status_code == 422
 
 
+def test_a_reading_stored_before_causes_is_served_without_causes_not_with_none_to_check(env):
+    svc, app, _ = env
+    owner, rid = _review(app)
+    fresh = owner.get(f"/api/reviews/{rid}/reading").json()
+    assert isinstance(fresh["causes"], list) and fresh["causes"]
+    old = svc.store.get_blob(rid, "reading")
+    del old["causes"]
+    svc.store.put_blob(rid, "reading", old)
+    assert owner.get(f"/api/reviews/{rid}/reading").json()["causes"] is None
+
+
 def test_all_look_fine_marks_every_place_of_a_cause_in_one_request_or_none(env):
     svc, app, _ = env
     owner, rid = _review(app)

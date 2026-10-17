@@ -5,17 +5,23 @@ import { expectNamed, expectNoNodeIds, startReview } from "./helpers";
  * Confirm hidden their causes are a caller, a result and a reader in thread A and an ask in thread C. */
 const FOUR = "101 102 103 104";
 
-/** The reading as a review stored before causes: no `causes`, no `cause` on its checks. */
+/** The reading as a review stored before causes, as the server sends it: the review's reading is validated on its way
+ * out, so it carries `causes: null` and `cause: null` on each check; a story's reading is its raw stored blob, with
+ * neither. */
 async function withoutCauses(page: Page) {
-  const strip = async (route: import("@playwright/test").Route) => {
+  const strip = (served: "validated" | "raw") => async (route: import("@playwright/test").Route) => {
     const res = await route.fetch();
-    const j = await res.json();
+    const j = await res.json().catch(() => undefined);
+    if (j === undefined) return;               // the page went away while it was in flight: nobody reads it
     const r = j.reading ?? j;
-    if (r && typeof r === "object") { delete r.causes; for (const k of r.checks ?? []) delete k.cause; }
+    if (r && typeof r === "object") {
+      if (served === "validated") { r.causes = null; for (const k of [...r.checks ?? [], ...r.cleared ?? []]) k.cause = null; }
+      else { delete r.causes; for (const k of r.checks ?? []) delete k.cause; }
+    }
     await route.fulfill({ response: res, json: j });
   };
-  await page.route("**/api/reviews/*/reading", strip);
-  await page.route("**/api/reviews/*/stories/*", strip);
+  await page.route("**/api/reviews/*/reading", strip("validated"));
+  await page.route("**/api/reviews/*/stories/*", strip("raw"));
 }
 
 test.describe("desktop", () => {
@@ -65,11 +71,14 @@ test.describe("desktop", () => {
 
   test("a review stored before causes still loads and says to re-run for its checks", async ({ page }) => {
     await withoutCauses(page);
-    await startReview(page, FOUR);
+    const base = await startReview(page, FOUR);
     const outline = page.locator("aside.ws-outline");
     await expect(outline.locator(".ws-thread h3").first()).toHaveText("A hal_write in hal, 0 of 2 read");
+    await expect(page.locator(".ov-meta").first()).toHaveText("2 stories · 0 read");
     await outline.getByRole("button", { name: "Checks" }).click();
     await expect(outline).toContainText("Re-run the review to group its checks.");
+    await page.goto(`${base}?open=cause:c0123456789&at=1`);
+    await expect(page.getByText("This check isn't in this review.")).toBeVisible();
   });
 });
 

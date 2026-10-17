@@ -63,4 +63,7 @@ describe("a cause's tab", () => {
     expect(tabLabel(t[0], names, [c])).toBe("5 places read UartDev::errors, which…");
     expect(tabLabel({ cause: "gone", at: 1 }, names, [c])).toBe("Check");
   });
+  it("names a check tab of a reading stored before causes (the server sends causes: null) Check", () => {
+    expect(tabLabel({ cause: "c0123456789", at: 1 }, {}, null)).toBe("Check");
+  });
 });

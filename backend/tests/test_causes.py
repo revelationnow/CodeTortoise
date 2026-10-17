@@ -6,7 +6,7 @@ from test_stories import _edit, _same, _world
 
 from codetortoise.board import Flow
 from codetortoise.causes import build_causes, cause_id, change_for
-from codetortoise.reading import Thread, build_reading
+from codetortoise.reading import Reading, StoryReading, Thread, build_reading
 
 
 def _readers(*readers, writer="config", field="errors"):
@@ -108,6 +108,13 @@ def test_the_reading_and_each_storys_reading_hold_their_causes():
     assert [z.text for z in reading.causes] == ["2 places read `Uart::errors`, which `config` now writes"]
     assert per["S1"].causes == reading.causes
     assert all(k.cause == reading.causes[0].id for k in reading.checks)
+
+
+def test_a_reading_stored_before_causes_has_none_and_a_fresh_one_without_checks_has_an_empty_list():
+    assert Reading.model_validate({}).causes is None
+    assert StoryReading.model_validate({"story": "S1"}).causes is None
+    reading, per = build_reading(_set(["N1"]), _world([_edit("send", "drv/uart.c")]))
+    assert reading.causes == [] and per["S1"].causes == []
 
 
 def _lines(ch):
