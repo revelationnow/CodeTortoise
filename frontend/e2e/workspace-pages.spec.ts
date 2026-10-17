@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, startReview } from "./helpers";
+import { expectNamed, expectNoNodeIds, openIndex, startReview } from "./helpers";
 
 /** Finding, CL and cluster pages (spec 2026-10-04-review-workspace §3.3–§3.5). */
 
@@ -54,7 +54,7 @@ test.describe("desktop", () => {
     await expect(page.locator(".ws-finding h2 .badge")).toHaveText("info");
     await expect(page.locator(".ws-verdict")).toContainText("Side effect · not yet assessed");
     await page.locator(".ws-where").getByRole("link", { name: /^Go to story/ }).click();
-    await page.getByRole("tab", { name: "Graph" }).click();                  // a story's flows are on its graph
+    await page.getByRole("navigation", { name: "Story sections" }).getByRole("link", { name: "Graph" }).click();   // a story's flows are on its graph
     const strip = page.getByRole("region", { name: "Flow" });
     await strip.getByRole("button", { name: "Every flow" }).click();
     await strip.getByRole("menuitemradio", { name: /uart_errors sees a new writer of Uart::errors/ }).click();
@@ -124,7 +124,7 @@ test.describe("desktop", () => {
 
   test("a changelist: its Swarm card, its files filtered to it, the stories and findings drawn from it", async ({ page }) => {
     const base = await startReview(page);
-    await page.locator(".ws-rail").getByRole("link", { name: "Open the Index: CLs" }).click();
+    await openIndex(page, "CLs");
     await page.getByRole("link", { name: "Open CL 102" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}/cl/102$`));
     await expect(page.locator(".ws-finding h2")).toHaveText("CL 102 · uart: add flags field; hal_write takes unsigned reg");

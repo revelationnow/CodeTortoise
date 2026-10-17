@@ -1,8 +1,17 @@
-import { expect, test } from "@playwright/test";
-import { login, startReview } from "./helpers";
+import { expect, type Page, test } from "@playwright/test";
+import { login, openIndex, startReview } from "./helpers";
 
 const SINKS = "http://127.0.0.1:8794";
 const READER = "uart_errors reads Uart::errors";
+
+/** Open the reader's check from the outline's Checks; returns the stepper's sink mark. */
+async function openReader(page: Page) {
+  await startReview(page);
+  const outline = page.locator("aside.ws-outline");
+  await outline.getByRole("button", { name: "Checks" }).click();
+  await outline.getByRole("link", { name: new RegExp(`^Open check: ${READER}`) }).click();
+  return page.getByRole("complementary", { name: new RegExp(`^Check: ${READER}`) }).locator(".cs-acts .sink-mark");
+}
 
 /** Shared sinks (spec 2026-10-09-shared-sinks): this server's tortoise.yaml lists Stats::*. */
 test.describe("shared sinks", () => {
@@ -30,26 +39,26 @@ test.describe("shared sinks", () => {
     await expect(cov).toContainText(/shared sinks? hidden/);
   });
 
-  test("the owner marks a field from To check; a re-run hides its rows and unmarking brings them back", async ({ page }) => {
-    await startReview(page);
-    const row = page.locator(".ck-row", { hasText: READER });
-    await row.getByRole("button", { name: "Treat Uart::errors as a sink" }).click();
-    await expect(row).toContainText("Marked — re-run to apply");
-    await row.getByRole("button", { name: "Re-run" }).click();
+  test("the owner marks a field from its reader's check; a re-run hides the check and unmarking brings it back", async ({ page }) => {
+    const mark = await openReader(page);
+    await mark.getByRole("button", { name: "Treat Uart::errors as a sink" }).click();
+    await expect(mark).toContainText("Marked — re-run to apply");
+    await mark.getByRole("button", { name: "Re-run" }).click();
     const cov = page.getByRole("region", { name: "Coverage" });
     await expect(cov).toContainText("Uart::errors (marked)", { timeout: 60_000 });
-    await expect(page.locator(".ck-row", { hasText: READER })).toHaveCount(0);
+    const rows = page.locator("aside.ws-outline .ws-row.cause", { hasText: READER });
+    await expect(rows).toHaveCount(0);
     await cov.getByRole("button", { name: "Unmark Uart::errors" }).click();
     await expect(cov).toContainText("Unmarked — re-run to apply");
     await cov.getByRole("button", { name: "Re-run" }).click();
-    await expect(page.locator(".ck-row", { hasText: READER })).toHaveCount(1, { timeout: 60_000 });
+    await expect(rows).toHaveCount(1, { timeout: 60_000 });
     await expect(cov).not.toContainText("Uart::errors");
   });
 
   test("Show reveals the writer's quiet note in its code; hidden, the code has none", async ({ page }) => {
     const base = await startReview(page);
     const openDiff = async () => {
-      await page.locator(".ws-rail").getByRole("link", { name: "Open the Index: Files" }).click();
+      await openIndex(page, "Files");
       await page.getByRole("link", { name: "Open uart.c's diff" }).click();
       const file = page.getByRole("complementary", { name: "Code: uart.c" });
       await expect(file.locator(".bd-ann", { hasText: "Uart::errors" }).first()).toBeVisible();
@@ -62,8 +71,7 @@ test.describe("shared sinks", () => {
   });
 
   test("a re-run that fails says why, and the button can be tried again", async ({ page }) => {
-    await startReview(page);
-    const row = page.locator(".ck-row", { hasText: READER });
+    const row = await openReader(page);
     try {
       await row.getByRole("button", { name: "Treat Uart::errors as a sink" }).click();
       await page.route("**/rerun", (r) => r.fulfill({ status: 409, contentType: "application/json",

@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, flowStripHolds, startReview } from "./helpers";
+import { expectNamed, expectNoNodeIds, flowStripHolds, openIndex, startReview } from "./helpers";
 
 /** A story in the workspace (spec 2026-10-04-review-workspace §3.2, §2.4). */
 
@@ -12,17 +12,20 @@ test.describe("desktop", () => {
     const base = await startReview(page);
     await page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ }).click();
     await expect(page.locator(".ws-story-head h2")).toContainText("uart_send can now return -2");
-    await expect(page.getByRole("tab", { name: "Steps" })).toHaveAttribute("aria-selected", "true");
+    const tabs = page.getByRole("navigation", { name: "Story sections" });
+    await expect(tabs.getByRole("link", { name: /^Flows/ })).toHaveAttribute("aria-current", "page");
     await expect(page.locator(".ws-story-meta .ws-chip:not(.ws-onmap)")).toHaveText(["CL 101 · 1 function"]);   // its functions by CL
+    await tabs.getByRole("link", { name: /^Where/ }).click();
     await page.getByRole("region", { name: "Where" }).getByRole("link", { name: "Open uart_send in driver/uart.c at line 11" }).click();
-    await expect(page).toHaveURL(/\/s\/S1\?open=file%3A%2F%2Ffixture%2Fdriver%2Fuart\.c%3A11$/);
+    await expect(page).toHaveURL(/\/s\/S1\?open=file%3A%2F%2Ffixture%2Fdriver%2Fuart\.c%3A11&sec=where$/);
     await expect(page.getByRole("complementary", { name: "Code: uart.c" })).toBeVisible();
     await page.getByRole("link", { name: "Close the code" }).click();
     await expect(page.locator(".ws-detail")).toHaveCount(0);
+    await tabs.getByRole("link", { name: /^Code/ }).click();
     const code = page.getByRole("region", { name: "Code" });
     await code.locator("summary", { hasText: "uart_send" }).click();
     await expect(code.locator(".bd-code").first()).toBeVisible();
-    await expect(page).toHaveURL(new RegExp(`${base}/s/S1$`));                  // in place: the address stays
+    await expect(page).toHaveURL(new RegExp(`${base}/s/S1\\?sec=code$`));         // in place: the address stays
     await expectNoNodeIds(page);
   });
 
@@ -45,7 +48,8 @@ test.describe("desktop", () => {
   test("the graph: a node click opens and closes its code; ‹ › keep their place between stories", async ({ page }) => {
     const base = await startReview(page);
     await page.goto(`${base}/s/S1`);
-    await page.getByRole("tab", { name: "Graph" }).click();
+    const tabs = page.getByRole("navigation", { name: "Story sections" });
+    await tabs.getByRole("link", { name: "Graph" }).click();
     await expect(page).toHaveURL(/\/s\/S1\?view=graph$/);
     await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toContainText("Graph");
     await node(page, "uart_send").click();
@@ -55,8 +59,8 @@ test.describe("desktop", () => {
     await flowStripHolds(page);
     await expectNamed(page);
 
-    await page.getByRole("tab", { name: "Steps" }).click();
-    await expect(page.getByRole("region", { name: "To check" })).toBeVisible();     // measure in the Steps layout
+    await tabs.getByRole("link", { name: /^Flows/ }).click();
+    await expect(page.getByRole("region", { name: /^Flow 1:/ })).toBeVisible();      // measure in the Flows layout
     const next = page.getByRole("link", { name: /^Next story/ });
     const x = (await next.boundingBox())!.x;
     await next.click();
@@ -72,7 +76,7 @@ test.describe("desktop", () => {
     await node(page, "uart_send").click();
     await expect(page).toHaveURL(/view=graph&flow=2&open=N\d+$/);
     const there = page.url();
-    await page.locator(".ws-rail").getByRole("link", { name: "Open the Index: CLs" }).click();
+    await openIndex(page, "CLs");
     await page.getByRole("link", { name: "Open CL 101" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}/cl/101$`));
     await page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ }).click();
@@ -112,17 +116,18 @@ test.describe("desktop", () => {
     await expectNoNodeIds(page);
   });
 
-  test("a story's To check ends with the checks of that story the strong model found no hazard in", async ({ page }) => {
+  test("the outline's Checks ends with the checks the strong model found no hazard in", async ({ page }) => {
     const base = await startReview(page);
     const rid = base.split("/")[2];
     const real = await (await page.request.get(`/api/reviews/${rid}/reading`)).json();
-    const row = (story: string, text: string) => ({ ...real.checks[0], key: `cleared|${story}`, kind: "cleared", story, text, also: [] });
+    const row = (story: string, text: string) => ({ ...real.checks[0], key: `cleared|${story}`, kind: "cleared", story, text });
     await page.route(`**/api/reviews/${rid}/reading`, (r) =>
       r.fulfill({ json: { ...real, cleared: [row("S1", "`uart_send` callers all handle -2"), row("S2", "elsewhere")] } }));
     await page.goto(`${base}/s/S1`);
-    const check = page.getByRole("region", { name: "To check" });
-    await check.getByText("1 check found no hazard").click();
-    await expect(check.locator(".ck-cleared li")).toHaveText([/uart_send callers all handle -2/]);
+    const outline = page.locator("aside.ws-outline");
+    await outline.getByRole("button", { name: "Checks" }).click();
+    await outline.getByText("2 checks found no hazard").click();
+    await expect(outline.locator(".ck-cleared li")).toHaveText([/uart_send callers all handle -2/, /elsewhere/]);
   });
 
   test("a story the server sends without a graph drops the Graph tab and shows its steps", async ({ page }) => {
@@ -131,8 +136,12 @@ test.describe("desktop", () => {
     const real = await (await page.request.get(`/api/reviews/${rid}/stories/S1`)).json();
     await page.route(`**/api/reviews/${rid}/stories/S1`, (r) => r.fulfill({ json: { ...real, graph: null } }));
     await page.goto(`${base}/s/S1?view=graph`);
-    await expect(page.getByRole("region", { name: "Before → after" })).toBeVisible();
-    await expect(page.getByRole("tab", { name: "Graph" })).toHaveCount(0);
+    const tabs = page.getByRole("navigation", { name: "Story sections" });
+    await expect(tabs.getByRole("link").first()).toHaveAccessibleName(/^Flows/);
+    await expect(tabs.getByRole("link").first()).toHaveAttribute("aria-current", "page");
+    await expect(tabs.getByRole("link", { name: "Graph" })).toHaveCount(0);
+    await tabs.getByRole("link", { name: /^Call paths/ }).click();
+    await expect(page.getByRole("region", { name: /^Call paths/ })).toBeVisible();
   });
 
   test("a repeated edit lists its sites by file, hides tests and links its effects", async ({ page }) => {
@@ -176,15 +185,39 @@ test.describe("desktop", () => {
 test.describe("a story loading", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test("the Steps | Graph switch and ‹ › are in place from the first paint, on the graph's layout", async ({ page }) => {
+  /** Hold S1's story back three seconds; without a reading, serve the review as one stored before readings. */
+  async function slowStory(page: Page, reading: boolean) {
     const base = await startReview(page);
+    const rid = base.split("/")[2];
+    if (!reading) {
+      await page.route(`**/api/reviews/${rid}/reading`, (r) =>
+        r.fulfill({ status: 404, json: { detail: "this review has no reading: re-run it" } }));
+    }
     await page.route(/\/api\/reviews\/\d+\/stories\/S1$/, async (route) => {
-      const res = await route.fetch();
+      const res = await route.fetch(), j = await res.json();
+      if (!reading) j.reading = null;
       await new Promise((r) => setTimeout(r, 3000));
-      await route.fulfill({ response: res });
+      await route.fulfill({ response: res, json: j });
     });
     await page.goto(`${base}/s/S1?view=graph`);
     await expect(page.getByText("Loading S1…")).toBeVisible();
+  }
+
+  test("‹ › are in place from the first paint, on the graph's layout", async ({ page }) => {
+    await slowStory(page, true);
+    await expect(page.locator(".ws-story-head.st-head")).toBeVisible();          // the reading's header, while S1 loads
+    const next = page.getByRole("link", { name: /^Next story/ });
+    await expect(page.getByText("Loading S1…")).toBeVisible();
+    const before = (await next.boundingBox())!;                                 // there while it loads, not after
+    expect(before).not.toBeNull();
+    await expect(page.getByText("Loading S1…")).toBeVisible();
+    await expect(page.locator(".ws-graph .bd-node").first()).toBeVisible();
+    await expect(page.getByText("Loading S1…")).toHaveCount(0);
+    expect((await next.boundingBox())!).toEqual(before);
+  });
+
+  test("a review without a reading: the Steps | Graph switch and ‹ › are in place from the first paint", async ({ page }) => {
+    await slowStory(page, false);
     const graph = page.getByRole("tab", { name: "Graph" }), next = page.getByRole("link", { name: /^Next story/ });
     expect(await graph.getAttribute("aria-selected", { timeout: 500 })).toBe("true");     // there while it loads, not after
     const before = [(await graph.boundingBox())!, (await next.boundingBox())!];
@@ -220,6 +253,7 @@ test.describe("phone", () => {
     await startReview(page);
     await page.getByRole("link", { name: /^Go to story S1/ }).click();
     await expect(page.locator(".ws-phonebar")).toContainText("‹ Thread A");
+    await page.getByRole("navigation", { name: "Story sections" }).getByRole("link", { name: /^Where/ }).click();
     await page.getByRole("region", { name: "Where" }).getByRole("link", { name: /^Open uart_send in/ }).click();
     const bar = page.locator(".ws-detail .ws-phonebar");
     await expect(bar).toContainText("‹ Back");
@@ -257,7 +291,9 @@ test.describe("a story's flows on its graph", () => {
     await expect(strip).toContainText("This flow is too long to draw here");
     await strip.getByRole("link", { name: "See it in Steps" }).click();
     await expect(page).toHaveURL(new RegExp(`/s/${sid}\\?flow=1$`));
-    await expect(page.getByRole("tab", { name: "Steps" })).toHaveAttribute("aria-selected", "true");
+    const tabs = page.getByRole("navigation", { name: "Story sections" });
+    await expect(tabs.getByRole("link", { name: /^Flows/ })).toHaveAttribute("aria-current", "page");
+    await tabs.getByRole("link", { name: /^Call paths/ }).click();
     await expect(page.getByRole("region", { name: /^Call paths/ })).toBeVisible();
   });
 });

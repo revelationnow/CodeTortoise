@@ -136,6 +136,7 @@ test.describe("zoom and lens", () => {
   const scale = (n: ReturnType<Page["locator"]>) => n.evaluate((e) => e.getBoundingClientRect().width / (e as HTMLElement).offsetWidth);
 
   test("a story's graph zooms with the buttons and Ctrl+wheel about the pointer, and has the lens", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1300 });   // room for the story's header and tabs: the graph fits above the least zoom
     const base = await startReview(page);
     await page.goto(`${base}/s/S1?view=graph`);
     const n = page.locator(".bd-node").first();
