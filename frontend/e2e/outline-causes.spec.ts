@@ -365,3 +365,52 @@ test.describe("old links", () => {
     await expect(page.locator(".ws-rail .ck-tile, .ov2-check, .ws-strip.right")).toHaveCount(0);
   });
 });
+
+test.describe("tablet", () => {
+  test.use({ viewport: { width: 900, height: 1100 } });
+
+  test("the outline is the drawer, with its switch", async ({ page }) => {
+    await startReview(page, FOUR);
+    await page.getByRole("button", { name: "Review contents" }).click();
+    const outline = page.locator("aside.ws-outline");
+    await outline.getByRole("button", { name: "Checks" }).click();
+    await outline.getByRole("link", { name: /^Open check: uart_init calls hal_write/ }).click();
+    await expect(page.getByRole("complementary", { name: /^Check: uart_init calls hal_write/ })).toBeVisible();
+  });
+});
+
+test.describe("phone", () => {
+  test.use({ viewport: devices["iPhone 13"].viewport, userAgent: devices["iPhone 13"].userAgent,
+    deviceScaleFactor: devices["iPhone 13"].deviceScaleFactor, isMobile: true, hasTouch: true });
+
+  test("the stepper is a full-screen sheet that steps and marks; nothing scrolls sideways", async ({ page }) => {
+    await startReview(page, FOUR);
+    const outline = page.locator("aside.ws-outline");
+    await outline.getByRole("button", { name: "Checks" }).click();
+    await outline.getByRole("link", { name: /^Open check: logger_flush ignores the result/ }).click();
+    const sheet = page.getByRole("complementary", { name: /^Check: logger_flush ignores the result/ });
+    await expect(sheet.getByRole("region", { name: "The place" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    await sheet.getByRole("button", { name: "Looks fine & next" }).click();
+    await expect(sheet.locator(".cs-done")).toHaveText("Its place is done");
+    await sheet.getByRole("link", { name: "Close the check" }).click();
+    await expect(sheet).toHaveCount(0);
+  });
+});
+
+test.describe("names, never node ids", () => {
+  test.use({ baseURL: "http://127.0.0.1:8795", viewport: { width: 1440, height: 900 } });
+
+  test("a hazard whose AI reason cites nodes reads their names in the outline, the chips and the stepper", async ({ page }) => {
+    const base = await startReview(page);
+    const outline = page.locator("aside.ws-outline");
+    await outline.getByRole("button", { name: "Checks" }).click();
+    await expectNoNodeIds(page);
+    await outline.locator(".ws-row.cause", { has: page.locator(".ck-tag.hazard") }).first().click();
+    await expect(page.locator(".cs")).toBeVisible();
+    await expectNoNodeIds(page);
+    await page.goto(`${base}/s/S1`);
+    await expect(page.locator(".st-chip.hazard").first()).toBeVisible();
+    await expectNoNodeIds(page);
+  });
+});
