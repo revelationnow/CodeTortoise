@@ -4,7 +4,7 @@ import type { Comment } from "../api";
 import type { BoardFlow, StoryDetail } from "../board/types";
 import Comments from "../components/Comments";
 import { causeOpen, firstOpenAt, shown } from "../reading/causes";
-import { byEntry, codeOrder, flowLabel, foldPath, readOrder, rewriteText, storyTabs, type TabSec, type TabSpec, whereByCl, whereTree } from "../reading/story";
+import { byEntry, codeOrder, flowLabel, flowPart, foldPath, readOrder, rewriteText, storyTabs, type TabSec, type TabSpec, whereByCl, whereTree } from "../reading/story";
 import type { CallPath, Cause, ContractRow, StoryReading, WhereFile } from "../reading/types";
 import type { Address } from "./address";
 import { useWs } from "./context";
@@ -187,11 +187,18 @@ function Chips({ causes }: { causes: Cause[] }) {
   );
 }
 
+/** The checks of a story with no Flows tab (§2.3), at the end of its first tab. */
+function StoryCauses({ sr }: { sr: StoryReading }) {
+  const causes = shown(sr.causes ?? [], useWs().hidden);
+  if (!causes.length) return null;
+  return <section className="st-other" aria-label="Checks in this story"><h3>Checks in this story</h3><Chips causes={causes} /></section>;
+}
+
 /** Flows (§2.3): a numbered card per flow with the account's section for it (else the flow's text) and its checks;
  * then the story's checks that touch no flow, then what it means for the rest. */
 function Flows({ detail, sr, flows }: { detail: StoryDetail; sr: StoryReading; flows: BoardFlow[] }) {
   const ws = useWs(), d = ws.data, lit = ws.addr.flow;
-  const parts = sr.account ?? [], perFlow = parts.filter((p) => p.kind === "flow"), effects = parts.find((p) => p.kind === "effects");
+  const parts = sr.account ?? [], effects = parts.find((p) => p.kind === "effects");
   const causes = shown(sr.causes ?? [], ws.hidden);
   const labels = new Map(detail.board.nodes.map((n) => [n.id, n.label]));
   useEffect(() => { if (lit) document.getElementById(`flow-${lit}`)?.scrollIntoView({ block: "start" }); }, [lit]);
@@ -199,7 +206,7 @@ function Flows({ detail, sr, flows }: { detail: StoryDetail; sr: StoryReading; f
   return (
     <div className="st-flows">
       {flows.map((f, i) => {
-        const label = flowLabel(f, (n) => labels.get(n) ?? d.names[n]?.label), part = perFlow[i];
+        const label = flowLabel(f, (n) => labels.get(n) ?? d.names[n]?.label), part = flowPart(parts, f);
         return (
           <section key={f.id} id={`flow-${i + 1}`} className={`st-flow${lit === i + 1 ? " lit" : ""}`} aria-label={`Flow ${i + 1}: ${label}`}>
             <h3><span className="st-flow-n">{i + 1}</span> <span className="mono">{label}</span></h3>
@@ -259,6 +266,7 @@ export function StoryTabNav({ tabs, active, sid }: { tabs: TabSpec[]; active: Ta
 export default function StoryTabs({ detail, sr, flows, tabs }: { detail: StoryDetail; sr: StoryReading; flows: BoardFlow[]; tabs: TabSpec[] }) {
   const ws = useWs(), st = detail.story;
   const active = tabs.find((t) => t.sec !== "graph" && t.sec === ws.addr.sec)?.sec ?? tabs[0].sec;
+  const causesAt = tabs.some((t) => t.sec === "flows") ? null : (tabs.find((t) => t.sec === "changes") ?? tabs[0]).sec;   // Flows holds them otherwise
   return <>
     <StoryTabNav tabs={tabs} active={active} sid={st.id} />
     <div className="st-panel">
@@ -270,6 +278,7 @@ export default function StoryTabs({ detail, sr, flows, tabs }: { detail: StoryDe
       {active === "paths" && <CallPaths sr={sr} detail={detail} />}
       {active === "code" && <Code sr={sr} detail={detail} />}
       {active === "talk" && <Talk detail={detail} />}
+      {causesAt === active && <StoryCauses sr={sr} />}
     </div>
   </>;
 }

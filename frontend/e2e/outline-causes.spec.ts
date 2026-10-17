@@ -262,4 +262,50 @@ test.describe("a story's tabs", () => {
     await expect(page.getByRole("region", { name: /^Flow 1:/ })).toBeVisible();
     await expect(page.locator(".st-chip")).toHaveCount(0);
   });
+
+  /** Patch a story's reading JSON on its way to the page. */
+  async function patchStory(page: Page, sid: string, edit: (j: any) => void) {
+    await page.route(`**/api/reviews/*/stories/${sid}`, async (route) => {
+      const res = await route.fetch(), j = await res.json();
+      edit(j);
+      await route.fulfill({ response: res, json: j });
+    });
+  }
+
+  test("a very long check line ends in an ellipsis inside its flow card, the whole line on hover", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    const long = "`uart_send` changed so that " + "every caller that passed the old value now sees something else ".repeat(8);
+    await patchStory(page, "S1", (j) => { for (const c of j.reading.causes) c.text = long; });
+    await page.setViewportSize({ width: 700, height: 900 });
+    await page.goto(`${base}/s/S1`);
+    const chip = page.locator(".st-chip").first();
+    await expect(chip).toBeVisible();
+    const card = chip.locator("xpath=ancestor::section[1]");
+    const [c, k] = [await chip.boundingBox(), await card.boundingBox()];
+    expect(c!.x + c!.width).toBeLessThanOrEqual(k!.x + k!.width + 1);
+    await expect(chip).toHaveAttribute("title", /every caller that passed/);
+  });
+
+  test("a flow whose account section was dropped shows its own text, not the next flow's section", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await patchStory(page, "S1", (j) => {
+      const fl = j.board.flows.filter((f: any) => j.story.flows.includes(f.id));
+      j.reading.account = [{ kind: "flow", heading: fl[1].text, text: "SECOND-FLOW-ACCOUNT", cites: [] }];
+    });
+    await page.goto(`${base}/s/S1`);
+    await expect(page.getByRole("region", { name: /^Flow 2:/ })).toContainText("SECOND-FLOW-ACCOUNT");
+    await expect(page.getByRole("region", { name: /^Flow 1:/ })).not.toContainText("SECOND-FLOW-ACCOUNT");
+  });
+
+  test("a story without flows lists its checks at the end of its first tab", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await patchStory(page, "S3", (j) => {
+      j.reading.causes = [{ id: "cfixture", kind: "caller", thread: null, story: "S3", text: "a caller of `uart_send` now sees a new value",
+                            places: [], flows: [], finding: null, change: null }];
+    });
+    await page.goto(`${base}/s/S3`);
+    const region = page.getByRole("region", { name: "Checks in this story" });
+    await expect(region.locator(".st-chip")).toHaveCount(1);
+    await expect(page.getByRole("region", { name: /^Flow \d+:/ })).toHaveCount(0);
+  });
 });

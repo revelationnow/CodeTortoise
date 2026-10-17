@@ -828,3 +828,4 @@ a.ws-chip { text-decoration: none; }
   font-size: 12.5px; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
 .st-chip.done { color: var(--muted); opacity: .8; }
 .st-other h3, .st-effects h3 { font-size: 14px; margin: 16px 0 6px; }
+.st-chips li { min-width: 0; max-width: 100%; }

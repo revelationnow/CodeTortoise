@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { byEntry, clCounts, clRewrites, codeOrder, flowLabel, foldPath, gapText, readOrder, rewriteText, stepIn, storyNeighbours, storyTabs, threadCrumb, whereByCl, whereTree } from "./story";
+import { byEntry, clCounts, clRewrites, codeOrder, flowLabel, flowPart, foldPath, gapText, readOrder, rewriteText, stepIn, storyNeighbours, storyTabs, threadCrumb, whereByCl, whereTree } from "./story";
 import type { CallPath, ContractRow, Reading, Rewrite, WhereFile } from "./types";
 
 const fn = (node: string, label: string, cl: number | null, extra = {}) => ({ node, label, add: 2, rem: 1, cl, line: 3, ...extra });
@@ -123,5 +123,14 @@ describe("storyNeighbours", () => {
     expect(storyNeighbours({ threads }, "S1")).toEqual({ after: "S2", feeds: "S5" });
     expect(storyNeighbours({ threads }, "S2")).toEqual({ after: null, feeds: "S1" });
     expect(storyNeighbours({ threads }, "S9")).toEqual({ after: null, feeds: null });
+  });
+});
+
+describe("flowPart", () => {
+  const part = (heading: string) => ({ kind: "flow" as const, heading, text: `about ${heading}`, cites: [] });
+  it("pairs a flow with its own section, so a dropped section leaves its flow without one", () => {
+    const parts = [part("second flow"), { kind: "purpose" as const, heading: "second flow", text: "x", cites: [] }];
+    expect(flowPart(parts, { text: "first flow" })).toBeUndefined();
+    expect(flowPart(parts, { text: "second flow" })?.text).toBe("about second flow");
   });
 });

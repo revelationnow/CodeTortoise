@@ -1,7 +1,7 @@
 /** A story page's tiles (spec 2026-10-07-review-reading §6): its place in its thread, Where, call paths and code order. */
 import { letter } from "./checks";
 import type { StoryKind } from "../board/types";
-import type { CallPath, ContractRow, Gap, Reading, Rewrite, WhereFile, WhereFn } from "./types";
+import type { AccountPart, CallPath, ContractRow, Gap, Reading, Rewrite, WhereFile, WhereFn } from "./types";
 
 /** ‹ › on a story page: the story `by` places away in reading order, wrapping; a story not in it stays put. */
 export function stepIn(order: string[], sid: string, by: number): string {
@@ -126,4 +126,10 @@ export function storyNeighbours(r: Pick<Reading, "threads">, sid: string): { aft
   if (!t) return { after: null, feeds: null };
   const i = t.stories.indexOf(sid);
   return { after: t.stories[i - 1] ?? null, feeds: t.stories[i + 1] ?? null };
+}
+
+/** The account's section for a flow: the backend headlines it with the flow's text, and drops a section it cannot
+ * use, so a flow is paired by that heading, never by position. */
+export function flowPart(parts: AccountPart[], f: { text: string }): AccountPart | undefined {
+  return parts.find((p) => p.kind === "flow" && p.heading === f.text);
 }

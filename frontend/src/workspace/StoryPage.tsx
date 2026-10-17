@@ -83,6 +83,15 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
   const hazards = sr ? sr.checks.filter((k) => k.kind === "hazard" && isOpen(k, r?.marks ?? {})).length : 0;
   const map: Address | null = st.board ? { ...addressAt({ kind: "cluster", cid: st.board }), story: st.id }   // the story lit on its map
     : d.board ? { ...addressAt({ kind: "whole", view: "graph" }), story: st.id } : null;
+  const metaChips = <>
+    {(sr ? clCounts(sr.where) : st.cls.map((cl) => ({ cl, functions: 0 }))).map(({ cl: c, functions: n }) => (
+      <Link key={c} className="ws-chip" to={ws.link(ws.item({ kind: "cl", cl: c }))} title={`Open CL ${c}`} aria-label={`Open CL ${c}`}>
+        CL {c}{n > 0 && ` · ${n} function${n === 1 ? "" : "s"}`}</Link>
+    ))}
+    {targets.map((t) => <span key={t} className="ws-chip target" title={`Build target ${t}`}>⌖ {t}</span>)}
+    {map && <Link className="ws-chip ws-onmap" to={ws.link(map)} title={`Show ${st.id} on the map`} aria-label={`Show ${st.id} on the map`}>
+      ◎ On the map</Link>}
+  </>;
   const oldHeader = (
     <header className="ws-story-head">
       {crumb && (
@@ -109,13 +118,7 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
       </div>
       <p>{!r && <NameText text={st.summary} />} {st.kind !== "mechanical" && <Explain kind="story" target={st.id} has={st.text_source === "llm"} askOnly={st.source === "tier1"} ask={{ kind: "story", anchor: { id: st.id }, onAsked: d.loadComments }} />}</p>
       <p className="ws-story-meta">{!r && <span className="muted">{countLine(st)}</span>}
-        {(sr ? clCounts(sr.where) : st.cls.map((cl) => ({ cl, functions: 0 }))).map(({ cl: c, functions: n }) => (
-          <Link key={c} className="ws-chip" to={ws.link(ws.item({ kind: "cl", cl: c }))} title={`Open CL ${c}`} aria-label={`Open CL ${c}`}>
-            CL {c}{n > 0 && ` · ${n} function${n === 1 ? "" : "s"}`}</Link>
-        ))}
-        {targets.map((t) => <span key={t} className="ws-chip target" title={`Build target ${t}`}>⌖ {t}</span>)}
-        {map && <Link className="ws-chip ws-onmap" to={ws.link(map)} title={`Show ${st.id} on the map`} aria-label={`Show ${st.id} on the map`}>
-          ◎ On the map</Link>}</p>
+        {metaChips}</p>
     </header>
   );
   const nb = r ? storyNeighbours(r, sid) : { after: null, feeds: null };
@@ -139,12 +142,7 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
         <span className="ws-pos">{step(-1)}{step(1)}</span>
         {d.ticks && <MarkRead sid={sid} order={r.order} />}
         <span className="ws-story-meta">
-          {(sr ? clCounts(sr.where) : st.cls.map((cl) => ({ cl, functions: 0 }))).map(({ cl: c, functions: n }) => (
-            <Link key={c} className="ws-chip" to={ws.link(ws.item({ kind: "cl", cl: c }))} title={`Open CL ${c}`} aria-label={`Open CL ${c}`}>
-              CL {c}{n > 0 && ` · ${n} function${n === 1 ? "" : "s"}`}</Link>
-          ))}
-          {targets.map((t) => <span key={t} className="ws-chip target" title={`Build target ${t}`}>⌖ {t}</span>)}
-          {map && <Link className="ws-chip ws-onmap" to={ws.link(map)} title={`Show ${st.id} on the map`} aria-label={`Show ${st.id} on the map`}>◎ On the map</Link>}
+          {metaChips}
         </span>
       </div>
       <div className="st-summary">
@@ -162,28 +160,17 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
   if (shown === "graph" && !detail)
     return <div className="ws-page graph"><div className="ws-story-bar">{header}</div><p className="muted ws-page">Loading {st.id}…</p></div>;
   if (!detail) return <div className="ws-page"><div className={frame}>{header}<p className="muted">Loading {st.id}…</p></div></div>;
-  if (r && sr) {
-    const tabs = tabsFor(detail, sr, flows.length, hasGraph, d.comments);
-    if (shown === "graph" && detail.graph)
-      return (
-        <div className="ws-page graph">
-          <div className="ws-story-bar">{header}<StoryTabNav tabs={tabs} active="graph" sid={sid} /></div>
-          <GraphView key={sid} board={detail.graph} prefKey={`${d.id}.${sid}`} flowIndex={index} onFlow={onFlow} quiet flows={flows}
-                     stepsHref={ws.link({ ...ws.addr, place: { kind: "story", sid, view: "steps" } })}
-                     onMore={() => ws.go({ ...ws.addr, place: { kind: "story", sid, view: "steps" } }, true)} />
-        </div>
-      );
-    return <div className="ws-page"><div className="st-page">{header}<StoryTabs detail={detail} sr={sr} flows={flows} tabs={tabs} /></div></div>;
-  }
+  const tabs = r && sr ? tabsFor(detail, sr, flows.length, hasGraph, d.comments) : null;
   if (shown === "graph" && detail.graph)
     return (
       <div className="ws-page graph">
-        <div className="ws-story-bar">{header}</div>
+        <div className="ws-story-bar">{header}{tabs && <StoryTabNav tabs={tabs} active="graph" sid={sid} />}</div>
         <GraphView key={sid} board={detail.graph} prefKey={`${d.id}.${sid}`} flowIndex={index} onFlow={onFlow} quiet flows={flows}
                    stepsHref={ws.link({ ...ws.addr, place: { kind: "story", sid, view: "steps" } })}
                    onMore={() => ws.go({ ...ws.addr, place: { kind: "story", sid, view: "steps" } }, true)} />
       </div>
     );
+  if (sr && tabs) return <div className="ws-page"><div className="st-page">{header}<StoryTabs detail={detail} sr={sr} flows={flows} tabs={tabs} /></div></div>;
   return (
     <div className="ws-page"><div className="ws-text">
       {header}
