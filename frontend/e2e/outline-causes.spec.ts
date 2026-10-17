@@ -10,9 +10,9 @@ const FOUR = "101 102 103 104";
  * neither. */
 async function withoutCauses(page: Page) {
   const strip = (served: "validated" | "raw") => async (route: import("@playwright/test").Route) => {
-    const res = await route.fetch();
-    const j = await res.json().catch(() => undefined);
-    if (j === undefined) return;               // the page went away while it was in flight: nobody reads it
+    let res: import("@playwright/test").APIResponse, j: any;
+    try { res = await route.fetch(); j = await res.json(); }
+    catch { return; }                          // the page or the test went away while it was in flight: nobody reads it
     const r = j.reading ?? j;
     if (r && typeof r === "object") {
       if (served === "validated") { r.causes = null; for (const k of [...r.checks ?? [], ...r.cleared ?? []]) k.cause = null; }
@@ -128,6 +128,46 @@ test.describe("a cause of many places", () => {
     await expect(page).toHaveURL(/open=cause%3Ac[0-9a-f]{10}&at=2/);
     await expectNoNodeIds(page);
     await expectNamed(page);
+  });
+
+  /** Hold each Looks fine (one place's mark) until `release` runs, or fail it at once. */
+  async function holdMarks(page: Page, how: "hold" | "fail") {
+    let release = () => {};
+    const held = new Promise<void>((done) => { release = done; });
+    await page.route((u) => u.pathname.endsWith("/mark"), async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      if (how === "fail") return route.fulfill({ status: 500, json: { detail: "the store is busy" } });
+      await held;
+      await route.continue();
+    });
+    return () => release();
+  }
+
+  test("J and K wait while a Looks fine is on its way, so it cannot pull the reader back", async ({ page }) => {
+    const release = await holdMarks(page, "hold");
+    const panel = await openReaders(page);
+    await expect(panel.locator(".cs-pos")).toHaveText("1 / 5");
+    await page.keyboard.press("f");
+    await expect(panel.getByRole("button", { name: "Looks fine & next" })).toBeDisabled();
+    await page.keyboard.press("j");
+    await page.keyboard.press("j");
+    await page.waitForTimeout(300);                                      // the mark is held: nothing else moves
+    expect(await panel.locator(".cs-pos").textContent()).toBe("1 / 5");
+    release();
+    await expect(panel.locator(".cs-pos")).toHaveText("2 / 5");
+    await expect(panel.locator(".cs-donecount")).toHaveText("1 done");
+  });
+
+  test("a failed Looks fine's banner goes when the reader steps to another place", async ({ page }) => {
+    await holdMarks(page, "fail");
+    const panel = await openReaders(page);
+    await expect(panel.locator(".cs-pos")).toHaveText("1 / 5");
+    await page.keyboard.press("f");
+    await expect(panel.locator(".banner.warn")).toContainText("the store is busy");
+    await expect(panel.locator(".cs-pos")).toHaveText("1 / 5");
+    await page.keyboard.press("j");
+    await expect(panel.locator(".cs-pos")).toHaveText("2 / 5");
+    await expect(panel.locator(".banner.warn")).toHaveCount(0);
   });
 
   test("a place whose file text cannot be fetched says so and keeps its actions", async ({ page }) => {

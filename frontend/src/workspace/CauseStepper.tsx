@@ -44,8 +44,9 @@ export default function CauseStepper({ cause, at }: { cause: Cause; at: number }
   const [error, setError] = useState<string | null>(null);
   const [talk, setTalk] = useState(false);
   const { ticks, tick } = d;
-  useEffect(() => {                                       // a new place: its comment box closed, its tick set
+  useEffect(() => {                                       // a new place: its comment box closed, no banner, its tick set
     setTalk(false);
+    setError(null);
     if (ticks && !ticks.checks.includes(key)) tick("check", key, true).catch(() => { /* the tick is a courtesy */ });
   }, [key]);                                              // eslint-disable-line react-hooks/exhaustive-deps
   const go = (to: number) => ws.go({ ...ws.addr, open: { cause: cause.id, at: to } }, true);
@@ -69,10 +70,11 @@ export default function CauseStepper({ cause, at }: { cause: Cause; at: number }
   // the handler is read from a ref set in the render, so a key pressed before React's effects flush meets this render
   const onKey = useRef<(e: KeyboardEvent) => void>(() => {});
   onKey.current = (e) => {
-    if (e.ctrlKey || e.metaKey || e.altKey || typing(e.target)) return;
+    // while a mark is on its way J, K and F wait: its "next" is worked out from the place it was made at
+    if (busy || e.ctrlKey || e.metaKey || e.altKey || typing(e.target)) return;
     if (e.key === "j" && ahead !== null) { e.preventDefault(); go(ahead); }
     else if (e.key === "k" && behind !== null) { e.preventDefault(); go(behind); }
-    else if (e.key === "f" && open && !busy) { e.preventDefault(); fineNext(); }
+    else if (e.key === "f" && open) { e.preventDefault(); fineNext(); }
   };
   useEffect(() => {
     const on = (e: KeyboardEvent) => onKey.current(e);
