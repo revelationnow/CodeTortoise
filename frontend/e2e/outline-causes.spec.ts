@@ -183,6 +183,17 @@ test.describe("the top bar", () => {
     await help.click();
     const dialog = page.getByRole("dialog", { name: "How to read this page" });
     await expect(dialog).toContainText("J next, K back, F looks fine & next");
+    for (const w of [1440, 600]) {
+      await page.setViewportSize({ width: w, height: 900 });
+      await expect(dialog).toBeVisible();
+      const seen = await dialog.evaluate((el) => {
+        const b = el.getBoundingClientRect();
+        const top = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+        return { inside: b.left >= 0 && b.top >= 0 && b.right <= window.innerWidth && b.bottom <= window.innerHeight,
+                 hit: !!top && el.contains(top) };
+      });
+      expect(seen).toEqual({ inside: true, hit: true });
+    }
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
     await expect(help).toHaveAttribute("aria-expanded", "false");

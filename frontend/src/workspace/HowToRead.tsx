@@ -5,20 +5,25 @@ import { useEffect, useRef, useState } from "react";
 export default function HowToRead() {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLSpanElement>(null);
+  const [top, setTop] = useState(0);        // the header scrolls, so the popover is fixed under the button instead
   useEffect(() => {
     if (!open) return;
+    const place = () => { const b = box.current?.getBoundingClientRect(); if (b) setTop(b.bottom + 6); };
+    place();
+    window.addEventListener("resize", place);
     const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
     const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
     document.addEventListener("pointerdown", away);
     document.addEventListener("keydown", esc);
-    return () => { document.removeEventListener("pointerdown", away); document.removeEventListener("keydown", esc); };
+    return () => { document.removeEventListener("pointerdown", away); document.removeEventListener("keydown", esc);
+                    window.removeEventListener("resize", place); };
   }, [open]);
   return (
     <span className="ws-help" ref={box}>
       <button className="bd-ibtn" aria-label="How to read this page" title="How to read this page" aria-expanded={open}
               onClick={() => setOpen(!open)}>?</button>
       {open && (
-        <div className="ws-help-pop" role="dialog" aria-label="How to read this page">
+        <div className="ws-help-pop" role="dialog" aria-label="How to read this page" style={{ top }}>
           <h2>How to read this page</h2>
           <ul>
             <li><b>The outline</b> on the left lists the change's threads — stories joined by calls or shared data, lettered

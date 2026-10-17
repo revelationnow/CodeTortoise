@@ -800,8 +800,7 @@ a.ws-chip { text-decoration: none; }
 
 /* the top bar's Next open check and ? (spec 2026-10-16-outline-and-causes §1.1) */
 .ws-next { white-space: nowrap; font-weight: 600; }
-.ws-help { position: relative; }
-.ws-help-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; width: min(440px, calc(100vw - 32px));
+.ws-help-pop { position: fixed; right: 16px; z-index: 30; max-height: calc(100vh - 80px); overflow-y: auto; width: min(440px, calc(100vw - 32px));
   padding: 12px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
   box-shadow: 0 6px 24px rgb(0 0 0 / .18); font-size: 13.5px; line-height: 1.45; }
 .ws-help-pop h2 { margin: 0 0 6px; font-size: 15px; }
