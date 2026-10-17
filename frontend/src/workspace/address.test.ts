@@ -4,6 +4,16 @@ import { type Address, at, href, placeKey, readAddress, samePlace } from "./addr
 const q = (s: string) => new URLSearchParams(s);
 
 describe("readAddress", () => {
+  it("reads a cause and its place, a story's tab, and an old Graph tab", () => {
+    expect(readAddress("/s/S1", q("open=cause:c0123456789&at=3")).open).toEqual({ cause: "c0123456789", at: 3 });
+    expect(readAddress("", q("open=cause:c01&at=0")).open).toEqual({ cause: "c01", at: 1 });
+    expect(readAddress("", q("open=cause:")).open).toBeNull();
+    expect(readAddress("/s/S1", q("sec=where")).sec).toBe("where");
+    expect(readAddress("/s/S1", q("sec=nowhere")).sec).toBeUndefined();
+    expect(readAddress("", q("sec=where")).sec).toBeUndefined();          // only a story has tabs
+    expect(readAddress("/s/S1", q("sec=graph")).place).toEqual({ kind: "story", sid: "S1", view: "graph" });
+  });
+
   it("reads each kind of place", () => {
     expect(readAddress("", q("")).place).toEqual({ kind: "whole" });
     expect(readAddress("", q("view=graph")).place).toEqual({ kind: "whole", view: "graph" });
@@ -31,6 +41,14 @@ describe("readAddress", () => {
 });
 
 describe("href", () => {
+  it("writes a cause and a story's tab, and round-trips them", () => {
+    const a = at({ kind: "story", sid: "S1", view: "steps" }, { open: { cause: "c01", at: 3 }, sec: "paths" });
+    expect(href("/r/7", a)).toBe("/r/7/s/S1?open=cause%3Ac01&at=3&sec=paths");
+    const back = readAddress("/s/S1", new URLSearchParams(href("/r/7", a).split("?")[1]));
+    expect([back.open, back.sec]).toEqual([{ cause: "c01", at: 3 }, "paths"]);
+    expect(href("/r/7", at({ kind: "story", sid: "S1", view: "graph" }, { sec: "paths" }))).toBe("/r/7/s/S1?view=graph");
+  });
+
   it("writes an address back, leaving out defaults", () => {
     const a: Address = { place: { kind: "story", sid: "S1", view: "graph" }, flow: 2, open: { node: "N9" }, tab: "neighbours" };
     expect(href("/w/7", a)).toBe("/w/7/s/S1?view=graph&flow=2&open=N9&tab=neighbours");

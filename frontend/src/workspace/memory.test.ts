@@ -51,6 +51,15 @@ describe("stored memory", () => {
     expect(Object.keys(items)).toEqual(["ct.ws.7.memory"]);
   });
 
+  it("keeps a story's tab and a cause in the panel", () => {
+    storage();
+    const a = at({ kind: "story", sid: "S1", view: "steps" }, { open: { cause: "c01", at: 2 }, sec: "code" });
+    saveMemory(9, remember({}, a));
+    expect(recall(loadMemory(9), a.place)).toEqual(a);
+    window.sessionStorage.setItem("ct.ws.9.memory", JSON.stringify({ "s:S1": { ...a, open: { cause: "c01", at: 0 } } }));
+    expect(loadMemory(9)).toEqual({});
+  });
+
   it("keeps an item whose panel showed a finding", () => {
     storage();
     const m = { "s:S1": at({ kind: "story", sid: "S1", view: "steps" }, { open: { finding: "F4" } }) };

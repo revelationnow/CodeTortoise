@@ -119,7 +119,7 @@ export default function Detail() {
         {ws.screen !== "phone" && ws.tabs.length > 1 && (
           <ul className="ws-ptabs" aria-label="Open items">
             {ws.tabs.map((t) => {
-              const on = openKey(t) === openKey(open), tname = tabLabel(t, d.names);
+              const on = openKey(t) === openKey(open), tname = tabLabel(t, d.names, d.reading?.causes);
               return (
                 <li key={openKey(t)} className={`ws-ptab${on ? " on" : ""}`}>
                   <Link aria-current={on || undefined} to={ws.link(ws.opened(t))} title={`Show ${tname}`} aria-label={`Show ${tname}`}>{tname}</Link>

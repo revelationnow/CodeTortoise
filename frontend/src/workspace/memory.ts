@@ -1,6 +1,6 @@
 /** Per-item memory for the session (spec 2026-10-04-review-workspace §2.4): each item remembers its last view, flow
  * and detail content, so going back to it from the rail returns to where the reader was. */
-import { type Address, at, type Open, type Place, placeKey } from "./address";
+import { type Address, at, type Open, type Place, placeKey, STORY_SECS } from "./address";
 
 export type Memory = Record<string, Address>;
 
@@ -37,6 +37,7 @@ function isOpen(o: unknown): o is Open {
   if (!isObj(o)) return false;
   if ("node" in o) return str(o.node);
   if ("finding" in o) return str(o.finding);
+  if ("cause" in o) return str(o.cause) && Number.isInteger(o.at) && (o.at as number) > 0;
   return str(o.file) && (o.line === null || (Number.isInteger(o.line) && (o.line as number) > 0))
     && (o.cl === undefined || (Number.isInteger(o.cl) && (o.cl as number) > 0));
 }
@@ -44,7 +45,8 @@ function isOpen(o: unknown): o is Open {
 /** A stored entry is used only if it is an address filed under its own item. */
 const isAddressAt = (k: string, a: unknown): a is Address =>
   isObj(a) && isPlace(a.place) && placeKey(a.place) === k && isOpen(a.open)
-  && (a.flow === null || (Number.isInteger(a.flow) && (a.flow as number) > 0)) && (a.tab === "diff" || a.tab === "neighbours");
+  && (a.flow === null || (Number.isInteger(a.flow) && (a.flow as number) > 0)) && (a.tab === "diff" || a.tab === "neighbours")
+  && (a.sec === undefined || (STORY_SECS as readonly unknown[]).includes(a.sec));
 
 /** Session storage may be missing or throw: the workspace then just forgets. */
 export function loadMemory(reviewId: number): Memory {
