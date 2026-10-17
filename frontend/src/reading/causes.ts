@@ -1,8 +1,8 @@
 /** Checks by cause (spec 2026-10-16-outline-and-causes §4): which places are open, which kinds are hidden, the order
  * of Next open check and the stepper's moves. Pure, so the rules are tested apart from React. */
 import { keys, load, save } from "../board/prefs";
-import { CHECK_ORDER, KIND_LABEL } from "./checks";
-import type { Cause, Check, CheckKind, Mark } from "./types";
+import { CHECK_ORDER, KIND_LABEL, letter } from "./checks";
+import type { Cause, Check, CheckKind, Mark, Reading } from "./types";
 
 export type OutlineView = "stories" | "checks";
 
@@ -97,4 +97,20 @@ export function progressLine(read: number, stories: number, open: number, total:
   const head = `${read} of ${stories} stories read`;
   if (!total) return head;
   return `${head} · ${open ? `${open} cause${open === 1 ? "" : "s"} open` : "every check done"}`;
+}
+
+export interface CauseGroup { thread: string | null; label: string; stories: { story: string | null; causes: Cause[] }[] }
+
+/** The outline's Checks view (§4.4): a group per thread, then per story in reading order, then the thread's causes of no
+ * story; causes of no known thread under "Across the change". Causes keep their reading order. */
+export function causeGroups(r: Pick<Reading, "threads">, list: Cause[]): CauseGroup[] {
+  const known = new Set(r.threads.map((t) => t.id));
+  const groups = [...r.threads.map((t, i) => ({ thread: t.id as string | null, label: `${letter(i, t.id)} · ${t.name}`, order: t.stories })),
+                  { thread: null, label: "Across the change", order: [] as string[] }];
+  return groups.map((g) => {
+    const mine = list.filter((c) => (g.thread ? c.thread === g.thread : !c.thread || !known.has(c.thread)));
+    const stories = [...g.order, null].map((s) => ({
+      story: s, causes: mine.filter((c) => (s === null ? !c.story || !g.order.includes(c.story) : c.story === s)) }));
+    return { thread: g.thread, label: g.label, stories: stories.filter((x) => x.causes.length) };
+  }).filter((g) => g.stories.length);
 }

@@ -140,7 +140,7 @@ export default function Detail() {
             <Link to={ws.link(at({ kind: "index", tab: "findings" }, { open }))} title="Every finding of the review">All findings</Link>
           </span>}
           {ws.screen === "desktop" && <button className={`bd-ibtn ws-focus${focused ? " on" : ""}`} aria-pressed={focused}
-                                              title={focused ? "Bring back the contents and To check" : "Fold the contents and To check, and widen this panel"}
+                                              title={focused ? "Bring back the contents" : "Fold the contents and widen this panel"}
                                               onClick={ws.toggleFocus}>Focus</button>}
           {ws.screen !== "phone" && <Link className="ws-x" to={close} aria-label={closeLabel} title={closeLabel}>✕</Link>}
         </div>

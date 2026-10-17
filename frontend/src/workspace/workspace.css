@@ -760,3 +760,22 @@ a.ws-chip { text-decoration: none; }
 .ix-files { flex-basis: 100%; list-style: none; margin: 4px 0 0 28px; padding: 0; }
 .ix-list .ix-files li { border-bottom: 0; padding: 2px 0; }
 .ix-files a { min-width: 0; overflow-wrap: anywhere; }
+
+/* the outline (spec 2026-10-16-outline-and-causes §1.2) */
+.ws-outline-switch { display: flex; margin: 8px 14px 4px; }
+.ws-outline-switch .bd-ibtn { flex: 1; }
+.ws-one { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-pad { padding: 4px 14px; }
+.ws-flows { list-style: none; margin: 0 0 4px; padding: 0 0 0 18px; }
+.ws-row.flow { padding-top: 3px; padding-bottom: 3px; font-size: 12.5px; }
+.ws-row.flow .muted { flex: none; width: 1.4em; text-align: right; }
+.ws-cgroup h4 { margin: 6px 14px 2px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.ws-row.cause .ck-tag { flex: none; }
+.ws-row.cause.finished { color: var(--muted); }
+.ws-cdone { flex: none; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ws-hidden { margin: 4px 14px 8px; font-size: 13px; }
+.ws-hidden summary { cursor: pointer; color: var(--muted); }
+.ws-hidden ul { list-style: none; margin: 6px 0 0; padding: 0; }
+.ws-hidden label { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.ws-index { margin: 12px 0 8px; }
+.ws-index > summary { padding: 4px 14px; cursor: pointer; font-weight: 600; font-size: 13px; }

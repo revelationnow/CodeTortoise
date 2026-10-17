@@ -11,7 +11,9 @@ import { useSources } from "../board/useSources";
 import Stages from "../components/Stages";
 import { AiProvider, useAi } from "../lib/ai";
 import { threadLabel } from "../reading/checks";
+import { loadHidden, loadOutline, type OutlineView, saveHidden, saveOutline } from "../reading/causes";
 import { progress, progressText } from "../reading/plan";
+import type { CheckKind } from "../reading/types";
 import { type Address, at, href, type Item, type Open, type Place, readAddress, type Tab } from "./address";
 import { type Folds, useWs, type Ws, WsContext } from "./context";
 import Crumbs, { PhoneBar } from "./Crumbs";
@@ -23,6 +25,7 @@ import ClPage from "./ClPage";
 import ClusterPage from "./ClusterPage";
 import FindingPage from "./FindingPage";
 import IndexPage from "./IndexPage";
+import Outline from "./Outline";
 import Rail from "./Rail";
 import StoryPage from "./StoryPage";
 import { addTab, closeTab as closeOf } from "./tabs";
@@ -74,13 +77,17 @@ export default function Workspace() {
   }, []);
   const toggleFocus = useCallback(() => setFocus((x) => !x), []);
   useEffect(() => { if (!addr.open) setFocus(false); }, [addr.open]);   // closing the panel restores the columns
-  const shown = useMemo(() => (focus ? { rail: true, check: true } : folds), [focus, folds]);
+  const [outline, setOutlineState] = useState<OutlineView>(loadOutline);
+  const setOutline = useCallback((v: OutlineView) => { setOutlineState(v); saveOutline(v); }, []);
+  const [hidden, setHiddenState] = useState<ReadonlySet<CheckKind>>(loadHidden);
+  const setHidden = useCallback((h: ReadonlySet<CheckKind>) => { setHiddenState(h); saveHidden(h); }, []);
+  const shown = useMemo(() => (focus ? { ...folds, rail: true } : folds), [focus, folds]);   // Focus folds the outline only
   const [clsOpen, setClsOpen] = useState<ReadonlySet<number>>(() => new Set());
   const ws: Ws = useMemo(() => ({ base: root, data, addr, screen, sources, link, go, item, opened, hover, setHover,
                                   tabs, closeTab, folds: shown, setFold, focus, toggleFocus,
-                                  clsOpen, setClsOpen }),
+                                  outline, setOutline, hidden, setHidden, clsOpen, setClsOpen }),
                          [root, data, addr, screen, sources, link, go, item, opened, hover, tabs, closeTab, shown, setFold, focus,
-                          toggleFocus, clsOpen]);
+                          toggleFocus, outline, setOutline, hidden, setHidden, clsOpen]);
 
   const d = data.detail;
   const r = data.reading;
@@ -126,7 +133,9 @@ export default function Workspace() {
         <main className={`ws ${screen} level-${level}${drawer ? " drawer" : ""}`}>
           <Head onMenu={() => setDrawer(!drawer)} drawer={drawer} />
           <div className={`ws-body${addr.open ? " with-detail" : ""}`}>
-            {(screen !== "phone" || level === "rail") && <Rail show={hash} onPick={() => setDrawer(false)} hidden={screen === "tablet" && !drawer} />}
+            {(screen !== "phone" || level === "rail") && (r
+              ? <Outline onPick={() => setDrawer(false)} hidden={screen === "tablet" && !drawer} />
+              : <Rail show={hash} onPick={() => setDrawer(false)} hidden={screen === "tablet" && !drawer} />)}
             {drawer && <div className="ws-scrim" onClick={() => setDrawer(false)} aria-hidden />}
             {(screen !== "phone" || level === "item") && (
               <section className="ws-centre" aria-label="Centre">

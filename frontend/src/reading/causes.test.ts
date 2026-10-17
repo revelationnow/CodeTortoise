@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { alsoAt, causeOfCheck, causeOpen, doneCount, firstOpenAt, hiddenLabel, loadHidden, loadOutline, nextOpen,
+import { alsoAt, causeGroups, causeOfCheck, causeOpen, doneCount, firstOpenAt, hiddenLabel, loadHidden, loadOutline, nextOpen,
   nextOpenAt, openCount, openPlaces, progressLine, saveHidden, saveOutline, shown } from "./causes";
 import type { Cause, Check, CheckKind, Mark } from "./types";
 
@@ -116,5 +116,16 @@ describe("the header's progress", () => {
     expect(progressLine(3, 9, 1, 20)).toBe("3 of 9 stories read · 1 cause open");
     expect(progressLine(9, 9, 0, 20)).toBe("9 of 9 stories read · every check done");
     expect(progressLine(0, 2, 0, 0)).toBe("0 of 2 stories read");
+  });
+});
+
+describe("the Checks view's groups", () => {
+  const threads = [{ id: "T1", name: "`hal_write` in hal", stories: ["S2", "S1"] }, { id: "T3", name: "cpp", stories: ["S4"] }];
+  it("are threads, then stories in reading order, then causes of no story; no thread goes last", () => {
+    const list = [cause("c1", "caller", "S2", ["a"]), cause("c2", "result", "S1", ["b"]),
+                  cause("c3", "ask", null, ["c"], { thread: "T3" }), cause("c4", "target", null, ["d"], { thread: null })];
+    expect(causeGroups({ threads } as never, list).map((g) => [g.label, g.stories.map((s) => [s.story, s.causes.map((c) => c.id)])]))
+      .toEqual([["A · `hal_write` in hal", [["S2", ["c1"]], ["S1", ["c2"]]]], ["B · cpp", [[null, ["c3"]]]],
+                ["Across the change", [[null, ["c4"]]]]]);
   });
 });

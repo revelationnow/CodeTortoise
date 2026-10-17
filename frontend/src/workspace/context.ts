@@ -1,6 +1,8 @@
 import { createContext, useContext } from "react";
 import type { Address, Item, Open, Place, Tab } from "./address";
 import type { useSources } from "../board/useSources";
+import type { OutlineView } from "../reading/causes";
+import type { CheckKind } from "../reading/types";
 import type { Screen } from "./media";
 import type { ReviewData } from "./useReview";
 
@@ -31,9 +33,15 @@ export interface Ws {
   /** The folds shown (both, while focused) and how the reader changes them; desktop only. */
   folds: Folds;
   setFold: (which: keyof Folds, folded: boolean) => void;
-  /** Focus: the rail and To check folded and the panel widened, until pressed again or the panel closes. */
+  /** Focus: the outline folded and the panel widened, until pressed again or the panel closes. */
   focus: boolean;
   toggleFocus: () => void;
+  /** The outline's view, Stories or Checks, kept per browser (spec 2026-10-16-outline-and-causes §1.2). */
+  outline: OutlineView;
+  setOutline: (v: OutlineView) => void;
+  /** The check kinds hidden from the outline, chips, counts and Next open check, kept per browser (§4.6). */
+  hidden: ReadonlySet<CheckKind>;
+  setHidden: (h: ReadonlySet<CheckKind>) => void;
   /** The CLs whose files are expanded on Index › CLs this visit (spec 2026-10-12 §5). */
   clsOpen: ReadonlySet<number>;
   setClsOpen: (cls: ReadonlySet<number>) => void;
