@@ -17,7 +17,14 @@ test.describe("stories formed by a strong model", () => {
     await expect(head.locator(".ct-headline.hazard")).toHaveText("1 hazard");
     await expect(head.getByRole("button", { name: /Explain/ })).toHaveCount(0);       // tier 2 never retells it
     await expect(head.getByRole("button", { name: "Ask…" })).toBeVisible();
-    await expect(page.locator(".st-chip.hazard").first()).toBeVisible();
+    const chip = page.getByRole("region", { name: /^Flow 1: / }).locator(".st-chip").first();   // the hazard leads its flow's checks
+    await expect(chip).toHaveClass(/\bhazard\b/);
+    await expect(chip).toHaveText("logger_flush ignores the new -2, so a failed send goes unnoticed.");
+    const outline = page.locator("aside.ws-outline");
+    await outline.getByRole("button", { name: "Checks" }).click();
+    await expect(outline.getByRole("link", { name: "Open check: logger_flush ignores the new -2, so a failed send goes unnoticed." })
+      .locator(".ck-tag")).toHaveText("Hazard");
+    await outline.getByRole("button", { name: "Stories" }).click();
     await page.getByRole("navigation", { name: "Story sections" }).getByRole("link", { name: /^Talk/ }).click();
     const talk = page.getByRole("region", { name: "Questions and comments" });
     await expect(talk).toContainText("Does any caller retry a send after -2?");

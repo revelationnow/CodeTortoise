@@ -94,6 +94,14 @@ test.describe("desktop", () => {
     const head = page.locator(".ws-story-head");
     await expect(head.locator(".st-crumb")).toHaveText(/^Thread A · story 1 of 2 · feeds: /);
     await expect(head.locator(".ws-story-meta .ws-chip").first()).toHaveText("CL 102 · 1 function");
+    const chips = page.getByRole("region", { name: /^Flow 1: / }).locator(".st-chip");      // the checks on its flow, Confirm hidden
+    await expect(chips).toHaveText(["uart_init calls hal_write and was not updated for its new signature"]);
+    await expect(chips.first()).toHaveClass(/\bcaller\b/);
+    await chips.first().click();
+    const check = page.getByRole("complementary", { name: "Check: uart_init calls hal_write and was not updated for its new signature" });
+    await expect(check.locator(".cs-pos")).toHaveText("1 / 1");
+    await check.getByRole("link", { name: "Close the check" }).click();
+    await expect(page.locator(".ws-detail")).toHaveCount(0);
     const tabs = page.getByRole("navigation", { name: "Story sections" });
     await tabs.getByRole("link", { name: /^Before → after/ }).click();
     const contract = page.getByRole("region", { name: "Before → after" });
@@ -109,7 +117,8 @@ test.describe("desktop", () => {
     await head.getByRole("link", { name: /^Next story: S1/ }).click();
     await expect(head.locator(".st-crumb")).toHaveText(/^Thread A · story 2 of 2 · after: /);
     await expect(page.locator(".st-place")).toHaveText("Uses what story 1 adds.");
-    await expect(page.locator(".st-chip").first()).toBeVisible();
+    await expect(page.getByRole("region", { name: /^Flow 1: / }).locator(".st-chip")).toHaveText([
+      "logger_flush ignores the result of uart_send, which can now return -2", "uart_errors reads Uart::errors, which uart_send now writes"]);
     await tabs.getByRole("link", { name: /^Call paths/ }).click();
     await expect(paths.locator(".st-steps").nth(1)).toHaveText("statemain→… 2 more→Uart::errors→uart_errors");
     await paths.getByRole("button", { name: "Show the 2 folded steps" }).click();
