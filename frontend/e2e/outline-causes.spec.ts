@@ -319,6 +319,11 @@ test.describe("the overview", () => {
     await expect(page.locator(".ov3 h2")).toHaveText(["The change as a whole", "Threads", "How the threads connect", "Build impact",
                                                  "Coverage", "Discussion"]);
     await expect(page.locator(".ov-thread").first().locator(".ov-meta")).toHaveText("2 stories · 0 read · 3 causes open");
+    const intro = page.locator(".ov-thread").first().locator(".ov-intro");
+    const full = (await intro.getAttribute("title")) ?? "";
+    expect(full.length).toBeGreaterThan(0);
+    expect(full).toContain(((await intro.innerText()).split("\n")[0] ?? "").slice(0, 20));
+    expect(full).not.toMatch(/\bN\d+\b/);
     await expect(page.locator(".ov-conn-rows li")).toHaveText(["A and B: both run inside main",
                                                                "B and C: nothing besides arriving in CL 104 — ask the author"]);
     await expect(page.getByRole("region", { name: "Coverage" })).toContainText("Risks judged by rules only.");

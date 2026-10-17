@@ -7,6 +7,7 @@ import { cardText, connectionRows, testsLine } from "../reading/overview";
 import type { Reading, SinkHit, Thread } from "../reading/types";
 import { useWs } from "./context";
 import { short } from "./crumbs";
+import { plainNames } from "./names";
 import { Ticks } from "./NameText";
 import { Discussion } from "./WholePage";
 
@@ -31,13 +32,14 @@ function ThreadBlock({ t, i, r }: { t: Thread; i: number; r: Reading }) {
   const unread = t.stories.find((s) => !read.has(s)), to = unread ?? t.stories[0];
   const open = shown(r.causes ?? [], ws.hidden).filter((c) => c.thread === t.id && causeOpen(c, r.marks)).length;
   const meta = `${t.stories.length} stor${t.stories.length === 1 ? "y" : "ies"} · ${done} read${r.causes ? ` · ${open} cause${open === 1 ? "" : "s"} open` : ""}`;
+  const full = cardText(t).map((p) => plainNames(p.text, ws.data.names)).join("\n").replaceAll("`", "");
   return (
     <article className="ov-thread" id={`thread-${t.id}`} aria-label={`Thread ${L}`}>
       <header>
         <span className="ov-letter">{L}</span>
         <h3>{t.text_source === "llm" && <span className="ai-label">AI</span>}<Ticks text={t.name} /></h3>
       </header>
-      <div className="ov-intro">{cardText(t).map((p) => (
+      <div className="ov-intro" title={full}>{cardText(t).map((p) => (
         <p key={p.text} className="ov-purpose">{p.ai && <span className="ai-label">AI</span>}<Ticks text={p.text} /></p>
       ))}</div>
       <p className="ov-meta">{meta}</p>
