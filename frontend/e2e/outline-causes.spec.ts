@@ -343,3 +343,25 @@ test.describe("the overview", () => {
     await expectNamed(page);
   });
 });
+
+test.describe("old links", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("?check= and an old finding address open the stepper at that check; /i/checks the outline's Checks", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    const id = base.split("/")[2];
+    const r = await (await page.request.get(`/api/reviews/${id}/reading`)).json() as
+      { checks: { key: string; text: string; finding: string | null }[] };
+    const caller = r.checks.find((k) => k.text.startsWith("`uart_init` calls"))!;
+    await page.goto(`${base}/s/S2?check=${encodeURIComponent(caller.key)}`);
+    await expect(page).toHaveURL(new RegExp(`${base}/s/S2\\?open=cause%3Ac[0-9a-f]{10}&at=1$`));
+    await expect(page.getByRole("complementary", { name: /^Check: uart_init calls hal_write/ })).toBeVisible();
+    const sig = r.checks.find((k) => k.text === "hal_write: signature changed")!;
+    await page.goto(`${base}/f/${sig.finding}`);
+    await expect(page.getByRole("complementary", { name: "Check: hal_write: signature changed" })).toBeVisible();
+    await page.goto(`${base}/i/checks`);
+    await expect(page).toHaveURL(new RegExp(`${base}$`));
+    await expect(page.locator("aside.ws-outline").getByRole("button", { name: "Checks" })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator(".ws-rail .ck-tile, .ov2-check, .ws-strip.right")).toHaveCount(0);
+  });
+});

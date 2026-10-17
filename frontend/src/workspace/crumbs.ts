@@ -14,11 +14,11 @@ export interface CrumbContext {
   findings: Pick<Finding, "id" | "title">[];
   cls: { cl: number; description: string | null }[];
   clusters: { id: string; name: string }[];
-  /** With a reading: a story's thread ("Thread A", "Tests"); CLs, files, checks and the map then live in the Index. */
+  /** With a reading: a story's thread ("Thread A", "Tests"); CLs, files, findings and the map then live in the Index. */
   threadOf?: (sid: string) => string | null;
 }
 
-export const INDEX_LABEL = { cls: "CLs", files: "Files", checks: "Checks", findings: "Findings", map: "Map" } as const;
+export const INDEX_LABEL = { cls: "CLs", files: "Files", findings: "Findings", map: "Map" } as const;
 
 /** `text` without backticks, cut at a word to fit `n` characters with its ellipsis. */
 export function short(text: string, n = 46): string {
@@ -42,7 +42,7 @@ export function crumbs(place: Place, c: CrumbContext): Crumb[] {
   const reading = !!c.threadOf;
   const tab = (t: keyof typeof INDEX_LABEL): Crumb => ({ label: INDEX_LABEL[t], to: `${c.base}/i/${t}` });
   const section = (label: string, anchor: string): Crumb => (
-    reading && anchor === "findings" ? tab("checks") : reading && anchor === "changeset" ? tab("cls")
+    reading && anchor === "findings" ? tab("findings") : reading && anchor === "changeset" ? tab("cls")
       : reading && anchor === "map" ? tab("map") : { label, to: `${c.base}#${anchor}` });
   switch (place.kind) {
     case "story": {

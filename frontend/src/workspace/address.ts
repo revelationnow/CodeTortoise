@@ -13,7 +13,7 @@ export type Place =
   | { kind: "unknown"; path: string };
 
 /** The Index's tabs (spec 2026-10-07-review-reading §11): what the rail no longer lists. */
-export const INDEX_TABS = ["cls", "files", "checks", "findings", "map"] as const;
+export const INDEX_TABS = ["cls", "files", "findings", "map"] as const;
 export type IndexTab = typeof INDEX_TABS[number];
 
 /** What the detail panel shows: a node's code, a file's diff (at a line) or a finding (spec 2026-10-12 §2.1). */

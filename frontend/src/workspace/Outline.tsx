@@ -113,7 +113,7 @@ function StoriesView({ r, onPick }: { r: Reading; onPick: () => void }) {
     {!r.threads.length && !tests.length && <p className="muted small ws-pad">No changed functions.</p>}
     <details className="ws-index">
       <summary>Index</summary>
-      <ul>{INDEX_TABS.filter((t) => t !== "checks").map((t) => (
+      <ul>{INDEX_TABS.map((t) => (
         <li key={t}><Link to={ws.link(ws.item({ kind: "index", tab: t }))} className="ws-row ws-index-row"
                           aria-label={`Open the Index: ${INDEX_LABEL[t]}`} title={`Open the Index: ${INDEX_LABEL[t]}`} onClick={onPick}>
           <span className="ws-row-top">{INDEX_LABEL[t]}</span></Link></li>

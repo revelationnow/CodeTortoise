@@ -101,7 +101,7 @@ describe("the Index and lit checks", () => {
     expect(readAddress("/i/map", q("")).place).toEqual({ kind: "index", tab: "map" });
     expect(readAddress("/i/cls", q("")).place).toEqual({ kind: "index", tab: "cls" });
     expect(readAddress("/i/elsewhere", q("")).place).toEqual({ kind: "unknown", path: "/i/elsewhere" });
-    expect(href("/r/7", at({ kind: "index", tab: "checks" }))).toBe("/r/7/i/checks");
+    expect(href("/r/7", at({ kind: "index", tab: "cls" }))).toBe("/r/7/i/cls");
     expect(placeKey({ kind: "index", tab: "files" })).toBe("i:files");
   });
 
@@ -137,7 +137,7 @@ describe("the findings index's filters", () => {
   it("ignores filter values it does not know, and writes them only on the findings tab", () => {
     const a = readAddress("/i/findings", q("sev=critical&status=closed"));
     expect([a.sev ?? null, a.status ?? null]).toEqual([null, null]);
-    expect(readAddress("/i/checks", q("sev=high")).sev ?? null).toBeNull();
-    expect(href("/r/7", { ...at({ kind: "index", tab: "checks" }), sev: "high" })).toBe("/r/7/i/checks");
+    expect(readAddress("/i/files", q("sev=high")).sev ?? null).toBeNull();
+    expect(href("/r/7", { ...at({ kind: "index", tab: "files" }), sev: "high" })).toBe("/r/7/i/files");
   });
 });

@@ -37,7 +37,7 @@ describe("the breadcrumb", () => {
       { label: "Map", to: "/r/7#map" }, { label: "driver/uart", to: null }]);
   });
 
-  it("with a reading, puts a story under its thread and CLs, files, checks and the map under the Index", () => {
+  it("with a reading, puts a story under its thread and CLs, files, findings and the map under the Index", () => {
     const r = { ...ctx, threadOf: (sid: string) => (sid === "S1" ? "Thread A" : null) };
     const home = { label: "Review 7", to: "/r/7" };
     expect(crumbs({ kind: "story", sid: "S1", view: "steps" }, r)).toEqual([home, { label: "Thread A", to: "/r/7" },
@@ -45,7 +45,7 @@ describe("the breadcrumb", () => {
     expect(crumbs({ kind: "cluster", cid: "C1" }, r)).toEqual([home, { label: "Map", to: "/r/7/i/map" }, { label: "driver/uart", to: null }]);
     expect(crumbs({ kind: "cl", cl: 101 }, r)).toEqual([home, { label: "CLs", to: "/r/7/i/cls" },
       { label: "CL 101 · uart: count tx stats", to: null }]);
-    expect(crumbs({ kind: "finding", fid: "F2" }, r)).toEqual([home, { label: "Checks", to: "/r/7/i/checks" },
+    expect(crumbs({ kind: "finding", fid: "F2" }, r)).toEqual([home, { label: "Findings", to: "/r/7/i/findings" },
       { label: "uart_send: new return value -2", handle: "F2", to: null }]);
     expect(crumbs({ kind: "index", tab: "files" }, r)).toEqual([home, { label: "Files", to: null }]);
   });

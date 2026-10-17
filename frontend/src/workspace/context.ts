@@ -6,8 +6,8 @@ import type { CheckKind } from "../reading/types";
 import type { Screen } from "./media";
 import type { ReviewData } from "./useReview";
 
-/** Which columns are folded to strips (spec 2026-10-12 §3). */
-export interface Folds { rail: boolean; check: boolean }
+/** Which columns are folded to strips (spec 2026-10-12 §3): the contents rail, for reviews without a reading. */
+export interface Folds { rail: boolean }
 
 /** The workspace as every page and panel sees it: the review's data, the current address and ways to move. */
 export interface Ws {

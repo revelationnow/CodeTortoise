@@ -11,7 +11,7 @@ import { useSources } from "../board/useSources";
 import Stages from "../components/Stages";
 import { AiProvider, useAi } from "../lib/ai";
 import { threadLabel } from "../reading/checks";
-import { loadHidden, loadOutline, nextOpen, openCount, type OutlineView, progressLine, saveHidden, saveOutline, shown } from "../reading/causes";
+import { causeOfCheck, loadHidden, loadOutline, nextOpen, openCount, type OutlineView, progressLine, saveHidden, saveOutline, shown } from "../reading/causes";
 import { progress, progressText } from "../reading/plan";
 import type { CheckKind } from "../reading/types";
 import { type Address, at, href, type Item, type Open, type Place, readAddress, type Tab } from "./address";
@@ -69,13 +69,12 @@ export default function Workspace() {
     setTabs(rest);
     if (next !== undefined) go({ ...addr, open: next, tab: "diff" }, true);   // closing is not a step to go Back over
   }, [tabs, addr, go]);
-  const [folds, setFolds] = useState<Folds>(() => ({ rail: load<unknown>(keys.railFolded, false) === true,
-                                                     check: load<unknown>(keys.checkFolded, false) === true }));
+  const [folds, setFolds] = useState<Folds>(() => ({ rail: load<unknown>(keys.railFolded, false) === true }));
   const [focus, setFocus] = useState(false);
   const setFold = useCallback((which: keyof Folds, folded: boolean) => {
     setFocus(false);                                       // unfolding by hand ends Focus
     setFolds((f) => ({ ...f, [which]: folded }));
-    save(which === "rail" ? keys.railFolded : keys.checkFolded, folded);
+    save(keys.railFolded, folded);
   }, []);
   const toggleFocus = useCallback(() => setFocus((x) => !x), []);
   useEffect(() => { if (!addr.open) setFocus(false); }, [addr.open]);   // closing the panel restores the columns
@@ -83,7 +82,7 @@ export default function Workspace() {
   const setOutline = useCallback((v: OutlineView) => { setOutlineState(v); saveOutline(v); }, []);
   const [hidden, setHiddenState] = useState<ReadonlySet<CheckKind>>(loadHidden);
   const setHidden = useCallback((h: ReadonlySet<CheckKind>) => { setHiddenState(h); saveHidden(h); }, []);
-  const shown = useMemo(() => (focus ? { ...folds, rail: true } : folds), [focus, folds]);   // Focus folds the outline only
+  const shown = useMemo(() => (focus ? { rail: true } : folds), [focus, folds]);   // Focus folds the outline only
   const [clsOpen, setClsOpen] = useState<ReadonlySet<number>>(() => new Set());
   const ws: Ws = useMemo(() => ({ base: root, data, addr, screen, sources, link, go, item, opened, hover, setHover,
                                   tabs, closeTab, folds: shown, setFold, focus, toggleFocus,
@@ -107,14 +106,20 @@ export default function Workspace() {
   }) : null, [settled, params, q, root, data.stories, data.board]);
   useEffect(() => {
     if (!old) return;
-    if ("to" in old) { navigate(old.to, { replace: true }); return; }
+    if ("to" in old) { if (old.outline) setOutline(old.outline); navigate(old.to, { replace: true }); return; }
     let live = true;                                       // a reader who leaves first stays where they went
     const to = (path: string) => { if (live) navigate(path, { replace: true }); };
     api.locate(id, { node: old.locate }).then(
       (r) => to(r.cluster ? href(root, at({ kind: "cluster", cid: r.cluster }, { open: { node: old.locate } })) : root),
       () => to(root));
     return () => { live = false; };
-  }, [old, id, root, navigate]);
+  }, [old, id, root, navigate, setOutline]);
+  // an old `?check=` (a check key, or a finding id from an old finding address) opens the stepper there (§5.2)
+  useEffect(() => {
+    if (!addr.check || !r?.causes) return;
+    const hit = causeOfCheck(r.causes, addr.check);
+    go({ ...addr, check: null, ...(hit ? { open: { cause: hit.cause.id, at: hit.at } } : {}) }, true);
+  }, [addr, r, go]);
   const scrolled = useRef(false);                          // #map or #checks scrolls once, when it is there to scroll to
   useEffect(() => {
     if (hash !== "map" && hash !== "checks") { scrolled.current = false; return; }
