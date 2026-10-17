@@ -128,7 +128,9 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
           aria-label={`Go to story ${id}: ${short(titleOf(id))}`}><Ticks text={titleOf(id)} /></Link>
   );
   const purpose = sr?.account?.find((p) => p.kind === "purpose");
-  // the Graph tab leaves out the summary (the AI purpose, its place, Explain): the graph needs the height
+  const explain = st.kind !== "mechanical" && <Explain kind="story" target={st.id} has={st.text_source === "llm"} askOnly={st.source === "tier1"}
+                                                     ask={{ kind: "story", anchor: { id: st.id }, onAsked: d.loadComments }} />;
+  // the Graph tab leaves out the summary (the AI purpose, its place) for the graph's sake; ✦ Explain moves to the tools
   const readingHeader = (summary: boolean) => r && (
     <header className="ws-story-head st-head">
       <h2>{hazards > 0 && <span className="ct-headline hazard">{hazards} hazard{hazards === 1 ? "" : "s"}</span>}
@@ -145,13 +147,13 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
         <span className="ws-story-meta">
           {metaChips}
         </span>
+        {!summary && explain}
       </div>
       {summary && <div className="st-summary">
         {purpose ? <p><span className="ai-label">AI</span><NameText text={purpose.text} /></p>
           : <p>{st.text_source === "llm" && <span className="ai-label">AI</span>}<NameText text={st.purpose || st.summary} /></p>}
         {sr?.place_text && <p className="st-place">{sr.place_text}</p>}
-        {st.kind !== "mechanical" && <Explain kind="story" target={st.id} has={st.text_source === "llm"} askOnly={st.source === "tier1"}
-                                              ask={{ kind: "story", anchor: { id: st.id }, onAsked: d.loadComments }} />}
+        {explain}
       </div>}
     </header>
   );
