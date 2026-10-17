@@ -23,7 +23,7 @@ from codetortoise.stories import Story, StoryDetail, StorySet
 from codetortoise.targets import UNKNOWN
 from codetortoise.tidy import tidy
 
-READING_VERSION = 2                   # bump with every change to the thread text's prompt or checks (keys its cache)
+READING_VERSION = 3                   # bump with every change to the thread text's prompt or checks (keys its cache)
 MAX_FILES, MAX_MODULES = 8, 4         # a thread's key files and modules (spec 2026-10-09-review-introduction §3.3)
 SHOWN_DIRS = SHOWN_KINDS = 3          # how many directories and check kinds a thread's fixed intro names
 SKIM_KINDS = {"mechanical", "tests"}
@@ -139,6 +139,33 @@ class Check(BaseModel):
     field: str | None = None          # a reader row's field label (the owner may mark it a shared sink)
 
 
+class ChangeLine(BaseModel):
+    sign: Literal["+", "-", " "]
+    text: str
+    line: int | None = None          # in the after text ("+", " ") or the before text ("-")
+
+
+class CauseChange(BaseModel):
+    """The 2–6 changed lines that raised a cause (spec 2026-10-16 §4.8)."""
+    path: str                        # workspace-relative
+    depot: str | None = None         # the file the panel opens
+    function: str | None = None      # its label
+    lines: list[ChangeLine] = Field(default_factory=list)
+
+
+class Cause(BaseModel):
+    """One change and every place it asks the reviewer to look at (spec 2026-10-16 §4.1)."""
+    id: str
+    kind: CheckKind
+    thread: str | None = None
+    story: str | None = None
+    text: str
+    places: list[str] = Field(default_factory=list)     # check keys, by path then line
+    flows: list[str] = Field(default_factory=list)      # flow ids of its story that it touches
+    finding: str | None = None
+    change: CauseChange | None = None
+
+
 class Headline(BaseModel):
     text: str
     tone: Literal["hazard", "confirm", "none"]
@@ -175,6 +202,7 @@ class StoryReading(BaseModel):
     where: list[WhereFile] = Field(default_factory=list)
     paths: list[CallPath] = Field(default_factory=list)
     checks: list[Check] = Field(default_factory=list)
+    causes: list[Cause] = Field(default_factory=list)
     place_text: str = ""              # its place in its thread: "Uses what story 1 adds."
     thread: str | None = None
     position: int | None = None       # 1-based, within its thread
@@ -212,6 +240,7 @@ class Reading(BaseModel):
     links: list[StoryLink] = Field(default_factory=list)
     checks: list[Check] = Field(default_factory=list)
     cleared: list[Check] = Field(default_factory=list)        # findings judged no hazard
+    causes: list[Cause] = Field(default_factory=list)         # checks by cause, in reading order (spec 2026-10-16 §4)
     build_impact: list[BuildImpact] = Field(default_factory=list)
     coverage: list[str] = Field(default_factory=list)
     headline: Headline = Field(default_factory=lambda: Headline(text="No risks found", tone="none", rules_only=True))
@@ -1274,13 +1303,17 @@ def build_reading(ss: StorySet, c: BoardContext, details: dict[str, StoryDetail]
     _set_depots(c, rows + cleared)
     strong = [lk for lk in links if lk.strength == "strong"]
     order = [s for t in threads for s in t.stories] + [s.id for s in ss.stories if s.kind == "tests"]
+    from codetortoise.causes import build_causes  # causes.py imports this module
+    flows_of = {s.id: [fl for fl in (details[s.id].board.flows if details and s.id in details else a.flows)
+                       if fl.id in s.flows] for s in ss.stories}
+    causes = build_causes(rows, x, threads, order, flows_of)
     outside = 0
     if targets is not None:
         mine = {x.im.nodes[n].key for n in x.changed if n in x.im.nodes}
         outside = len({cl.file for cl in x.calls_after if cl.callee in mine and not is_test_path(rel_path(x, cl.file))
                        and set(targets.get(cl.file, [])) <= {UNKNOWN}})
     reading = Reading(threads=threads, connections=conns, order=order, reasons=reasons, links=links, checks=rows,
-                      cleared=cleared, build_impact=build_impact(x), coverage=coverage(x, has_tests, outside),
+                      cleared=cleared, causes=causes, build_impact=build_impact(x), coverage=coverage(x, has_tests, outside),
                       headline=headline(rows, set(), x.c.findings),
                       rules_only=not any(f.verdict_source == "tier1" for f in x.c.findings),
                       tests=_tests_row(ss, threads, x), whole=fixed_whole(threads, conns), sinks=sink_hits(x))
@@ -1299,6 +1332,7 @@ def build_reading(ss: StorySet, c: BoardContext, details: dict[str, StoryDetail]
         order_ = sorted({c for wf in files for c in wf.cls}) or sorted(s.cls)
         per[s.id] = StoryReading(story=s.id, contracts=contract_rows(s, x), where=files, paths=call_paths(s, x, flows),
                                  checks=[k for k in rows if k.story == s.id],
+                                 causes=[z for z in causes if z.story == s.id],
                                  place_text=_place_text(s.id, t.stories, strong) if t else "",
                                  thread=t.id if t else None, position=t.stories.index(s.id) + 1 if t else None,
                                  cl_order=order_, rewrites=_story_rewrites(s, x, reading.rewrites, local_of))
