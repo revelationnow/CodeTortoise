@@ -555,3 +555,18 @@ def test_a_label_with_a_slash_or_percent_is_stored_as_given(env):
     owner = login(app, "owner")
     assert owner.put("/api/sinks/a%2Fb%3A%3Ac%25d").json()["marked"] == ["a/b::c%d"]
     assert owner.put("/api/sinks/" + "x" * 301).status_code == 422
+
+
+def test_all_look_fine_marks_every_place_of_a_cause_in_one_request_or_none(env):
+    svc, app, _ = env
+    owner, rid = _review(app)
+    bob = login(app, "bob")
+    r = owner.get(f"/api/reviews/{rid}/reading").json()
+    keys = [k["key"] for k in r["checks"]][:2]
+    assert TestClient(app).post(f"/api/reviews/{rid}/checks/marks", json={"keys": keys}).status_code == 401
+    assert bob.post(f"/api/reviews/{rid}/checks/marks", json={"keys": [*keys, "nope"]}).status_code == 404
+    assert owner.get(f"/api/reviews/{rid}/reading").json()["marks"] == {}
+    out = bob.post(f"/api/reviews/{rid}/checks/marks", json={"keys": keys}).json()
+    assert [m["user"] for m in out["marked"]] == ["bob", "bob"]
+    assert set(owner.get(f"/api/reviews/{rid}/reading").json()["marks"]) == set(keys)
+    assert set(bob.get(f"/api/reviews/{rid}/ticks").json()["checks"]) >= set(keys)

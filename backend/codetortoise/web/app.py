@@ -80,6 +80,10 @@ class SwarmPostIn(BaseModel):
     confirm_repeat: bool = False
 
 
+class KeysIn(BaseModel):
+    keys: list[str]
+
+
 RERUNNING = "the review is being re-run"
 
 
@@ -288,6 +292,17 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         if k is None:
             raise HTTPException(404, "That check no longer exists after the re-run.")
         return k
+
+    @app.post("/api/reviews/{rid}/checks/marks")
+    def mark_checks(rid: int, body: KeysIn, user: str = Depends(user_of)):
+        """All look fine (spec 2026-10-16 §4.3): every key or none."""
+        review_or_404(rid)
+        found = [check_or_404(rid, key) for key in body.keys]
+        out = []
+        for k in found:
+            store.set_tick(rid, user, "check", k.key)
+            out.append(store.set_mark(rid, k.key, user, k.source_line))
+        return {"marked": out}
 
     @app.post("/api/reviews/{rid}/checks/{key:path}/mark")
     def mark_check(rid: int, key: str, user: str = Depends(user_of)):
