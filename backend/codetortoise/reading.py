@@ -117,11 +117,6 @@ KIND_LABEL = {"hazard": "Hazard", "confirm": "Confirm", "caller": "Caller not up
               "unanalysed": "Not analysed", "ask": "Ask the author", "cleared": "No hazard"}   # as frontend/src/reading/checks.ts
 
 
-class Reason(BaseModel):
-    kind: CheckKind
-    text: str
-
-
 class Check(BaseModel):
     """One row of To check (§7): a place the reviewer should look at, and why."""
     key: str                          # kind|file|function|related changed function's qualified name (no line numbers),
@@ -138,7 +133,9 @@ class Check(BaseModel):
     source_line: str = ""
     finding: str | None = None
     cites: list[str] = Field(default_factory=list)
-    also: list[Reason] = Field(default_factory=list)   # other kinds at the same place
+    cause: str | None = None          # its cause's id (spec 2026-10-16-outline-and-causes §4.1); none on a cleared row
+    cause_fn: str | None = Field(default=None, exclude=True)   # the changed function that raised it (node id)
+    cause_subject: str = Field(default="", exclude=True)       # what makes two rows of its kind one cause
     field: str | None = None          # a reader row's field label (the owner may mark it a shared sink)
 
 
@@ -866,7 +863,7 @@ def build_checks(ss: StorySet, threads: list[Thread], conns: list[Connection], x
         rows.append(Check(key=f"{kind}|{rel_path(x, path)}|{func or ''}|{_qual(x, related) if related else kw.pop('rel', '')}",
                           kind=kind, story=story, thread=thread_of.get(story) if story else kw.pop("thread", None),
                           path=rel_path(x, path), line=line, function=func, node=place, text=tidy(text),
-                          source_line=_source(x, path, line, read_text), **kw))
+                          source_line=_source(x, path, line, read_text), cause_fn=related, **kw))
 
     # 1–2: the strong model's verdicts; without one, high and medium findings (not header fan-out) to confirm
     cleared: list[Check] = []
@@ -877,7 +874,8 @@ def build_checks(ss: StorySet, threads: list[Thread], conns: list[Connection], x
         ev = next((e for e in f.evidence if e.file and e.line), None)
         path, line = (ev.file, ev.line) if ev else (_def_place(x, n) if n else (None, None))
         story = ss.finding_story.get(f.id)
-        common = dict(story=story, finding=f.id, cites=f.verdict_cites)
+        common = dict(story=story, finding=f.id, cites=f.verdict_cites,
+                      cause_subject=f"{f.kind}:{f.title}")
         if f.verdict == "hazard":
             add("hazard", n, n, path, line, f.verdict_reason or f.title, **common)
         elif f.verdict == "needs_review":
@@ -917,7 +915,8 @@ def build_checks(ss: StorySet, threads: list[Thread], conns: list[Connection], x
                     continue
                 if targets is not None and UNKNOWN not in where_ | mine and not where_ & mine:
                     add("target", n, caller, c.file, c.line,
-                        f"`{who}` calls `{callee}` but is built only for {', '.join(f'`{t}`' for t in sorted(where_))}")
+                        f"`{who}` calls `{callee}` but is built only for {', '.join(f'`{t}`' for t in sorted(where_))}",
+                        cause_subject=", ".join(sorted(where_)))
                     continue
             if sig and caller not in x.changed:
                 add("caller", n, caller, c.file, c.line, f"`{who}` calls `{callee}` and was not updated for its new "
@@ -926,10 +925,11 @@ def build_checks(ss: StorySet, threads: list[Thread], conns: list[Connection], x
                 vals = ", ".join(_vals(fa, new))
                 if not c.result_used:
                     add("result", n, caller, c.file, c.line, f"`{who}` ignores the result of `{callee}`, which can now "
-                                                             f"return {vals}")
+                                                             f"return {vals}", cause_subject=",".join(sorted(new)))
                 elif c.compared and not _covered(c.compared, new):
                     add("result", n, caller, c.file, c.line, f"`{who}` compares the result of `{callee}` only with "
-                                                             f"{_cmp_text(c)}; it can now return {vals}")
+                                                             f"{_cmp_text(c)}; it can now return {vals}",
+                        cause_subject=",".join(sorted(new)))
     # 5: unchanged readers of fields the change now writes
     for n in changed:
         for w in (e for e in x.im.edges if e.src == n and e.kind == "writes" and e.status == "added"
@@ -942,7 +942,7 @@ def build_checks(ss: StorySet, threads: list[Thread], conns: list[Connection], x
                             and a.fn == x.im.nodes[r].key and a.mode == "read"), None)
                 path, line = (acc.file, acc.line) if acc else _def_place(x, r)
                 add("reader", n, r, path, line, f"`{x.label(r)}` reads `{x.label(w.dst)}`, which `{x.label(n)}` now writes",
-                    field=x.label(w.dst))
+                    field=x.label(w.dst), cause_subject=x.label(w.dst))
     # 6: a changed header included only by files of another target
     if targets is not None and includers is not None:
         mine = {t for f in x.c.cs.files if not is_header(f.local) for t in targets.get(f.local, [])} - {UNKNOWN}
@@ -955,7 +955,7 @@ def build_checks(ss: StorySet, threads: list[Thread], conns: list[Connection], x
             for names, files in other.items():
                 add("target", None, None, files[0], None,
                     f"`{rel_path(x, h)}` is included by {len(files)} file{'s' if len(files) > 1 else ''} built only for "
-                    f"{names}", rel=rel_path(x, h))
+                    f"{names}", rel=rel_path(x, h), cause_subject=rel_path(x, h))
     # 7: changed functions no test calls or mentions (only when the workspace has test code)
     if has_tests:
         mentions = "\n".join(f.after for f in x.c.cs.files if is_test_path(rel_path(x, f.local)))
@@ -986,27 +986,13 @@ def build_checks(ss: StorySet, threads: list[Thread], conns: list[Connection], x
         fns = _story_fns(by[t.stories[0]], x)
         add("ask", None, None, None, None, "Ask the author how this thread relates to the rest of the change"
             + (f": {k.text}" if k else ""), thread=t.id, rel=_qual(x, fns[0]) if fns else t.name)
-    return _unique(_merge(rows)), _unique(cleared)
+    return _unique(_order(rows)), _unique(cleared)
 
 
-def _merge(rows: list[Check]) -> list[Check]:
-    """One row per place: the first kind leads, the others become its `also`; then kind order, then place. Rows of
-    findings stay apart (each has its own verdict)."""
+def _order(rows: list[Check]) -> list[Check]:
+    """Kind order, then place; every row stays its own place under its own cause (spec 2026-10-16 §4.1)."""
     rank = {k: i for i, k in enumerate(CHECK_ORDER)}
-    rows = sorted(rows, key=lambda k: (rank[k.kind], k.path, k.line or 0))
-    out: list[Check] = []
-    at: dict[tuple, Check] = {}
-    for k in rows:
-        place = (k.path, k.line, k.function) if k.path and k.line and not k.finding else None
-        if place and place in at:
-            lead = at[place]
-            if all(r.text != k.text for r in lead.also) and lead.text != k.text:
-                lead.also.append(Reason(kind=k.kind, text=k.text))
-            continue
-        if place:
-            at[place] = k
-        out.append(k)
-    return out
+    return sorted(rows, key=lambda k: (rank[k.kind], k.path, k.line or 0))
 
 
 def _unique(rows: list[Check]) -> list[Check]:

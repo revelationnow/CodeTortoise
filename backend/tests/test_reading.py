@@ -507,12 +507,24 @@ def test_a_thread_connected_only_by_its_bundle_raises_ask_the_author_on_the_thre
     assert open_[0].key == "ask|||b"
 
 
-def test_two_kinds_at_one_place_merge_into_one_row_listing_both_reasons():
+def test_two_kinds_at_one_place_stay_two_rows_each_knowing_what_raised_it():
     c, ss = _caller_world(returns=(["0"], ["0", "-2"]))
     next(e for e in c.after[0].calls if e.caller == "c:@F@flush").result_used = False
-    (k,), _ = _checks(c, ss)
-    assert (k.kind, k.function) == ("caller", "flush")
-    assert [(r.kind, r.text) for r in k.also] == [("result", "`flush` ignores the result of `send`, which can now return -2")]
+    open_, _ = _checks(c, ss)
+    assert [(k.kind, k.function) for k in open_] == [("caller", "flush"), ("result", "flush")]
+    assert [(k.cause_fn, k.cause_subject) for k in open_] == [("N1", ""), ("N1", "-2")]
+    assert "also" not in open_[0].model_dump() and "cause_fn" not in open_[0].model_dump()
+
+
+def test_each_kind_records_the_subject_that_makes_two_rows_one_cause():
+    c = _world([_edit("config", "drv/cfg.c"), _same("report", "svc/rep.c")],
+               fields=[("config", "Uart", "errors", "write", "added"), ("report", "Uart", "errors", "read", "unchanged")])
+    ss = _set(["N1"])
+    ss.finding_story = {"F1": "S1"}
+    c.findings = [_f("F1", verdict="hazard", reason="drops data", source="tier1")]
+    open_, _ = _checks(c, ss)
+    assert {(k.kind, k.cause_fn, k.cause_subject) for k in open_} == {
+        ("hazard", "N1", "contract:contract F1"), ("reader", "N1", "Uart::errors")}
 
 
 def test_every_check_has_its_own_key_so_a_mark_on_one_call_site_or_finding_never_marks_another():
