@@ -11,13 +11,14 @@ import { useSources } from "../board/useSources";
 import Stages from "../components/Stages";
 import { AiProvider, useAi } from "../lib/ai";
 import { threadLabel } from "../reading/checks";
-import { loadHidden, loadOutline, type OutlineView, saveHidden, saveOutline } from "../reading/causes";
+import { loadHidden, loadOutline, nextOpen, openCount, type OutlineView, progressLine, saveHidden, saveOutline, shown } from "../reading/causes";
 import { progress, progressText } from "../reading/plan";
 import type { CheckKind } from "../reading/types";
 import { type Address, at, href, type Item, type Open, type Place, readAddress, type Tab } from "./address";
 import { type Folds, useWs, type Ws, WsContext } from "./context";
 import Crumbs, { PhoneBar } from "./Crumbs";
 import Detail from "./Detail";
+import HowToRead from "./HowToRead";
 import { type Crumb, crumbs } from "./crumbs";
 import { useScreen } from "./media";
 import { loadMemory, recall, remember, saveMemory } from "./memory";
@@ -31,6 +32,7 @@ import StoryPage from "./StoryPage";
 import { addTab, closeTab as closeOf } from "./tabs";
 import { HEAD_MIN, headMax, loadHeadH } from "./layout";
 import { indexFor, legacy } from "./legacy";
+import { plainNames } from "./names";
 import { useReview } from "./useReview";
 import WholePage, { ReviewGraph } from "./WholePage";
 import "./workspace.css";
@@ -164,6 +166,15 @@ function Head({ onMenu, drawer }: { onMenu: () => void; drawer: boolean }) {
   const drift = driftSummary(d.about?.drift ?? []).warn;
   const box = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(loadHeadH);          // null: as tall as its content
+  const rd = d.reading, causes = rd?.causes;
+  const p = rd && d.ticks ? progress(rd, d.ticks) : null;
+  const line = !rd || !p ? "" : causes
+    ? progressLine(p.stories, p.storyCount, openCount(causes, ws.hidden, rd.marks), shown(causes, ws.hidden).length)
+    : progressText(p);
+  const next = rd && causes ? nextOpen(causes, ws.hidden, rd.marks, {
+    cause: ws.addr.open && "cause" in ws.addr.open ? ws.addr.open.cause : null,
+    story: ws.addr.place.kind === "story" ? ws.addr.place.sid : null, order: rd.order }) : null;
+  const nextLine = next ? plainNames(causes!.find((c) => c.id === next.cause)!.text, d.names).replaceAll("`", "") : "";
   return (
     <div className="ws-headbox" ref={box} style={height === null ? undefined : { height }}>
       <header className="ws-head">
@@ -172,7 +183,10 @@ function Head({ onMenu, drawer }: { onMenu: () => void; drawer: boolean }) {
         <h1><Link to={ws.base} state={{ page: true }} title="Go to the whole change">{r.title}</Link></h1>
         {d.reading ? <HeadlinePill h={d.reading.headline} />
           : r.risk && <span className={`bd-pill ${r.risk}`}>{r.risk.toUpperCase()} RISK</span>}
-        {d.reading && d.ticks && <span className="ws-progress">{progressText(progress(d.reading, d.ticks))}</span>}
+        {rd && d.ticks && <span className="ws-progress">{line}</span>}
+        {next && <Link className="ws-next" to={ws.link(ws.opened({ cause: next.cause, at: next.at }))} aria-label="Next open check"
+                       title={`Next open check: ${nextLine}`}>Next open check ›</Link>}
+        {rd && <HowToRead />}
         {!d.ready && <span className="bd-pill ghost">{r.status}</span>}
         {d.ready && <AiPill />}
         {me?.is_owner && d.ready && <button className="link rerun" onClick={() => api.rerun(d.id).then(d.loadDetail)}>Re-run</button>}
