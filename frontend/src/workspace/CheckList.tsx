@@ -7,7 +7,7 @@ import { isOpen, KIND_LABEL, markLine, openCount, placeOf, splitChecks } from ".
 import type { Check } from "../reading/types";
 import { at } from "./address";
 import { useWs } from "./context";
-import { Ticks } from "./NameText";
+import NameText, { Ticks } from "./NameText";
 
 /** One To check row (spec 2026-10-07-review-reading §7.2): kind, one line, the place and its source line; Looks fine,
  * Comment and Open. A row someone marked shows who and when, greyed; a changed line reopens it. */
@@ -32,10 +32,8 @@ function CheckRow({ k, lit }: { k: Check; lit: boolean }) {
   const dir = k.path.slice(0, k.path.lastIndexOf("/") + 1);   // gives way first when the line is too long
   return (
     <li ref={li} className={`ck-row${marked ? " marked" : ""}${read ? " read" : ""}${lit ? " lit" : ""}`} data-key={k.key} data-finding={k.finding ?? undefined}>
-      {[{ kind: k.kind, text: k.text }, ...k.also].map((r, i) => (
-        <div key={i} className="ck-top"><span className={`ck-tag ${r.kind}`}>{KIND_LABEL[r.kind]}</span>
-          <span className="ck-text"><Ticks text={r.text} /></span></div>
-      ))}
+      <div className="ck-top"><span className={`ck-tag ${k.kind}`}>{KIND_LABEL[k.kind]}</span>
+        <span className="ck-text"><NameText text={k.text} /></span></div>
       {where && <div className="ck-place mono" title={where.replace(/`/g, "")}>
         <span className="ck-dir">{dir}</span><span className="ck-file"><Ticks text={where.slice(dir.length)} /></span></div>}
       {k.source_line && <code className="ck-src">{k.source_line}</code>}

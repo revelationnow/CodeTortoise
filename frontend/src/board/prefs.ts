@@ -34,6 +34,9 @@ export const keys = {
   /** Whether the rail and the To check column are folded to strips (spec 2026-10-12-story-account-and-panels §3). */
   railFolded: "ct.ws.railFolded",
   checkFolded: "ct.ws.checkFolded",
+  /** The outline's view and the check kinds the reader hides (spec 2026-10-16-outline-and-causes §1.2, §4.6). */
+  outline: "ct.ws.outline",
+  hiddenKinds: "ct.ws.hiddenKinds",
   /** Whether the overview's "How to read this page" is open (spec 2026-10-09-review-introduction §5.1). */
   introOpen: "ct.intro.open",
   /** Neighbours drawn as tiles or as the call tree. */

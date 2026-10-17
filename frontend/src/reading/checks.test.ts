@@ -5,7 +5,7 @@ import type { Check, Mark, Reading, Thread } from "./types";
 const check = (key: string, extra: Partial<Check> = {}): Check => ({
   key, kind: "caller", story: "S1", thread: "T1", path: "svc/flush.c", depot: "//d/svc/flush.c", line: 3, function: "flush",
   node: "N3", text: "`flush` calls `send` and was not updated for its new signature", source_line: "b = 0;", finding: null,
-  cites: [], also: [], ...extra,
+  cites: [], ...extra,
 });
 const mark = (key: string, changed = false): Mark => ({ key, user: "ana", at: "2026-10-07T10:00:00+00:00", source_line: "b = 0;", changed });
 const thread = (id: string, name: string): Thread => ({ id, name, purpose: "", text_source: "template", stories: [], cls: [], open_checks: 0 });

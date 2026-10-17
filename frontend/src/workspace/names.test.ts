@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Names } from "../api";
-import { nameParts } from "./names";
+import { nameParts, plainNames } from "./names";
 
 const names: Names = {
   N9: { label: "uart_send", kind: "function", path: "//fixture/driver/uart.c", line: 11, story: "S1" },
@@ -30,5 +30,12 @@ describe("nameParts", () => {
 
   it("leaves words that only look like ids alone", () => {
     expect(nameParts("N12x and FN9", names, ["F9"])).toEqual([{ text: "N12x and FN9" }]);
+  });
+});
+
+describe("plainNames", () => {
+  it("names node ids and keeps backticks for the caller to render", () => {
+    const names = { N9: { label: "uart_send", kind: "function", path: null, line: null, story: null } };
+    expect(plainNames("`N9` drops F2 data N7", names)).toBe("`uart_send` drops F2 data a function");
   });
 });
