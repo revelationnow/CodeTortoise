@@ -36,6 +36,7 @@ test.describe("desktop", () => {
   test("a story's Where groups its files by CL in reading order, says the order, and names the rewrite", async ({ page }) => {
     await startReview(page, STACK);
     await page.locator(".ws-rail").getByRole("link", { name: /^Go to story S\d+: .*logger_init/ }).click();
+    await page.getByRole("navigation", { name: "Story sections" }).getByRole("link", { name: /^Where/ }).click();
     const where = page.getByRole("region", { name: "Where" });
     await expect(where.locator(".st-order")).toHaveText("Read CL 103, then CL 105");
     await expect(where.locator(".st-clgroup h4")).toHaveText(["CL 103 · 1 file"]);

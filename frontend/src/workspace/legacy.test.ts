@@ -38,7 +38,12 @@ describe("old addresses", () => {
 describe("the old sections' anchors", () => {
   it("open the Index's tabs once the review has a reading", () => {
     expect(["map", "findings", "changeset", "files", "stories", "x"].map(indexFor)).toEqual([
-      { kind: "index", tab: "map" }, { kind: "index", tab: "checks" }, { kind: "index", tab: "cls" }, { kind: "index", tab: "files" },
+      { kind: "index", tab: "map" }, { kind: "index", tab: "findings" }, { kind: "index", tab: "cls" }, { kind: "index", tab: "files" },
       null, null]);
+  });
+
+  it("Index › Checks, gone, opens the overview with the outline on Checks; #findings opens Index › Findings", () => {
+    expect(legacy("/i/checks", new URLSearchParams(), ctx)).toEqual({ to: "/r/7", outline: "checks" });
+    expect(indexFor("findings")).toEqual({ kind: "index", tab: "findings" });
   });
 });

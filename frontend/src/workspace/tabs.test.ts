@@ -51,3 +51,19 @@ describe("tabLabel", () => {
       .toEqual(["F4", "uart.c", "uart_send"]);
   });
 });
+
+describe("a cause's tab", () => {
+  const c = { id: "c01", kind: "reader" as const, thread: null, story: null, text: "5 places read `UartDev::errors`, which `N9` now writes",
+              places: ["a"], flows: [], finding: null, change: null };
+  it("is one tab whatever place it is at, named by its line without node ids", () => {
+    const t = addTab(addTab([], { cause: "c01", at: 1 }), { cause: "c01", at: 4 });
+    expect(t).toEqual([{ cause: "c01", at: 4 }]);
+    expect(openKey(t[0])).toBe("c:c01");
+    const names = { N9: { label: "uart_a1", kind: "function", path: null, line: null, story: null } };
+    expect(tabLabel(t[0], names, [c])).toBe("5 places read UartDev::errors, which…");
+    expect(tabLabel({ cause: "gone", at: 1 }, names, [c])).toBe("Check");
+  });
+  it("names a check tab of a reading stored before causes (the server sends causes: null) Check", () => {
+    expect(tabLabel({ cause: "c0123456789", at: 1 }, {}, null)).toBe("Check");
+  });
+});

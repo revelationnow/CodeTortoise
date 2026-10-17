@@ -1,11 +1,11 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { startReview } from "./helpers";
+import { openIndex, startReview } from "./helpers";
 
 const AI = "http://127.0.0.1:8798";      // e2e/serve-ai.sh: CodeTortoise with the fake model in e2e/fake_llm.py
 
 /** Open uart.c's diff in the detail panel and start a comment on its new `return -2;` line. */
 async function commentOnReturn(page: Page): Promise<{ viewer: Locator; box: Locator }> {
-  await page.locator(".ws-rail").getByRole("link", { name: "Open the Index: Files" }).click();
+  await openIndex(page, "Files");
   await page.getByRole("link", { name: "Open uart.c's diff" }).click();
   const viewer = page.getByRole("complementary", { name: "Code: uart.c" });
   await viewer.getByRole("button", { name: "Stacked" }).click();
@@ -60,6 +60,7 @@ test.describe("with an AI", () => {
 
     await page.goto(`${base}/s/S1`);
     await ask(page.locator(".ws-story-head"), "what does this story change for callers?");
+    await page.getByRole("navigation", { name: "Story sections" }).getByRole("link", { name: /^Talk/ }).click();
     const talk = page.getByRole("region", { name: "Questions and comments" });
     await expect(talk.locator(".comment", { hasText: "what does this story change for callers?" })).toBeVisible();
     await expect(talk.locator(".comment.ai")).toContainText(answer, { timeout: 30_000 });

@@ -1,29 +1,10 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { CHECK_W, checkMax, HEAD_MIN, headMax, loadCheckW, loadHeadH } from "./layout";
+import { HEAD_MIN, headMax, loadHeadH } from "./layout";
 
 function storage(items: Record<string, string>) {
   vi.stubGlobal("window", { localStorage: { getItem: (k: string) => items[k] ?? null, setItem: () => {} } });
 }
 afterEach(() => vi.unstubAllGlobals());
-
-describe("the story's To check column", () => {
-  test("takes up to 60% of the page and never less than its minimum", () => {
-    expect(checkMax(1000)).toBe(600);
-    expect(checkMax(300)).toBe(CHECK_W.min);
-  });
-  test("starts at its default and keeps a saved width", () => {
-    storage({});
-    expect(loadCheckW()).toBe(CHECK_W.def);
-    storage({ "ct.ws.checkW": "480" });
-    expect(loadCheckW()).toBe(480);
-  });
-  test("a saved width below the minimum or not a number falls back to the default", () => {
-    storage({ "ct.ws.checkW": "90" });
-    expect(loadCheckW()).toBe(CHECK_W.def);
-    storage({ "ct.ws.checkW": "\"wide\"" });
-    expect(loadCheckW()).toBe(CHECK_W.def);
-  });
-});
 
 describe("the review header", () => {
   test("can be dragged between one line and half the window", () => {
@@ -45,9 +26,8 @@ describe("the review header", () => {
     storage({ "ct.ws.headH": "{}" });
     expect(loadHeadH()).toBeNull();
   });
-  test("storage that throws leaves both at their defaults", () => {
+  test("storage that throws leaves it at the natural height", () => {
     vi.stubGlobal("window", { localStorage: { getItem: () => { throw new Error("blocked"); } } });
     expect(loadHeadH()).toBeNull();
-    expect(loadCheckW()).toBe(CHECK_W.def);
   });
 });

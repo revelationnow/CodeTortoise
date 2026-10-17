@@ -113,6 +113,8 @@ export const api = {
   /** "Looks fine" on a To check row, for everyone viewing the review; its key holds "|", so it is encoded. */
   markCheck: (id: number, key: string) => call<Mark>("POST", `/api/reviews/${id}/checks/${encodeURIComponent(key)}/mark`),
   unmarkCheck: (id: number, key: string) => call("DELETE", `/api/reviews/${id}/checks/${encodeURIComponent(key)}/mark`),
+  /** All look fine: every place of a cause at once (spec 2026-10-16 §4.3). */
+  markChecks: (id: number, keys: string[]) => call<{ marked: Mark[] }>("POST", `/api/reviews/${id}/checks/marks`, { keys }),
   /** The signed-in reader's own ticks (spec 2026-10-07-review-reading-phase2 §6). */
   ticks: (id: number) => call<ReadTicks>("GET", `/api/reviews/${id}/ticks`),
   tick: (id: number, kind: "story" | "check", key: string, on: boolean) =>

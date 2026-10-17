@@ -16,17 +16,26 @@ export interface Thread {
 /** One step of Where to start: a thread and why to read it then. */
 export interface RouteStep { thread: string; reason: string; skim: boolean }
 export interface Connection { a: string; b: string; kind: ConnKind; text: string; facts: string[]; shown: boolean }
-export interface Reason { kind: CheckKind; text: string }
 export interface Check {
   /** kind|file|function|related changed function: no line numbers, so a mark survives a re-run. */
   key: string; kind: CheckKind; story: string | null; thread: string | null;
   /** Workspace-relative; `depot` is the file the side panel opens. */
   path: string; depot: string | null; line: number | null; function: string | null; node: string | null;
   text: string; source_line: string; finding: string | null; cites: string[];
-  /** Other kinds at the same place. */
-  also: Reason[];
+  /** Its cause's id (spec 2026-10-16-outline-and-causes §4.1); null on a found-no-hazard row, absent before causes. */
+  cause?: string | null;
   /** A reader row's field (the owner may mark it a shared sink). */
   field?: string | null;
+}
+/** One changed line of a cause's change; `line` is in the after text ("+", " ") or the before text ("-"). */
+export interface ChangeLine { sign: "+" | "-" | " "; text: string; line: number | null }
+/** The 2–6 changed lines that raised a cause (spec 2026-10-16 §4.8). */
+export interface CauseChange { path: string; depot: string | null; function: string | null; lines: ChangeLine[] }
+/** One change and every place it asks the reviewer to look at (spec 2026-10-16 §4.1); `places` are check keys. */
+export interface Cause {
+  id: string; kind: CheckKind; thread: string | null; story: string | null; text: string; places: string[];
+  /** Flow ids of its story that it touches. */
+  flows: string[]; finding: string | null; change: CauseChange | null;
 }
 /** A shared sink the change writes (spec 2026-10-09 §5.1): hidden unless the viewer shows them. */
 export interface SinkHit { field: string; label: string; users: number; why: "marked" | "listed" | "threshold"; writers: string[] }
@@ -44,6 +53,9 @@ export interface Reading {
   tests: TestsRow | null; marks: Record<string, Mark>;
   /** Later CLs replacing lines earlier ones added, and CLs outside the review in between (phase 2 §4.3). */
   rewrites?: Rewrite[]; gaps?: Gap[];
+  /** Checks by cause, in reading order; null (the review's reading) or absent (a story's) on a reading stored before
+   * causes. */
+  causes?: Cause[] | null;
   /** Shared sinks the change writes; absent on a reading stored before them. */
   sinks?: SinkHit[];
   /** Every thread once, in the order to read them; absent on a reading stored before the introduction. */
@@ -76,6 +88,9 @@ export interface StoryReading {
   place_text: string; thread: string | null; position: number | null;
   /** The order to read the story's CLs in, and the rewrites inside its code (phase 2 §4.4); absent before phase 2. */
   cl_order?: number[]; rewrites?: Rewrite[];
+  /** Checks by cause, in reading order; null (the review's reading) or absent (a story's) on a reading stored before
+   * causes. */
+  causes?: Cause[] | null;
   /** The weak model's account, section by section (spec 2026-10-12 §1); absent or empty: the short text stands. */
   account?: AccountPart[]; account_files?: string[] | null;
 }

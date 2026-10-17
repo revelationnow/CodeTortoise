@@ -11,7 +11,8 @@ interface Ctx {
 const TABS: Record<string, string> = { "/overview": "#map", "/findings": "#findings", "/cls": "#changeset", "/files": "#files" };
 
 /** The new address of an old one; `locate` when only the server knows which part holds the node; null when current. */
-export function legacy(path: string, q: URLSearchParams, c: Ctx): { to: string } | { locate: string } | null {
+export function legacy(path: string, q: URLSearchParams, c: Ctx): { to: string; outline?: "checks" } | { locate: string } | null {
+  if (path === "/i/checks") return { to: c.base, outline: "checks" };
   const node = q.get("node");
   if (node) {
     const sid = c.nodeStory[node];
@@ -35,7 +36,7 @@ export function legacy(path: string, q: URLSearchParams, c: Ctx): { to: string }
 }
 
 const ANCHORS: Record<string, Place> = {
-  map: { kind: "index", tab: "map" }, findings: { kind: "index", tab: "checks" }, changeset: { kind: "index", tab: "cls" },
+  map: { kind: "index", tab: "map" }, findings: { kind: "index", tab: "findings" }, changeset: { kind: "index", tab: "cls" },
   files: { kind: "index", tab: "files" },
 };
 

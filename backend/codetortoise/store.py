@@ -258,6 +258,17 @@ class Store:
                    (rid, key, user, at, source_line))
         return {"key": key, "user": user, "at": at, "source_line": source_line}
 
+    def set_marks(self, rid: int, user: str, checks: list[tuple[str, str]]) -> list[dict]:
+        """All look fine (spec 2026-10-16 §4.3): mark each (key, source_line) and tick it read for `user`, in one
+        transaction."""
+        at = _now()
+        with self._lock, self._db:
+            self._db.executemany("INSERT OR IGNORE INTO read_ticks(review_id, user, kind, key, at) VALUES(?,?,?,?,?)",
+                                 [(rid, user, "check", key, at) for key, _ in checks])
+            self._db.executemany("INSERT OR REPLACE INTO check_marks(review_id, key, user, at, source_line) "
+                                 "VALUES(?,?,?,?,?)", [(rid, key, user, at, line) for key, line in checks])
+        return [{"key": key, "user": user, "at": at, "source_line": line} for key, line in checks]
+
     def clear_mark(self, rid: int, key: str) -> None:
         self._exec("DELETE FROM check_marks WHERE review_id=? AND key=?", (rid, key))
 

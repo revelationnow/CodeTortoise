@@ -1,12 +1,16 @@
 /** The side panel's tabs (spec 2026-10-12-story-account-and-panels §2.2): every item opened this visit, oldest first,
  * at most MAX_TABS. Pure, so the rules are tested apart from React. */
 import type { Names } from "../api";
+import type { Cause } from "../reading/types";
 import type { Item } from "./address";
+import { short } from "./crumbs";
+import { plainNames } from "./names";
 
 export const MAX_TABS = 8;
 
 /** One key per item: a file's tab is the file's, whatever line it opened at. */
-export const openKey = (o: Item): string => ("finding" in o ? `f:${o.finding}` : "node" in o ? `n:${o.node}` : `d:${o.file}`);
+export const openKey = (o: Item): string => ("finding" in o ? `f:${o.finding}` : "node" in o ? `n:${o.node}`
+  : "cause" in o ? `c:${o.cause}` : `d:${o.file}`);
 
 /** The tabs with `o` opened: an item already there keeps its place and takes the new line; a new one goes last, and
  * past the cap the oldest goes (never `o`, the active one). */
@@ -27,9 +31,10 @@ export function closeTab(tabs: Item[], o: Item, active: Item | null): { tabs: It
   return { tabs: rest, next: rest.length ? rest[Math.max(0, i - 1)] : null };
 }
 
-/** A tab's name: the finding's id, the file's name or the function's name. */
-export function tabLabel(o: Item, names: Names): string {
+/** A tab's name: the finding's id, the file's name, the function's name or the check's line, shortened. */
+export function tabLabel(o: Item, names: Names, causes?: Cause[] | null): string {
   if ("finding" in o) return o.finding;
+  if ("cause" in o) { const c = causes?.find((x) => x.id === o.cause); return c ? short(plainNames(c.text, names), 40) : "Check"; }
   if ("file" in o) return o.file.slice(o.file.lastIndexOf("/") + 1);
   return names[o.node]?.label ?? "function";
 }

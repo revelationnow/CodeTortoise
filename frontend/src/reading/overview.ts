@@ -1,41 +1,6 @@
-/** The overview's connections tile, Tests row and introduction (specs 2026-10-07-review-reading §5.1, 2026-10-09-review-introduction §5). */
-import { keys, load, save } from "../board/prefs";
+/** The overview's connection sentences, Tests row and thread blocks (spec 2026-10-16-outline-and-causes §3). */
 import { letter } from "./checks";
-import type { Connection, ConnKind, Reading, TestsRow, Thread } from "./types";
-
-export const STEP = 28;               // how much further right each level of nesting reaches
-const GAP = 20;                       // the least room between two arc labels
-
-export interface Arc {
-  a: string; b: string; kind: ConnKind; text: string; dashed: boolean;
-  /** 1 for an arc spanning no other; an arc around others sits one level outside them. */
-  depth: number; y1: number; y2: number;
-  /** The SVG path, from the right edge of one thread's box (x 0) to the other's. */
-  d: string; labelY: number;
-}
-
-/** Each shown connection as an arc between the thread boxes stacked `row` px apart, nested so arcs never cross a
- * label, with its label at its middle height pushed down clear of the label above. */
-export function arcLayout(threads: Thread[], conns: Connection[], row = 56): { arcs: Arc[]; height: number; reach: number } {
-  const at = new Map(threads.map((t, i) => [t.id, i]));
-  const spans = conns.filter((k) => k.shown && k.a !== k.b && at.has(k.a) && at.has(k.b))
-    .map((k) => ({ k, lo: Math.min(at.get(k.a)!, at.get(k.b)!), hi: Math.max(at.get(k.a)!, at.get(k.b)!) }))
-    .sort((x, y) => x.hi - x.lo - (y.hi - y.lo) || x.lo - y.lo);
-  const placed: { lo: number; hi: number; depth: number }[] = [];
-  const arcs = spans.map(({ k, lo, hi }) => {
-    const depth = 1 + Math.max(0, ...placed.filter((p) => p.lo < hi && lo < p.hi).map((p) => p.depth));
-    placed.push({ lo, hi, depth });
-    const y1 = lo * row + row / 2, y2 = hi * row + row / 2, r = depth * STEP;
-    return { a: k.a, b: k.b, kind: k.kind, text: k.text, dashed: k.kind === "bundled", depth, y1, y2,
-             d: `M 0 ${y1} C ${r} ${y1}, ${r} ${y2}, 0 ${y2}`, labelY: (y1 + y2) / 2 };
-  });
-  let last = -Infinity;
-  for (const arc of [...arcs].sort((x, y) => x.labelY - y.labelY)) {
-    arc.labelY = Math.max(arc.labelY, last + GAP);
-    last = arc.labelY;
-  }
-  return { arcs, height: Math.max(threads.length * row, last + row / 2), reach: Math.max(0, ...arcs.map((a) => a.depth)) * STEP };
-}
+import type { Connection, TestsRow, Thread } from "./types";
 
 /** "A and B: both run inside `main`", one per shown connection: the tile on a phone, where arcs do not fit. */
 export function connectionRows(threads: Thread[], conns: Connection[]): { text: string; bundled: boolean }[] {
@@ -58,21 +23,6 @@ export function testsLine(t: TestsRow, threads: Thread[]): string {
   return `Tests: ${t.functions}${t.covers.length ? ` cover thread${t.covers.length === 1 ? "" : "s"} ${of(t.covers)}` : ""}`
     + (t.untested.length ? ` · nothing tests ${of(t.untested)}` : "");
 }
-
-export interface RouteRow { id: string; letter: string; name: string; reason: string; skim: boolean; first: string | null }
-
-/** Where to start, one row per step in the route's order; each thread keeps the letter its place in the threads gives it. */
-export function routeRows(r: Pick<Reading, "threads" | "route">): RouteRow[] {
-  const at = new Map(r.threads.map((t, i) => [t.id, i]));
-  return (r.route ?? []).filter((s) => at.has(s.thread)).map((s) => {
-    const i = at.get(s.thread)!, t = r.threads[i];
-    return { id: t.id, letter: letter(i, t.id), name: t.name, reason: s.reason, skim: s.skim, first: t.stories[0] ?? null };
-  });
-}
-
-/** "How to read this page" is open until the viewer closes it; storage that is missing or throws leaves it open. */
-export const introOpen = (): boolean => load<unknown>(keys.introOpen, true) !== false;
-export const setIntroOpen = (open: boolean): void => save(keys.introOpen, open);
 
 /** A thread card's paragraphs: the strong model's intro alone (it says what the thread does), else the purpose above the
  * fixed intro, so a card never loses the sentence that says what its thread does. */

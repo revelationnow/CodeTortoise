@@ -238,7 +238,6 @@ def _anchor_context(svc: Services, rid: int, comment: dict, ctx: AiContext, boar
         if k is None:
             return ""
         parts = [f"CHECK ({KIND_LABEL[k.kind]}): {k.text}"
-                 + "".join(f"\nALSO ({KIND_LABEL[r.kind]}): {r.text}" for r in k.also)
                  + (f"\nAT {k.path}:{k.line}" if k.path and k.line else f"\nAT {k.path}" if k.path else "")
                  + (f" in {k.function}" if k.function else "")
                  + (f"\nSOURCE LINE: {k.source_line}" if k.source_line else "")]

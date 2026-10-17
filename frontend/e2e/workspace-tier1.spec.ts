@@ -10,31 +10,35 @@ test.describe("stories formed by a strong model", () => {
     const base = await startReview(page);
     const rail = page.locator(".ws-rail");
     const s1 = rail.getByRole("link", { name: /^Go to story S1/ });
-    await expect(s1).toContainText("UART driver counts transmit errors");
-    await expect(s1.locator(".ws-chip.target")).toHaveText("⌖ fw");                    // two targets: chips in the rail
+    await expect(s1).toContainText("UART driver counts transmit errors");          // one line in the outline: no chips
     await page.goto(`${base}/s/S1`);
     const head = page.locator(".ws-story-head");
     await expect(head.locator(".ws-chip.target")).toHaveText("⌖ fw");
     await expect(head.locator(".ct-headline.hazard")).toHaveText("1 hazard");
     await expect(head.getByRole("button", { name: /Explain/ })).toHaveCount(0);       // tier 2 never retells it
     await expect(head.getByRole("button", { name: "Ask…" })).toBeVisible();
-    const check = page.getByRole("region", { name: "To check" });
-    await expect(check.locator(".ck-row").first().locator(".ck-tag").first()).toHaveText("Hazard");
-    await expect(check.locator(".st-suggested")).toContainText("Check that logger_flush handles the new -2.");
-    await expect(page.getByRole("region", { name: "Questions and comments" })).toContainText("Does any caller retry a send after -2?");
+    const chip = page.getByRole("region", { name: /^Flow 1: / }).locator(".st-chip").first();   // the hazard leads its flow's checks
+    await expect(chip).toHaveClass(/\bhazard\b/);
+    await expect(chip).toHaveText("logger_flush ignores the new -2, so a failed send goes unnoticed.");
+    const outline = page.locator("aside.ws-outline");
+    await outline.getByRole("button", { name: "Checks" }).click();
+    await expect(outline.getByRole("link", { name: "Open check: logger_flush ignores the new -2, so a failed send goes unnoticed." })
+      .locator(".ck-tag")).toHaveText("Hazard");
+    await outline.getByRole("button", { name: "Stories" }).click();
+    await page.getByRole("navigation", { name: "Story sections" }).getByRole("link", { name: /^Talk/ }).click();
+    const talk = page.getByRole("region", { name: "Questions and comments" });
+    await expect(talk).toContainText("Does any caller retry a send after -2?");
+    await expect(talk.locator(".st-suggested")).toContainText("Check that logger_flush handles the new -2.");
     await expect(page.getByRole("region", { name: "Why these belong together" })).toHaveCount(0);   // folded into the tiles
     await expectNamed(page);
   });
 
   test("the overview's introduction is the strong model's, each part labelled AI", async ({ page }) => {
     await startReview(page);
-    const start = page.getByRole("region", { name: "Where to start" });
-    await expect(start.locator("h2 .ai-label")).toBeVisible();
-    await expect(start.locator(".ov-route li").first()).toContainText("This thread comes next in the change.");
     const intro = page.locator(".ov-thread").first().locator(".ov-purpose");
     await expect(intro.locator(".ai-label")).toBeVisible();
     await expect(intro).toContainText("This thread changes the UART driver.");
-    await expect(page.locator(".ov2-left .ws-lead")).toContainText("The main risk is a caller that misses a new result.");
+    await expect(page.locator(".ov3 .ws-lead")).toContainText("The main risk is a caller that misses a new result.");
   });
 
   test("the header counts the open hazards the strong model found", async ({ page }) => {

@@ -140,6 +140,8 @@ test.describe("zoom and lens", () => {
     await page.goto(`${base}/s/S1?view=graph`);
     const n = page.locator(".bd-node").first();
     await expect(n).toBeVisible();
+    await expect(page.locator(".st-head h2")).toBeVisible();
+    await expect(page.locator(".st-summary")).toHaveCount(0);           // the graph has the height the summary would take
     await page.waitForTimeout(500);
     const s0 = await scale(n);
     await page.getByRole("button", { name: "Zoom in" }).click();

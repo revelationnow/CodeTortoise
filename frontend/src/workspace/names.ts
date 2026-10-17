@@ -27,3 +27,13 @@ export function nameParts(text: string, names: Names, findings: Iterable<string>
   const known = new Set(findings);
   return text.split("`").flatMap((seg, i) => ids(seg, names, known, i % 2 ? (code) => ({ code }) : (t) => ({ text: t })));
 }
+
+/** Text with node ids as their names and backticks kept: for a link's text (no links inside links), a `title` or a
+ * panel tab's label (spec 2026-10-16 §4.7). */
+export function plainNames(text: string, names: Names): string {
+  const last = text.split("`").length - 1;
+  return text.split("`").map((seg, i) => {
+    const plain = nameParts(seg, names, []).map((p) => ("text" in p ? p.text : "code" in p ? p.code : "node" in p ? p.label : p.finding)).join("");
+    return i % 2 ? (i < last ? `\`${plain}\`` : `\`${plain}`) : plain;
+  }).join("");
+}

@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { startReview } from "./helpers";
+import { openIndex, startReview } from "./helpers";
 
 /** The side panel, folding and the Index's new views (spec 2026-10-12-story-account-and-panels §2-§5). */
 
@@ -10,20 +10,20 @@ const findingsOf = async (page: Page, base: string) =>
 
 test.use({ viewport: { width: 1400, height: 900 } });
 
-test("a check's Details opens its finding in the side panel; the story stays and Back closes it", async ({ page }) => {
+test("a check's Details opens its finding in the side panel; the story stays and Back returns to the check", async ({ page }) => {
   const base = await startReview(page, FOUR);
   const sig = (await findingsOf(page, base)).find((f) => f.title === "hal_write: signature changed")!;
-  await page.goto(`${base}/s/S2`);
-  const row = page.getByRole("region", { name: "To check" }).locator(`.ck-row[data-finding="${sig.id}"]`);
-  await row.getByRole("link", { name: `Finding ${sig.id}'s details` }).click();
+  await page.goto(`${base}/f/${sig.id}`);                                     // the stepper on its story
+  const check = page.getByRole("complementary", { name: "Check: hal_write: signature changed" });
+  await check.getByRole("link", { name: `Finding ${sig.id}'s details` }).click();
   await expect(page).toHaveURL(new RegExp(`${base}/s/S2\\?open=finding%3A${sig.id}$`));
   const panel = page.getByRole("complementary", { name: `Finding: ${sig.id}` });
   await expect(panel.locator("h2")).toContainText("hal_write: signature changed");
   await expect(panel.getByRole("link", { name: "Open as a page" })).toHaveAttribute("href", `${base}/f/${sig.id}?details=1`);
-  await expect(page.getByRole("region", { name: "To check" })).toBeVisible();          // the story stays
+  await expect(page.getByRole("navigation", { name: "Story sections" })).toBeVisible();   // the story stays
   await page.goBack();
-  await expect(page.locator(".ws-detail")).toHaveCount(0);
-  await expect(page).toHaveURL(new RegExp(`${base}/s/S2$`));
+  await expect(check).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`${base}/s/S2\\?open=cause%3Ac[0-9a-f]{10}&at=1$`));
 });
 
 test("a finding the review lacks shows Not found in the panel", async ({ page }) => {
@@ -34,49 +34,46 @@ test("a finding the review lacks shows Not found in the panel", async ({ page })
 test("the panel keeps a tab per item opened; a tab switches back and × closes it", async ({ page }) => {
   const base = await startReview(page, FOUR);
   const sig = (await findingsOf(page, base)).find((f) => f.title === "hal_write: signature changed")!;
-  await page.goto(`${base}/s/S2`);
-  const row = page.getByRole("region", { name: "To check" }).locator(`.ck-row[data-finding="${sig.id}"]`);
-  await row.getByRole("link", { name: `Finding ${sig.id}'s details` }).click();
-  await row.getByRole("link", { name: /^Open / }).click();                 // the row's file, at its line
+  await page.goto(`${base}/f/${sig.id}`);
+  const check = page.getByRole("complementary", { name: "Check: hal_write: signature changed" });
+  await check.getByRole("link", { name: `Finding ${sig.id}'s details` }).click();
   const tabs = page.getByRole("list", { name: "Open items" });
   await expect(tabs.getByRole("link", { name: /^Show / })).toHaveCount(2);
-  await expect(tabs.locator("a[aria-current='true']")).toHaveText(/\.[ch]$/);
+  await expect(tabs.getByRole("link", { name: "Show hal_write: signature changed" })).toBeVisible();   // the cause beside the finding
+  await expect(tabs.locator("a[aria-current='true']")).toHaveText(sig.id);
+  await tabs.getByRole("link", { name: "Show hal_write: signature changed" }).click();
+  await expect(check).toBeVisible();
   await tabs.getByRole("link", { name: `Show ${sig.id}` }).click();
   await expect(page.getByRole("complementary", { name: `Finding: ${sig.id}` })).toBeVisible();
   const entries = await page.evaluate(() => history.length);
-  await tabs.getByRole("button", { name: `Close ${sig.id}` }).click();     // the active one, first: its right neighbour shows
-  await expect(page.getByRole("complementary", { name: /^Code: / })).toBeVisible();
+  await tabs.getByRole("button", { name: `Close ${sig.id}` }).click();     // the active one: its neighbour shows
+  await expect(check).toBeVisible();
   await expect(page.getByRole("list", { name: "Open items" })).toHaveCount(0);   // one tab left: no bar
   expect(await page.evaluate(() => history.length)).toBe(entries);          // closing is not a step to go Back over
 });
 
-test("the rail and To check fold to strips and stay folded; Focus folds both and widens the panel until pressed again", async ({ page }) => {
+test("the outline folds to a strip and stays folded; Focus folds it and widens the panel until pressed again", async ({ page }) => {
   const base = await startReview(page);
   await page.goto(`${base}/s/S1`);
-  const talk = page.getByRole("region", { name: "To check" }).getByRole("button", { name: /^Comment/ }).first();
-  await talk.click();
-  await expect(talk).toHaveAttribute("aria-expanded", "true");
-  await page.getByRole("button", { name: "Fold To check" }).click();
-  await page.getByRole("button", { name: "Unfold To check" }).click();
-  await expect(talk).toHaveAttribute("aria-expanded", "true");               // folding hides the column, it keeps its state
+  const index = page.locator("aside.ws-outline details.ws-index");
+  await index.locator("summary").click();
+  await expect(index).toHaveAttribute("open", "");
   await page.getByRole("button", { name: "Fold the contents" }).click();
   await expect(page.locator(".ws-rail.folded")).toContainText("Contents");
-  await page.getByRole("button", { name: "Fold To check" }).click();
-  await expect(page.locator(".ws-strip.right .ws-strip-name")).toHaveText(/^To check · \d+ open$/);
+  await page.getByRole("button", { name: "Unfold the contents" }).click();
+  await expect(index).toHaveAttribute("open", "");                          // folding hides the outline, it keeps its state
+  await page.getByRole("button", { name: "Fold the contents" }).click();
   await page.reload();
   await expect(page.locator(".ws-rail.folded")).toBeVisible();
-  await expect(page.locator(".ws-strip.right")).toBeVisible();
   await page.getByRole("button", { name: "Unfold the contents" }).click();
-  await page.getByRole("button", { name: "Unfold To check" }).click();
   await expect(page.locator(".ws-rail.folded")).toHaveCount(0);
-  await expect(page.locator(".ws-strip.right")).toHaveCount(0);
 
-  await page.getByRole("region", { name: "To check" }).getByRole("link", { name: /^Open / }).first().click();
+  await openIndex(page, "Files");
+  await page.getByRole("link", { name: "Open uart.c's diff" }).click();
   const panel = page.locator(".ws-detail");
   const before = (await panel.boundingBox())!.width;
   await panel.getByRole("button", { name: "Focus" }).click();
   await expect(page.locator(".ws-rail.folded")).toBeVisible();
-  await expect(page.locator(".ws-strip.right")).toBeVisible();
   expect((await panel.boundingBox())!.width).toBeGreaterThan(before);
   expect((await page.getByRole("region", { name: "Centre" }).boundingBox())!.width).toBeGreaterThanOrEqual(359);
   const focusedW = (await panel.boundingBox())!.width;
@@ -88,13 +85,12 @@ test("the rail and To check fold to strips and stay folded; Focus folds both and
   await expect(page.locator(".ws-rail.folded")).toHaveCount(0);
   expect(Math.abs((await panel.boundingBox())!.width - before)).toBeLessThan(2);
   await panel.getByRole("button", { name: "Focus" }).click();
-  await page.goBack();                                                       // the panel closes: the columns come back
+  await page.goBack();                                                       // the panel closes: the outline comes back
   await expect(page.locator(".ws-detail")).toHaveCount(0);
   await expect(page.locator(".ws-rail.folded")).toHaveCount(0);
-  await expect(page.locator(".ws-strip.right")).toHaveCount(0);
 });
 
-test("with storage blocked the columns still fold for the visit", async ({ page }) => {
+test("with storage blocked the outline still folds for the visit", async ({ page }) => {
   const base = await startReview(page);
   await page.addInitScript(() => {
     Storage.prototype.getItem = () => { throw new Error("blocked"); };
@@ -109,9 +105,7 @@ test("with storage blocked the columns still fold for the visit", async ({ page 
 test("Index › Findings lists every finding worst first, filters by severity and status, and opens one in the panel", async ({ page }) => {
   const base = await startReview(page);
   const all = await findingsOf(page, base);
-  await expect(page.locator(".ws-rail").getByRole("link", { name: "Open the Index: Findings" })).toBeVisible();
-  await expect(page.getByRole("region", { name: "To check" }).getByRole("heading").getByRole("link")).toHaveCount(0);
-  await page.getByRole("region", { name: "To check" }).getByRole("link", { name: "All findings" }).click();
+  await openIndex(page, "Findings");
   await expect(page).toHaveURL(new RegExp(`${base}/i/findings$`));
   await expect(page.getByRole("tab", { name: `Findings (${all.length})` })).toHaveAttribute("aria-selected", "true");
   const list = page.getByRole("region", { name: "Findings" });

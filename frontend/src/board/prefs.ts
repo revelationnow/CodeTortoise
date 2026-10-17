@@ -28,14 +28,13 @@ export const keys = {
   railW: "ct.ws.railW",
   detailW: "ct.ws.detailW",
   railOpen: "ct.ws.rail.open",
-  /** The story page's To check column width and the review header's height, once dragged. */
-  checkW: "ct.ws.checkW",
+  /** The review header's height, once dragged. */
   headH: "ct.ws.headH",
-  /** Whether the rail and the To check column are folded to strips (spec 2026-10-12-story-account-and-panels §3). */
+  /** Whether the rail is folded to a strip (spec 2026-10-12-story-account-and-panels §3). */
   railFolded: "ct.ws.railFolded",
-  checkFolded: "ct.ws.checkFolded",
-  /** Whether the overview's "How to read this page" is open (spec 2026-10-09-review-introduction §5.1). */
-  introOpen: "ct.intro.open",
+  /** The outline's view and the check kinds the reader hides (spec 2026-10-16-outline-and-causes §1.2, §4.6). */
+  outline: "ct.ws.outline",
+  hiddenKinds: "ct.ws.hiddenKinds",
   /** Neighbours drawn as tiles or as the call tree. */
   nbView: "ct.ws.nb.view",
 };

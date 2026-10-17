@@ -80,6 +80,10 @@ class SwarmPostIn(BaseModel):
     confirm_repeat: bool = False
 
 
+class KeysIn(BaseModel):
+    keys: list[str]
+
+
 RERUNNING = "the review is being re-run"
 
 
@@ -269,6 +273,7 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         return out
 
     NO_READING = "this review has no reading: re-run it"
+    NO_CHECK = "That check no longer exists after the re-run."
 
     @app.get("/api/reviews/{rid}/reading")
     def reading(rid: int, _: str = Depends(user_of)):
@@ -279,15 +284,29 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
             raise HTTPException(404, NO_READING)
         return view
 
-    def check_or_404(rid: int, key: str) -> Check:
+    def checks_or_404(rid: int) -> dict[str, Check]:
+        """The reading's checks, found-no-hazard rows too, by key."""
         raw = store.get_blob(rid, "reading")
         if not raw:
             raise HTTPException(404, NO_READING)
         r = Reading.model_validate(raw)
-        k = next((k for k in r.checks + r.cleared if k.key == key), None)
+        return {k.key: k for k in r.checks + r.cleared}
+
+    def check_or_404(rid: int, key: str) -> Check:
+        k = checks_or_404(rid).get(key)
         if k is None:
-            raise HTTPException(404, "That check no longer exists after the re-run.")
+            raise HTTPException(404, NO_CHECK)
         return k
+
+    @app.post("/api/reviews/{rid}/checks/marks")
+    def mark_checks(rid: int, body: KeysIn, user: str = Depends(user_of)):
+        """All look fine (spec 2026-10-16 §4.3): every key or none."""
+        review_or_404(rid)
+        by_key = checks_or_404(rid)
+        keys = list(dict.fromkeys(body.keys))                # a key given twice is marked once
+        if any(key not in by_key for key in keys):
+            raise HTTPException(404, NO_CHECK)
+        return {"marked": store.set_marks(rid, user, [(key, by_key[key].source_line) for key in keys])}
 
     @app.post("/api/reviews/{rid}/checks/{key:path}/mark")
     def mark_check(rid: int, key: str, user: str = Depends(user_of)):

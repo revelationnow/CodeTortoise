@@ -10,10 +10,12 @@ import { at } from "./address";
 import { useWs } from "./context";
 import { short } from "./crumbs";
 import { detailBoards, locateNode } from "./detail";
+import CauseStepper from "./CauseStepper";
 import FileDiff from "./FileDiff";
 import FindingBody from "./FindingBody";
 import FunctionCode from "./FunctionCode";
 import Neighbours from "./Neighbours";
+import { plainNames } from "./names";
 import { openKey, tabLabel } from "./tabs";
 
 /** The detail panel (spec 2026-10-04-review-workspace §3.7): a node's code or a file's diff, opened on demand; on a
@@ -36,6 +38,9 @@ export default function Detail() {
   const [width, setWidth] = useState(() => Math.max(320, loadWidth(keys.detailW, Math.round(window.innerWidth * 0.45))));
   const nid = "node" in open ? open.node : null, known = nid ? d.names[nid] : null;
   const fid = "finding" in open ? open.finding : null, finding = fid ? d.findings.find((x) => x.id === fid) ?? null : null;
+  const cid = "cause" in open ? open.cause : null;
+  const cause = cid ? d.reading?.causes?.find((c) => c.id === cid) ?? null : null;
+  const causeLine = cause ? plainNames(cause.text, d.names).replaceAll("`", "") : null;
   // a node off every board (a Neighbours row's caller or callee) is named by its neighbours (§4.3); null: no such node
   const [asked, setAsked] = useState<{ nid: string; name: NodeName | null; error?: string } | null>(null);
   useEffect(() => {
@@ -75,7 +80,7 @@ export default function Detail() {
   const waiting = !!name?.story && !own && !(found?.node.path && found.node.range);
   const node = found?.node;
   const path = "file" in open ? open.file : node?.path ?? name?.path ?? null;
-  const label = fid ? (finding ? fid : null) : "file" in open ? path!.slice(path!.lastIndexOf("/") + 1) : node?.label ?? name?.label ?? null;
+  const label = cid ? (causeLine ? short(causeLine, 40) : null) : fid ? (finding ? fid : null) : "file" in open ? path!.slice(path!.lastIndexOf("/") + 1) : node?.label ?? name?.label ?? null;
   const lines = node?.range ? `lines ${node.range[0]}–${node.range[1]}` : "file" in open && open.line ? `line ${open.line}`
     : name?.line ? `line ${name.line}` : null;
   const badge = !nid ? null : node?.kind === "field" || node?.kind === "struct" || name?.kind === "field" ? "field"
@@ -87,8 +92,11 @@ export default function Detail() {
   const shownW = focused ? Math.max(width, winW - 28 - 360) : width;   // the centre keeps 360px
   const wide = ws.screen === "desktop" && shownW > 900;
 
-  const closeLabel = fid ? "Close the finding" : "Close the code";
+  const closeLabel = cid ? "Close the check" : fid ? "Close the finding" : "Close the code";
   const body = () => {
+    if (cid) return cause ? <CauseStepper cause={cause} at={(open as { at: number }).at} />
+      : <div className="banner warn">This check isn't in this review.{" "}
+          <button className="link" onClick={() => ws.setOutline("checks")}>Show the checks</button></div>;
     if (fid) return finding
       ? <div className="ws-finding ws-panel-finding"><FindingBody fid={fid} ids="ws-p" head={
           <h2 className="ws-panel-title"><SeverityBadge severity={finding.severity} /> {tidy(finding.title)}</h2>} /></div>
@@ -106,23 +114,25 @@ export default function Detail() {
     return <FileDiff key={`${path}@${cl ?? "all"}`} path={path} line={line} anns={anns} wide={wide} cl={cl} />;
   };
   return (
-    <aside className={`ws-detail${focused ? " focus" : ""}`} style={{ ["--w" as string]: `${shownW}px` }} aria-label={fid ? `Finding: ${fid}` : `Code: ${label ?? "not found"}`}>
+    <aside className={`ws-detail${focused ? " focus" : ""}`} style={{ ["--w" as string]: `${shownW}px` }} aria-label={cid ? `Check: ${causeLine ?? "not found"}` : fid ? `Finding: ${fid}` : `Code: ${label ?? "not found"}`}>
       {ws.screen === "desktop" && !focused && <Resizer size={width} edge="left" min={320} max={() => window.innerWidth * 0.75}
                                            onSize={setWidth} onDone={(w) => save(keys.detailW, w)} />}
       {ws.screen === "phone" && (
         <div className="ws-phonebar">
           <Link to={close} aria-label={closeLabel} title={closeLabel}>‹ {st ? st.id : "Back"}</Link>
-          <span className="sep" aria-hidden>·</span><b>{label}</b>
+          <span className="sep" aria-hidden>·</span><b title={causeLine ?? undefined}>{label}</b>
         </div>
       )}
       <div className="ws-detail-head">
         {ws.screen !== "phone" && ws.tabs.length > 1 && (
           <ul className="ws-ptabs" aria-label="Open items">
             {ws.tabs.map((t) => {
-              const on = openKey(t) === openKey(open), tname = tabLabel(t, d.names);
+              const on = openKey(t) === openKey(open), tname = tabLabel(t, d.names, d.reading?.causes);
+              const tc = "cause" in t ? d.reading?.causes?.find((c) => c.id === t.cause) : null;
+              const ttitle = tc ? plainNames(tc.text, d.names).replaceAll("`", "") : tname;
               return (
                 <li key={openKey(t)} className={`ws-ptab${on ? " on" : ""}`}>
-                  <Link aria-current={on || undefined} to={ws.link(ws.opened(t))} title={`Show ${tname}`} aria-label={`Show ${tname}`}>{tname}</Link>
+                  <Link aria-current={on || undefined} to={ws.link(ws.opened(t))} title={`Show ${ttitle}`} aria-label={`Show ${tname}`}>{tname}</Link>
                   <button className="ws-ptab-x" aria-label={`Close ${tname}`} title={`Close ${tname}`} onClick={() => ws.closeTab(t)}>×</button>
                 </li>
               );
@@ -130,7 +140,7 @@ export default function Detail() {
           </ul>
         )}
         <div className="ws-detail-name">
-          <b className="mono">{label ?? "Not found"}</b>
+          <b className={cid ? undefined : "mono"} title={causeLine ?? undefined}>{label ?? "Not found"}</b>
           {badge && <span className={`ws-badge ${badge}`}>{badge}</span>}
           {st && <Link className="ws-detail-story" to={ws.link(ws.item({ kind: "story", sid: st.id, view: "steps" }))}
                        title={`Go to story ${st.id}: ${short(st.title)}`} aria-label={`Go to story ${st.id}: ${short(st.title)}`}>
@@ -140,7 +150,7 @@ export default function Detail() {
             <Link to={ws.link(at({ kind: "index", tab: "findings" }, { open }))} title="Every finding of the review">All findings</Link>
           </span>}
           {ws.screen === "desktop" && <button className={`bd-ibtn ws-focus${focused ? " on" : ""}`} aria-pressed={focused}
-                                              title={focused ? "Bring back the contents and To check" : "Fold the contents and To check, and widen this panel"}
+                                              title={focused ? "Bring back the contents" : "Fold the contents and widen this panel"}
                                               onClick={ws.toggleFocus}>Focus</button>}
           {ws.screen !== "phone" && <Link className="ws-x" to={close} aria-label={closeLabel} title={closeLabel}>✕</Link>}
         </div>

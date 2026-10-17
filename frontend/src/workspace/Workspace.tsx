@@ -11,11 +11,14 @@ import { useSources } from "../board/useSources";
 import Stages from "../components/Stages";
 import { AiProvider, useAi } from "../lib/ai";
 import { threadLabel } from "../reading/checks";
+import { causeOfCheck, loadHidden, loadOutline, nextOpen, openCount, type OutlineView, progressLine, saveHidden, saveOutline, shown } from "../reading/causes";
 import { progress, progressText } from "../reading/plan";
+import type { CheckKind } from "../reading/types";
 import { type Address, at, href, type Item, type Open, type Place, readAddress, type Tab } from "./address";
 import { type Folds, useWs, type Ws, WsContext } from "./context";
 import Crumbs, { PhoneBar } from "./Crumbs";
 import Detail from "./Detail";
+import HowToRead from "./HowToRead";
 import { type Crumb, crumbs } from "./crumbs";
 import { useScreen } from "./media";
 import { loadMemory, recall, remember, saveMemory } from "./memory";
@@ -23,11 +26,13 @@ import ClPage from "./ClPage";
 import ClusterPage from "./ClusterPage";
 import FindingPage from "./FindingPage";
 import IndexPage from "./IndexPage";
+import Outline from "./Outline";
 import Rail from "./Rail";
 import StoryPage from "./StoryPage";
 import { addTab, closeTab as closeOf } from "./tabs";
 import { HEAD_MIN, headMax, loadHeadH } from "./layout";
 import { indexFor, legacy } from "./legacy";
+import { plainNames } from "./names";
 import { useReview } from "./useReview";
 import WholePage, { ReviewGraph } from "./WholePage";
 import "./workspace.css";
@@ -64,23 +69,26 @@ export default function Workspace() {
     setTabs(rest);
     if (next !== undefined) go({ ...addr, open: next, tab: "diff" }, true);   // closing is not a step to go Back over
   }, [tabs, addr, go]);
-  const [folds, setFolds] = useState<Folds>(() => ({ rail: load<unknown>(keys.railFolded, false) === true,
-                                                     check: load<unknown>(keys.checkFolded, false) === true }));
+  const [folds, setFolds] = useState<Folds>(() => ({ rail: load<unknown>(keys.railFolded, false) === true }));
   const [focus, setFocus] = useState(false);
   const setFold = useCallback((which: keyof Folds, folded: boolean) => {
     setFocus(false);                                       // unfolding by hand ends Focus
     setFolds((f) => ({ ...f, [which]: folded }));
-    save(which === "rail" ? keys.railFolded : keys.checkFolded, folded);
+    save(keys.railFolded, folded);
   }, []);
   const toggleFocus = useCallback(() => setFocus((x) => !x), []);
   useEffect(() => { if (!addr.open) setFocus(false); }, [addr.open]);   // closing the panel restores the columns
-  const shown = useMemo(() => (focus ? { rail: true, check: true } : folds), [focus, folds]);
+  const [outline, setOutlineState] = useState<OutlineView>(loadOutline);
+  const setOutline = useCallback((v: OutlineView) => { setOutlineState(v); saveOutline(v); }, []);
+  const [hidden, setHiddenState] = useState<ReadonlySet<CheckKind>>(loadHidden);
+  const setHidden = useCallback((h: ReadonlySet<CheckKind>) => { setHiddenState(h); saveHidden(h); }, []);
+  const shown = useMemo(() => (focus ? { rail: true } : folds), [focus, folds]);   // Focus folds the outline only
   const [clsOpen, setClsOpen] = useState<ReadonlySet<number>>(() => new Set());
   const ws: Ws = useMemo(() => ({ base: root, data, addr, screen, sources, link, go, item, opened, hover, setHover,
                                   tabs, closeTab, folds: shown, setFold, focus, toggleFocus,
-                                  clsOpen, setClsOpen }),
+                                  outline, setOutline, hidden, setHidden, clsOpen, setClsOpen }),
                          [root, data, addr, screen, sources, link, go, item, opened, hover, tabs, closeTab, shown, setFold, focus,
-                          toggleFocus, clsOpen]);
+                          toggleFocus, outline, setOutline, hidden, setHidden, clsOpen]);
 
   const d = data.detail;
   const r = data.reading;
@@ -98,14 +106,20 @@ export default function Workspace() {
   }) : null, [settled, params, q, root, data.stories, data.board]);
   useEffect(() => {
     if (!old) return;
-    if ("to" in old) { navigate(old.to, { replace: true }); return; }
+    if ("to" in old) { if (old.outline) setOutline(old.outline); navigate(old.to, { replace: true }); return; }
     let live = true;                                       // a reader who leaves first stays where they went
     const to = (path: string) => { if (live) navigate(path, { replace: true }); };
     api.locate(id, { node: old.locate }).then(
       (r) => to(r.cluster ? href(root, at({ kind: "cluster", cid: r.cluster }, { open: { node: old.locate } })) : root),
       () => to(root));
     return () => { live = false; };
-  }, [old, id, root, navigate]);
+  }, [old, id, root, navigate, setOutline]);
+  // an old `?check=` (a check key, or a finding id from an old finding address) opens the stepper there (§5.2)
+  useEffect(() => {
+    if (!addr.check || !r?.causes) return;
+    const hit = causeOfCheck(r.causes, addr.check);
+    go({ ...addr, check: null, ...(hit ? { open: { cause: hit.cause.id, at: hit.at } } : {}) }, true);
+  }, [addr, r, go]);
   const scrolled = useRef(false);                          // #map or #checks scrolls once, when it is there to scroll to
   useEffect(() => {
     if (hash !== "map" && hash !== "checks") { scrolled.current = false; return; }
@@ -126,7 +140,9 @@ export default function Workspace() {
         <main className={`ws ${screen} level-${level}${drawer ? " drawer" : ""}`}>
           <Head onMenu={() => setDrawer(!drawer)} drawer={drawer} />
           <div className={`ws-body${addr.open ? " with-detail" : ""}`}>
-            {(screen !== "phone" || level === "rail") && <Rail show={hash} onPick={() => setDrawer(false)} hidden={screen === "tablet" && !drawer} />}
+            {(screen !== "phone" || level === "rail") && (r
+              ? <Outline onPick={() => setDrawer(false)} hidden={screen === "tablet" && !drawer} />
+              : <Rail show={hash} onPick={() => setDrawer(false)} hidden={screen === "tablet" && !drawer} />)}
             {drawer && <div className="ws-scrim" onClick={() => setDrawer(false)} aria-hidden />}
             {(screen !== "phone" || level === "item") && (
               <section className="ws-centre" aria-label="Centre">
@@ -134,7 +150,7 @@ export default function Workspace() {
                 <Centre />
               </section>
             )}
-            {addr.open && d && data.ready && (screen !== "phone" || level === "detail") && <Detail key={JSON.stringify(addr.open)} />}
+            {addr.open && d && data.ready && (screen !== "phone" || level === "detail") && <Detail key={"cause" in addr.open ? `c:${addr.open.cause}` : JSON.stringify(addr.open)} />}
           </div>
         </main>
       </WsContext.Provider>
@@ -155,6 +171,15 @@ function Head({ onMenu, drawer }: { onMenu: () => void; drawer: boolean }) {
   const drift = driftSummary(d.about?.drift ?? []).warn;
   const box = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(loadHeadH);          // null: as tall as its content
+  const rd = d.reading, causes = rd?.causes;
+  const p = rd && d.ticks ? progress(rd, d.ticks) : null;
+  const line = !rd || !p ? "" : causes
+    ? progressLine(p.stories, p.storyCount, openCount(causes, ws.hidden, rd.marks), shown(causes, ws.hidden).length)
+    : progressText(p);
+  const next = rd && causes ? nextOpen(causes, ws.hidden, rd.marks, {
+    cause: ws.addr.open && "cause" in ws.addr.open ? ws.addr.open.cause : null,
+    story: ws.addr.place.kind === "story" ? ws.addr.place.sid : null, order: rd.order }) : null;
+  const nextLine = next ? plainNames(causes!.find((c) => c.id === next.cause)!.text, d.names).replaceAll("`", "") : "";
   return (
     <div className="ws-headbox" ref={box} style={height === null ? undefined : { height }}>
       <header className="ws-head">
@@ -163,7 +188,10 @@ function Head({ onMenu, drawer }: { onMenu: () => void; drawer: boolean }) {
         <h1><Link to={ws.base} state={{ page: true }} title="Go to the whole change">{r.title}</Link></h1>
         {d.reading ? <HeadlinePill h={d.reading.headline} />
           : r.risk && <span className={`bd-pill ${r.risk}`}>{r.risk.toUpperCase()} RISK</span>}
-        {d.reading && d.ticks && <span className="ws-progress">{progressText(progress(d.reading, d.ticks))}</span>}
+        {rd && d.ticks && <span className="ws-progress">{line}</span>}
+        {next && <Link className="ws-next" to={ws.link(ws.opened({ cause: next.cause, at: next.at }))} aria-label="Next open check"
+                       title={`Next open check: ${nextLine}`}>Next open check ›</Link>}
+        {rd && <HowToRead />}
         {!d.ready && <span className="bd-pill ghost">{r.status}</span>}
         {d.ready && <AiPill />}
         {me?.is_owner && d.ready && <button className="link rerun" onClick={() => api.rerun(d.id).then(d.loadDetail)}>Re-run</button>}

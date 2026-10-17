@@ -23,7 +23,7 @@ from codetortoise.stories import Story, StoryDetail, StorySet
 from codetortoise.targets import UNKNOWN
 from codetortoise.tidy import tidy
 
-READING_VERSION = 2                   # bump with every change to the thread text's prompt or checks (keys its cache)
+READING_VERSION = 3                   # bump with every change to the thread text's prompt or checks (keys its cache)
 MAX_FILES, MAX_MODULES = 8, 4         # a thread's key files and modules (spec 2026-10-09-review-introduction §3.3)
 SHOWN_DIRS = SHOWN_KINDS = 3          # how many directories and check kinds a thread's fixed intro names
 SKIM_KINDS = {"mechanical", "tests"}
@@ -117,11 +117,6 @@ KIND_LABEL = {"hazard": "Hazard", "confirm": "Confirm", "caller": "Caller not up
               "unanalysed": "Not analysed", "ask": "Ask the author", "cleared": "No hazard"}   # as frontend/src/reading/checks.ts
 
 
-class Reason(BaseModel):
-    kind: CheckKind
-    text: str
-
-
 class Check(BaseModel):
     """One row of To check (§7): a place the reviewer should look at, and why."""
     key: str                          # kind|file|function|related changed function's qualified name (no line numbers),
@@ -138,8 +133,37 @@ class Check(BaseModel):
     source_line: str = ""
     finding: str | None = None
     cites: list[str] = Field(default_factory=list)
-    also: list[Reason] = Field(default_factory=list)   # other kinds at the same place
+    cause: str | None = None          # its cause's id (spec 2026-10-16-outline-and-causes §4.1); none on a cleared row
+    cause_fn: str | None = Field(default=None, exclude=True)   # the changed function that raised it (node id)
+    cause_subject: str = Field(default="", exclude=True)       # what makes two rows of its kind one cause
     field: str | None = None          # a reader row's field label (the owner may mark it a shared sink)
+
+
+class ChangeLine(BaseModel):
+    sign: Literal["+", "-", " "]
+    text: str
+    line: int | None = None          # in the after text ("+", " ") or the before text ("-")
+
+
+class CauseChange(BaseModel):
+    """The 2–6 changed lines that raised a cause (spec 2026-10-16 §4.8)."""
+    path: str                        # workspace-relative
+    depot: str | None = None         # the file the panel opens
+    function: str | None = None      # its label
+    lines: list[ChangeLine] = Field(default_factory=list)
+
+
+class Cause(BaseModel):
+    """One change and every place it asks the reviewer to look at (spec 2026-10-16 §4.1)."""
+    id: str
+    kind: CheckKind
+    thread: str | None = None
+    story: str | None = None
+    text: str
+    places: list[str] = Field(default_factory=list)     # check keys, by path then line
+    flows: list[str] = Field(default_factory=list)      # flow ids of its story that it touches
+    finding: str | None = None
+    change: CauseChange | None = None
 
 
 class Headline(BaseModel):
@@ -178,6 +202,7 @@ class StoryReading(BaseModel):
     where: list[WhereFile] = Field(default_factory=list)
     paths: list[CallPath] = Field(default_factory=list)
     checks: list[Check] = Field(default_factory=list)
+    causes: list[Cause] | None = None  # none on a reading stored before causes (its viewer says to re-run)
     place_text: str = ""              # its place in its thread: "Uses what story 1 adds."
     thread: str | None = None
     position: int | None = None       # 1-based, within its thread
@@ -215,6 +240,7 @@ class Reading(BaseModel):
     links: list[StoryLink] = Field(default_factory=list)
     checks: list[Check] = Field(default_factory=list)
     cleared: list[Check] = Field(default_factory=list)        # findings judged no hazard
+    causes: list[Cause] | None = None  # checks by cause, in reading order (spec 2026-10-16 §4); none: stored before causes
     build_impact: list[BuildImpact] = Field(default_factory=list)
     coverage: list[str] = Field(default_factory=list)
     headline: Headline = Field(default_factory=lambda: Headline(text="No risks found", tone="none", rules_only=True))
@@ -866,7 +892,7 @@ def build_checks(ss: StorySet, threads: list[Thread], conns: list[Connection], x
         rows.append(Check(key=f"{kind}|{rel_path(x, path)}|{func or ''}|{_qual(x, related) if related else kw.pop('rel', '')}",
                           kind=kind, story=story, thread=thread_of.get(story) if story else kw.pop("thread", None),
                           path=rel_path(x, path), line=line, function=func, node=place, text=tidy(text),
-                          source_line=_source(x, path, line, read_text), **kw))
+                          source_line=_source(x, path, line, read_text), cause_fn=related, **kw))
 
     # 1–2: the strong model's verdicts; without one, high and medium findings (not header fan-out) to confirm
     cleared: list[Check] = []
@@ -877,7 +903,8 @@ def build_checks(ss: StorySet, threads: list[Thread], conns: list[Connection], x
         ev = next((e for e in f.evidence if e.file and e.line), None)
         path, line = (ev.file, ev.line) if ev else (_def_place(x, n) if n else (None, None))
         story = ss.finding_story.get(f.id)
-        common = dict(story=story, finding=f.id, cites=f.verdict_cites)
+        common = dict(story=story, finding=f.id, cites=f.verdict_cites,
+                      cause_subject=f"{f.kind}:{f.title}")
         if f.verdict == "hazard":
             add("hazard", n, n, path, line, f.verdict_reason or f.title, **common)
         elif f.verdict == "needs_review":
@@ -917,7 +944,8 @@ def build_checks(ss: StorySet, threads: list[Thread], conns: list[Connection], x
                     continue
                 if targets is not None and UNKNOWN not in where_ | mine and not where_ & mine:
                     add("target", n, caller, c.file, c.line,
-                        f"`{who}` calls `{callee}` but is built only for {', '.join(f'`{t}`' for t in sorted(where_))}")
+                        f"`{who}` calls `{callee}` but is built only for {', '.join(f'`{t}`' for t in sorted(where_))}",
+                        cause_subject=", ".join(sorted(where_)))
                     continue
             if sig and caller not in x.changed:
                 add("caller", n, caller, c.file, c.line, f"`{who}` calls `{callee}` and was not updated for its new "
@@ -926,10 +954,11 @@ def build_checks(ss: StorySet, threads: list[Thread], conns: list[Connection], x
                 vals = ", ".join(_vals(fa, new))
                 if not c.result_used:
                     add("result", n, caller, c.file, c.line, f"`{who}` ignores the result of `{callee}`, which can now "
-                                                             f"return {vals}")
+                                                             f"return {vals}", cause_subject=",".join(sorted(new)))
                 elif c.compared and not _covered(c.compared, new):
                     add("result", n, caller, c.file, c.line, f"`{who}` compares the result of `{callee}` only with "
-                                                             f"{_cmp_text(c)}; it can now return {vals}")
+                                                             f"{_cmp_text(c)}; it can now return {vals}",
+                        cause_subject=",".join(sorted(new)))
     # 5: unchanged readers of fields the change now writes
     for n in changed:
         for w in (e for e in x.im.edges if e.src == n and e.kind == "writes" and e.status == "added"
@@ -942,7 +971,7 @@ def build_checks(ss: StorySet, threads: list[Thread], conns: list[Connection], x
                             and a.fn == x.im.nodes[r].key and a.mode == "read"), None)
                 path, line = (acc.file, acc.line) if acc else _def_place(x, r)
                 add("reader", n, r, path, line, f"`{x.label(r)}` reads `{x.label(w.dst)}`, which `{x.label(n)}` now writes",
-                    field=x.label(w.dst))
+                    field=x.label(w.dst), cause_subject=x.label(w.dst))
     # 6: a changed header included only by files of another target
     if targets is not None and includers is not None:
         mine = {t for f in x.c.cs.files if not is_header(f.local) for t in targets.get(f.local, [])} - {UNKNOWN}
@@ -955,7 +984,7 @@ def build_checks(ss: StorySet, threads: list[Thread], conns: list[Connection], x
             for names, files in other.items():
                 add("target", None, None, files[0], None,
                     f"`{rel_path(x, h)}` is included by {len(files)} file{'s' if len(files) > 1 else ''} built only for "
-                    f"{names}", rel=rel_path(x, h))
+                    f"{names}", rel=rel_path(x, h), cause_subject=rel_path(x, h))
     # 7: changed functions no test calls or mentions (only when the workspace has test code)
     if has_tests:
         mentions = "\n".join(f.after for f in x.c.cs.files if is_test_path(rel_path(x, f.local)))
@@ -986,27 +1015,13 @@ def build_checks(ss: StorySet, threads: list[Thread], conns: list[Connection], x
         fns = _story_fns(by[t.stories[0]], x)
         add("ask", None, None, None, None, "Ask the author how this thread relates to the rest of the change"
             + (f": {k.text}" if k else ""), thread=t.id, rel=_qual(x, fns[0]) if fns else t.name)
-    return _unique(_merge(rows)), _unique(cleared)
+    return _unique(_order(rows)), _unique(cleared)
 
 
-def _merge(rows: list[Check]) -> list[Check]:
-    """One row per place: the first kind leads, the others become its `also`; then kind order, then place. Rows of
-    findings stay apart (each has its own verdict)."""
+def _order(rows: list[Check]) -> list[Check]:
+    """Kind order, then place; every row stays its own place under its own cause (spec 2026-10-16 §4.1)."""
     rank = {k: i for i, k in enumerate(CHECK_ORDER)}
-    rows = sorted(rows, key=lambda k: (rank[k.kind], k.path, k.line or 0))
-    out: list[Check] = []
-    at: dict[tuple, Check] = {}
-    for k in rows:
-        place = (k.path, k.line, k.function) if k.path and k.line and not k.finding else None
-        if place and place in at:
-            lead = at[place]
-            if all(r.text != k.text for r in lead.also) and lead.text != k.text:
-                lead.also.append(Reason(kind=k.kind, text=k.text))
-            continue
-        if place:
-            at[place] = k
-        out.append(k)
-    return out
+    return sorted(rows, key=lambda k: (rank[k.kind], k.path, k.line or 0))
 
 
 def _unique(rows: list[Check]) -> list[Check]:
@@ -1288,13 +1303,24 @@ def build_reading(ss: StorySet, c: BoardContext, details: dict[str, StoryDetail]
     _set_depots(c, rows + cleared)
     strong = [lk for lk in links if lk.strength == "strong"]
     order = [s for t in threads for s in t.stories] + [s.id for s in ss.stories if s.kind == "tests"]
+    from codetortoise.causes import build_causes  # causes.py imports this module
+    flows_of = {s.id: [fl for fl in (details[s.id].board.flows if details and s.id in details else a.flows)
+                       if fl.id in s.flows] for s in ss.stories}
+    causes = build_causes(rows, x, threads, order, flows_of)
+    root = c.root.rstrip("/")
+    paths = {z.change.path: z.change.path if z.change.path.startswith("/") or not root else f"{root}/{z.change.path}"
+             for z in causes if z.change}
+    found = c.depots_for(sorted(set(paths.values()))) if paths else {}
+    for z in causes:
+        if z.change:
+            z.change.depot = found.get(paths[z.change.path])
     outside = 0
     if targets is not None:
         mine = {x.im.nodes[n].key for n in x.changed if n in x.im.nodes}
         outside = len({cl.file for cl in x.calls_after if cl.callee in mine and not is_test_path(rel_path(x, cl.file))
                        and set(targets.get(cl.file, [])) <= {UNKNOWN}})
     reading = Reading(threads=threads, connections=conns, order=order, reasons=reasons, links=links, checks=rows,
-                      cleared=cleared, build_impact=build_impact(x), coverage=coverage(x, has_tests, outside),
+                      cleared=cleared, causes=causes, build_impact=build_impact(x), coverage=coverage(x, has_tests, outside),
                       headline=headline(rows, set(), x.c.findings),
                       rules_only=not any(f.verdict_source == "tier1" for f in x.c.findings),
                       tests=_tests_row(ss, threads, x), whole=fixed_whole(threads, conns), sinks=sink_hits(x))
@@ -1313,6 +1339,7 @@ def build_reading(ss: StorySet, c: BoardContext, details: dict[str, StoryDetail]
         order_ = sorted({c for wf in files for c in wf.cls}) or sorted(s.cls)
         per[s.id] = StoryReading(story=s.id, contracts=contract_rows(s, x), where=files, paths=call_paths(s, x, flows),
                                  checks=[k for k in rows if k.story == s.id],
+                                 causes=[z for z in causes if z.story == s.id],
                                  place_text=_place_text(s.id, t.stories, strong) if t else "",
                                  thread=t.id if t else None, position=t.stories.index(s.id) + 1 if t else None,
                                  cl_order=order_, rewrites=_story_rewrites(s, x, reading.rewrites, local_of))

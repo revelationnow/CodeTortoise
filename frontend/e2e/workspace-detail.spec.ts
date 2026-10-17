@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { expectIconsOnly, expectNamed, expectNoNodeIds, startReview } from "./helpers";
+import { expectIconsOnly, expectNamed, expectNoNodeIds, openIndex, startReview } from "./helpers";
 
 /** The detail panel (spec 2026-10-04-review-workspace §3.7): a node's code or a file's diff, on demand. */
 
@@ -8,7 +8,7 @@ test.describe("desktop", () => {
 
   test("a file from the Index opens its diff; ✕ closes it", async ({ page }) => {
     const base = await startReview(page);
-    await page.locator(".ws-rail").getByRole("link", { name: "Open the Index: Files" }).click();
+    await openIndex(page, "Files");
     await page.getByRole("link", { name: "Open uart.c's diff" }).click();
     await expect(page).toHaveURL(/\?open=file%3A%2F%2Ffixture%2Fdriver%2Fuart\.c$/);
     const panel = page.getByRole("complementary", { name: "Code: uart.c" });
@@ -66,7 +66,7 @@ test.describe("desktop", () => {
 
   test("the diff colours added lines, highlights code and fills annotations, outside any graph", async ({ page }) => {
     await startReview(page);
-    await page.locator(".ws-rail").getByRole("link", { name: "Open the Index: Files" }).click();
+    await openIndex(page, "Files");
     await page.getByRole("link", { name: "Open uart.c's diff" }).click();
     const file = page.getByRole("complementary", { name: "Code: uart.c" });
     const css = (sel: string, prop: string) => file.locator(sel).first().evaluate((e, p) => getComputedStyle(e).getPropertyValue(p), prop);
@@ -78,7 +78,7 @@ test.describe("desktop", () => {
 
   test("a line comment in a file's diff shows in that function's code", async ({ page }) => {
     const base = await startReview(page);
-    await page.locator(".ws-rail").getByRole("link", { name: "Open the Index: Files" }).click();
+    await openIndex(page, "Files");
     await page.getByRole("link", { name: "Open uart.c's diff" }).click();
     const file = page.getByRole("complementary", { name: "Code: uart.c" });
     await file.getByRole("button", { name: "Stacked" }).click();
@@ -94,7 +94,7 @@ test.describe("desktop", () => {
 
   test("one changelist's diff keeps the comments made on it", async ({ page }) => {
     await startReview(page);
-    await page.locator(".ws-rail").getByRole("link", { name: "Open the Index: Files" }).click();
+    await openIndex(page, "Files");
     await page.getByRole("link", { name: "Open uart.c's diff" }).click();
     const file = page.getByRole("complementary", { name: "Code: uart.c" });
     await expect(file.locator(".act")).toContainText("edit");
@@ -113,7 +113,7 @@ test.describe("desktop", () => {
   test("the diff goes side by side when the panel is wide enough, until the reader picks", async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem("ct.ws.detailW", "600"));
     await startReview(page);
-    await page.locator(".ws-rail").getByRole("link", { name: "Open the Index: Files" }).click();
+    await openIndex(page, "Files");
     await page.getByRole("link", { name: "Open uart.c's diff" }).click();
     const panel = page.getByRole("complementary", { name: "Code: uart.c" });
     await expect(panel.getByRole("button", { name: "Stacked" })).toHaveAttribute("aria-pressed", "true");
@@ -149,10 +149,13 @@ test.describe("desktop", () => {
     await expect(panel.locator(".ws-file")).toHaveCount(0);
   });
 
-  test("a To check row opens its file at its line, folded away or not", async ({ page }) => {
+  test("a check's place opens its file at its line, outside the hunks", async ({ page }) => {
     await startReview(page);
-    await page.locator(".ws-rail").getByRole("link", { name: "Go to the overview" }).click();
-    await page.getByRole("region", { name: "To check" }).getByRole("link", { name: "Open driver/uart.c at line 8" }).click();   // outside the hunks
+    const outline = page.locator("aside.ws-outline");
+    await outline.getByRole("button", { name: "Checks" }).click();
+    await outline.getByRole("link", { name: /^Open check: uart_init calls hal_write/ }).click();
+    await page.getByRole("complementary", { name: /^Check: uart_init calls hal_write/ })
+      .getByRole("link", { name: "Open driver/uart.c at line 8" }).click();   // outside the hunks
     await expect(page.getByRole("complementary", { name: "Code: uart.c" }).locator('.focus[data-n="8"]')).toBeVisible();
   });
 

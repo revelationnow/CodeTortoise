@@ -1,19 +1,20 @@
 import { devices, expect, test } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, startReview } from "./helpers";
+import { expectNamed, expectNoNodeIds, openIndex, startReview } from "./helpers";
 
 /** The workspace shell (spec 2026-10-04-review-workspace §2): rail, breadcrumb, addresses, phone levels. */
 
 test.describe("desktop", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test("the rail lists the overview, the thread's stories, what may be missed and the Index", async ({ page }) => {
+  test("the outline lists the overview, the thread's stories and the Index", async ({ page }) => {
     const base = await startReview(page);
-    const rail = page.locator(".ws-rail");
-    await expect(rail.locator(".ws-sec h2")).toHaveText([/Threads \(1\)$/, "Index"]);
+    const rail = page.locator("aside.ws-outline");
+    await expect(rail.locator(".ws-thread h3")).toHaveText([/^A hal_write in hal\b/]);
     await expect(rail.getByRole("link", { name: "Go to the overview" })).toHaveAttribute("aria-current", "page");
-    const home = (await rail.locator(".ws-home").boundingBox())!, first = (await rail.locator(".ws-sec-t").first().boundingBox())!;
+    const home = (await rail.locator(".ws-home").boundingBox())!, first = (await rail.locator(".ws-thread").first().boundingBox())!;
     expect(first.y - (home.y + home.height)).toBeLessThan(12);               // sections follow on: the grip takes no room
-    await expect(rail.locator(".ws-index-row")).toHaveText(["CLs", "Files", "Checks", "Findings", "Map"]);
+    await rail.locator("details.ws-index summary").click();
+    await expect(rail.locator(".ws-index-row")).toHaveText(["CLs", "Files", "Findings", "Map"]);
     const s1 = rail.getByRole("link", { name: /^Go to story S1/ });
     await s1.click();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S1$`));
@@ -30,13 +31,16 @@ test.describe("desktop", () => {
   });
 
   test("the overview: the change as a whole, its one thread and what to check", async ({ page }) => {
-    await startReview(page);
-    const left = page.locator(".ov2-left");
-    await expect(left.locator("h2")).toHaveText(["How to read this page", "The change as a whole", "Where to start",
-                                                 "How the threads connect", "Threads", "Discussion"]);
-    await expect(left.locator(".ws-lead")).toHaveText("One thread: hal_write in hal.");
-    await expect(left).toContainText("One thread: all stories are connected by calls or shared data.");
-    await expect(page.getByRole("region", { name: "To check" }).locator(".ck-row")).toHaveCount(5);
+    const base = await startReview(page);
+    const ov = page.locator(".ov3");
+    await expect(ov.locator("h2")).toHaveText(["The change as a whole", "Threads", "How the threads connect", "Build impact",
+                                               "Coverage", "Discussion"]);
+    await expect(ov.locator(".ws-lead")).toHaveText("One thread: hal_write in hal.");
+    await expect(ov).toContainText("One thread: all stories are connected by calls or shared data.");
+    const r = await (await page.request.get(`/api/reviews/${base.split("/")[2]}/reading`)).json() as { causes: { kind: string }[] };
+    const outline = page.locator("aside.ws-outline");
+    await outline.getByRole("button", { name: "Checks" }).click();
+    await expect(outline.locator(".ws-row.cause")).toHaveCount(r.causes.filter((c) => c.kind !== "confirm").length);
     await expectNoNodeIds(page);
     await expectNamed(page);
   });
@@ -56,11 +60,11 @@ test.describe("desktop", () => {
     await expect(page).toHaveURL(new RegExp(`${base}$`));
   });
 
-  test("the rail keeps its closed sections and its width across a reload", async ({ page }) => {
+  test("the outline keeps its view and its width across a reload", async ({ page }) => {
     await startReview(page);
-    const rail = page.locator(".ws-rail");
-    await rail.getByRole("button", { name: /^Threads/ }).click();
-    await expect(rail.getByRole("button", { name: /^Threads/ })).toHaveAttribute("aria-expanded", "false");
+    const rail = page.locator("aside.ws-outline");
+    await rail.getByRole("button", { name: "Checks" }).click();
+    await expect(rail.getByRole("button", { name: "Checks" })).toHaveAttribute("aria-pressed", "true");
     const grip = rail.locator(".bd-resizer");
     const g = (await grip.boundingBox())!, w = (await rail.boundingBox())!.width;
     await page.mouse.move(g.x + g.width / 2, g.y + 200);
@@ -70,7 +74,7 @@ test.describe("desktop", () => {
     await expect.poll(async () => (await rail.boundingBox())!.width).toBeGreaterThan(w + 60);
     const wider = (await rail.boundingBox())!.width;
     await page.reload();
-    await expect(rail.getByRole("button", { name: /^Threads/ })).toHaveAttribute("aria-expanded", "false");
+    await expect(rail.getByRole("button", { name: "Checks" })).toHaveAttribute("aria-pressed", "true");
     expect(Math.abs((await rail.boundingBox())!.width - wider)).toBeLessThan(2);
   });
 
@@ -158,7 +162,7 @@ test.describe("a large change", () => {
 
   test("the Index maps the change's parts; a part opens its page", async ({ page }) => {
     const base = await startReview(page, "201 202");
-    await page.locator(".ws-rail").getByRole("link", { name: "Open the Index: Map" }).click();
+    await openIndex(page, "Map");
     const map = page.getByRole("region", { name: "The map" });
     await expect(map.locator(".ov-block")).toHaveCount(7);
     await expect(map.locator(".ov-block .ct").filter({ hasText: /\b0 \w/ })).toHaveCount(0);      // an empty count is never shown
@@ -193,7 +197,7 @@ test.describe("a large change on a phone", () => {
 
   test("the map stacks the parts; a part opens with its place among them", async ({ page }) => {
     await startReview(page, "201 202");
-    await page.locator(".ws-rail").getByRole("link", { name: "Open the Index: Map" }).click();
+    await openIndex(page, "Map");
     const first = page.locator(".ov-block").first(), second = page.locator(".ov-block").nth(1);
     const a = (await first.boundingBox())!, b = (await second.boundingBox())!;
     expect(b.y).toBeGreaterThan(a.y + a.height - 1);                      // stacked, not side by side

@@ -555,3 +555,41 @@ def test_a_label_with_a_slash_or_percent_is_stored_as_given(env):
     owner = login(app, "owner")
     assert owner.put("/api/sinks/a%2Fb%3A%3Ac%25d").json()["marked"] == ["a/b::c%d"]
     assert owner.put("/api/sinks/" + "x" * 301).status_code == 422
+
+
+def test_a_reading_stored_before_causes_is_served_without_causes_not_with_none_to_check(env):
+    svc, app, _ = env
+    owner, rid = _review(app)
+    fresh = owner.get(f"/api/reviews/{rid}/reading").json()
+    assert isinstance(fresh["causes"], list) and fresh["causes"]
+    old = svc.store.get_blob(rid, "reading")
+    del old["causes"]
+    svc.store.put_blob(rid, "reading", old)
+    assert owner.get(f"/api/reviews/{rid}/reading").json()["causes"] is None
+
+
+def test_all_look_fine_marks_every_place_of_a_cause_in_one_request_or_none(env):
+    svc, app, _ = env
+    owner, rid = _review(app)
+    bob = login(app, "bob")
+    r = owner.get(f"/api/reviews/{rid}/reading").json()
+    keys = [k["key"] for k in r["checks"]][:2]
+    assert TestClient(app).post(f"/api/reviews/{rid}/checks/marks", json={"keys": keys}).status_code == 401
+    assert bob.post(f"/api/reviews/{rid}/checks/marks", json={"keys": [*keys, "nope"]}).status_code == 404
+    assert owner.get(f"/api/reviews/{rid}/reading").json()["marks"] == {}
+    out = bob.post(f"/api/reviews/{rid}/checks/marks", json={"keys": keys}).json()
+    assert [m["user"] for m in out["marked"]] == ["bob", "bob"]
+    assert set(owner.get(f"/api/reviews/{rid}/reading").json()["marks"]) == set(keys)
+    assert set(bob.get(f"/api/reviews/{rid}/ticks").json()["checks"]) >= set(keys)
+
+
+def test_all_look_fine_reads_the_reading_once_and_marks_a_repeated_key_once(env, monkeypatch):
+    from codetortoise.reading import Reading
+    svc, app, _ = env
+    owner, rid = _review(app)
+    k0, k1 = [k["key"] for k in owner.get(f"/api/reviews/{rid}/reading").json()["checks"]][:2]
+    validate, calls = Reading.model_validate, []
+    monkeypatch.setattr(Reading, "model_validate", lambda raw, **kw: calls.append(1) or validate(raw, **kw))
+    out = owner.post(f"/api/reviews/{rid}/checks/marks", json={"keys": [k1, k0, k1, k0]}).json()
+    assert [m["key"] for m in out["marked"]] == [k1, k0] and len(calls) == 1
+    assert svc.store.list_ticks(rid, "owner")["checks"].count(k1) == 1

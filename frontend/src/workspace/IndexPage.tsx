@@ -1,20 +1,17 @@
 import { Link } from "react-router-dom";
 import { plainTitle } from "../lib/markdown";
-import { CHECK_ORDER, KIND_LABEL, placeOf } from "../reading/checks";
 import { at, INDEX_TABS, type IndexTab } from "./address";
-import CheckTile from "./CheckList";
 import ClusterPage from "./ClusterPage";
 import { useWs } from "./context";
 import FindingsIndex from "./FindingsIndex";
 import { INDEX_LABEL } from "./crumbs";
-import { Ticks } from "./NameText";
 import { MapSection } from "./WholePage";
 
 /** The Index's tabs, as links so each tab has its address. */
 export function IndexTabs({ tab }: { tab: IndexTab }) {
-  const ws = useWs(), r = ws.data.reading, d = ws.data;
+  const ws = useWs(), d = ws.data;
   const count: Partial<Record<IndexTab, number>> = {
-    cls: d.detail?.cls.length, files: d.about?.tree.reduce((n, t) => n + t.files.length, 0), checks: r ? r.checks.length : undefined,
+    cls: d.detail?.cls.length, files: d.about?.tree.reduce((n, t) => n + t.files.length, 0),
     findings: d.findings.length,
   };
   return (
@@ -71,7 +68,7 @@ function ClsTab() {
 /** What the rail no longer lists (spec 2026-10-07-review-reading §11): the CLs, the files, every check by kind and the
  * map; a part of the map opens with the Map tab above it. */
 export default function IndexPage({ tab, cid }: { tab: IndexTab; cid?: string }) {
-  const ws = useWs(), d = ws.data, r = d.reading;
+  const ws = useWs(), d = ws.data;
   if (tab === "map" && cid)
     return <div className="ix-frame"><div className="ix-bar"><IndexTabs tab="map" /></div><ClusterPage cid={cid} /></div>;
   return (
@@ -92,18 +89,6 @@ export default function IndexPage({ tab, cid }: { tab: IndexTab; cid?: string })
           ))}</ul>
         </section>
       ))}
-      {tab === "checks" && r && <>
-        <CheckTile ofTotal={false} groups={CHECK_ORDER.map((k) => ({ label: KIND_LABEL[k], checks: r.checks.filter((c) => c.kind === k) }))
-          .filter((g) => g.checks.length)} />
-        {r.cleared.length > 0 && (
-          <section className="ws-tile" aria-label="Found no hazard">
-            <h3>Found no hazard</h3>
-            <ul className="ov-lines">{r.cleared.map((k) => (
-              <li key={k.key}><Ticks text={k.text} />{placeOf(k) && <span className="mono small"> · <Ticks text={placeOf(k)} /></span>}</li>
-            ))}</ul>
-          </section>
-        )}
-      </>}
       {tab === "findings" && <FindingsIndex />}
       {tab === "map" && <MapSection />}
     </div></div>

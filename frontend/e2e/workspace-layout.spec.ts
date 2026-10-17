@@ -24,24 +24,9 @@ async function story(page: Page) {
   return base;
 }
 
-test("the story fills the centre and a divider sets the To check column's width, kept after a reload", async ({ page }) => {
-  await page.setViewportSize({ width: 1920, height: 1000 });                  // a centre wider than the old 1280px cap
-  await story(page);
-  const tiles = page.locator(".st-tiles"), check = page.getByRole("complementary", { name: "What to check in this story" });
-  const centre = page.getByRole("region", { name: "Centre" });
-  expect(await width(tiles)).toBeGreaterThan((await width(centre)) - 80);     // no 1280px cap: only the page padding
-  const before = await width(check);
-  await drag(page, page.locator(".st-tiles > .ov2-check > .bd-resizer"), -120, 0);
-  await expect.poll(() => width(check)).toBeGreaterThan(before + 100);
-  const after = await width(check);
-  await page.reload();
-  await expect.poll(() => width(page.getByRole("complementary", { name: "What to check in this story" }))).toBe(after);
-  await page.locator(".st-tiles > .ov2-check > .bd-resizer").dblclick();
-  await expect.poll(() => width(check)).toBe(before);
-});
-
 test("a function's code opens in the side panel from the story's Code, leaving the inline code as it was", async ({ page }) => {
   const base = await story(page);
+  await page.getByRole("navigation", { name: "Story sections" }).getByRole("link", { name: /^Code/ }).click();
   const code = page.getByRole("region", { name: "Code" });
   const row = code.locator("details.st-fn", { hasText: "uart_send" });
   await row.getByRole("link", { name: "Open uart_send in the side panel" }).click();
@@ -70,30 +55,30 @@ test("the review header can be dragged taller or down to one line, scrolls what 
   await expect.poll(() => height(box)).toBe(natural);
 });
 
-test("a check row's actions wrap inside the To check column at its narrowest", async ({ page }) => {
-  await story(page);
-  const check = page.getByRole("complementary", { name: "What to check in this story" });
-  const mark = check.getByRole("button", { name: "Treat Uart::errors as a sink" });
+test("the stepper's actions wrap inside the side panel at its narrowest", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.addInitScript(() => window.localStorage.setItem("ct.ws.detailW", "320"));
+  await startReview(page);
+  const outline = page.locator("aside.ws-outline");
+  await outline.getByRole("button", { name: "Checks" }).click();
+  await outline.locator(".ws-row.cause", { has: page.locator(".ck-tag.reader") }).first().click();   // the longest row: + its sink mark
+  const panel = page.locator(".ws-detail"), acts = panel.locator(".cs-acts");
+  const mark = acts.getByRole("button", { name: "Treat Uart::errors as a sink" });
   await expect(mark).toBeVisible();
+  expect(await acts.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
   const right = (l: Locator) => l.evaluate((el) => el.getBoundingClientRect().right);
-  expect(await right(mark)).toBeLessThanOrEqual(await right(check));
+  expect(await right(mark)).toBeLessThanOrEqual(await right(panel));
 });
 
-test("the overview fills the centre and shares the story's To check divider", async ({ page }) => {
-  await page.setViewportSize({ width: 1920, height: 1000 });
+test("the overview and a story fill the centre", async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1000 });                  // a centre wider than the old 1280px cap
   await startReview(page);
-  const cols = page.locator(".ws-page > .ov2"), check = page.getByRole("complementary", { name: "What to check", exact: true });
   const centre = page.getByRole("region", { name: "Centre" });
-  expect(await width(cols)).toBeGreaterThan((await width(centre)) - 80);      // no 1280px cap
-  const before = await width(check);
-  const grip = cols.locator("> .ov2-check > .bd-resizer");
-  await drag(page, grip, -150, 0);
-  await expect.poll(() => width(check)).toBeGreaterThan(before + 120);
-  const after = await width(check);
-  await page.reload();
-  await expect.poll(() => width(page.getByRole("complementary", { name: "What to check", exact: true }))).toBe(after);
-  await page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ }).click();     // one width for both pages
-  await expect.poll(() => width(page.getByRole("complementary", { name: "What to check in this story" }))).toBe(after);
+  expect(await width(page.locator(".ws-page > .ov3"))).toBeGreaterThan(Math.min(900, (await width(centre)) - 80));
+  await expect(page.locator(".ov2-check")).toHaveCount(0);
+  await page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ }).click();
+  await expect(page.locator(".ws-story-head h2")).toContainText("uart_send can now return -2");
+  expect(await width(page.locator(".ws-page > .st-page"))).toBeGreaterThan((await width(centre)) - 80);   // only the page padding
 });
 
 test("a CL page and a finding page fill the centre", async ({ page }) => {

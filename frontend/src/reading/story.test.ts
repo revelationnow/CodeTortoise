@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { byEntry, clCounts, clRewrites, codeOrder, foldPath, gapText, readOrder, rewriteText, stepIn, threadCrumb, whereByCl, whereTree } from "./story";
+import { byEntry, clCounts, clRewrites, codeOrder, flowLabel, flowPart, foldPath, gapText, readOrder, rewriteText, stepIn, storyNeighbours, storyTabs, threadCrumb, whereByCl, whereTree } from "./story";
 import type { CallPath, ContractRow, Reading, Rewrite, WhereFile } from "./types";
 
 const fn = (node: string, label: string, cl: number | null, extra = {}) => ({ node, label, add: 2, rem: 1, cl, line: 3, ...extra });
@@ -94,5 +94,43 @@ describe("CLs as a sequence (spec 2026-10-07-review-reading-phase2 §5.3, §5.4)
     const all = [rw(103, 101, "send", 5), rw(105, 103, "init", 1), rw(104, 102, "x", 2)];
     expect(clRewrites(all, 103)).toEqual({ rewrites: [all[0]], rewrittenBy: [all[1]] });
     expect(clRewrites(undefined, 103)).toEqual({ rewrites: [], rewrittenBy: [] });
+  });
+});
+
+describe("flowLabel", () => {
+  it("names each step of the flow's path", () => {
+    const names: Record<string, string> = { N1: "main", N2: "logger_flush" };
+    expect(flowLabel({ path: ["N1", "N2", "N3"] }, (n) => names[n])).toBe("main → logger_flush → a function");
+  });
+});
+
+describe("storyTabs", () => {
+  const n = { flows: 2, contracts: 1, where: 3, paths: 0, code: 4, talk: 0 };
+  it("a behaviour story starts with its flows, leaves out empty tabs and always offers Talk", () => {
+    expect(storyTabs("behaviour", n, true).map((t) => `${t.label}${t.count ? ` ${t.count}` : ""}`))
+      .toEqual(["Flows 2", "Before → after 1", "Where 3", "Code 4", "Graph", "Talk"]);
+    expect(storyTabs("behaviour", { ...n, flows: 0 }, false)[0]).toEqual({ sec: "flows", label: "Flows", count: 0 });
+  });
+  it("a repeated edit, tests and unsorted start with their Changes; another story shows Flows only when it has some", () => {
+    expect(storyTabs("mechanical", n, false).map((t) => t.sec)).toEqual(["changes", "contracts", "where", "code", "talk"]);
+    expect(storyTabs("other", { ...n, flows: 0 }, true).map((t) => t.sec)).toEqual(["contracts", "where", "code", "graph", "talk"]);
+  });
+});
+
+describe("storyNeighbours", () => {
+  it("are the stories before and after it in its thread", () => {
+    const threads = [{ id: "T1", stories: ["S2", "S1", "S5"] }] as never;
+    expect(storyNeighbours({ threads }, "S1")).toEqual({ after: "S2", feeds: "S5" });
+    expect(storyNeighbours({ threads }, "S2")).toEqual({ after: null, feeds: "S1" });
+    expect(storyNeighbours({ threads }, "S9")).toEqual({ after: null, feeds: null });
+  });
+});
+
+describe("flowPart", () => {
+  const part = (heading: string) => ({ kind: "flow" as const, heading, text: `about ${heading}`, cites: [] });
+  it("pairs a flow with its own section, so a dropped section leaves its flow without one", () => {
+    const parts = [part("second flow"), { kind: "purpose" as const, heading: "second flow", text: "x", cites: [] }];
+    expect(flowPart(parts, { text: "first flow" })).toBeUndefined();
+    expect(flowPart(parts, { text: "second flow" })?.text).toBe("about second flow");
   });
 });

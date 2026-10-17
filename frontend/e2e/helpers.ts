@@ -75,3 +75,14 @@ export async function expectIconsOnly(buttons: Locator) {
     expect(await b.getAttribute("title")).toBe(await b.getAttribute("aria-label"));
   }
 }
+
+/** Open a tab of the Index from the outline, switching it to Stories and unfolding its Index first (spec
+ * 2026-10-16-outline-and-causes §1.2). */
+export async function openIndex(page: Page, tab: "CLs" | "Files" | "Findings" | "Map") {
+  const outline = page.locator("aside.ws-outline");
+  const stories = outline.getByRole("button", { name: "Stories" });
+  if ((await stories.getAttribute("aria-pressed")) !== "true") await stories.click();
+  const index = outline.locator("details.ws-index");
+  if (!(await index.evaluate((el) => (el as HTMLDetailsElement).open))) await index.locator("summary").click();
+  await index.getByRole("link", { name: `Open the Index: ${tab}` }).click();
+}
