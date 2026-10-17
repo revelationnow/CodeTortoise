@@ -128,7 +128,8 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
           aria-label={`Go to story ${id}: ${short(titleOf(id))}`}><Ticks text={titleOf(id)} /></Link>
   );
   const purpose = sr?.account?.find((p) => p.kind === "purpose");
-  const readingHeader = r && (
+  // the Graph tab leaves out the summary (the AI purpose, its place, Explain): the graph needs the height
+  const readingHeader = (summary: boolean) => r && (
     <header className="ws-story-head st-head">
       <h2>{hazards > 0 && <span className="ct-headline hazard">{hazards} hazard{hazards === 1 ? "" : "s"}</span>}
         {st.text_source === "llm" && <span className="ai-label">AI</span>}<Ticks text={st.title} /></h2>
@@ -145,26 +146,26 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
           {metaChips}
         </span>
       </div>
-      <div className="st-summary">
+      {summary && <div className="st-summary">
         {purpose ? <p><span className="ai-label">AI</span><NameText text={purpose.text} /></p>
           : <p>{st.text_source === "llm" && <span className="ai-label">AI</span>}<NameText text={st.purpose || st.summary} /></p>}
         {sr?.place_text && <p className="st-place">{sr.place_text}</p>}
         {st.kind !== "mechanical" && <Explain kind="story" target={st.id} has={st.text_source === "llm"} askOnly={st.source === "tier1"}
                                               ask={{ kind: "story", anchor: { id: st.id }, onAsked: d.loadComments }} />}
-      </div>
+      </div>}
     </header>
   );
-  const header = readingHeader || oldHeader;
+  const header = readingHeader(true) || oldHeader, graphHeader = readingHeader(false) || oldHeader;
   const frame = r ? "st-page" : "ws-text";                 // the header keeps its place while the story loads
   if (error) return <div className="ws-page"><div className={frame}>{header}<div className="banner warn">{error}</div></div></div>;
   if (shown === "graph" && !detail)
-    return <div className="ws-page graph"><div className="ws-story-bar">{header}</div><p className="muted ws-page">Loading {st.id}…</p></div>;
+    return <div className="ws-page graph"><div className="ws-story-bar">{graphHeader}</div><p className="muted ws-page">Loading {st.id}…</p></div>;
   if (!detail) return <div className="ws-page"><div className={frame}>{header}<p className="muted">Loading {st.id}…</p></div></div>;
   const tabs = r && sr ? tabsFor(detail, sr, flows.length, hasGraph, d.comments) : null;
   if (shown === "graph" && detail.graph)
     return (
       <div className="ws-page graph">
-        <div className="ws-story-bar">{header}{tabs && <StoryTabNav tabs={tabs} active="graph" sid={sid} />}</div>
+        <div className="ws-story-bar">{graphHeader}{tabs && <StoryTabNav tabs={tabs} active="graph" sid={sid} />}</div>
         <GraphView key={sid} board={detail.graph} prefKey={`${d.id}.${sid}`} flowIndex={index} onFlow={onFlow} quiet flows={flows}
                    stepsHref={ws.link({ ...ws.addr, place: { kind: "story", sid, view: "steps" } })}
                    onMore={() => ws.go({ ...ws.addr, place: { kind: "story", sid, view: "steps" } }, true)} />
