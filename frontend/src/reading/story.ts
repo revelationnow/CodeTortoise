@@ -1,5 +1,6 @@
 /** A story page's tiles (spec 2026-10-07-review-reading §6): its place in its thread, Where, call paths and code order. */
 import { letter } from "./checks";
+import type { StoryKind } from "../board/types";
 import type { CallPath, ContractRow, Gap, Reading, Rewrite, WhereFile, WhereFn } from "./types";
 
 /** ‹ › on a story page: the story `by` places away in reading order, wrapping; a story not in it stays put. */
@@ -101,4 +102,28 @@ export function codeOrder(where: WhereFile[], rows: ContractRow[]): WhereFn[] {
 /** A flow's one line, its path's names: "main → logger_flush → uart_send" (spec 2026-10-16-outline-and-causes §1.2). */
 export function flowLabel(f: { path: string[] }, label: (id: string) => string | undefined): string {
   return f.path.map((n) => label(n) ?? "a function").join(" → ");
+}
+
+/** A story page's tabs (spec 2026-10-16-outline-and-causes §2.2). */
+export type TabSec = "flows" | "changes" | "contracts" | "where" | "paths" | "code" | "graph" | "talk";
+export interface TabSpec { sec: TabSec; label: string; count: number | null }
+
+/** The tabs a story shows, first the one it opens on: Changes for a repeated edit, tests or unsorted pieces; Flows for a
+ * behaviour story (always) or another story with flows. Empty sections are left out; Talk always has its composer. */
+export function storyTabs(kind: StoryKind, n: { flows: number; contracts: number; where: number; paths: number; code: number; talk: number },
+                          graph: boolean): TabSpec[] {
+  const first: TabSpec[] = kind === "mechanical" || kind === "tests" || kind === "unsorted" ? [{ sec: "changes", label: "Changes", count: null }]
+    : kind === "behaviour" || n.flows ? [{ sec: "flows", label: "Flows", count: n.flows }] : [];
+  const rest: TabSpec[] = [{ sec: "contracts", label: "Before → after", count: n.contracts }, { sec: "where", label: "Where", count: n.where },
+                           { sec: "paths", label: "Call paths", count: n.paths }, { sec: "code", label: "Code", count: n.code }];
+  return [...first, ...rest.filter((t) => t.count), ...(graph ? [{ sec: "graph" as const, label: "Graph", count: null }] : []),
+          { sec: "talk", label: "Talk", count: n.talk }];
+}
+
+/** The header's "after:" and "feeds:": the stories before and after `sid` in its thread. */
+export function storyNeighbours(r: Pick<Reading, "threads">, sid: string): { after: string | null; feeds: string | null } {
+  const t = r.threads.find((x) => x.stories.includes(sid));
+  if (!t) return { after: null, feeds: null };
+  const i = t.stories.indexOf(sid);
+  return { after: t.stories[i - 1] ?? null, feeds: t.stories[i + 1] ?? null };
 }

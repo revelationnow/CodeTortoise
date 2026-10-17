@@ -199,3 +199,67 @@ test.describe("the top bar", () => {
     await expect(help).toHaveAttribute("aria-expanded", "false");
   });
 });
+
+test.describe("a story's tabs", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("a header with its thread and neighbours, tabs in the address that Back returns through, chips that open checks", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S2`);
+    await expect(page.locator(".st-crumb")).toHaveText(/^Thread A · story 1 of 2 · feeds: /);
+    const tabs = page.getByRole("navigation", { name: "Story sections" });
+    await expect(tabs.getByRole("link", { name: /^Flows/ })).toHaveAttribute("aria-current", "page");
+    await tabs.getByRole("link", { name: /^Where/ }).click();
+    await expect(page).toHaveURL(new RegExp(`${base}/s/S2\\?sec=where$`));
+    await expect(page.getByRole("region", { name: "Where" })).toBeVisible();
+    await tabs.getByRole("link", { name: /^Call paths/ }).click();
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp(`${base}/s/S2\\?sec=where$`));
+    await tabs.getByRole("link", { name: "Graph" }).click();
+    await expect(page).toHaveURL(new RegExp(`${base}/s/S2\\?view=graph$`));
+    await expect(page.locator(".bd-node").first()).toBeVisible();
+    await page.goto(`${base}/s/S1`);
+    const cards = page.getByRole("region", { name: /^Flow \d+:/ });
+    await expect(cards.first()).toBeVisible();
+    const chips = page.locator(".st-chip");
+    expect(await chips.count()).toBeGreaterThan(0);
+    const name = (await chips.first().getAttribute("aria-label"))!;
+    await chips.first().click();
+    await expect(page.getByRole("complementary", { name: name.replace("Open check: ", "Check: ") })).toBeVisible();
+    await expectNoNodeIds(page);
+    await expectNamed(page);
+  });
+
+  test("an outline flow line opens its card; a story remembers its tab; an old ?view=graph opens Graph", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    const outline = page.locator("aside.ws-outline");
+    await outline.getByRole("link", { name: /^Go to story S1/ }).click();
+    await outline.getByRole("link", { name: /^Go to flow 1:/ }).click();
+    await expect(page.getByRole("region", { name: /^Flow 1:/ })).toHaveClass(/\blit\b/);
+    await expect(page.getByRole("region", { name: /^Flow 1:/ })).toBeInViewport();
+    await page.getByRole("navigation", { name: "Story sections" }).getByRole("link", { name: /^Code/ }).click();
+    await outline.getByRole("link", { name: /^Go to story S2/ }).click();
+    await outline.getByRole("link", { name: /^Go to story S1/ }).click();
+    await expect(page).toHaveURL(/\/s\/S1\?sec=code/);
+    await page.goto(`${base}/s/S2?view=graph`);
+    await expect(page.getByRole("navigation", { name: "Story sections" }).getByRole("link", { name: "Graph" })).toHaveAttribute("aria-current", "page");
+  });
+
+  test("with every kind hidden a story shows no chips", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.evaluate(() => window.localStorage.setItem("ct.ws.hiddenKinds", JSON.stringify(
+      ["hazard", "confirm", "caller", "result", "reader", "target", "untested", "unanalysed", "ask"])));
+    await page.goto(`${base}/s/S1`);
+    await expect(page.getByRole("region", { name: /^Flow 1:/ })).toBeVisible();
+    await expect(page.locator(".st-chip")).toHaveCount(0);
+    await expect(page.getByRole("region", { name: "Other checks in this story" })).toHaveCount(0);
+  });
+
+  test("a story stored before causes shows no chips", async ({ page }) => {
+    await withoutCauses(page);
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    await expect(page.getByRole("region", { name: /^Flow 1:/ })).toBeVisible();
+    await expect(page.locator(".st-chip")).toHaveCount(0);
+  });
+});
