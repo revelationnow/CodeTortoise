@@ -20,7 +20,7 @@
 - e2e: `TMPDIR=/media/anoop/ssd_1/Work/CodeTortoise/.pwtmp TORTOISE_CMD="env PYTHONPATH=<worktree>/backend /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m codetortoise.cli" npx playwright test …` (create `.pwtmp` first, delete it when done).
 - Storage keys (spec): `ct.ws.outline` (`"stories"` | `"checks"`, default `"stories"`), `ct.ws.hiddenKinds` (list of kinds, default `["confirm"]`), `ct.ws.railFolded` (kept). Removed: `ct.ws.checkFolded`, `ct.ws.checkW`. Every storage read and write in try/catch (`board/prefs.ts` `load`/`save` already are).
 - Addresses (spec): `?open=cause:<id>&at=<n>` (1-based), story section `?sec=` (`contracts`, `where`, `paths`, `code`, `talk`; `flows` is the default and left out), the Graph tab is the existing `?view=graph`.
-- Cause id: `"c" + sha1("<kind>|<qualified function name>|<subject>").hexdigest()[:10]`.
+- Cause id: `"c" + sha1("<kind>|<workspace-relative file>::<qualified function name>|<subject>").hexdigest()[:10]`; rows group by the changed function's node id, not its name.
 - Cause text (spec §4.2) with one refinement: a reader cause of several places names its writer ("5 places read \`UartDev::errors\`, which \`uart_a1\` now writes"), because the large fixture has ten writers of one field, each its own cause, and ten identical lines would be useless.
 - `READING_VERSION` goes from 2 to 3.
 - Long-text rules: one-line labels end in an ellipsis with the whole text on hover (`title`); sentences wrap.

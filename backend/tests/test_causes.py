@@ -29,8 +29,8 @@ def test_readers_of_one_field_written_by_one_function_are_one_cause_with_every_p
     assert cause.text == "2 places read `Uart::errors`, which `config` now writes"
     assert cause.places == sorted(k.key for k in rows)
     assert all(k.cause == cause.id for k in rows)
-    want = "c" + hashlib.sha1(b"reader|config|Uart::errors").hexdigest()[:10]
-    assert cause.id == want == cause_id("reader", "config", "Uart::errors")
+    want = "c" + hashlib.sha1(b"reader|drv/cfg.c::config|Uart::errors").hexdigest()[:10]
+    assert cause.id == want == cause_id("reader", "drv/cfg.c::config", "Uart::errors")
 
 
 def test_one_place_keeps_its_own_text_and_another_field_is_another_cause():
@@ -49,7 +49,8 @@ def test_callers_of_one_changed_signature_and_results_by_new_values_group_apart(
     assert [(z.kind, z.text) for z in causes] == [
         ("caller", "`flush` calls `send` and was not updated for its new signature"),
         ("result", "`flush` ignores the result of `send`, which can now return -2")]
-    assert causes[0].id == cause_id("caller", "send", "") and causes[1].id == cause_id("result", "send", "-2")
+    assert causes[0].id == cause_id("caller", "drv/uart.c::send", "")
+    assert causes[1].id == cause_id("result", "drv/uart.c::send", "-2")
 
 
 def test_each_finding_is_its_own_cause_and_its_id_survives_renumbering():
@@ -74,7 +75,7 @@ def test_untested_functions_of_a_story_are_one_cause():
     rows, _ = _checks(c, ss, threads=threads, has_tests=True,
                       test_callers=lambda name: {"/w/tests/u.c"} if name == "init" else set())
     (cause,) = build_causes(rows, _x(c), threads, ["S1", "S2"], {})
-    assert cause.text == "2 functions no test calls" and cause.id == cause_id("untested", "recv,send", "")
+    assert cause.text == "2 functions no test calls" and cause.id == cause_id("untested", "drv/recv.c::recv,drv/uart.c::send", "")
     assert cause.story == "S1" and len(cause.places) == 2
 
 
@@ -160,3 +161,18 @@ def test_the_change_names_its_depot_file():
     c = _readers("report")
     reading, _ = build_reading(_set(["N1"]), c)
     assert reading.causes[0].change.depot == "//d/w/drv/cfg.c"
+
+
+def test_two_changed_functions_of_one_name_in_two_files_are_two_causes_each_with_its_own_change():
+    c = _world([_edit("init_u", "drv/uart.c"), _edit("init_s", "drv/spi.c"), _same("report", "svc/rep.c")],
+               fields=[("init_u", "Uart", "errors", "write", "added"), ("init_s", "Uart", "errors", "write", "added"),
+                       ("report", "Uart", "errors", "read", "unchanged")])
+    for f in [*c.before[0].functions, *c.after[0].functions]:       # two `static int init()`: one name, two files
+        if f.name.startswith("init_"):
+            f.qualname = "init"
+    rows, causes = _causes(c, _set(["N1", "N2"]))
+    assert len(causes) == 2
+    assert sorted(z.id for z in causes) == sorted([cause_id("reader", "drv/uart.c::init", "Uart::errors"),
+                                                   cause_id("reader", "drv/spi.c::init", "Uart::errors")])
+    assert sorted(z.change.path for z in causes) == ["drv/spi.c", "drv/uart.c"]
+    assert all(len(z.places) == 1 for z in causes)

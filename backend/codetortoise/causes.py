@@ -10,17 +10,27 @@ from codetortoise.reading import CHECK_ORDER, Cause, CauseChange, ChangeLine, Ch
 _ALONE = {"unanalysed", "ask"}       # a row of these kinds is its own cause
 
 
-def cause_id(kind: str, qual: str, subject: str) -> str:
-    """Stable across re-runs: kind, the function's qualified name and the subject only."""
-    return "c" + hashlib.sha1(f"{kind}|{qual}|{subject}".encode()).hexdigest()[:10]
+def cause_id(kind: str, fn: str, subject: str) -> str:
+    """Stable across re-runs: kind, the function (`fn_part`) and the subject only."""
+    return "c" + hashlib.sha1(f"{kind}|{fn}|{subject}".encode()).hexdigest()[:10]
 
 
-def _group(k: Check, x: _Ctx) -> tuple[str, str, str]:
+def fn_part(x: _Ctx, n: str) -> str:
+    """A changed function as a cause id names it: "<workspace-relative file>::<qualified name>", since a C function's
+    qualified name carries no file and two files can each change their own `static int init()`."""
+    key = x.im.nodes[n].key
+    f = x.fa.get(key) or x.fb.get(key)
+    return f"{rel_path(x, f.file if f else x.im.nodes[n].file)}::{_qual(x, n)}"
+
+
+def _group(k: Check) -> tuple[str, str, str]:
+    """Rows of one key are one cause: untested by story, unanalysed and ask each alone, the rest by the changed
+    function's node id (none for a header target) and subject."""
     if k.kind == "untested":
         return k.kind, f"story:{k.story or ''}", ""
     if k.kind in _ALONE:
         return k.kind, "", k.key
-    return k.kind, _qual(x, k.cause_fn) if k.cause_fn else "", k.cause_subject
+    return k.kind, k.cause_fn or "", k.cause_subject
 
 
 def _text(kind: str, rows: list[Check], fn: str) -> str:
@@ -130,14 +140,16 @@ def build_causes(rows: list[Check], x: _Ctx, threads: list[Thread], order: list[
     order, text. Sets each row's `cause`."""
     groups: dict[tuple[str, str, str], list[Check]] = defaultdict(list)
     for k in rows:
-        groups[_group(k, x)].append(k)
+        groups[_group(k)].append(k)
     by_id: dict[str, Cause] = {}
-    for (kind, qual, subject), members in groups.items():
+    for (kind, n, subject), members in groups.items():
         members.sort(key=lambda k: (k.path, k.line or 0, k.key))
         lead = members[0]
         if kind == "untested":
-            qual = ",".join(sorted({_qual(x, k.cause_fn) for k in members if k.cause_fn}))
-        cid = cause_id(kind, qual, subject)
+            fn_id = ",".join(sorted({fn_part(x, k.cause_fn) for k in members if k.cause_fn}))
+        else:
+            fn_id = fn_part(x, n) if n and n in x.im.nodes else ""
+        cid = cause_id(kind, fn_id, subject)
         for k in members:
             k.cause = cid
         if cid in by_id:                                  # two groups with one id are one cause

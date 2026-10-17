@@ -153,7 +153,7 @@ class CauseChange(BaseModel):
     lines: list[ChangeLine]          # 2–6 lines
 
 class Cause(BaseModel):
-    id: str                          # "c" + first 10 hex of sha1(kind|function's qualified name|subject)
+    id: str                          # "c" + first 10 hex of sha1(kind|<workspace-relative file>::<qualified name>|subject)
     kind: CheckKind
     thread: str | None = None
     story: str | None = None
@@ -180,8 +180,10 @@ story's reading (`story_reading:{sid}`) gains its own causes. `READING_VERSION` 
 | unanalysed, ask | the row alone | the row's key |
 
 A cause's id depends only on kind, function and subject, so it survives a re-run that renumbers findings or reorders
-stories. Where a kind has no single function, the id uses: for untested, the sorted qualified names of the story's
-untested functions; for a header's target row, the header's path; for unanalysed and ask, the row's key. Two causes that would share an id are one cause.
+stories. The function part is `"<workspace-relative file>::<qualified name>"`: a C function's qualified name carries
+no file, and two files can each change their own `static int init()`; rows are grouped by the changed function itself
+(its node), never by its name. Where a kind has no single function, the id uses: for untested, the sorted function
+parts of the story's untested functions; for a header's target row, the header's path; for unanalysed and ask, the row's key. Two causes that would share an id are one cause.
 
 **Flows touched**: the flows of the cause's story whose path holds the cause's changed function or the function of
 one of its places.
