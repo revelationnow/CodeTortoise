@@ -120,7 +120,7 @@ export default function Detail() {
       {ws.screen === "phone" && (
         <div className="ws-phonebar">
           <Link to={close} aria-label={closeLabel} title={closeLabel}>‹ {st ? st.id : "Back"}</Link>
-          <span className="sep" aria-hidden>·</span><b>{label}</b>
+          <span className="sep" aria-hidden>·</span><b title={causeLine ?? undefined}>{label}</b>
         </div>
       )}
       <div className="ws-detail-head">
@@ -128,9 +128,11 @@ export default function Detail() {
           <ul className="ws-ptabs" aria-label="Open items">
             {ws.tabs.map((t) => {
               const on = openKey(t) === openKey(open), tname = tabLabel(t, d.names, d.reading?.causes);
+              const tc = "cause" in t ? d.reading?.causes?.find((c) => c.id === t.cause) : null;
+              const ttitle = tc ? plainNames(tc.text, d.names).replaceAll("`", "") : tname;
               return (
                 <li key={openKey(t)} className={`ws-ptab${on ? " on" : ""}`}>
-                  <Link aria-current={on || undefined} to={ws.link(ws.opened(t))} title={`Show ${tname}`} aria-label={`Show ${tname}`}>{tname}</Link>
+                  <Link aria-current={on || undefined} to={ws.link(ws.opened(t))} title={`Show ${ttitle}`} aria-label={`Show ${tname}`}>{tname}</Link>
                   <button className="ws-ptab-x" aria-label={`Close ${tname}`} title={`Close ${tname}`} onClick={() => ws.closeTab(t)}>×</button>
                 </li>
               );
@@ -138,7 +140,7 @@ export default function Detail() {
           </ul>
         )}
         <div className="ws-detail-name">
-          <b className={cid ? undefined : "mono"}>{label ?? "Not found"}</b>
+          <b className={cid ? undefined : "mono"} title={causeLine ?? undefined}>{label ?? "Not found"}</b>
           {badge && <span className={`ws-badge ${badge}`}>{badge}</span>}
           {st && <Link className="ws-detail-story" to={ws.link(ws.item({ kind: "story", sid: st.id, view: "steps" }))}
                        title={`Go to story ${st.id}: ${short(st.title)}`} aria-label={`Go to story ${st.id}: ${short(st.title)}`}>

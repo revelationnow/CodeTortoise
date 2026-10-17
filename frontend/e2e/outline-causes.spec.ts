@@ -91,6 +91,7 @@ test.describe("a cause of many places", () => {
   test("the stepper shows the change above each place; J, K and F step, and All look fine finishes it", async ({ page }) => {
     const panel = await openReaders(page);
     await expect(panel.locator(".cs-pos")).toHaveText("1 / 5");
+    await expect(panel.locator(".ws-detail-name b")).toHaveAttribute("title", READERS.replaceAll("`", ""));
     const change = panel.getByRole("region", { name: "The change" });
     await expect(change.locator("h3")).toContainText("uart_a1");
     await expect(change.locator(".cs-diff .add", { hasText: "errors" }).first()).toBeVisible();
