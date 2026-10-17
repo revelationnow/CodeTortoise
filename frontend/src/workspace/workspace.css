@@ -779,3 +779,21 @@ a.ws-chip { text-decoration: none; }
 .ws-hidden label { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
 .ws-index { margin: 12px 0 8px; }
 .ws-index > summary { padding: 4px 14px; cursor: pointer; font-weight: 600; font-size: 13px; }
+
+/* the cause stepper (spec 2026-10-16-outline-and-causes §4.3) */
+.cs { display: flex; flex-direction: column; gap: 12px; }
+.cs-line { margin: 0; overflow-wrap: anywhere; }
+.cs-nav { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.cs-pos { font-variant-numeric: tabular-nums; min-width: 4.5em; text-align: center; }
+.cs-all { margin-left: auto; }
+.cs-change, .cs-place { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: var(--surface); }
+.cs-change h3, .cs-place h3 { margin: 0 0 6px; font-size: 12.5px; font-weight: 600; color: var(--muted); overflow-wrap: anywhere; }
+.cs-diff, .cs-code { margin: 0 0 6px; font-family: var(--mono); font-size: 12.5px; white-space: pre; overflow-x: auto; }
+.cs-diff .add { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--add-ink); }
+.cs-diff .del { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--del-ink); }
+.cs-sign { display: inline-block; width: 1.4em; color: var(--muted); user-select: none; }
+.cs-code .at { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.cs-ln { display: inline-block; min-width: 3.2em; padding-right: 8px; text-align: right; color: var(--muted); user-select: none; }
+.cs-also, .cs-row-text { margin: 6px 0 0; font-size: 13px; overflow-wrap: anywhere; }
+.cs-acts { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.cs-done { margin: 0; color: var(--ok); font-weight: 600; }

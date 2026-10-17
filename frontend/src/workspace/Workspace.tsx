@@ -143,7 +143,7 @@ export default function Workspace() {
                 <Centre />
               </section>
             )}
-            {addr.open && d && data.ready && (screen !== "phone" || level === "detail") && <Detail key={JSON.stringify(addr.open)} />}
+            {addr.open && d && data.ready && (screen !== "phone" || level === "detail") && <Detail key={"cause" in addr.open ? `c:${addr.open.cause}` : JSON.stringify(addr.open)} />}
           </div>
         </main>
       </WsContext.Provider>

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { alsoAt, causeGroups, causeOfCheck, causeOpen, doneCount, firstOpenAt, hiddenLabel, loadHidden, loadOutline, nextOpen,
+import { alsoAt, around, causeGroups, causeOfCheck, causeOpen, doneCount, firstOpenAt, hiddenLabel, loadHidden, loadOutline, nextOpen,
   nextOpenAt, openCount, openPlaces, progressLine, saveHidden, saveOutline, shown } from "./causes";
 import type { Cause, Check, CheckKind, Mark } from "./types";
 
@@ -127,5 +127,15 @@ describe("the Checks view's groups", () => {
     expect(causeGroups({ threads } as never, list).map((g) => [g.label, g.stories.map((s) => [s.story, s.causes.map((c) => c.id)])]))
       .toEqual([["A · `hal_write` in hal", [["S2", ["c1"]], ["S1", ["c2"]]]], ["B · cpp", [[null, ["c3"]]]],
                 ["Across the change", [[null, ["c4"]]]]]);
+  });
+});
+
+describe("around", () => {
+  it("gives the place's line with three lines each side, as far as the file goes", () => {
+    const text = ["a", "b", "c", "d", "e", "f", "g", "h"].join("\n");
+    expect(around(text, 5).map((l) => [l.line, l.text, l.at])).toEqual([[2, "b", false], [3, "c", false], [4, "d", false],
+      [5, "e", true], [6, "f", false], [7, "g", false], [8, "h", false]]);
+    expect(around(text, 1).map((l) => l.line)).toEqual([1, 2, 3, 4]);
+    expect(around(text, 40)).toEqual([]);
   });
 });

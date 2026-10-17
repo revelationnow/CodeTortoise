@@ -72,3 +72,72 @@ test.describe("desktop", () => {
     await expect(outline).toContainText("Re-run the review to group its checks.");
   });
 });
+
+/** The large fixture (CLs 201 202): ten functions write each `…Dev::errors`, so each writer's readers are a cause of
+ * five places in one unchanged file, whose text comes from the source API. */
+const READERS = "5 places read UartDev::errors, which uart_a1 now writes";
+
+test.describe("a cause of many places", () => {
+  test.use({ baseURL: "http://127.0.0.1:8796", viewport: { width: 1440, height: 900 } });
+
+  async function openReaders(page: Page) {
+    await startReview(page, "201 202");
+    const outline = page.locator("aside.ws-outline");
+    await outline.getByRole("button", { name: "Checks" }).click();
+    await outline.getByRole("link", { name: `Open check: ${READERS}` }).click();
+    return page.getByRole("complementary", { name: `Check: ${READERS}` });
+  }
+
+  test("the stepper shows the change above each place; J, K and F step, and All look fine finishes it", async ({ page }) => {
+    const panel = await openReaders(page);
+    await expect(panel.locator(".cs-pos")).toHaveText("1 / 5");
+    const change = panel.getByRole("region", { name: "The change" });
+    await expect(change.locator("h3")).toContainText("uart_a1");
+    await expect(change.locator(".cs-diff .add", { hasText: "errors" }).first()).toBeVisible();
+    const place = panel.getByRole("region", { name: "The place" });
+    await expect(place.locator("h3")).toContainText("uart_d1");
+    await expect(place.locator(".cs-code .at")).toContainText("errors");
+    await page.keyboard.press("j");
+    await expect(panel.locator(".cs-pos")).toHaveText("2 / 5");
+    await expect(place.locator("h3")).toContainText("uart_d2");
+    await page.keyboard.press("k");
+    await expect(panel.locator(".cs-pos")).toHaveText("1 / 5");
+    await page.keyboard.press("f");
+    await expect(panel.locator(".cs-pos")).toHaveText("2 / 5");
+    await expect(panel.locator(".cs-donecount")).toHaveText("1 done");
+    const row = page.locator("aside.ws-outline").getByRole("link", { name: `Open check: ${READERS}` });
+    await expect(row.locator(".ws-cdone")).toHaveText("1/5");
+    await panel.getByRole("button", { name: "Comment" }).click();
+    const box = panel.getByPlaceholder("Leave a comment…");
+    await box.pressSequentially("jkf");                                   // letters while typing, not steps
+    await expect(box).toHaveValue("jkf");
+    await expect(panel.locator(".cs-pos")).toHaveText("2 / 5");
+    await panel.getByRole("button", { name: "All look fine" }).click();
+    await expect(panel.locator(".cs-done")).toHaveText("All 5 places done");
+    await expect(row.locator(".ws-cdone")).toHaveText("✓");
+    await expect(page).toHaveURL(/open=cause%3Ac[0-9a-f]{10}&at=2/);
+    await expectNoNodeIds(page);
+    await expectNamed(page);
+  });
+
+  test("a place whose file text cannot be fetched says so and keeps its actions", async ({ page }) => {
+    await page.route("**/api/reviews/*/source**", (route) => route.abort());
+    const panel = await openReaders(page);
+    await expect(panel.getByRole("region", { name: "The place" })).toContainText("No code for this place.");
+    await expect(panel.getByRole("button", { name: "Looks fine & next" })).toBeEnabled();
+    await expect(panel.getByRole("region", { name: "The change" })).toBeVisible();
+  });
+});
+
+test.describe("an unknown check", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("an address naming a check the review lacks says so and leads to the checks", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}?open=cause:cffffffffff&at=1`);
+    const panel = page.getByRole("complementary", { name: "Check: not found" });
+    await expect(panel).toContainText("This check isn't in this review.");
+    await panel.getByRole("button", { name: "Show the checks" }).click();
+    await expect(page.locator("aside.ws-outline").getByRole("button", { name: "Checks" })).toHaveAttribute("aria-pressed", "true");
+  });
+});

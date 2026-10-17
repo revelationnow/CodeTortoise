@@ -114,3 +114,12 @@ export function causeGroups(r: Pick<Reading, "threads">, list: Cause[]): CauseGr
     return { thread: g.thread, label: g.label, stories: stories.filter((x) => x.causes.length) };
   }).filter((g) => g.stories.length);
 }
+
+/** The place's code in the stepper (§4.3): its line (1-based) with `n` lines each side, as far as the file goes. */
+export function around(text: string, line: number, n = 3): { line: number; text: string; at: boolean }[] {
+  const lines = text.split("\n");
+  if (line < 1 || line > lines.length) return [];
+  const out = [];
+  for (let i = Math.max(1, line - n); i <= Math.min(lines.length, line + n); i++) out.push({ line: i, text: lines[i - 1], at: i === line });
+  return out;
+}
