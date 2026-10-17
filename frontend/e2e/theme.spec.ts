@@ -15,7 +15,7 @@ const CHECKS = [
   ".bd-node:not(.chg) .lbl",       // node label (changed nodes sit on a fixed amber gradient)
   ".ws-detail .bd-code .src",      // code in the detail panel
   ".bd-ann .k",                    // annotation label
-  ".ws-row-title",                 // a rail row
+  ".ws-row.story .ws-one",         // an outline row
   ".ws-crumbs a",                  // a breadcrumb
   ".bd-toolbar .bd-ibtn",          // a graph button
   ".topbar a",                     // app chrome link

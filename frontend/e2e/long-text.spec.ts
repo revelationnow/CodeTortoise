@@ -44,9 +44,8 @@ test("long names stay inside their boxes on every page, cut-short labels showing
   test.setTimeout(240_000);
   await longNames(page);
   const base = await startReview(page);
-  await page.evaluate(() => { localStorage.setItem("ct.ws.checkW", "260"); });
   const seen: string[] = [];
-  for (const path of ["", "/s/S1", "/s/S2", "/cl/101", "/f/F4?details=1", "/i/cls", "/i/files", "/i/checks", "/i/findings",
+  for (const path of ["", "/s/S1", "/s/S2", "/cl/101", "/f/F4?details=1", "/i/cls", "/i/files", "/i/findings",
                       "/s/S1?open=finding:F4"]) {
     await page.goto(base + path);
     await expect(page.getByRole("region", { name: "Centre" })).toContainText(/\S/);
@@ -68,28 +67,21 @@ async function oneLine(page: Page, selector: string): Promise<string[]> {
   }));
 }
 
-test("check locations, the story's file tree and the breadcrumb stay one line, the whole name on hover", async ({ page }) => {
+test("the story's file tree, the breadcrumb and the outline's story rows stay one line, the whole name on hover", async ({ page }) => {
   test.setTimeout(240_000);
   await longNames(page);
   const base = await startReview(page);
-  await page.evaluate(() => { localStorage.setItem("ct.ws.checkW", "260"); });
-  await page.goto(`${base}/s/S1`);
-  await expect(page.getByRole("region", { name: "Centre" })).toContainText(/\S/);
-  await expect(page.locator(".ck-place").first()).toBeVisible();
-  expect(await oneLine(page, ".ck-place")).toEqual([]);
-  expect(await page.locator(".ck-place", { hasText: "driver_support" }).first().getAttribute("title")).toContain(LONG_DIR);
-  // the folder gives way first, so the file and line stay in sight
-  const file = page.locator(".ck-place", { hasText: "driver_support" }).first().locator(".ck-file");
-  await expect(file).toContainText("uart.c:11");
-  expect(await file.evaluate((el) => el.parentElement!.getBoundingClientRect().right - el.getBoundingClientRect().left)).toBeGreaterThan(60);
+  await page.goto(`${base}/s/S1?sec=where`);
+  await expect(page.getByRole("region", { name: "Where" })).toBeVisible();
+  await expect(page.locator(".st-file li > a").first()).toBeVisible();
   expect(await oneLine(page, ".st-file li > a")).toEqual([]);
   const here = page.locator(".ws-crumbs [aria-current]");
   await expect(here).toContainText("…");
   expect(await here.getAttribute("title")).toContain(LONG_FN);
-  // a story title in the rail stops at three lines; the row carries the whole title
-  const title = page.locator(".ws-rail .ws-row-title").filter({ hasText: "logger_flush" }).first();
-  const box = await title.evaluate((el) => el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight));
-  expect(Math.round(box)).toBeLessThanOrEqual(3);
+  // a story title in the outline is one line; the row carries the whole title
+  const rows = page.locator(".ws-rail .ws-row.story .ws-one");
+  await expect(rows.filter({ hasText: "logger_flush" }).first()).toBeVisible();
+  expect(await oneLine(page, ".ws-rail .ws-row.story .ws-one")).toEqual([]);
 });
 
 test.describe("with an AI", () => {
@@ -100,7 +92,8 @@ test.describe("with an AI", () => {
     await longNames(page);
     const base = await startReview(page);
     await page.goto(`${base}/s/S1`);
-    await expect(page.locator(".st-acc").first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(".st-summary .ai-label")).toBeVisible({ timeout: 30_000 });   // the account is in
+    await expect(page.getByRole("region", { name: "What it means for the rest" })).toBeVisible();
     await page.waitForLoadState("networkidle");
     expect(await problems(page)).toEqual([]);
   });

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { contrast, login, startReview } from "./helpers";
+import { contrast, login, openIndex, startReview } from "./helpers";
 
 const AI = "http://127.0.0.1:8798";      // e2e/serve-ai.sh: CodeTortoise with the fake model in e2e/fake_llm.py
 
@@ -27,7 +27,8 @@ test.describe("with an AI", () => {
     await expect(head.locator(".ai-label")).toHaveCount(0);                  // this server's up-front pass skips stories
     await head.getByRole("button", { name: "✦ Explain" }).click();
     await expect(head.locator("h2")).toContainText("uart_send's new error count reaches uart_errors", { timeout: 30_000 });
-    await expect(head.locator(".ai-label")).toBeVisible();
+    await expect(head.locator("h2 .ai-label")).toBeVisible();                // the title…
+    await expect(head.locator(".st-summary .ai-label")).toBeVisible();       // …and the summary, retold
     await expect(head.getByRole("button", { name: /Explain/ })).toHaveText("✦ Explain again");
     await expect(page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ }))
       .toContainText("uart_send's new error count reaches uart_errors");
@@ -109,7 +110,7 @@ test.describe("with an AI", () => {
 
   test("✦ Summarise sums up a file in its diff", async ({ page }) => {
     await startReview(page);
-    await page.locator(".ws-rail").getByRole("link", { name: "Open the Index: Files" }).click();
+    await openIndex(page, "Files");
     await page.getByRole("link", { name: "Open uart.c's diff" }).click();
     const panel = page.getByRole("complementary", { name: "Code: uart.c" });
     await panel.getByRole("button", { name: /Summarise/ }).click();
@@ -154,14 +155,18 @@ test.describe("with an AI", () => {
     await expect(card).toContainText(/Today: \d+ calls across reviews/);
   });
 
-  test("a story's What it does is the weak model's account: purpose, its flows and what it means, each AI-labelled", async ({ page }) => {
+  test("a story tells the weak model's account: purpose, its flows and what it means, each AI-labelled", async ({ page }) => {
     await startReview(page);
     await page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ }).click();
-    const what = page.getByRole("region", { name: "What it does" });
-    await expect(what.locator(".st-acc").first()).toBeVisible({ timeout: 30_000 });
-    await expect(what.locator(".st-acc h4").first()).toHaveText("What it is for");
-    await expect(what.locator(".st-acc h4").last()).toHaveText("What it means for the rest");
-    await expect(what.locator(".st-acc .ai-label")).toHaveCount(await what.locator(".st-acc").count());
-    await expect(what).toContainText("This story makes uart_send count its transmit errors.");
+    const purpose = page.locator(".st-summary");
+    await expect(purpose.locator(".ai-label")).toBeVisible({ timeout: 30_000 });
+    await expect(purpose).toContainText("This story makes uart_send count its transmit errors.");
+    const cards = page.getByRole("region", { name: /^Flow \d+: / });
+    expect(await cards.count()).toBeGreaterThan(0);
+    await expect(cards.locator("> p .ai-label")).toHaveCount(await cards.count());
+    await expect(cards.first()).toContainText("The caller reaches uart_send on this path.");
+    const effects = page.getByRole("region", { name: "What it means for the rest" });
+    await expect(effects.locator(".ai-label")).toBeVisible();
+    await expect(effects).toContainText("Code that reads Uart::errors now sees transmit errors too.");
   });
 });
