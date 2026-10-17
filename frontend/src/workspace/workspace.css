@@ -475,8 +475,6 @@ a.ws-nb:hover { border-color: var(--accent); }
 .ws-progress { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .ws-read { flex: none; color: var(--ok); font-size: 12px; }
 .ws-thread-read, .ov-read { margin-left: 6px; font-size: 11.5px; font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; }
-.ov-progress { margin: 0 0 14px; font-size: 13px; color: var(--muted); }
-.ov-progress.done { color: var(--ink); font-weight: 600; }
 @media (max-width: 640px) { .ws-progress { display: none; } }
 .ws-step-btn { width: 30px; text-align: center; text-decoration: none; display: inline-block; }
 .ws-story-head p { margin: 8px 0 0; font-size: 14.5px; }
@@ -593,39 +591,14 @@ a.ws-chip { text-decoration: none; }
 .ck-cleared ul { margin: 4px 0 0; padding-left: 18px; }
 .ov-lines { list-style: none; margin: 0; padding: 0; font-size: 13px; }
 .ov-lines li { padding: 3px 0; }
-.ov-conn { position: relative; margin: 4px 0 0; }
-.ov-box { position: absolute; left: 0; width: 220px; display: flex; align-items: center; gap: 8px; padding: 0 10px; text-align: left;
-  background: var(--surface); border: 1px solid var(--line); border-radius: 8px; color: var(--ink); font: inherit; font-size: 13px;
-  cursor: pointer; }
-.ov-box.hot { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
-.ov-box-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ov-letter { flex: none; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%;
   background: var(--accent); color: var(--surface); font: 700 11px/1 var(--sans); }
-.ov-arcs { position: absolute; left: 220px; top: 0; overflow: visible; }
-.ov-arc { fill: none; stroke: var(--muted); stroke-width: 1.6; pointer-events: visibleStroke; }
-.ov-arc.dashed { stroke: var(--accent); stroke-dasharray: 5 4; }
-.ov-arc.hot { stroke: var(--accent); stroke-width: 2.6; }
-.ov-arc-label { position: absolute; left: calc(220px + var(--reach) + 14px); right: 0; transform: translateY(-50%);
-  font-size: 13px; line-height: 1.35; }
-.ov-arc-label.dashed { color: var(--accent); }
-.ov-arc-label.hot { font-weight: 600; }
 .ov-conn-rows { margin: 0; padding-left: 18px; font-size: 13px; }
 .ov-conn-rows li.bundled { color: var(--accent); }
 .ov-thread { padding: 10px 0 12px; border-top: 1px solid var(--line); }
 .ov-thread header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .ov-thread h3 { margin: 0; font-size: 15px; }
 .ov-purpose { margin: 6px 0; font-size: 14px; }
-.ov-howto { margin: 0 0 14px; }
-.ov-howto summary { cursor: pointer; }
-.ov-howto summary h2 { display: inline; }
-.ov-howto ul { margin: 6px 0 0; padding-left: 18px; font-size: 14px; }
-.ov-howto li { margin: 3px 0; }
-.ov-route { margin: 6px 0 14px; padding-left: 22px; font-size: 14px; }
-.ov-route li { margin: 4px 0; }
-.ov-route li.skim { color: var(--muted); }
-.ov-route .ov-letter { margin-right: 2px; }
-.ov-route-go { text-decoration: none; padding: 0; }
-.ov-route-go .ov-route-name { text-decoration: underline; text-underline-offset: 2px; }
 .ov-skim { margin-left: 6px; padding: 0 6px; font-size: 12px; border: 1px solid var(--line); border-radius: 8px; }
 .ov-stories { margin: 4px 0 0; padding-left: 22px; font-size: 14px; }
 .ov-stories li { padding: 2px 0; }
@@ -829,3 +802,13 @@ a.ws-chip { text-decoration: none; }
 .st-chip.done { color: var(--muted); opacity: .8; }
 .st-other h3, .st-effects h3 { font-size: 14px; margin: 16px 0 6px; }
 .st-chips li { min-width: 0; max-width: 100%; }
+
+/* the overview (spec 2026-10-16-outline-and-causes §3) */
+.ov3 .ov-top .ov-start { display: inline-block; margin-top: 6px; padding: 6px 14px; border-radius: 6px; background: var(--accent);
+  color: var(--surface); font-weight: 600; text-decoration: none; }
+.ov3 .ov-thread { border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; }
+.ov3 .ov-thread header { display: flex; align-items: baseline; gap: 8px; }
+.ov3 .ov-thread h3 { margin: 0; overflow-wrap: anywhere; }
+.ov3 .ov-intro { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; margin: 6px 0; }
+.ov3 .ov-intro p { margin: 0 0 4px; }
+.ov3 .ov-meta { margin: 0 0 4px; color: var(--muted); font-size: 13px; }

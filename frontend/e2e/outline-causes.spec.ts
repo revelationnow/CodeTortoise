@@ -309,3 +309,32 @@ test.describe("a story's tabs", () => {
     await expect(page.getByRole("region", { name: /^Flow \d+:/ })).toHaveCount(0);
   });
 });
+
+test.describe("the overview", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("the change, Start here then Continue, a block per thread and how they connect; nothing pinned beside it", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(base);
+    await expect(page.locator(".ov3 h2")).toHaveText(["The change as a whole", "Threads", "How the threads connect", "Build impact",
+                                                 "Coverage", "Discussion"]);
+    await expect(page.locator(".ov-thread").first().locator(".ov-meta")).toHaveText("2 stories · 0 read · 3 causes open");
+    await expect(page.locator(".ov-conn-rows li")).toHaveText(["A and B: both run inside main",
+                                                               "B and C: nothing besides arriving in CL 104 — ask the author"]);
+    await expect(page.getByRole("region", { name: "Coverage" })).toContainText("Risks judged by rules only.");
+    await expect(page.locator(".ov-howto, .ck-tile, .ov-progress, .ov-route, .ov2-check")).toHaveCount(0);
+    await page.getByRole("link", { name: "Start here ›" }).click();
+    await expect(page).toHaveURL(new RegExp(`${base}/s/S2`));
+    await page.getByRole("button", { name: "Mark as read" }).click();
+    await expect(page).toHaveURL(new RegExp(`${base}/s/S1`));
+    await page.goto(base);
+    await expect(page.locator(".ov-thread").first().locator(".ov-meta")).toHaveText("2 stories · 1 read · 3 causes open");
+    await page.getByRole("link", { name: "Continue ›" }).click();
+    await expect(page).toHaveURL(new RegExp(`${base}/s/S1`));
+    await page.goto(base);
+    await page.getByRole("link", { name: "Go to thread B's first unread story" }).click();
+    await expect(page).toHaveURL(new RegExp(`${base}/s/S3`));
+    await expectNoNodeIds(page);
+    await expectNamed(page);
+  });
+});

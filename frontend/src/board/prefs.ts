@@ -37,8 +37,6 @@ export const keys = {
   /** The outline's view and the check kinds the reader hides (spec 2026-10-16-outline-and-causes §1.2, §4.6). */
   outline: "ct.ws.outline",
   hiddenKinds: "ct.ws.hiddenKinds",
-  /** Whether the overview's "How to read this page" is open (spec 2026-10-09-review-introduction §5.1). */
-  introOpen: "ct.intro.open",
   /** Neighbours drawn as tiles or as the call tree. */
   nbView: "ct.ws.nb.view",
 };
