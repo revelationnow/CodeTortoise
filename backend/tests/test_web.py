@@ -344,6 +344,29 @@ def test_names_give_the_ui_a_name_for_every_node_it_can_show(env):
     assert all(n.startswith("N") for n in names) and len(names) < 200        # what the UI shows, not the whole graph
 
 
+def test_names_read_each_board_and_story_once(env, monkeypatch):
+    from collections import Counter
+    svc, app, _ = env
+    owner, rid = _review(app)
+    assert len(owner.get(f"/api/reviews/{rid}/stories").json()["stories"]) > 1       # several stories, one board
+    real, reads = svc.store.get_blob, Counter()
+    monkeypatch.setattr(svc.store, "get_blob", lambda r, k: reads.update([k]) or real(r, k))
+    assert owner.get(f"/api/reviews/{rid}/names").json()
+    assert reads["board"] == 1 and max(reads.values()) == 1, reads
+
+
+def test_names_build_the_nodes_they_name_not_the_whole_graph(env, monkeypatch):
+    from codetortoise.impact import ImpactModel
+    svc, app, _ = env
+    owner, rid = _review(app)
+    want = owner.get(f"/api/reviews/{rid}/names").json()
+
+    def whole(*_):
+        raise AssertionError("the whole impact graph was built")
+    monkeypatch.setattr(ImpactModel, "model_validate", whole)
+    assert owner.get(f"/api/reviews/{rid}/names").json() == want
+
+
 def test_neighbours_list_a_nodes_callers_and_callees(env):
     svc, app, _ = env
     owner, rid = _review(app)
@@ -505,6 +528,15 @@ def test_read_ticks_are_each_readers_own_looks_fine_ticks_the_check_and_a_rerun_
     svc.store.replace_blobs(rid, ["reading", "reading_head"], ["story_reading:"], {})        # a review run before the reading
     assert owner.get(f"/api/reviews/{rid}/ticks").json() == {"stories": [], "checks": []}
     assert owner.put(f"/api/reviews/{rid}/ticks/story/{story}").status_code == 404
+
+
+def test_ticks_do_not_load_the_reading(env, monkeypatch):
+    svc, app, _ = env
+    owner, rid = _review(app)
+    real, keys = svc.store.get_blob, []
+    monkeypatch.setattr(svc.store, "get_blob", lambda r, k: keys.append(k) or real(r, k))
+    assert owner.get(f"/api/reviews/{rid}/ticks").json() == {"stories": [], "checks": []}
+    assert "reading" not in keys
 
 
 def test_the_request_log_downloads_as_a_zip_and_the_calls_say_how_many_requests_they_hold(env):
