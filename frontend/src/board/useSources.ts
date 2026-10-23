@@ -9,21 +9,22 @@ export type SourceState =
 
 /** Text of any file the board shows, fetched when shown and kept until the review's list of changed files changes (a
  * run): a changed file's change (`GET /file`: its text before and after, each CL's, who wrote each line), any other
- * file's text (`GET /source`, i.e. p4 print at the workspace's have revision). */
-export function useSources(reviewId: number, files: ChangedFile[]) {
-  const changed = useRef(new Set<string>());
-  changed.current = new Set(files.map((f) => f.depot));
+ * file's text (`GET /source`, i.e. p4 print at the workspace's have revision). Which of the two waits for the list
+ * (`files` undefined: on its way); when it comes, each file shown is asked for. */
+export function useSources(reviewId: number, files: ChangedFile[] | undefined) {
+  const changed = useRef<Set<string> | null>(null);
+  changed.current = files ? new Set(files.map((f) => f.depot)) : null;
   const [fetched, setFetched] = useState<Record<string, SourceState | FileChange>>({});
   const inflight = useRef(new Set<string>());
   const list = useRef(0);                                  // what was asked for under an older list lands nowhere
-  useEffect(() => {                                        // a new list: fetch again, as it says (changed or not)
+  useEffect(() => {                                        // a new list (or none yet): fetch again, as it says
     list.current += 1;
     inflight.current.clear();
     setFetched({});
   }, [files]);
 
   const load = useCallback((path: string) => {
-    if (inflight.current.has(path)) return;
+    if (!changed.current || inflight.current.has(path)) return;   // asked again once the list is in (the reset above)
     inflight.current.add(path);
     const mine = list.current;
     const put = (v: SourceState | FileChange) => { if (mine === list.current) setFetched((m) => ({ ...m, [path]: v })); };

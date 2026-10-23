@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { openIndex, startReview } from "./helpers";
+import { hold, openIndex, startReview } from "./helpers";
 
 /** The side panel, folding and the Index's new views (spec 2026-10-12-story-account-and-panels §2-§5). */
 
@@ -145,4 +145,24 @@ test("Index › CLs expands a CL's files in place and opens a file's diff in the
   await expect(page.getByRole("button", { name: "Hide CL 102's files" })).toBeVisible();
   await page.getByRole("button", { name: "Collapse all" }).click();
   await expect(page.getByRole("link", { name: /'s diff in CL \d+$/ })).toHaveCount(0);
+});
+
+test("a review opened again with a CL's diff in the panel asks for that file's change once and shows that CL's diff", async ({ page }) => {
+  const base = await startReview(page);
+  await page.goto(`${base}/i/cls`);
+  await page.getByRole("button", { name: "Show CL 101's files" }).click();
+  await page.getByRole("link", { name: /^Open .+'s diff in CL 101$/ }).first().click();
+  const panel = page.getByRole("complementary", { name: /^Code: / });
+  await expect(panel.getByLabel("Changelist")).toHaveValue("101");
+  const asked: string[] = [];
+  page.on("request", (r) => { const m = new URL(r.url()).pathname.match(/^\/api\/reviews\/\d+\/(file|source)$/); if (m) asked.push(m[1]); });
+  const files = await hold(page, "**/api/reviews/*/files");
+  await page.reload();
+  await files.held;
+  await expect(panel).toBeVisible();                      // the panel opens before the list of changed files is in
+  await page.waitForTimeout(500);
+  await expect(panel).not.toContainText("unchanged");
+  files.release();
+  await expect(panel.getByLabel("Changelist")).toHaveValue("101");
+  expect(asked).toEqual(["file"]);
 });

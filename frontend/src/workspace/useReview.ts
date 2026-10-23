@@ -7,6 +7,7 @@ import { useAiState } from "../lib/ai";
 import type { ReadTicks } from "../reading/plan";
 
 const TERMINAL = new Set(["done", "degraded", "failed"]);
+const NONE: Finding[] = [];
 const missing = <T,>(fallback: T) => (e: unknown): T => {
   if (e instanceof ApiError && e.status === 404) return fallback;
   throw e;
@@ -17,8 +18,8 @@ export function useReview(id: number) {
   const [board, setBoard] = useState<Board | null | undefined>(undefined);          // null: a split review, or none
   const [overview, setOverview] = useState<Overview | null | undefined>(undefined); // null: shown as one board
   const [stories, setStories] = useState<StorySet | null | undefined>(undefined);   // null: run before stories
-  const [findings, setFindings] = useState<Finding[]>([]);
-  const [files, setFiles] = useState<ChangedFile[]>([]);
+  const [findings, setFindings] = useState<Finding[] | undefined>(undefined);       // undefined: on its way
+  const [files, setFiles] = useState<ChangedFile[] | undefined>(undefined);         // undefined: on its way, again at a run's end
   const [comments, setComments] = useState<Comment[]>([]);
   const [names, setNames] = useState<Names>({});
   const [reading, setReading] = useState<Reading | null | undefined>(undefined);   // null: run before the reading existed
@@ -38,12 +39,14 @@ export function useReview(id: number) {
   /** Tick or untick a story or check for the reader, then show what the server holds. */
   const tick = useCallback((kind: "story" | "check", key: string, on: boolean) => api.tick(id, kind, key, on).then(loadTicks), [id, loadTicks]);
   const loadBoard = useCallback(() => api.board(id).then(setBoard, (e) => setBoard(missing(null)(e))), [id]);
-  // asked in this order: the reading first, as the layout waits on it; the names and the files list last
-  const loadResults = useCallback(() => (setReload((k) => k + 1), Promise.all([
-    loadReading(), loadStories(), loadTicks().catch(() => { /* no reading plan until the ticks load */ }),
+  // asked in this order: what the layout and a page wait on first (the reading, the stories), then the list of changed
+  // files a panel waits on; the names, the slowest, last. The old list is dropped at once, and a finished run's texts with it.
+  const loadResults = useCallback(() => (setReload((k) => k + 1), setFiles(undefined), Promise.all([
+    loadReading(), loadStories(), api.files(id).then(setFiles),
+    loadTicks().catch(() => { /* no reading plan until the ticks load */ }),
     api.overview(id).then((ov) => { setOverview(ov); setBoard(null); },
                           (e) => { setOverview(missing(null)(e)); return loadBoard(); }),
-    loadFindings(), loadComments(), loadNames(), api.files(id).then(setFiles),
+    loadFindings(), loadComments(), loadNames(),
   ]).catch(fail)), [id, loadBoard, loadStories, loadFindings, loadComments, loadNames, loadReading, loadTicks, fail]);
 
   useEffect(() => { loadDetail(); }, [loadDetail]);
@@ -87,7 +90,9 @@ export function useReview(id: number) {
   const ai = useAiState(id, ready, people, comments.some((c) => c.ai_meta?.pending), onAiDone, loadComments);
   const about = (board ?? overview)?.about ?? null;
 
-  return useMemo(() => ({ id, detail, board, overview, stories, findings, files, comments, names, reading, ticks, about, reload, error,
+  // the findings so far ([] until they come), and whether they came: a finding's page waits for them
+  return useMemo(() => ({ id, detail, board, overview, stories, findings: findings ?? NONE, findingsLoaded: findings !== undefined,
+                         files, comments, names, reading, ticks, about, reload, error,
                          ready, ai, story, loadDetail, loadComments, loadFindings, loadReading, loadTicks, tick }),
                  [id, detail, board, overview, stories, findings, files, comments, names, reading, ticks, about, reload, error, ready, ai,
                   story, loadDetail, loadComments, loadFindings, loadReading, loadTicks, tick]);

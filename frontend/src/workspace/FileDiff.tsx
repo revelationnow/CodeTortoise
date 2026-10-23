@@ -29,8 +29,10 @@ export default function FileDiff({ path, line, anns, cl: firstCl = null, wide }:
   const ws = useWs(), d = ws.data;
   const src = useEnsureSource(path, ws.sources);
   const change = isChange(src) ? src : null;
-  const cls = [...new Set(d.files.find((f) => f.depot === path)?.cls ?? [])];   // from the list: known before the text
-  const [cl, setCl] = useState<number | null>(firstCl !== null && cls.includes(firstCl) ? firstCl : null);
+  const cls = [...new Set(d.files?.find((f) => f.depot === path)?.cls ?? [])];   // from the list: known before the text
+  // the CL shown: the reader's pick; until they pick, the page's CL, once the list says the file has it
+  const [picked, setCl] = useState<number | null | undefined>(undefined);
+  const cl = picked !== undefined ? picked : firstCl !== null && cls.includes(firstCl) ? firstCl : null;
   const [view, setView] = useState<ViewerView>(loadViewerView);
   const [chosen, setMode] = useState<"unified" | "split" | null>(null);      // until the reader picks, the panel's width does
   const mode = chosen ?? (wide ? "split" : "unified");

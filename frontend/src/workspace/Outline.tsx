@@ -37,14 +37,15 @@ function OutlineBody({ onPick, hidden = false, folded }: Props & { folded: boole
   const ws = useWs(), d = ws.data, r = d.reading;
   const [width, setWidth] = useState(() => Math.min(600, Math.max(200, loadWidth(keys.railW, 280))));
   const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {                                        // the scroll position, per review and view
+  const rows = !!r && d.stories !== undefined;             // what the views list is in (the outline shows before it)
+  useEffect(() => {                                        // the scroll position, per review and view, once there are rows
     const el = box.current, k = `${scrollKey(d.id)}.${ws.outline}`;
-    if (!el) return;
+    if (!el || !rows) return;                              // set before, it would be cut to the "Loading…" there, and kept
     el.scrollTop = load<number>(k, 0);
     const on = () => save(k, el.scrollTop);
     el.addEventListener("scroll", on, { passive: true });
     return () => el.removeEventListener("scroll", on);
-  }, [d.id, folded, ws.outline]);
+  }, [d.id, folded, ws.outline, rows]);
   return (
     <aside className="ws-rail ws-outline" style={{ ["--w" as string]: `${width}px` }} aria-label="Review contents" inert={hidden} hidden={folded}>
       <Resizer size={width} edge="right" min={200} max={() => 600} onSize={setWidth} onDone={(w) => save(keys.railW, w)} />

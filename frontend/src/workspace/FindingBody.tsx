@@ -34,7 +34,7 @@ export default function FindingBody({ fid, head, ids }: { fid: string; head: Rea
     : d.board ? { place: { kind: "whole", view: "graph" }, flow: null, open: { node: first }, tab: "diff" } : null;
   const tree = d.about?.tree.flatMap((t) => t.files) ?? [];
   const cls = [...new Set(tree.filter((t) => f.files?.includes(t.path)).flatMap((t) => t.cls))].sort((a, b) => a - b);
-  const depots = [...(f.files ?? []), ...d.files.map((x) => x.depot), ...Object.values(d.names).flatMap((x) => (x.path ? [x.path] : []))];
+  const depots = [...(f.files ?? []), ...(d.files ?? []).map((x) => x.depot), ...Object.values(d.names).flatMap((x) => (x.path ? [x.path] : []))];
   const name = (nid: string) => {
     const label = d.names[nid]?.label ?? "a function";
     return <Link key={nid} className="ws-name" to={ws.link(ws.opened({ node: nid }))} title={`Open ${label}'s code`}
