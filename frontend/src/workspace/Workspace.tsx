@@ -140,9 +140,9 @@ export default function Workspace() {
         <main className={`ws ${screen} level-${level}${drawer ? " drawer" : ""}`}>
           <Head onMenu={() => setDrawer(!drawer)} drawer={drawer} />
           <div className={`ws-body${addr.open ? " with-detail" : ""}`}>
-            {(screen !== "phone" || level === "rail") && (r
-              ? <Outline onPick={() => setDrawer(false)} hidden={screen === "tablet" && !drawer} />
-              : <Rail show={hash} onPick={() => setDrawer(false)} hidden={screen === "tablet" && !drawer} />)}
+            {(screen !== "phone" || level === "rail") && (r === null      // the old rail only for a review run before the reading
+              ? <Rail show={hash} onPick={() => setDrawer(false)} hidden={screen === "tablet" && !drawer} />
+              : <Outline onPick={() => setDrawer(false)} hidden={screen === "tablet" && !drawer} />)}
             {drawer && <div className="ws-scrim" onClick={() => setDrawer(false)} aria-hidden />}
             {(screen !== "phone" || level === "item") && (
               <section className="ws-centre" aria-label="Centre">
@@ -150,7 +150,7 @@ export default function Workspace() {
                 <Centre />
               </section>
             )}
-            {addr.open && d && data.ready && (screen !== "phone" || level === "detail") && <Detail key={"cause" in addr.open ? `c:${addr.open.cause}` : JSON.stringify(addr.open)} />}
+            {addr.open && d && data.ready && r !== undefined && (screen !== "phone" || level === "detail") && <Detail key={"cause" in addr.open ? `c:${addr.open.cause}` : JSON.stringify(addr.open)} />}
           </div>
         </main>
       </WsContext.Provider>
@@ -187,7 +187,7 @@ function Head({ onMenu, drawer }: { onMenu: () => void; drawer: boolean }) {
                 onClick={onMenu}>☰</button>
         <h1><Link to={ws.base} state={{ page: true }} title="Go to the whole change">{r.title}</Link></h1>
         {d.reading ? <HeadlinePill h={d.reading.headline} />
-          : r.risk && <span className={`bd-pill ${r.risk}`}>{r.risk.toUpperCase()} RISK</span>}
+          : d.reading === null && r.risk && <span className={`bd-pill ${r.risk}`}>{r.risk.toUpperCase()} RISK</span>}
         {rd && d.ticks && <span className="ws-progress">{line}</span>}
         {next && <Link className="ws-next" to={ws.link(ws.opened({ cause: next.cause, at: next.at }))} aria-label="Next open check"
                        title={`Next open check: ${nextLine}`}>Next open check ›</Link>}
@@ -220,6 +220,7 @@ function Centre() {
   const ws = useWs(), d = ws.data, p = ws.addr.place;
   if (!d.ready) return <div className="ws-page"><Stages stages={d.detail!.stages} /><p className="muted">Analysis in progress…</p></div>;
   const r = d.reading;
+  if (r === undefined) return <div className="ws-page"><p className="muted">Loading…</p></div>;   // it decides the layout
   const exists = p.kind === "whole" || (p.kind === "index" && !!r) || (p.kind === "story" && !!d.stories?.stories.some((s) => s.id === p.sid))
     || (p.kind === "finding" && d.findings.some((f) => f.id === p.fid)) || (p.kind === "cl" && !!d.detail?.cls.some((c) => c.cl === p.cl))
     || (p.kind === "cluster" && !!d.overview?.clusters.some((c) => c.id === p.cid));

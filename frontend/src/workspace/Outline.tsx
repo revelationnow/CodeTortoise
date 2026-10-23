@@ -34,7 +34,7 @@ export default function Outline(props: Props) {
 }
 
 function OutlineBody({ onPick, hidden = false, folded }: Props & { folded: boolean }) {
-  const ws = useWs(), d = ws.data, r = d.reading!;
+  const ws = useWs(), d = ws.data, r = d.reading;
   const [width, setWidth] = useState(() => Math.min(600, Math.max(200, loadWidth(keys.railW, 280))));
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {                                        // the scroll position, per review and view
@@ -56,7 +56,8 @@ function OutlineBody({ onPick, hidden = false, folded }: Props & { folded: boole
         ))}
       </div>
       <div className="ws-rail-scroll" ref={box}>
-        {ws.outline === "stories" ? <StoriesView r={r} onPick={onPick} /> : <ChecksView r={r} onPick={onPick} />}
+        {!r ? d.ready && <p className="muted small ws-pad">Loading…</p>       // on its way (or the analysis still runs)
+          : ws.outline === "stories" ? <StoriesView r={r} onPick={onPick} /> : <ChecksView r={r} onPick={onPick} />}
       </div>
     </aside>
   );

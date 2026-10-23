@@ -38,11 +38,12 @@ export function useReview(id: number) {
   /** Tick or untick a story or check for the reader, then show what the server holds. */
   const tick = useCallback((kind: "story" | "check", key: string, on: boolean) => api.tick(id, kind, key, on).then(loadTicks), [id, loadTicks]);
   const loadBoard = useCallback(() => api.board(id).then(setBoard, (e) => setBoard(missing(null)(e))), [id]);
+  // asked in this order: the reading first, as the layout waits on it; the names and the files list last
   const loadResults = useCallback(() => (setReload((k) => k + 1), Promise.all([
+    loadReading(), loadStories(), loadTicks().catch(() => { /* no reading plan until the ticks load */ }),
     api.overview(id).then((ov) => { setOverview(ov); setBoard(null); },
                           (e) => { setOverview(missing(null)(e)); return loadBoard(); }),
-    loadStories(), loadFindings(), api.files(id).then(setFiles), loadComments(), loadNames(), loadReading(),
-    loadTicks().catch(() => { /* no reading plan until the ticks load */ }),
+    loadFindings(), loadComments(), loadNames(), api.files(id).then(setFiles),
   ]).catch(fail)), [id, loadBoard, loadStories, loadFindings, loadComments, loadNames, loadReading, loadTicks, fail]);
 
   useEffect(() => { loadDetail(); }, [loadDetail]);

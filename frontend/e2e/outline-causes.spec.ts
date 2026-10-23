@@ -27,6 +27,35 @@ async function withoutCauses(page: Page) {
 test.describe("desktop", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
+  test("while the reading loads, nothing of the layout before it shows; the reading is asked for first", async ({ page }) => {
+    const base = await startReview(page);
+    await page.addInitScript(() => {                    // anything of the old layout, however briefly it shows
+      const w = window as unknown as { old: string[] };
+      w.old = [];
+      new MutationObserver(() => {
+        if (document.querySelector("aside.ws-rail:not(.ws-outline):not(.folded)")) w.old.push("rail");
+        if ([...document.querySelectorAll(".ws-head .bd-pill")].some((e) => /RISK$/.test(e.textContent ?? ""))) w.old.push("risk pill");
+        if (document.querySelector(".ws-story-head:not(.st-head)")) w.old.push("story header");
+      }).observe(document, { subtree: true, childList: true });
+    });
+    const asked: string[] = [];
+    page.on("request", (r) => { const m = new URL(r.url()).pathname.match(/^\/api\/reviews\/\d+\/(\w+)$/); if (m) asked.push(m[1]); });
+    let release = () => {};
+    await page.route("**/api/reviews/*/reading", async (route) => { await new Promise<void>((r) => { release = r; }); await route.continue(); });
+    for (const at of [base, `${base}/s/S1`]) {
+      await page.goto(at);
+      await expect(page.locator(".ws-centre")).toContainText("Loading");
+      await expect(page.getByRole("complementary", { name: "Review contents" })).toContainText("Loading");
+      await page.waitForTimeout(1000);                  // everything else has come; the reading is held back
+      release();
+      await expect(page.locator(".ws-outline").getByRole("link", { name: /^Go to story S1/ })).toBeVisible();
+      expect(await page.evaluate(() => (window as unknown as { old: string[] }).old)).toEqual([]);
+    }
+    expect(asked.indexOf("reading")).toBeGreaterThan(-1);
+    expect(asked.indexOf("reading")).toBeLessThan(asked.indexOf("names"));
+    expect(asked.indexOf("reading")).toBeLessThan(asked.indexOf("files"));
+  });
+
   test("the outline's Stories: threads with open causes, the current story's flows", async ({ page }) => {
     const base = await startReview(page, FOUR);
     const outline = page.locator("aside.ws-outline");
