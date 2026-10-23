@@ -1,7 +1,7 @@
 /** Everything the workspace shows about one review (spec 2026-10-04-review-workspace §5: Review.tsx's data loading,
  * progress events and AI state, moved into a hook). */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, ApiError, type AiJob, type Board, type Comment, type FileChange, type Finding, type Names, type Overview,
+import { api, ApiError, type AiJob, type Board, type ChangedFile, type Comment, type Finding, type Names, type Overview,
   type Reading, type ReviewDetail, type StoryDetail, type StorySet } from "../api";
 import { useAiState } from "../lib/ai";
 import type { ReadTicks } from "../reading/plan";
@@ -18,7 +18,7 @@ export function useReview(id: number) {
   const [overview, setOverview] = useState<Overview | null | undefined>(undefined); // null: shown as one board
   const [stories, setStories] = useState<StorySet | null | undefined>(undefined);   // null: run before stories
   const [findings, setFindings] = useState<Finding[]>([]);
-  const [files, setFiles] = useState<FileChange[]>([]);
+  const [files, setFiles] = useState<ChangedFile[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
   const [names, setNames] = useState<Names>({});
   const [reading, setReading] = useState<Reading | null | undefined>(undefined);   // null: run before the reading existed

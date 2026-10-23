@@ -23,6 +23,24 @@ test.describe("desktop", () => {
     await expect(page.locator(".ws-detail")).toHaveCount(0);
   });
 
+  test("the review sends its changed files without their text; a file's text comes when its diff opens", async ({ page }) => {
+    const lists: string[][] = [], texts: string[] = [];
+    page.on("response", async (r) => {
+      const u = new URL(r.url());
+      if (/^\/api\/reviews\/\d+\/files$/.test(u.pathname)) lists.push(Object.keys(((await r.json()) as object[])[0]).sort());
+      if (/^\/api\/reviews\/\d+\/file$/.test(u.pathname)) texts.push(u.searchParams.get("path")!);
+    });
+    await startReview(page);
+    await openIndex(page, "Files");
+    await expect.poll(() => lists.length).toBeGreaterThan(0);
+    expect(lists[0]).toEqual(["action", "base_rev", "cls", "depot", "local"]);
+    expect(texts).toEqual([]);
+    await page.getByRole("link", { name: "Open uart.c's diff" }).click();
+    const panel = page.getByRole("complementary", { name: "Code: uart.c" });
+    await expect(panel.locator(".bd-code")).toContainText("errors");
+    expect(texts).toEqual(["//fixture/driver/uart.c"]);
+  });
+
   test("a function's code scrolls both ways inside the panel and grows 15 lines past either end", async ({ page }) => {
     await page.setViewportSize({ width: 1000, height: 640 });
     const base = await startReview(page);

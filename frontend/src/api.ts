@@ -35,6 +35,8 @@ export type Names = Record<string, NodeName>;
 export interface Neighbour extends NodeName { id: string; changed: boolean; test: boolean }
 export interface Neighbours { node: Neighbour; callers: { total: number; items: Neighbour[] }; callees: { total: number; items: Neighbour[] } }
 export interface PerCl { cl: number; before: string; after: string }
+/** A changed file as the review lists it: no text, which comes with `api.file` when the file is shown. */
+export interface ChangedFile { depot: string; local: string; action: string; base_rev: string | null; cls: number[] }
 export interface FileChange {
   depot: string; local: string; action: string; before: string; after: string; base_rev: string | null; per_cl: PerCl[];
   /** Who wrote each line, for a file several CLs of the review edit (spec 2026-10-07-review-reading-phase2 §4). */
@@ -131,7 +133,9 @@ export const api = {
   findings: (id: number) => call<Finding[]>("GET", `/api/reviews/${id}/findings`).then((fs) => quietFindings(fs, showSinks())),
   setFindingState: (id: number, fid: string, state: Finding["state"]) =>
     call("PATCH", `/api/reviews/${id}/findings/${fid}`, { state }),
-  files: (id: number) => call<FileChange[]>("GET", `/api/reviews/${id}/files`),
+  files: (id: number) => call<ChangedFile[]>("GET", `/api/reviews/${id}/files`),
+  /** A changed file's text before and after, each CL's, and who wrote each line of a file several CLs edit. */
+  file: (id: number, path: string) => call<FileChange>("GET", `/api/reviews/${id}/file?${new URLSearchParams({ path })}`),
   comments: (id: number) => call<Comment[]>("GET", `/api/reviews/${id}/comments`),
   addComment: (id: number, body: string, anchor_kind: AnchorKind, anchor: Record<string, unknown>, parent_id?: number) =>
     call<Comment>("POST", `/api/reviews/${id}/comments`, { body, anchor_kind, anchor, parent_id }),
