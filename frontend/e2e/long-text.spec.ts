@@ -11,10 +11,12 @@ async function longNames(page: Page) {
   await page.route("**/api/**", async (route) => {
     const url = route.request().url().replaceAll(LONG_DIR, DIR).replaceAll(encodeURIComponent(LONG_DIR), encodeURIComponent(DIR))
       .replaceAll(LONG_FN, FN);
-    const res = await route.fetch({ url });
+    let res: import("@playwright/test").APIResponse, text: string;
+    try { res = await route.fetch({ url }); text = await res.text(); }
+    catch { return; }                          // the page or the test went away while it was in flight: nobody reads it
     const type = res.headers()["content-type"] ?? "";
     if (!type.includes("json")) return route.fulfill({ response: res });
-    const body = (await res.text()).replaceAll(FN, LONG_FN).replaceAll(DIR, LONG_DIR)
+    const body = text.replaceAll(FN, LONG_FN).replaceAll(DIR, LONG_DIR)
       .replaceAll(`"${DIR.slice(0, -1)}"`, `"${LONG_DIR.slice(0, -1)}"`);   // a folder named on its own, as the file index has it
     await route.fulfill({ response: res, body });
   });
