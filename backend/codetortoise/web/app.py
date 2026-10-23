@@ -11,7 +11,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from codetortoise import boardstore
+from codetortoise import boardstore, filestore
 from codetortoise.health import run_health
 from codetortoise.impact import ImpactModel, Node
 from codetortoise.llm import ondemand, request_log, tortoise
@@ -420,8 +420,7 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
     def source(rid: int, path: str, side: Literal["before", "after"] = "after", _: str = Depends(user_of)):
         """A file's text for the board: changed files from the change set, others from the base workspace."""
         review_or_404(rid)
-        cs = store.get_blob(rid, "changeset") or {}
-        f = next((f for f in cs.get("files", []) if f["depot"] == path), None)
+        f = filestore.one(store, rid, path)
         if f is not None:
             rev = (f.get("base_rev") or "base") if side == "before" else "changed"
             return {"path": path, "depot": path, "rev": rev, "text": f[side], "changed": True}
@@ -458,10 +457,20 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
 
     @app.get("/api/reviews/{rid}/files")
     def files(rid: int, _: str = Depends(user_of)):
+        """The changed files without their text (a file's text comes with /file, when it is shown)."""
         review_or_404(rid)
-        cs = store.get_blob(rid, "changeset") or {}
-        lines = store.get_blob(rid, "lines") or {}        # who wrote each line of a multi-CL file (phase 2 §4)
-        return [{**f, "lines": lines[f["depot"]]} if f["depot"] in lines else f for f in cs.get("files", [])]
+        return filestore.listing(store, rid)
+
+    @app.get("/api/reviews/{rid}/file")
+    def changed_file(rid: int, path: str, _: str = Depends(user_of)):
+        """A changed file's text before and after, and each CL's, with who wrote each line of a file several CLs edit
+        (phase 2 §4)."""
+        review_or_404(rid)
+        f = filestore.one(store, rid, path)
+        if f is None:
+            raise HTTPException(404, f"{path} is not a changed file of this review")
+        lines = store.get_blob(rid, "lines") or {}
+        return {**f, "lines": lines[path]} if path in lines else f
 
     # ---- shared sinks (spec 2026-10-09-shared-sinks §6) -----------------------
     def sinks_view() -> dict:

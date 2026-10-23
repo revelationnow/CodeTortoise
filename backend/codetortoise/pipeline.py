@@ -10,7 +10,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from codetortoise import boardstore
+from codetortoise import boardstore, filestore
 from codetortoise.board import BoardContext, analyse, build_boards, is_test_path
 from codetortoise.brief import Brief, cache_key
 from codetortoise.cltext import prompt_text
@@ -168,7 +168,7 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
         ctx["cs"] = cs
         for meta in cs.cls:
             store.upsert_cl(rid, meta)
-        store.put_blob(rid, "changeset", cs)
+        filestore.save(store, rid, cs)
         msg = f"{len(cs.files)} file(s), {len(cs.drift)} drift warning(s)"
         if cs.warnings:
             more = f" (+{len(cs.warnings) - 5} more)" if len(cs.warnings) > 5 else ""

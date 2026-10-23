@@ -226,6 +226,50 @@ def test_source_endpoint_serves_changed_and_unchanged_files(env):
     assert svc.store.get_blob(rid, "source://fixture/service/logger.c")["text"] == ctx["text"]
 
 
+def test_source_of_a_changed_file_reads_its_record_not_the_change_set(env, monkeypatch):
+    svc, app, _ = env
+    owner, rid = _review(app)
+    real, keys = svc.store.get_blob, []
+    monkeypatch.setattr(svc.store, "get_blob", lambda r, k: keys.append(k) or real(r, k))
+    new = owner.get(f"/api/reviews/{rid}/source", params={"path": "//fixture/driver/uart.c", "side": "after"}).json()
+    assert new["changed"] and "err" in new["text"] and "changeset" not in keys
+
+
+def test_files_list_the_changed_files_without_their_text(env):
+    svc, app, _ = env
+    owner, rid = _review(app)
+    files = owner.get(f"/api/reviews/{rid}/files").json()
+    uart = next(f for f in files if f["depot"] == "//fixture/driver/uart.c")
+    assert set(uart) == {"depot", "local", "action", "base_rev", "cls"} and set(uart["cls"]) <= {101, 102} and uart["cls"]
+    assert all(set(f) == set(uart) for f in files)
+
+
+def test_a_changed_files_text_comes_from_its_own_record(env, monkeypatch):
+    svc, app, _ = env
+    owner, rid = _review(app)
+    assert TestClient(app).get(f"/api/reviews/{rid}/file", params={"path": "//fixture/driver/uart.c"}).status_code == 401
+    real, keys = svc.store.get_blob, []
+    monkeypatch.setattr(svc.store, "get_blob", lambda r, k: keys.append(k) or real(r, k))
+    f = owner.get(f"/api/reviews/{rid}/file", params={"path": "//fixture/driver/uart.c"}).json()
+    assert "err" in f["after"] and f["after"] != f["before"] and f["per_cl"] and f["action"]
+    assert "changeset" not in keys
+    r = owner.get(f"/api/reviews/{rid}/file", params={"path": "//fixture/service/logger.c"})     # not in CLs 101+102
+    assert r.status_code == 404 and r.json()["detail"] == "//fixture/service/logger.c is not a changed file of this review"
+
+
+def test_a_review_stored_before_the_file_records_gets_them_on_first_use(env):
+    from codetortoise import filestore
+    svc, app, _ = env
+    owner, rid = _review(app)
+    want = owner.get(f"/api/reviews/{rid}/files").json()
+    svc.store.replace_blobs(rid, [filestore.LISTING], [filestore.FILE], {})       # as an older version stored the review
+    assert owner.get(f"/api/reviews/{rid}/files").json() == want
+    assert svc.store.blob_keys(rid, filestore.FILE) == sorted(filestore.FILE + f["depot"] for f in want)
+    svc.store.replace_blobs(rid, [filestore.LISTING], [filestore.FILE], {})
+    assert "err" in owner.get(f"/api/reviews/{rid}/file", params={"path": "//fixture/driver/uart.c"}).json()["after"]
+    assert owner.get(f"/api/reviews/{rid}/files").json() == want
+
+
 @pytest.mark.parametrize("path,status", [("//fixture/../../etc/passwd", 403), ("//other/x.c", 403),
                                          ("//fixture/nope.c", 403)])
 def test_source_endpoint_refuses_paths_outside_the_workspace(env, path, status):
@@ -493,7 +537,8 @@ def test_a_file_several_cls_edit_comes_with_who_wrote_each_line(env):
     svc, app, _ = env
     owner = login(app, "owner")
     rid = owner.post("/api/reviews", json={"cls": [103, 104, 105]}).json()["id"]
-    files = {f["depot"]: f for f in owner.get(f"/api/reviews/{rid}/files").json()}
+    depots = [f["depot"] for f in owner.get(f"/api/reviews/{rid}/files").json()]
+    files = {d: owner.get(f"/api/reviews/{rid}/file", params={"path": d}).json() for d in depots}
     logger = files["//fixture/service/logger.c"]["lines"]
     assert logger["wrote"][6] == 105 and logger["over"][6] == 103 and logger["rewritten"] == {"103": {"7": 105}}
     assert [d for d, f in files.items() if "lines" in f] == ["//fixture/service/logger.c"]
