@@ -11,9 +11,9 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from codetortoise import boardstore
+from codetortoise import boardstore, filestore
 from codetortoise.health import run_health
-from codetortoise.impact import ImpactModel
+from codetortoise.impact import ImpactModel, Node
 from codetortoise.llm import ondemand, request_log, tortoise
 from codetortoise.names import cited, names, neighbours
 from codetortoise.paths import canon
@@ -325,7 +325,7 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
     @app.get("/api/reviews/{rid}/ticks")
     def ticks(rid: int, user: str = Depends(user_of)):
         review_or_404(rid)
-        if not store.get_blob(rid, "reading"):
+        if not store.has_blob(rid, "reading"):
             return {"stories": [], "checks": []}
         return store.list_ticks(rid, user)
 
@@ -382,7 +382,7 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         raise HTTPException(404, "not on any board of this review")
 
     def shown(rid: int):
-        """The review's graph, node files and stories (None before stories), for names and neighbours."""
+        """The review's graph, node files and stories (None before stories), for neighbours."""
         im = ImpactModel.model_validate(store.get_blob(rid, "impact") or {})
         return im, store.get_blob(rid, "node_files") or {}, boardstore.stories(store, rid)
 
@@ -391,24 +391,18 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         """A name for every node the UI can show (spec 2026-10-04-review-workspace §4.2): changed code, nodes on any
         board or story, findings' nodes and the nodes cited in flow, story, finding and summary text."""
         review_or_404(rid)
-        im, depot_of, ss = shown(rid)
-        ids, texts = set(im.changed), []
-        for b in boardstore.boards(store, rid).values():
-            ids |= {n.id for n in b.nodes} | {n for fl in b.flows for n in fl.path}
-            texts += [t for fl in b.flows for t in (fl.what, fl.title, fl.text, fl.effect, fl.check)]
-            texts += [b.about.intent, *(w.text for w in b.about.why)]
-        for st in ss.stories if ss else []:
-            texts += [st.title, st.summary]
-            d = boardstore.story(store, rid, st.id)
-            if d is not None:
-                ids |= {n.id for n in d.board.nodes} | {n.id for n in (d.graph.nodes if d.graph else [])}
-                texts += [f.note for f in d.functions]
+        im = store.get_blob(rid, "impact") or {}               # as stored: only the nodes named are built, not the graph
+        ss = boardstore.stories(store, rid)
+        ids, texts = boardstore.shown_nodes(store, rid, ss)
+        ids |= set(im.get("changed", []))
         for f in store.list_findings(rid):
             ids |= set(f.nodes) | {n for e in f.evidence for n in e.nodes or []}
             ids |= {n for h in f.hypotheses for n in h.cites}
             texts += [f.summary, f.explanation, *f.verify_steps, *(h.text for h in f.hypotheses),
                       *(e.text for e in f.evidence)]
-        return names(im, ids | cited(texts), depot_of, ss.node_story if ss else {})
+        wanted, known = ids | cited(texts), im.get("nodes", {})
+        nodes = {nid: Node.model_validate(known[nid]) for nid in wanted if nid in known}
+        return names(nodes, wanted, store.get_blob(rid, "node_files") or {}, ss.node_story if ss else {})
 
     @app.get("/api/reviews/{rid}/nodes/{nid}/neighbours")
     def node_neighbours(rid: int, nid: str, limit: int = 20, callers: int | None = None, callees: int | None = None,
@@ -426,8 +420,7 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
     def source(rid: int, path: str, side: Literal["before", "after"] = "after", _: str = Depends(user_of)):
         """A file's text for the board: changed files from the change set, others from the base workspace."""
         review_or_404(rid)
-        cs = store.get_blob(rid, "changeset") or {}
-        f = next((f for f in cs.get("files", []) if f["depot"] == path), None)
+        f = filestore.one(store, rid, path)
         if f is not None:
             rev = (f.get("base_rev") or "base") if side == "before" else "changed"
             return {"path": path, "depot": path, "rev": rev, "text": f[side], "changed": True}
@@ -464,10 +457,20 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
 
     @app.get("/api/reviews/{rid}/files")
     def files(rid: int, _: str = Depends(user_of)):
+        """The changed files without their text (a file's text comes with /file, when it is shown)."""
         review_or_404(rid)
-        cs = store.get_blob(rid, "changeset") or {}
-        lines = store.get_blob(rid, "lines") or {}        # who wrote each line of a multi-CL file (phase 2 §4)
-        return [{**f, "lines": lines[f["depot"]]} if f["depot"] in lines else f for f in cs.get("files", [])]
+        return filestore.listing(store, rid)
+
+    @app.get("/api/reviews/{rid}/file")
+    def changed_file(rid: int, path: str, _: str = Depends(user_of)):
+        """A changed file's text before and after, and each CL's, with who wrote each line of a file several CLs edit
+        (phase 2 §4)."""
+        review_or_404(rid)
+        f = filestore.one(store, rid, path)
+        if f is None:
+            raise HTTPException(404, f"{path} is not a changed file of this review")
+        lines = store.get_blob(rid, "lines") or {}
+        return {**f, "lines": lines[path]} if path in lines else f
 
     # ---- shared sinks (spec 2026-10-09-shared-sinks §6) -----------------------
     def sinks_view() -> dict:

@@ -7,6 +7,19 @@ export async function login(page: Page, user = "demo") {
   await expect(page.getByRole("heading", { name: "Reviews" })).toBeVisible();
 }
 
+/** Holds the server's answers to `url` back until `release()`, which lets through those held and those to come; `held`
+ * settles once one is being held. A later `hold` of the same address takes over from this one. */
+export async function hold(page: Page, url: string): Promise<{ held: Promise<void>; release: () => void }> {
+  let entered = () => {}, release = () => {};
+  const held = new Promise<void>((r) => { entered = r; }), gate = new Promise<void>((r) => { release = r; });
+  await page.route(url, async (route) => {
+    entered();
+    await gate;
+    try { await route.continue(); } catch { /* the page went away while it was held */ }
+  });
+  return { held, release };
+}
+
 /** Log in as the demo owner, review fixture CLs 101+102 (the large fixture's are 201 202) from the landing page and
  * wait for the rail's stories; returns the review's address ("/r/12"). */
 export async function startReview(page: Page, cls = "101 102"): Promise<string> {

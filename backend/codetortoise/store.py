@@ -178,6 +178,10 @@ class Store:
         rows = self._all("SELECT json FROM blobs WHERE review_id=? AND key=?", (rid, key))
         return json.loads(rows[0]["json"]) if rows else None
 
+    def has_blob(self, rid: int, key: str) -> bool:
+        """Whether the review has the blob, without reading it."""
+        return bool(self._all("SELECT 1 FROM blobs WHERE review_id=? AND key=?", (rid, key)))
+
     # ---- findings --------------------------------------------------------
     def put_findings(self, rid: int, findings: list[Finding]) -> None:
         """Replace findings; keep ack/dismiss state for findings with the same (kind, title)."""

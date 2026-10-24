@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, startReview } from "./helpers";
+import { expectNamed, expectNoNodeIds, hold, startReview } from "./helpers";
 
 /** The outline and checks by cause (spec 2026-10-16-outline-and-causes): fixture CLs 101–104 make three threads; with
  * Confirm hidden their causes are a caller, a result and a reader in thread A and an ask in thread C. */
@@ -26,6 +26,77 @@ async function withoutCauses(page: Page) {
 
 test.describe("desktop", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("while the reading loads, nothing of the layout before it shows; the reading is asked for first", async ({ page }) => {
+    const base = await startReview(page);
+    await page.addInitScript(() => {                    // anything of the old layout, however briefly it shows
+      const w = window as unknown as { old: string[] };
+      w.old = [];
+      new MutationObserver(() => {
+        if (document.querySelector("aside.ws-rail:not(.ws-outline):not(.folded)")) w.old.push("rail");
+        if ([...document.querySelectorAll(".ws-head .bd-pill")].some((e) => /RISK$/.test(e.textContent ?? ""))) w.old.push("risk pill");
+        if (document.querySelector(".ws-story-head:not(.st-head)")) w.old.push("story header");
+      }).observe(document, { subtree: true, childList: true });
+    });
+    const asked: string[] = [];
+    page.on("request", (r) => { const m = new URL(r.url()).pathname.match(/^\/api\/reviews\/\d+\/(\w+)$/); if (m) asked.push(m[1]); });
+    let release = () => {};
+    await page.route("**/api/reviews/*/reading", async (route) => { await new Promise<void>((r) => { release = r; }); await route.continue(); });
+    for (const at of [base, `${base}/s/S1`]) {
+      await page.goto(at);
+      await expect(page.locator(".ws-centre")).toContainText("Loading");
+      await expect(page.getByRole("complementary", { name: "Review contents" })).toContainText("Loading");
+      await page.waitForTimeout(1000);                  // everything else has come; the reading is held back
+      release();
+      await expect(page.locator(".ws-outline").getByRole("link", { name: /^Go to story S1/ })).toBeVisible();
+      expect(await page.evaluate(() => (window as unknown as { old: string[] }).old)).toEqual([]);
+    }
+    expect(asked.indexOf("reading")).toBeGreaterThan(-1);
+    expect(asked.indexOf("reading")).toBeLessThan(asked.indexOf("names"));
+    expect(asked.indexOf("reading")).toBeLessThan(asked.indexOf("files"));
+  });
+
+  test("the outline comes back scrolled where the reader left it, though it shows before the reading", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 400 });          // short, so the outline scrolls
+    const base = await startReview(page, FOUR);
+    const box = page.locator("aside.ws-outline .ws-rail-scroll");
+    expect(await box.evaluate((e) => e.scrollHeight - e.clientHeight)).toBeGreaterThan(40);
+    const want = await box.evaluate((e) => new Promise<number>((done) => {     // halfway down, once the outline saved it
+      e.addEventListener("scroll", () => done(e.scrollTop), { once: true });
+      e.scrollTop = Math.floor((e.scrollHeight - e.clientHeight) / 2);
+    }));
+    const reading = await hold(page, "**/api/reviews/*/reading");
+    await page.goto(base);
+    await expect(page.getByRole("complementary", { name: "Review contents" })).toContainText("Loading");
+    await reading.held;
+    reading.release();
+    await expect(page.locator(".ws-outline").getByRole("link", { name: /^Go to story S1/ })).toBeVisible();
+    await expect.poll(() => box.evaluate((e) => e.scrollTop)).toBe(want);
+  });
+
+  test("a link to a story, or to a finding by its old address, never says it isn't in the review while its data loads", async ({ page }) => {
+    const base = await startReview(page);
+    await page.addInitScript(() => {                    // a false "missing", however briefly it shows
+      const w = window as unknown as { said: string[] };
+      w.said = [];
+      new MutationObserver(() => {
+        for (const e of document.querySelectorAll(".ws-centre .banner, .ws-crumbs, .ws-phonebar"))
+          if (/isn't in this review|Not found/.test(e.textContent ?? "")) w.said.push((e.textContent ?? "").trim());
+      }).observe(document, { subtree: true, childList: true, characterData: true });
+    });
+    for (const at of [`${base}/s/S1`, `${base}/f/F4`]) {
+      const stories = await hold(page, "**/api/reviews/*/stories"), findings = await hold(page, "**/api/reviews/*/findings");
+      const reading = page.waitForResponse((r) => /\/api\/reviews\/\d+\/reading$/.test(new URL(r.url()).pathname));
+      await page.goto(at);
+      await reading;
+      await page.waitForTimeout(500);                   // the reading is in and drawn; what the place needs is held back
+      await expect(page.locator(".ws-centre")).toContainText("Loading");
+      stories.release();
+      findings.release();
+      await expect(page.locator(".ws-centre h2").first()).toBeVisible();
+      expect(await page.evaluate(() => (window as unknown as { said: string[] }).said), at).toEqual([]);
+    }
+  });
 
   test("the outline's Stories: threads with open causes, the current story's flows", async ({ page }) => {
     const base = await startReview(page, FOUR);

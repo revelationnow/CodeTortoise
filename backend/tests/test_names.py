@@ -30,7 +30,7 @@ def test_cited_finds_node_ids_in_text_but_not_finding_or_story_ids():
 
 
 def test_names_give_each_node_its_label_kind_depot_path_line_and_story():
-    out = names(_im(), ["N1", "N6", "N99"], DEPOTS, {"N1": "S1"})
+    out = names(_im().nodes, ["N1", "N6", "N99"], DEPOTS, {"N1": "S1"})
     assert out == {
         "N1": {"label": "send", "kind": "function", "path": "//d/src/send.c", "line": 10, "story": "S1"},
         "N6": {"label": "Uart::errors", "kind": "field", "path": None, "line": None, "story": None},

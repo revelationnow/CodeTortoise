@@ -33,7 +33,7 @@ import { addTab, closeTab as closeOf } from "./tabs";
 import { HEAD_MIN, headMax, loadHeadH } from "./layout";
 import { indexFor, legacy } from "./legacy";
 import { plainNames } from "./names";
-import { useReview } from "./useReview";
+import { type ReviewData, useReview } from "./useReview";
 import WholePage, { ReviewGraph } from "./WholePage";
 import "./workspace.css";
 
@@ -93,10 +93,13 @@ export default function Workspace() {
   const d = data.detail;
   const r = data.reading;
   const threadOf = useMemo(() => r ? (sid: string) => threadLabel(r.threads, sid) : undefined, [r]);
-  const trail = useMemo(() => crumbs(addr.place, {
-    base: root, title: d?.review.title ?? `Review ${id}`, stories: data.stories?.stories ?? [], findings: data.findings,
-    cls: d?.cls ?? [], clusters: data.overview?.clusters ?? [], threadOf,
-  }), [addr.place, root, d, id, data.stories, data.findings, data.overview, threadOf]);
+  const waiting = r === undefined || !loadedFor(addr.place, data);   // the trail waits, as the centre does
+  const trail = useMemo(() => waiting && addr.place.kind !== "whole"
+    ? [{ label: d?.review.title ?? `Review ${id}`, to: root }, { label: "Loading…", to: null }]
+    : crumbs(addr.place, {
+      base: root, title: d?.review.title ?? `Review ${id}`, stories: data.stories?.stories ?? [], findings: data.findings,
+      cls: d?.cls ?? [], clusters: data.overview?.clusters ?? [], threadOf,
+    }), [waiting, addr.place, root, d, id, data.stories, data.findings, data.overview, threadOf]);
   const hash = location.hash.slice(1) || null;
 
   // an address from before the workspace goes to where that thing lives now (§2.3)
@@ -140,9 +143,9 @@ export default function Workspace() {
         <main className={`ws ${screen} level-${level}${drawer ? " drawer" : ""}`}>
           <Head onMenu={() => setDrawer(!drawer)} drawer={drawer} />
           <div className={`ws-body${addr.open ? " with-detail" : ""}`}>
-            {(screen !== "phone" || level === "rail") && (r
-              ? <Outline onPick={() => setDrawer(false)} hidden={screen === "tablet" && !drawer} />
-              : <Rail show={hash} onPick={() => setDrawer(false)} hidden={screen === "tablet" && !drawer} />)}
+            {(screen !== "phone" || level === "rail") && (r === null      // the old rail only for a review run before the reading
+              ? <Rail show={hash} onPick={() => setDrawer(false)} hidden={screen === "tablet" && !drawer} />
+              : <Outline onPick={() => setDrawer(false)} hidden={screen === "tablet" && !drawer} />)}
             {drawer && <div className="ws-scrim" onClick={() => setDrawer(false)} aria-hidden />}
             {(screen !== "phone" || level === "item") && (
               <section className="ws-centre" aria-label="Centre">
@@ -150,7 +153,7 @@ export default function Workspace() {
                 <Centre />
               </section>
             )}
-            {addr.open && d && data.ready && (screen !== "phone" || level === "detail") && <Detail key={"cause" in addr.open ? `c:${addr.open.cause}` : JSON.stringify(addr.open)} />}
+            {addr.open && d && data.ready && r !== undefined && (screen !== "phone" || level === "detail") && <Detail key={"cause" in addr.open ? `c:${addr.open.cause}` : JSON.stringify(addr.open)} />}
           </div>
         </main>
       </WsContext.Provider>
@@ -187,7 +190,7 @@ function Head({ onMenu, drawer }: { onMenu: () => void; drawer: boolean }) {
                 onClick={onMenu}>☰</button>
         <h1><Link to={ws.base} state={{ page: true }} title="Go to the whole change">{r.title}</Link></h1>
         {d.reading ? <HeadlinePill h={d.reading.headline} />
-          : r.risk && <span className={`bd-pill ${r.risk}`}>{r.risk.toUpperCase()} RISK</span>}
+          : d.reading === null && r.risk && <span className={`bd-pill ${r.risk}`}>{r.risk.toUpperCase()} RISK</span>}
         {rd && d.ticks && <span className="ws-progress">{line}</span>}
         {next && <Link className="ws-next" to={ws.link(ws.opened({ cause: next.cause, at: next.at }))} aria-label="Next open check"
                        title={`Next open check: ${nextLine}`}>Next open check ›</Link>}
@@ -220,6 +223,8 @@ function Centre() {
   const ws = useWs(), d = ws.data, p = ws.addr.place;
   if (!d.ready) return <div className="ws-page"><Stages stages={d.detail!.stages} /><p className="muted">Analysis in progress…</p></div>;
   const r = d.reading;
+  // the reading decides the layout, and the place's own data whether it is there
+  if (r === undefined || !loadedFor(p, d)) return <div className="ws-page"><p className="muted">Loading…</p></div>;
   const exists = p.kind === "whole" || (p.kind === "index" && !!r) || (p.kind === "story" && !!d.stories?.stories.some((s) => s.id === p.sid))
     || (p.kind === "finding" && d.findings.some((f) => f.id === p.fid)) || (p.kind === "cl" && !!d.detail?.cls.some((c) => c.cl === p.cl))
     || (p.kind === "cluster" && !!d.overview?.clusters.some((c) => c.id === p.cid));
@@ -239,6 +244,15 @@ function Centre() {
   if (p.kind === "cluster") return r ? <IndexPage key={p.cid} tab="map" cid={p.cid} /> : <ClusterPage key={p.cid} cid={p.cid} />;
   if (p.kind === "index") return <IndexPage key={p.tab} tab={p.tab} />;
   return <Missing what={p} />;
+}
+
+/** Whether what tells `p`'s page exists is in (spec §7): until then the page is on its way, not missing. A finding's
+ * old address also needs the stories, for the story it opens. */
+function loadedFor(p: Place, d: ReviewData): boolean {
+  if (p.kind === "story") return d.stories !== undefined;
+  if (p.kind === "finding") return d.findingsLoaded && d.stories !== undefined;
+  if (p.kind === "cluster") return d.overview !== undefined;
+  return !(p.kind === "whole" && p.view === "graph") || d.board !== undefined;
 }
 
 export function Missing({ what }: { what: Place }) {

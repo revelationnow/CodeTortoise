@@ -3,10 +3,10 @@ reader sees a function's name, never its node id."""
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
 from codetortoise.board import is_test_path
-from codetortoise.impact import ImpactModel
+from codetortoise.impact import ImpactModel, Node
 
 CITE = re.compile(r"\bN\d+\b")
 
@@ -16,19 +16,18 @@ def cited(texts: Iterable[str | None]) -> set[str]:
     return {m for t in texts if t for m in CITE.findall(t)}
 
 
-def _name(im: ImpactModel, nid: str, depot_of: dict[str, list[str] | None], node_story: dict[str, str]) -> dict:
-    n = im.nodes[nid]
-    files = depot_of.get(nid) or []
+def _name(n: Node, depot_of: dict[str, list[str] | None], node_story: dict[str, str]) -> dict:
+    files = depot_of.get(n.id) or []
     return {"label": n.label, "kind": n.kind, "path": files[0] if n.file and files else None, "line": n.line,
-            "story": node_story.get(nid)}
+            "story": node_story.get(n.id)}
 
 NEIGHBOURS_MAX = 500                                         # the most of either side one answer lists
 
 
-def names(im: ImpactModel, ids: Iterable[str], depot_of: dict[str, list[str] | None],
+def names(nodes: Mapping[str, Node], ids: Iterable[str], depot_of: dict[str, list[str] | None],
           node_story: dict[str, str]) -> dict[str, dict]:
     """Each known node's label, kind, depot path (None for a field, or when unknown), line and story."""
-    return {nid: _name(im, nid, depot_of, node_story) for nid in sorted(set(ids)) if nid in im.nodes}
+    return {nid: _name(nodes[nid], depot_of, node_story) for nid in sorted(set(ids)) if nid in nodes}
 
 
 def neighbours(im: ImpactModel, nid: str, depot_of: dict[str, list[str] | None], node_story: dict[str, str], *,
@@ -45,7 +44,7 @@ def neighbours(im: ImpactModel, nid: str, depot_of: dict[str, list[str] | None],
     def item(m: str) -> dict:
         f = im.nodes[m].file or ""
         test = is_test_path(f[len(r):] if f.startswith(r) else f) if f else False
-        return {"id": m, **_name(im, m, depot_of, node_story), "changed": m in changed, "test": test}
+        return {"id": m, **_name(im.nodes[m], depot_of, node_story), "changed": m in changed, "test": test}
 
     def side(ids: set[str], n: int | None) -> dict:
         items = sorted((item(m) for m in ids if m in im.nodes),

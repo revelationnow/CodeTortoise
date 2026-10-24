@@ -39,6 +39,12 @@ def test_stages_and_blobs(store):
     assert store.get_blob(rid, "missing") is None
 
 
+def test_has_blob_says_whether_a_blob_is_stored(store):
+    store.put_blob(1, "reading", {"checks": []})
+    assert store.has_blob(1, "reading")
+    assert not store.has_blob(1, "reading_head") and not store.has_blob(2, "reading")
+
+
 def test_finding_state_survives_rerun(store):
     rid = store.create_review("t", "a", [1])
     store.put_findings(rid, [Finding(id="F1", kind="contract", severity="high", title="a", summary="s")])

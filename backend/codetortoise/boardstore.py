@@ -54,6 +54,25 @@ def story(store: Store, rid: int, sid: str) -> StoryDetail | None:
     return d
 
 
+def shown_nodes(store: Store, rid: int, ss: StorySet | None) -> tuple[set[str], list[str | None]]:
+    """The nodes on the review's boards and stories (`ss`), and the text that may cite more: each blob read once, the
+    stories as stored (the narratives `story` lays over their flows are the boards' own, read here already)."""
+    ids: set[str] = set()
+    texts: list[str | None] = []
+    for b in boards(store, rid).values():
+        ids |= {n.id for n in b.nodes} | {n for fl in b.flows for n in fl.path}
+        texts += [t for fl in b.flows for t in (fl.what, fl.title, fl.text, fl.effect, fl.check)]
+        texts += [b.about.intent, *(w.text for w in b.about.why)]
+    for st in ss.stories if ss else []:
+        texts += [st.title, st.summary]
+        raw = store.get_blob(rid, STORY + st.id)
+        if raw:
+            d = StoryDetail.model_validate(raw)
+            ids |= {n.id for n in d.board.nodes} | {n.id for n in (d.graph.nodes if d.graph else [])}
+            texts += [f.note for f in d.functions]
+    return ids, texts
+
+
 def put_story(store: Store, rid: int, d: StoryDetail) -> None:
     """Store a story's detail and its entry in the list (an AI rewrite of its title and summary)."""
     ss = stories(store, rid)
