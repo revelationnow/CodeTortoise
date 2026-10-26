@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, hold, startReview } from "./helpers";
+import { barNames, expectNamed, expectNoNodeIds, hold, reviewMenu, startReview, storyLink } from "./helpers";
 
 /** The outline and checks by cause (spec 2026-10-16-outline-and-causes): fixture CLs 101–104 make three threads; with
  * Confirm hidden their causes are a caller, a result and a reader in thread A and an ask in thread C. */
@@ -48,7 +48,7 @@ test.describe("desktop", () => {
       await expect(page.getByRole("complementary", { name: "Review contents" })).toContainText("Loading");
       await page.waitForTimeout(1000);                  // everything else has come; the reading is held back
       release();
-      await expect(page.locator(".ws-outline").getByRole("link", { name: /^Go to story S1/ })).toBeVisible();
+      await expect(page.locator(".ws-outline").getByRole("button", { name: /^Thread A:/ })).toBeVisible();
       expect(await page.evaluate(() => (window as unknown as { old: string[] }).old)).toEqual([]);
     }
     expect(asked.indexOf("reading")).toBeGreaterThan(-1);
@@ -57,8 +57,9 @@ test.describe("desktop", () => {
   });
 
   test("the outline comes back scrolled where the reader left it, though it shows before the reading", async ({ page }) => {
-    await page.setViewportSize({ width: 1440, height: 400 });          // short, so the outline scrolls
+    await page.setViewportSize({ width: 1440, height: 300 });          // short, so the outline scrolls
     const base = await startReview(page, FOUR);
+    await page.locator("aside.ws-outline").getByRole("button", { name: /^Thread A:/ }).click();   // kept, so it reopens
     const box = page.locator("aside.ws-outline .ws-rail-scroll");
     expect(await box.evaluate((e) => e.scrollHeight - e.clientHeight)).toBeGreaterThan(40);
     const want = await box.evaluate((e) => new Promise<number>((done) => {     // halfway down, once the outline saved it
@@ -98,16 +99,18 @@ test.describe("desktop", () => {
     }
   });
 
-  test("the outline's Stories: threads with open causes, the current story's flows", async ({ page }) => {
+  test("the outline's Stories: threads with open causes, the current story's flow groups", async ({ page }) => {
     const base = await startReview(page, FOUR);
     const outline = page.locator("aside.ws-outline");
     await expect(outline.getByRole("button", { name: "Stories" })).toHaveAttribute("aria-pressed", "true");
-    await expect(outline.locator(".ws-thread h3")).toHaveText(["A hal_write in hal, 3 open, 0 of 2 read",
-      "B logger_init in service, 0 of 2 read", "C svc::Engine::step in cpp, 1 open, 0 of 1 read"]);
-    await outline.getByRole("link", { name: /^Go to story S1/ }).click();
-    const flows = outline.getByRole("link", { name: /^Go to flow / });
-    await expect(flows.first()).toBeVisible();
-    await flows.first().click();
+    await expect.poll(() => barNames(page)).toEqual(["Thread A: hal_write in hal, 3 open, 0 of 2 read",
+      "Thread B: logger_init in service, 0 of 2 read", "Thread C: svc::Engine::step in cpp, 1 open, 0 of 1 read"]);
+    await (await storyLink(page, /^Go to story S1/)).click();
+    const groups = outline.locator(".ws-flows .ws-row");                             // a line per group of flows
+    await expect(groups).toHaveCount(2);
+    expect(await groups.evaluateAll((els) => els.map((e) => e.getAttribute("aria-label"))))
+      .toEqual(["Go to uart_send · 1 flow, 1 open", "Go to Uart::errors · 1 flow, 1 open"]);
+    await groups.first().click();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S1\\?flow=1$`));
     await expect(outline.locator("details.ws-index")).not.toHaveAttribute("open");
     await expectNoNodeIds(page);
@@ -144,8 +147,8 @@ test.describe("desktop", () => {
     await withoutCauses(page);
     const base = await startReview(page, FOUR);
     const outline = page.locator("aside.ws-outline");
-    await expect(outline.locator(".ws-thread h3").first()).toHaveText("A hal_write in hal, 0 of 2 read");
-    await expect(page.locator(".ov-meta").first()).toHaveText("2 stories · 0 read");
+    await expect.poll(async () => (await barNames(page))[0]).toBe("Thread A: hal_write in hal, 0 of 2 read");
+    await expect(page.locator("section.ov-sec").first().locator(".ov-n")).toHaveText([", 2 stories", ", — open", ", 0 read"]);
     await outline.getByRole("button", { name: "Checks" }).click();
     await expect(outline).toContainText("Re-run the review to group its checks.");
     await page.goto(`${base}?open=cause:c0123456789&at=1`);
@@ -229,6 +232,55 @@ test.describe("a cause of many places", () => {
     await expect(panel.locator(".cs-donecount")).toHaveText("1 done");
   });
 
+  test("a held F clears one place, not place after place", async ({ page }) => {
+    const panel = await openReaders(page);
+    await expect(panel.locator(".cs-pos")).toHaveText("1 / 5");
+    await page.keyboard.down("f");                                       // a fresh press clears place 1 and steps on to place 2
+    await expect(panel.locator(".cs-pos")).toHaveText("2 / 5");
+    await expect(panel.getByRole("button", { name: "Looks fine & next" })).toBeEnabled();
+    await page.keyboard.down("f");                                       // the key is still down: the browser's repeats are not presses
+    await page.keyboard.down("f");
+    await page.keyboard.up("f");
+    await page.waitForTimeout(300);                                      // a mark that wrongly started would have landed by now
+    await expect(panel.locator(".cs-pos")).toHaveText("2 / 5");
+    await expect(panel.locator(".cs-donecount")).toHaveText("1 done");
+  });
+
+  test("with the review menu or the How to read dialog open, J and F are the popup's, not the stepper's", async ({ page }) => {
+    const panel = await openReaders(page);
+    await expect(panel.locator(".cs-pos")).toHaveText("1 / 5");
+    const menu = await reviewMenu(page);
+    const item = menu.getByRole("menuitem").first();
+    await expect(item).toBeFocused();
+    for (const key of ["j", "f"]) await page.keyboard.press(key);
+    await page.waitForTimeout(300);                                      // a mark that wrongly started would have landed by now
+    await expect(item).toBeFocused();
+    await menu.getByRole("menuitem", { name: "How to read this page" }).click();
+    const dialog = page.getByRole("dialog", { name: "How to read this page" });
+    await expect(dialog).toBeFocused();
+    for (const key of ["j", "f"]) await page.keyboard.press(key);
+    await page.waitForTimeout(300);
+    await expect(dialog).toBeFocused();
+    await expect(panel.locator(".cs-pos")).toHaveText("1 / 5");
+    await expect(panel.locator(".cs-donecount")).toHaveText("0 done");
+  });
+
+  test("a J pressed the moment the stepper shows is heard, not lost to the next paint", async ({ page }) => {
+    await startReview(page, "201 202");
+    const outline = page.locator("aside.ws-outline");
+    await outline.getByRole("button", { name: "Checks" }).click();
+    const link = outline.getByRole("link", { name: `Open check: ${READERS}` });
+    await page.evaluate(() => {
+      new MutationObserver((_, watcher) => {
+        if (!document.querySelector(".cs-pos")) return;
+        watcher.disconnect();
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "j" }));   // in the microtask after the commit that shows the stepper
+      }).observe(document, { childList: true, subtree: true });
+    });
+    await link.click();
+    await expect(page.getByRole("complementary", { name: `Check: ${READERS}` }).locator(".cs-pos")).toHaveText("2 / 5");
+  });
+
   test("a failed Looks fine's banner goes when the reader steps to another place", async ({ page }) => {
     await holdMarks(page, "fail");
     const panel = await openReaders(page);
@@ -271,14 +323,14 @@ test.describe("the top bar", () => {
     const r = await (await page.request.get(`/api/reviews/${base.split("/")[2]}/reading`)).json() as { causes: { kind: string; text: string }[] };
     const lines = r.causes.filter((c) => c.kind !== "confirm").map((c) => c.text.replaceAll("`", ""));
     expect(lines).toHaveLength(4);
-    await expect(page.locator(".ws-progress")).toHaveText("0 of 5 stories read · 4 causes open");
+    await expect(page.locator(".ws-progress")).toHaveText("0 of 5 stories read · 4 checks open");
     const next = page.getByRole("link", { name: "Next open check" });
     for (const line of [...lines, lines[0]]) {
       await next.click();
       await expect(page.getByRole("complementary", { name: `Check: ${line}` })).toBeVisible();
     }
     await page.getByRole("button", { name: "Looks fine & next" }).click();
-    await expect(page.locator(".ws-progress")).toHaveText("0 of 5 stories read · 3 causes open");
+    await expect(page.locator(".ws-progress")).toHaveText("0 of 5 stories read · 3 checks open");
     for (let i = 0; i < 3; i++) {
       await next.click();
       await page.getByRole("button", { name: "All look fine" }).click();
@@ -297,12 +349,14 @@ test.describe("the top bar", () => {
     await expect(page.getByRole("link", { name: "Next open check" })).toHaveCount(0);
   });
 
-  test("? opens how to read the page; Escape closes it", async ({ page }) => {
+  test("the review menu opens how to read the page; Escape closes it and returns to the menu", async ({ page }) => {
     await startReview(page, FOUR);
-    const help = page.getByRole("button", { name: "How to read this page" });
-    await help.click();
+    await (await reviewMenu(page)).getByRole("menuitem", { name: "How to read this page" }).click();
     const dialog = page.getByRole("dialog", { name: "How to read this page" });
     await expect(dialog).toContainText("J next, K back, F looks fine & next");
+    await expect(dialog).toContainText("the story you are on shows its flow groups.");
+    await expect(dialog).toContainText("On Flows: J next row, K back, Enter opens it, F looks fine & next.");
+    await expect(dialog).toContainText("A faint violet line at the left of a paragraph marks text the AI wrote.");
     for (const w of [1440, 600]) {
       await page.setViewportSize({ width: w, height: 900 });
       await expect(dialog).toBeVisible();
@@ -316,7 +370,7 @@ test.describe("the top bar", () => {
     }
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
-    await expect(help).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByRole("button", { name: /^Review menu/ })).toBeFocused();
   });
 });
 
@@ -339,8 +393,7 @@ test.describe("a story's tabs", () => {
     await expect(page).toHaveURL(new RegExp(`${base}/s/S2\\?view=graph$`));
     await expect(page.locator(".bd-node").first()).toBeVisible();
     await page.goto(`${base}/s/S1`);
-    const cards = page.getByRole("region", { name: /^Flow \d+:/ });
-    await expect(cards.first()).toBeVisible();
+    await expect(page.locator(".fl-row").first()).toBeVisible();
     const chips = page.locator(".st-chip");
     expect(await chips.count()).toBeGreaterThan(0);
     const name = (await chips.first().getAttribute("aria-label"))!;
@@ -350,13 +403,14 @@ test.describe("a story's tabs", () => {
     await expectNamed(page);
   });
 
-  test("an outline flow line opens its card; a story remembers its tab; an old ?view=graph opens Graph", async ({ page }) => {
+  test("an outline group line opens its first row; a story remembers its tab; an old ?view=graph opens Graph", async ({ page }) => {
     const base = await startReview(page, FOUR);
     const outline = page.locator("aside.ws-outline");
-    await outline.getByRole("link", { name: /^Go to story S1/ }).click();
-    await outline.getByRole("link", { name: /^Go to flow 1:/ }).click();
-    await expect(page.getByRole("region", { name: /^Flow 1:/ })).toHaveClass(/\blit\b/);
-    await expect(page.getByRole("region", { name: /^Flow 1:/ })).toBeInViewport();
+    await (await storyLink(page, /^Go to story S1/)).click();
+    await outline.getByRole("link", { name: /^Go to Uart::errors · 1 flow/ }).click();
+    await expect(page).toHaveURL(/\/s\/S1\?flow=2$/);
+    await expect(page.locator("#flow-2 .fl-toggle")).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByRole("region", { name: /^Flow 2:/ })).toBeInViewport();
     await page.getByRole("navigation", { name: "Story sections" }).getByRole("link", { name: /^Code/ }).click();
     await outline.getByRole("link", { name: /^Go to story S2/ }).click();
     await outline.getByRole("link", { name: /^Go to story S1/ }).click();
@@ -365,21 +419,22 @@ test.describe("a story's tabs", () => {
     await expect(page.getByRole("navigation", { name: "Story sections" }).getByRole("link", { name: "Graph" })).toHaveAttribute("aria-current", "page");
   });
 
-  test("with every kind hidden a story shows no chips", async ({ page }) => {
+  test("with every kind hidden a story shows no chips and no tick boxes", async ({ page }) => {
     const base = await startReview(page, FOUR);
     await page.evaluate(() => window.localStorage.setItem("ct.ws.hiddenKinds", JSON.stringify(
       ["hazard", "confirm", "caller", "result", "reader", "target", "untested", "unanalysed", "ask"])));
     await page.goto(`${base}/s/S1`);
-    await expect(page.getByRole("region", { name: /^Flow 1:/ })).toBeVisible();
+    await expect(page.locator(".fl-row").first()).toBeVisible();
     await expect(page.locator(".st-chip")).toHaveCount(0);
-    await expect(page.getByRole("region", { name: "Other checks in this story" })).toHaveCount(0);
+    await expect(page.locator(".fl-tick")).toHaveCount(0);                     // a hidden kind is no place to tick
+    await expect(page.getByRole("region", { name: "Also in this story" })).toHaveCount(0);
   });
 
   test("a story stored before causes shows no chips", async ({ page }) => {
     await withoutCauses(page);
     const base = await startReview(page, FOUR);
     await page.goto(`${base}/s/S1`);
-    await expect(page.getByRole("region", { name: /^Flow 1:/ })).toBeVisible();
+    await expect(page.locator(".fl-row").first()).toBeVisible();
     await expect(page.locator(".st-chip")).toHaveCount(0);
   });
 
@@ -392,7 +447,7 @@ test.describe("a story's tabs", () => {
     });
   }
 
-  test("a very long check line ends in an ellipsis inside its flow card, the whole line on hover", async ({ page }) => {
+  test("a very long check line ends in an ellipsis inside its group, the whole line on hover", async ({ page }) => {
     const base = await startReview(page, FOUR);
     const long = "`uart_send` changed so that " + "every caller that passed the old value now sees something else ".repeat(8);
     await patchStory(page, "S1", (j) => { for (const c of j.reading.causes) c.text = long; });
@@ -412,8 +467,9 @@ test.describe("a story's tabs", () => {
       const fl = j.board.flows.filter((f: any) => j.story.flows.includes(f.id));
       j.reading.account = [{ kind: "flow", heading: fl[1].text, text: "SECOND-FLOW-ACCOUNT", cites: [] }];
     });
-    await page.goto(`${base}/s/S1`);
+    await page.goto(`${base}/s/S1?flow=2`);
     await expect(page.getByRole("region", { name: /^Flow 2:/ })).toContainText("SECOND-FLOW-ACCOUNT");
+    await page.locator("#flow-1 .fl-toggle").click();
     await expect(page.getByRole("region", { name: /^Flow 1:/ })).not.toContainText("SECOND-FLOW-ACCOUNT");
   });
 
@@ -433,31 +489,34 @@ test.describe("a story's tabs", () => {
 test.describe("the overview", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test("the change, Start here then Continue, a block per thread and how they connect; nothing pinned beside it", async ({ page }) => {
+  test("the change, Start with Thread A then Continue, a section per thread and how they connect; nothing pinned beside it", async ({ page }) => {
     const base = await startReview(page, FOUR);
     await page.goto(base);
-    await expect(page.locator(".ov3 h2")).toHaveText(["The change as a whole", "Threads", "How the threads connect", "Build impact",
-                                                 "Coverage", "Discussion"]);
-    await expect(page.locator(".ov-thread").first().locator(".ov-meta")).toHaveText("2 stories · 0 read · 3 causes open");
-    const intro = page.locator(".ov-thread").first().locator(".ov-intro");
+    await expect(page.locator(".ov3 h2")).toHaveText(["3 threads", "Build impact · up to 4 files rebuild", "Coverage · 2 notes",
+                                                      "Discussion · no comments yet"]);
+    const a = page.getByRole("region", { name: "Thread A: hal_write in hal" });
+    await expect(a.locator(".ov-n")).toHaveText([", 2 stories", ", 3 open", ", 0 read"]);
+    const intro = a.locator(".ov-intro");
     const full = (await intro.getAttribute("title")) ?? "";
     expect(full.length).toBeGreaterThan(0);
     expect(full).toContain(((await intro.innerText()).split("\n")[0] ?? "").slice(0, 20));
     expect(full).not.toMatch(/\bN\d+\b/);
-    await expect(page.locator(".ov-conn-rows li")).toHaveText(["A and B: both run inside main",
-                                                               "B and C: nothing besides arriving in CL 104 — ask the author"]);
+    await expect(page.locator(".ov-links li")).toHaveText(["With Thread A: both run inside main",
+                                                           "With Thread B: nothing besides arriving in CL 104 — ask the author"]);
     await expect(page.getByRole("region", { name: "Coverage" })).toContainText("Risks judged by rules only.");
-    await expect(page.locator(".ov-howto, .ck-tile, .ov-progress, .ov-route, .ov2-check")).toHaveCount(0);
-    await page.getByRole("link", { name: "Start here ›" }).click();
+    await expect(page.locator(".ov-howto, .ck-tile, .ov-progress, .ov-route, .ov2-check, .ov-thread, .ov-meta, .ov-conn-rows"))
+      .toHaveCount(0);
+    await page.getByRole("link", { name: "Start with Thread A ›" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S2`));
     await page.getByRole("button", { name: "Mark as read" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S1`));
     await page.goto(base);
-    await expect(page.locator(".ov-thread").first().locator(".ov-meta")).toHaveText("2 stories · 1 read · 3 causes open");
-    await page.getByRole("link", { name: "Continue ›" }).click();
+    await expect(a.locator(".ov-n")).toHaveText([", 2 stories", ", 3 open", ", 1 read"]);
+    await expect(a.getByRole("link", { name: "Continue thread A" })).toBeVisible();
+    await page.getByRole("link", { name: "Continue ›", exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S1`));
     await page.goto(base);
-    await page.getByRole("link", { name: "Go to thread B's first unread story" }).click();
+    await page.getByRole("link", { name: "Start thread B" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S3`));
     await expectNoNodeIds(page);
     await expectNamed(page);

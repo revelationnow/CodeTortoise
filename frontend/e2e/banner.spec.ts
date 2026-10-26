@@ -1,5 +1,5 @@
 import { devices, expect, test } from "@playwright/test";
-import { login, startReview } from "./helpers";
+import { login, startReview, storyLink } from "./helpers";
 
 // a second name for the e2e server that is not loopback (spec §14.5); 127.0.0.1 itself is unaffected
 test.use({ launchOptions: { args: ["--host-resolver-rules=MAP ct-lan.test 127.0.0.1"] } });
@@ -29,7 +29,7 @@ test.describe("on a network host name", () => {
     test("the banner and the phone workspace fit the screen together", async ({ page }) => {
       await startReview(page);
       await expect(page.getByRole("alert")).toBeVisible();
-      await page.locator(".ws-rail").getByRole("link", { name: /^Go to story/ }).first().click();
+      await (await storyLink(page, /^Go to story/)).click();
       const bar = (await page.locator(".ws-phonebar").boundingBox())!;
       expect(bar.y).toBeGreaterThanOrEqual(0);                                             // the back bar stays on screen
       expect(bar.y + bar.height).toBeLessThanOrEqual(page.viewportSize()!.height);

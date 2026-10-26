@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { startReview } from "./helpers";
+import { startReview, storyLink } from "./helpers";
 
 /** CLs as a sequence (spec 2026-10-07-review-reading-phase2): fixture CL 103 adds logger_init's `lg->level = 1;`,
  * CL 104 adds logger_level, CL 105 rewrites CL 103's line to `lg->level = 2;`. */
@@ -35,7 +35,7 @@ test.describe("desktop", () => {
 
   test("a story's Where groups its files by CL in reading order, says the order, and names the rewrite", async ({ page }) => {
     await startReview(page, STACK);
-    await page.locator(".ws-rail").getByRole("link", { name: /^Go to story S\d+: .*logger_init/ }).click();
+    await (await storyLink(page, /^Go to story S\d+: .*logger_init/)).click();
     await page.getByRole("navigation", { name: "Story sections" }).getByRole("link", { name: /^Where/ }).click();
     const where = page.getByRole("region", { name: "Where" });
     await expect(where.locator(".st-order")).toHaveText("Read CL 103, then CL 105");

@@ -1,19 +1,19 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { Story, StoryDetail } from "../board/types";
 import { keys, load, loadWidth, save } from "../board/prefs";
 import Resizer from "../board/Resizer";
-import HeadlinePill from "../components/HeadlinePill";
 import { CHECK_ORDER, KIND_LABEL, letter, placeOf } from "../reading/checks";
 import { causeGroups, causeOpen, doneCount, firstOpenAt, hiddenLabel, shown } from "../reading/causes";
 import { threadRead } from "../reading/plan";
-import { flowLabel } from "../reading/story";
+import { flowGroups, flowsWord, groupShort, openFlows, placesOf } from "../reading/flowGroups";
 import type { Cause, Check, CheckKind, Reading } from "../reading/types";
 import { INDEX_TABS, type Place } from "./address";
 import { useWs } from "./context";
 import { INDEX_LABEL, short } from "./crumbs";
 import NameText, { Ticks } from "./NameText";
 import { plainNames } from "./names";
+import { barPin, loadThread, openThread, saveThread } from "./outline";
 import Strip, { FoldButton } from "./Strip";
 
 const scrollKey = (rid: number) => `ct.ws.${rid}.railScroll`;
@@ -64,8 +64,17 @@ function OutlineBody({ onPick, hidden = false, folded }: Props & { folded: boole
   );
 }
 
-/** Stories (§1.2): the overview, each thread with its stories in reading order, the current story's flows, the tests,
- * and the Index folded at the bottom. */
+/** Going to a story makes its thread the one last opened in this review (spec 2026-10-25-review-ui-redesign §6), for each
+ * story, not only when the thread changes, or a bar clicked since would stay the last opened. The workspace keeps it,
+ * since on a phone the outline is not there while a story shows; the outline reads it when it mounts. */
+export function useStoryThread(rid: number, r: Reading | null | undefined, sid: string | null) {
+  const holding = r && sid ? r.threads.find((t) => t.stories.includes(sid))?.id ?? null : null;
+  useEffect(() => { if (holding) saveThread(rid, holding); }, [rid, sid, holding]);
+}
+
+/** Stories (spec 2026-10-25-review-ui-redesign §6): the overview; a bar per thread, one open at a time with its stories
+ * numbered and the current story's flows, the bars before it pinned to the top of the scroll area and those after it to
+ * the bottom; the tests; the Index folded at the bottom. */
 function StoriesView({ r, onPick }: { r: Reading; onPick: () => void }) {
   const ws = useWs(), d = ws.data, ss = d.stories;
   const byId = new Map((ss?.stories ?? []).map((st) => [st.id, st]));
@@ -74,7 +83,22 @@ function StoriesView({ r, onPick }: { r: Reading; onPick: () => void }) {
   const read = d.ticks ? new Set(d.ticks.stories) : null;
   const here = ws.addr.place.kind === "story" ? ws.addr.place.sid : null;
   const tests = (ss?.stories ?? []).filter((st) => st.kind === "tests");
-  const story = (st: Story, why?: string) => {
+  const [last, setLast] = useState(() => loadThread(d.id));
+  const [chosen, setChosen] = useState<{ here: string | null; id: string | null } | null>(null);   // a bar clicked at `here`
+  useEffect(() => { setChosen(null); }, [here]);           // a bar clicked at one story does not outlive it: Back, or the overview, return to the rules
+  const holding = here ? r.threads.find((t) => t.stories.includes(here))?.id ?? null : null;
+  useEffect(() => {                                        // going to a story opens its thread, and the outline keeps it (stored by
+    if (holding) setLast(holding);                         // useStoryThread): for each story, or a bar clicked since stays the last opened
+  }, [here, holding]);
+  const on = chosen && chosen.here === here ? chosen.id : openThread(r.threads, here, last);
+  const at = r.threads.findIndex((t) => t.id === on);
+  const toggle = (id: string) => {
+    const next = on === id ? null : id;
+    setChosen({ here, id: next });
+    setLast(next);
+    saveThread(d.id, next);
+  };
+  const story = (st: Story, why?: string, num?: number) => {
     const n = open((c) => c.story === st.id), reason = st.kind === "unsorted" ? "Needs a person to place it" : why;
     const label = `Go to story ${st.id}: ${short(st.title)}${read?.has(st.id) ? " (read)" : ""}${n ? `, ${n} open` : ""}`;
     const place: Place = { kind: "story", sid: st.id, view: "steps" };
@@ -85,6 +109,7 @@ function StoriesView({ r, onPick }: { r: Reading; onPick: () => void }) {
               onMouseEnter={() => ws.setHover(st.id)} onMouseLeave={() => ws.setHover(null)}
               onFocus={() => ws.setHover(st.id)} onBlur={() => ws.setHover(null)}>
           <span className="ws-row-top">
+            {num !== undefined && <span className="ws-num" aria-hidden>{num}</span>}
             {read && <span className="ws-read" aria-hidden>{read.has(st.id) ? "✓" : ""}</span>}
             <span className="ws-one"><Ticks text={st.title} /></span>
             {n > 0 && <span className="ck-count" aria-hidden>{n}</span>}
@@ -98,17 +123,28 @@ function StoriesView({ r, onPick }: { r: Reading; onPick: () => void }) {
   return <>
     <Link to={ws.base} state={{ page: true }} className="ws-row ws-home" aria-current={ws.addr.place.kind === "whole" ? "page" : undefined}
           title="Go to the overview" aria-label="Go to the overview" onClick={onPick}>
-      <span aria-hidden>⌂</span> Overview <HeadlinePill h={r.headline} />
+      <span aria-hidden>⌂</span> Overview
     </Link>
     {r.threads.map((t, i) => {
-      const n = open((c) => c.thread === t.id);
+      const n = open((c) => c.thread === t.id), L = letter(i, t.id), name = bare(plainNames(t.name, d.names)), isOn = t.id === on;
       return (
-        <div key={t.id} className="ws-group ws-thread">
-          <h3><span className="ov-letter">{letter(i, t.id)}</span> <Ticks text={t.name} />
-            {n > 0 && <span className="ck-count"><span className="vh">, </span>{n}<span className="vh"> open</span></span>}
-            {read && <span className="ws-thread-read"><span className="vh">, </span>{threadRead(t.stories, read)}<span className="vh"> read</span></span>}</h3>
-          <ul>{t.stories.map((sid) => (byId.get(sid) ? story(byId.get(sid)!, r.reasons[sid]) : null))}</ul>
-        </div>
+        <Fragment key={t.id}>
+          <h3 className={`ws-bar${isOn ? " on" : ""}`} style={barPin(i, at, r.threads.length) ?? undefined}>
+            <button aria-expanded={isOn} title={`Thread ${L}: ${name}`} onClick={() => toggle(t.id)}
+                    aria-label={`Thread ${L}: ${name}${n ? `, ${n} open` : ""}${read ? `, ${threadRead(t.stories, read)} read` : ""}`}>
+              <span className="ov-letter" aria-hidden>{L}</span>
+              <b className="ws-bar-l">Thread {L}</b>
+              <span className="ws-one"><Ticks text={t.name} /></span>
+              {n > 0 && <span className="ck-count">{n}</span>}
+              {read && <span className="ws-thread-read">{threadRead(t.stories, read)}</span>}
+              <span className="ws-bar-caret" aria-hidden>{isOn ? "▾" : "▸"}</span>
+            </button>
+          </h3>
+          {isOn && <ul className="ws-bar-list">{t.stories.map((sid, k) => {
+            const st = byId.get(sid);
+            return st ? story(st, r.reasons[sid], k + 1) : null;
+          })}</ul>}
+        </Fragment>
       );
     })}
     {tests.length > 0 && <div className="ws-group"><h3>Tests</h3><ul>{tests.map((st) => story(st))}</ul></div>}
@@ -124,7 +160,9 @@ function StoriesView({ r, onPick }: { r: Reading; onPick: () => void }) {
   </>;
 }
 
-/** The current story's flows, numbered, one line each; a line opens the story's Flows tab at that flow's card. */
+/** The current story's flow groups (spec 2026-10-25-review-ui-redesign §7.6), one line each with how many flows and
+ * how many still open; a line opens the story's Flows tab at the group's first flow, and that row, though the address
+ * already names it: the link is then to where the reader is, so it says so in its navigation state for the tab to hear. */
 function StoryFlows({ sid, onPick }: { sid: string; onPick: () => void }) {
   const ws = useWs(), d = ws.data, storyOf = d.story;
   const [held, setHeld] = useState<{ sid: string; detail: StoryDetail } | null>(null);
@@ -138,16 +176,20 @@ function StoryFlows({ sid, onPick }: { sid: string; onPick: () => void }) {
   const flows = det.board.flows.filter((f) => det.story.flows.includes(f.id));
   if (!flows.length) return null;
   const labels = new Map(det.board.nodes.map((n) => [n.id, n.label]));
+  const label = (n: string) => labels.get(n) ?? d.names[n]?.label ?? "a function";
+  const places = placesOf(flows, det.reading?.checks ?? [], ws.hidden, label), marks = d.reading?.marks ?? {};
   const place: Place = { kind: "story", sid, view: "steps" };
   return (
-    <ol className="ws-flows">{flows.map((f, i) => {
-      const label = flowLabel(f, (n) => labels.get(n) ?? d.names[n]?.label);
+    <ol className="ws-flows">{flowGroups(flows).map((g) => {
+      const what = groupShort(g, label), open = openFlows(g, places, marks);
+      const count = flowsWord(g.rows.length), name = `${bare(what)} · ${count}`;
       return (
-        <li key={f.id}>
-          <Link className="ws-row flow" to={ws.link({ ...ws.item(place), place, sec: undefined, flow: i + 1 })}
-                aria-current={ws.addr.flow === i + 1 ? "true" : undefined}
-                aria-label={`Go to flow ${i + 1}: ${label}`} title={label} onClick={onPick}>
-            <span className="ws-row-top"><span className="muted">{i + 1}</span><span className="ws-one mono">{label}</span></span>
+        <li key={g.key}>
+          <Link className="ws-row fgroup" to={ws.link({ ...ws.item(place), place, sec: undefined, flow: g.rows[0].n })}
+                state={{ showFlow: true }} aria-current={g.rows.some((r) => r.n === ws.addr.flow) ? "true" : undefined}
+                aria-label={`Go to ${name}${open ? `, ${open} open` : ""}`} title={name} onClick={onPick}>
+            <span className="ws-row-top"><span className="ws-one"><Ticks text={what} /><span className="ws-fg-n"> · {count}</span></span>
+              {open > 0 && <span className="ck-count"><span className="vh">, </span>{open}<span className="vh"> open</span></span>}</span>
           </Link>
         </li>
       );

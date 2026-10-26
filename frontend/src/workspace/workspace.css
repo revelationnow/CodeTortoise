@@ -45,12 +45,10 @@ body.bd-dragging, body.bd-dragging * { user-select: none !important; -webkit-use
 body.bd-resizing, body.bd-resizing * { cursor: col-resize !important; user-select: none !important; }
 body.bd-resizing-v, body.bd-resizing-v * { cursor: row-resize !important; user-select: none !important; }
 
-/* pills and stage notes in the review head */
+/* pills in the review head */
 .bd-pill { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 99px; letter-spacing: .03em; white-space: nowrap; }
 .bd-pill.high { background: var(--fx-deep); color: #fff; } .bd-pill.medium { background: #ffcf66; color: #5a3a00; }
 .bd-pill.low { background: #b9f0cc; color: #13692f; } .bd-pill.ghost { background: var(--gap-bg); color: var(--muted); }
-.bd-notes { font-size: 12px; color: var(--warn); } .bd-notes summary { cursor: pointer; }
-.bd-notes .banner { color: var(--bd-ink); }
 
 /* flow tags */
 .bd-tag { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 6px; text-transform: uppercase; letter-spacing: .04em; }
@@ -202,8 +200,7 @@ body.bd-resizing-v, body.bd-resizing-v * { cursor: row-resize !important; user-s
 .ov-band.lv1 { background: color-mix(in srgb, var(--chg-bg-soft) 70%, transparent); }
 .ov-band.lv2 { background: color-mix(in srgb, var(--bd-sel) 70%, transparent); }
 .ov-band.lv3 { background: color-mix(in srgb, var(--ctx-bg-soft) 80%, transparent); }
-.ov-band h3 { width: 92px; flex: none; margin: 4px 0 0; font: 700 11px var(--bd-sans); letter-spacing: .06em;
-  text-transform: uppercase; color: var(--bd-band-label); }
+.ov-band h3 { width: 92px; flex: none; margin: 4px 0 0; font: 650 15px var(--bd-sans); color: var(--ink); }
 .ov-blocks { display: flex; flex-wrap: wrap; gap: 10px; flex: 1; }
 .ov-block { flex: 1 1 240px; max-width: 360px; background: var(--bd-surface); border: 2px solid var(--bd-node-line); border-radius: 10px;
   padding: 8px 10px; font: 12px var(--bd-sans); cursor: pointer; position: relative; }
@@ -249,9 +246,9 @@ body.bd-resizing-v, body.bd-resizing-v * { cursor: row-resize !important; user-s
   border-bottom: 1px solid var(--line); background: var(--surface); }
 .ws-head h1 { font-size: 16px; margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ws-head h1 a { color: var(--ink); text-decoration: none; }
-.ws-head .rerun { margin-left: auto; }
-/* the header is as tall as its content until the reader drags its bottom edge; then what doesn't fit scrolls */
-.ws-headbox { flex: none; position: relative; z-index: 8; display: flex; flex-direction: column; }
+/* the header is as tall as its content until the reader drags its bottom edge; then what doesn't fit scrolls. It sits above
+   the tablet's drawer (30) and side panel (20), since the ⋯ menu and its panels hang from it */
+.ws-headbox { flex: none; position: relative; z-index: 40; display: flex; flex-direction: column; }
 .ws-headbox > .ws-head { flex: 1 1 auto; min-height: 0; overflow-y: auto; align-content: flex-start; }
 .ws-menu { display: none; font-size: 17px; line-height: 1; padding: 3px 9px; }
 .ws-body { flex: 1; min-height: 0; display: flex; position: relative; }
@@ -266,7 +263,7 @@ body.bd-resizing-v, body.bd-resizing-v * { cursor: row-resize !important; user-s
 .ws-sec { border-top: 1px solid var(--line); padding: 4px 0; }
 .ws-sec h2 { margin: 0; }
 .ws-sec-t { display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: none; border-radius: 0;
-  padding: 7px 14px; font: 600 12px/1.3 var(--sans); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); text-align: left; }
+  padding: 7px 14px; font: 650 15px/1.3 var(--sans); color: var(--ink); text-align: left; }
 .ws-sec-t .caret { width: 10px; }
 .ws-group h3 { margin: 6px 14px 2px; font: 600 11px/1.3 var(--sans); color: var(--muted); text-transform: none; }
 .ws-row { display: flex; flex-direction: column; gap: 3px; padding: 6px 14px; color: var(--ink); text-decoration: none;
@@ -337,10 +334,11 @@ a.ws-handle { text-decoration: none; }
 }
 
 /* whole change */
-.ws-whole > section { margin: 0 0 26px; }
+.ws-whole > section { margin: 0 0 6px; }
+.ws-whole > section:first-child > h2:first-child { margin-top: 0; }
 .bd-layer-thread { margin-top: 16px; }
 .bd-layer-thread .m { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 6px; }
-.ws-whole h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 8px; }
+.ws-whole h2 { font-size: 16px; font-weight: 650; color: var(--ink); margin: 20px 0 6px; }
 .ws-lead { font-size: 16px; line-height: 1.6; margin: 0; }
 .ws-summary { font-size: 14px; padding: 10px 14px; border-left: 3px solid var(--accent); background: var(--surface); margin: 0 0 26px; }
 .ws-why, .ws-fx { list-style: none; margin: 0; padding: 0; }
@@ -392,7 +390,7 @@ a.ov-block { display: block; color: var(--ink); text-decoration: none; }
 /* tiles: callers, the function, callees stacked; tiles wrap and so do long names */
 .ws-nbs { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .ws-nb-arrow { align-self: flex-start; margin-left: 24px; color: var(--muted); line-height: 1; }
-.ws-nb-col h3, .ws-tree-sec h3 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.ws-nb-col h3, .ws-tree-sec h3 { margin: 20px 0 6px; font-size: 15px; font-weight: 650; color: var(--ink); }
 .ws-nb-col ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
 .ws-nb-col li { min-width: 0; max-width: 100%; }
 .ws-nb { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px;
@@ -468,8 +466,6 @@ a.ws-nb:hover { border-color: var(--accent); }
 /* The reading plan (spec 2026-10-07-review-reading-phase2 §6): Mark as read, a check's Read box */
 .st-read { display: inline-flex; align-items: center; gap: 6px; flex: none; font-size: 12.5px; color: var(--muted); }
 .st-read > button:not(.link) { padding: 2px 10px; font-size: 12.5px; }
-/* read by screen readers only: the words between a heading's counts */
-.vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .ws-progress { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .ws-read { flex: none; color: var(--ok); font-size: 12px; }
 .ws-thread-read { margin-left: 6px; font-size: 11.5px; font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -480,7 +476,7 @@ a.ws-nb:hover { border-color: var(--accent); }
 a.ws-chip { text-decoration: none; }
 .ws-story-bar { flex: none; padding: 12px 20px 2px; background: var(--surface); border-bottom: 1px solid var(--line); }
 .ws-story-bar .ws-story-head { margin-bottom: 8px; }
-.ws-steps h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 20px 0 6px; }
+.ws-steps h3 { font-size: 15px; font-weight: 650; color: var(--ink); margin: 20px 0 6px; }
 .ws-steplist { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .ws-steplist > li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .ws-steplist > li > a:first-child { flex: 1; min-width: 0; display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px;
@@ -513,8 +509,8 @@ a.ws-chip { text-decoration: none; }
 }
 
 /* finding page */
-.ws-finding section { margin: 0 0 20px; }
-.ws-finding h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 6px; }
+.ws-finding section { margin: 0; }
+.ws-finding h3 { font-size: 15px; font-weight: 650; color: var(--ink); margin: 20px 0 6px; }
 .ws-where ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .ws-where li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
 .ws-evidence { padding-left: 18px; } .ws-evidence li { margin: 3px 0; }
@@ -564,8 +560,6 @@ a.ws-chip { text-decoration: none; }
 .ov-lines li { padding: 3px 0; }
 .ov-letter { flex: none; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%;
   background: var(--accent); color: var(--surface); font: 700 11px/1 var(--sans); }
-.ov-conn-rows { margin: 0; padding-left: 18px; font-size: 13px; }
-.ov-conn-rows li.bundled { color: var(--accent); }
 .ov-purpose { margin: 6px 0; font-size: 14px; }
 .ov-tests { margin: 6px 0 0; padding-top: 8px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
 .st-page { margin: 0 auto; }
@@ -608,7 +602,6 @@ a.ws-chip { text-decoration: none; }
 .st-fn > summary { cursor: pointer; font-size: 13px; }
 .st-questions { margin: 0 0 8px; padding-left: 18px; font-size: 14px; }
 .st-suggested { margin-top: 10px; font-size: 13px; }
-.st-suggested h4 { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: none; letter-spacing: 0; }
 .st-suggested ul { margin: 0; padding-left: 18px; }
 .bd-tag.call { background: var(--gap-bg); color: var(--ink); }
 .ws-thread h3 { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink); }
@@ -669,8 +662,8 @@ a.ws-chip { text-decoration: none; }
 .ws-one { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ws-pad { padding: 4px 14px; }
 .ws-flows { list-style: none; margin: 0 0 4px; padding: 0 0 0 18px; }
-.ws-row.flow { padding-top: 3px; padding-bottom: 3px; font-size: 12.5px; }
-.ws-row.flow .muted { flex: none; width: 1.4em; text-align: right; }
+.ws-row.fgroup { padding-top: 3px; padding-bottom: 3px; font-size: 12.5px; }
+.ws-fg-n { color: var(--muted); }
 .ws-cgroup h4 { margin: 6px 14px 2px; font-size: 12px; font-weight: 600; color: var(--muted); }
 .ws-row.cause .ck-tag { flex: none; }
 .ws-row.cause.finished { color: var(--muted); }
@@ -681,6 +674,25 @@ a.ws-chip { text-decoration: none; }
 .ws-hidden label { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
 .ws-index { margin: 12px 0 8px; }
 .ws-index > summary { padding: 4px 14px; cursor: pointer; font-weight: 600; font-size: 13px; }
+/* the outline's thread bars (spec 2026-10-25-review-ui-redesign §6): one thread open at a time; the bars before it pin to
+   the top of the scroll area and those after it to the bottom (offsets from barPin), 36px each */
+.ws-bar { position: sticky; z-index: 2; height: 36px; box-sizing: border-box; margin: 0; background: var(--surface);
+  border-bottom: 1px solid var(--line); font: 400 13px/1.3 var(--sans); }
+.ws-bar > button { display: flex; align-items: center; gap: 6px; width: 100%; height: 100%; padding: 0 12px 0 14px; border: 0;
+  border-radius: 0; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.ws-bar > button:hover { background: var(--gap-bg); }
+.ws-bar.on > button { background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+.ws-bar .ov-letter { width: 18px; height: 18px; font-size: 10px; }
+.ws-bar-l { flex: none; font-weight: 650; }
+.ws-bar .ck-count, .ws-bar .ws-thread-read { flex: none; margin-left: 0; }
+.ws-bar-caret { flex: none; width: 10px; color: var(--muted); }
+.ws-rail .ws-bar-list { padding: 2px 0 6px; }
+.ws-num { flex: none; min-width: 1.2em; color: var(--muted); font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+/* a sticky bar's offsets are measured inside its scroll box's padding and it cannot leave the box's content, so with bars
+   the box has none: the spacing is margin on the first and last rows, and the pinned bars sit flush with its edges */
+.ws-rail-scroll:has(> .ws-bar) { padding: 0; }
+.ws-rail-scroll:has(> .ws-bar) > .ws-home { margin-top: 8px; }
+.ws-rail-scroll:has(> .ws-bar) > .ws-index { margin-bottom: 32px; }
 
 /* the cause stepper (spec 2026-10-16-outline-and-causes §4.3) */
 .cs { display: flex; flex-direction: column; gap: 12px; }
@@ -708,6 +720,23 @@ a.ws-chip { text-decoration: none; }
 .ws-help-pop h2 { margin: 0 0 6px; font-size: 15px; }
 .ws-help-pop ul { margin: 0; padding-left: 18px; }
 .ws-help-pop li + li { margin-top: 6px; }
+/* the header's ⋯ menu and its panels (spec 2026-10-25-review-ui-redesign §2.2) */
+.rm { margin-left: auto; display: inline-flex; }
+.rm-btn { position: relative; font-size: 15px; line-height: 1; padding: 4px 11px; }
+.rm-dot { position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 50%; background: var(--warn);
+  border: 2px solid var(--surface); }
+.rm-menu { position: fixed; right: 16px; z-index: 60; min-width: 250px; margin: 0; padding: 4px 0; list-style: none;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 18px rgb(0 0 0 / .14); }
+.rm-menu [role="menuitem"] { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; border-radius: 0;
+  background: none; padding: 6px 14px; text-align: left; white-space: nowrap; }
+.rm-menu [role="menuitem"]:hover, .rm-menu [role="menuitem"]:focus-visible { background: var(--gap-bg); }
+.rm-amber { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
+.rm-panel { position: fixed; right: 16px; z-index: 60; width: min(440px, calc(100vw - 32px)); max-height: calc(100vh - 80px);
+  overflow-y: auto; padding: 12px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 6px 24px rgb(0 0 0 / .18); font-size: 13.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.rm-panel h2 { margin: 0 0 6px; font-size: 15px; }
+.rm-panel ul { margin: 0; padding-left: 18px; }
+.rm-panel:focus { outline: none; }
 
 /* the story page's header and tabs (spec 2026-10-16-outline-and-causes §2) */
 .st-head h2 { margin: 0 0 4px; overflow-wrap: anywhere; }
@@ -721,10 +750,37 @@ a.ws-chip { text-decoration: none; }
 .st-tabs a { padding: 6px 0; color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .st-tabs a.on { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
 .st-tabn { font-size: 12px; color: var(--muted); }
-.st-flow { border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; scroll-margin-top: 12px; }
-.st-flow.lit { border-color: var(--accent); }
-.st-flow h3 { margin: 0 0 6px; font-size: 14px; overflow-wrap: anywhere; }
-.st-flow-n { display: inline-block; min-width: 1.6em; color: var(--muted); }
+/* the Flows tab (spec 2026-10-25-review-ui-redesign §7): a group per thing that changed, a line per flow */
+.fl-group > h3 { margin: 20px 0 6px; font-size: 15px; font-weight: 650; color: var(--ink); overflow-wrap: anywhere; }
+.fl-group:first-of-type > h3 { margin-top: 4px; }
+.fl-line { margin: 0 0 8px; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.fl-group > .st-chips { margin: 0 0 8px; }
+.fl-rows { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.fl-row { border-bottom: 1px solid var(--line); scroll-margin-top: 12px; }
+.fl-head { display: flex; align-items: center; min-width: 0; padding-left: 4px; }
+/* the tick box's label: a press anywhere in it, 24px wide and as tall as the row, ticks the 13px box (WCAG 2.5.8); it
+   starts at the row's edge, so the box sits about where the row's 4px padding and a 6px gap put it before */
+.fl-tickbox { flex: none; align-self: stretch; display: flex; align-items: center; justify-content: center; min-width: 24px;
+  min-height: 24px; margin-left: -4px; }
+.fl-tick { flex: none; width: auto; margin: 0; }                  /* not styles.css's input { width: 100% } */
+.st-flows[aria-busy="true"] .fl-tick { opacity: .5; cursor: progress; }   /* a mark is on its way: the boxes stay enabled, to keep their focus, but look it */
+.st-flows[aria-busy="true"] .fl-tickbox { cursor: progress; }
+.fl-toggle { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; border: 0; border-radius: 0; background: none;
+  padding: 6px 4px; font: 400 13.5px/1.4 var(--sans); color: var(--ink); text-align: left; }
+.fl-toggle:hover, .fl-toggle:focus-visible { background: var(--gap-bg); }
+.fl-row.on .fl-toggle { font-weight: 600; }
+.fl-n { flex: none; min-width: 2.2em; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+.fl-one { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fl-body { padding: 2px 8px 12px 38px; }
+.fl-body > p { margin: 0 0 8px; }
+.fl-path { font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+.fl-path mark { background: var(--gap-bg); color: var(--ink); border-radius: 3px; padding: 0 2px; }
+.fl-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 8px; }
+.fl-more { margin: 6px 0 0; }
+.fl-also { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; margin: 20px 0 0; }
+.fl-also > span { font-weight: 600; }
+.fl-also > .st-chips { margin: 0; min-width: 0; }               /* a flex item stops shrinking at its widest chip: without this they run off the edge */
+@media (max-width: 640px) { .fl-body { padding-left: 12px; } }
 .st-chips { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; padding: 0; }
 .st-chip { display: inline-block; max-width: 100%; padding: 2px 10px; border: 1px solid var(--line); border-radius: 999px;
   font-size: 12.5px; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
@@ -735,9 +791,55 @@ a.ws-chip { text-decoration: none; }
 /* the overview (spec 2026-10-16-outline-and-causes §3) */
 .ov3 .ov-top .ov-start { display: inline-block; margin-top: 6px; padding: 6px 14px; border-radius: 6px; background: var(--accent);
   color: var(--surface); font-weight: 600; text-decoration: none; }
-.ov3 .ov-thread { border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; }
-.ov3 .ov-thread header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
-.ov3 .ov-thread h3 { margin: 0; font-size: 15px; overflow-wrap: anywhere; }
-.ov3 .ov-intro { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; margin: 6px 0; }
+/* a section per thread (spec 2026-10-25-review-ui-redesign §5.2): the header bars and the label row share one grid, so the
+   counts line up in columns; the label row's 13px is the header's 12px plus its section's border. The overview is a size
+   container: "below 640px wide" is its own width, which a panel open beside it narrows far below the window's. */
+.ov3 { container-type: inline-size; }
+.ov3 .ov-cols, .ov3 .ov-sec-head { display: grid; grid-template-columns: minmax(0, 1fr) 72px 72px 72px 96px; column-gap: 8px;
+  align-items: center; }
+.ov3 .ov-cols { margin: 22px 0 4px; padding: 0 13px; font-size: 12px; color: var(--muted); }
+.ov3 .ov-cols span, .ov3 .ov-n { text-align: right; font-variant-numeric: tabular-nums; }
+.ov3 .ov-sec { margin: 0 0 14px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.ov3 .ov-sec-head { min-height: 40px; padding: 0 12px; background: var(--gap-bg); border-bottom: 1px solid var(--line); }
+.ov3 .ov-sec-t { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; margin: 0; font-size: 15px;
+  font-weight: 400; line-height: 1.3; color: var(--ink); }
+.ov3 .ov-sec-l { flex: none; font-weight: 650; }
+.ov3 .ov-sec-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov3 .ov-counts { display: contents; }
+.ov3 .ov-n { font-size: 14px; }
+.ov3 .ov-w { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.ov3 .ov-sep { display: none; }
+.ov3 .ov-act { text-align: right; font-size: 13px; white-space: nowrap; }
+.ov3 .ov-act a { font-weight: 600; text-decoration: none; }
+.ov3 .ov-done { color: var(--ok); }
+.ov3 .ov-intro { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden;
+  margin: 10px 14px 6px; }
 .ov3 .ov-intro p { margin: 0 0 4px; }
-.ov3 .ov-meta { margin: 0 0 4px; color: var(--muted); font-size: 13px; }
+.ov3 .ov-stories { margin: 6px 14px 8px; padding-left: 22px; font-size: 14px; }
+.ov3 .ov-stories li { padding: 2px 0; overflow-wrap: anywhere; }
+.ov3 .ov-stories li::marker { color: var(--muted); }
+.ov3 .ov-stories a { text-decoration: none; }
+.ov3 .ov-open { margin-left: 8px; font-size: 12px; color: var(--warn); white-space: nowrap; }
+.ov3 .ov-read { margin-left: 6px; color: var(--ok); }
+.ov3 .ov-more { display: block; margin: 0 14px 10px; font-size: 13px; }
+.ov3 .ov-links { margin: 0 14px 10px; padding: 6px 0 0 18px; border-top: 1px dashed var(--line); font-size: 13px; color: var(--muted); }
+.ov3 .ov-links li.bundled { color: var(--accent); }
+/* Build impact, Coverage and Discussion folded (§5.3): the summary is the heading */
+.ov3 .ov-fold { border-top: 1px solid var(--line); }
+.ov3 .ov-fold[open] { padding-bottom: 10px; }
+.ov3 .ov-fold > summary { display: flex; align-items: center; gap: 8px; padding: 10px 0; cursor: pointer; list-style: none; }
+.ov3 .ov-fold > summary::-webkit-details-marker { display: none; }
+.ov3 .ov-fold > summary::after { content: "▸"; margin-left: auto; color: var(--muted); }
+.ov3 .ov-fold[open] > summary::after { content: "▾"; }
+.ov3 .ov-fold > summary h2 { margin: 0; }
+/* the header wraps under 640px of the overview's own width: the counts go under the name, with their words */
+@container (max-width: 640px) {
+  .ov3 .ov-cols { display: none; }
+  .ov3 .ov-sec-head { display: flex; flex-wrap: wrap; column-gap: 8px; row-gap: 2px; padding: 8px 12px; }
+  .ov3 .ov-sec-t { flex: 1 1 0; }
+  .ov3 .ov-act { order: 1; }
+  .ov3 .ov-counts { display: block; order: 2; flex-basis: 100%; padding-left: 28px; font-size: 13px; color: var(--muted); }
+  .ov3 .ov-n { font-size: inherit; }
+  .ov3 .ov-w { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
+  .ov3 .ov-sep { display: inline; }
+}

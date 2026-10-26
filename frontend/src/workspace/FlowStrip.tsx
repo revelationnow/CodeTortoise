@@ -2,6 +2,7 @@ import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 
 import { Link } from "react-router-dom";
 import type { Board } from "../board/types";
 import Comments from "../components/Comments";
+import AiText from "../components/AiText";
 import Explain from "../components/Explain";
 import { useWs } from "./context";
 import { wrap } from "./flows";
@@ -74,8 +75,8 @@ export default function FlowStrip({ board, flows, index, onFlow, steps, hideWhat
       {!shut && note && <div className="ws-flow-text"><p className="muted">{note}</p></div>}
       {!shut && !note && (
         <div className="ws-flow-text">
-          {!hideWhat && <p>{flow.what_source === "llm" && <span className="ai-label">AI</span>}<NameText text={flow.what} />{" "}
-            <Explain kind="flow" target={flow.id} has={flow.what_source === "llm"} ask={{ kind: "flow", anchor: { id: flow.id }, onAsked: ws.data.loadComments }} /></p>}
+          {!hideWhat && <AiText ai={flow.what_source === "llm"}><NameText text={flow.what} />{" "}
+            <Explain kind="flow" target={flow.id} has={flow.what_source === "llm"} ask={{ kind: "flow", anchor: { id: flow.id }, onAsked: ws.data.loadComments }} /></AiText>}
           {steps && (
             <p className="ws-flow-steps">{flow.path.map((id, i) => {
               const node = byId.get(id);
@@ -88,7 +89,7 @@ export default function FlowStrip({ board, flows, index, onFlow, steps, hideWhat
           <p className={`ws-flow-lands${warn ? " warn" : ""}`}>
             <b>{warn ? "⚠ " : ""}Side effect lands on {byId.get(flow.lands)?.label ?? "a function off this graph"}.</b>{" "}
             <NameText text={flow.effect} />
-            {why && <span className="ws-flow-why"> <span className="ai-label">AI</span>AI: <NameText text={why} /></span>}</p>
+            {why && <> <AiText as="span" className="ws-flow-why"><NameText text={why} /></AiText></>}</p>
           <p className="ws-flow-check"><NameText text={flow.check} /></p>
           <Comments reviewId={ws.data.id} comments={ws.data.comments} kind="flow" anchor={{ id: flow.id }} onChange={ws.data.loadComments} compact />
         </div>

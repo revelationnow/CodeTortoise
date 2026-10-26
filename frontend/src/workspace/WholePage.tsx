@@ -5,6 +5,7 @@ import { bandsOf, linkLines } from "../board/overview";
 import { sideEffectFiles } from "../board/sideEffects";
 import type { Board } from "../board/types";
 import Comments from "../components/Comments";
+import AiText from "../components/AiText";
 import { counted } from "../lib/tidy";
 import { useWs } from "./context";
 import { pickFlow } from "./flows";
@@ -68,21 +69,29 @@ export function MapSection() {
   </>;
 }
 
-/** The review's and its layers' comment threads. */
-export function Discussion() {
+/** The review's and its layers' comment threads; the overview folds them under its Discussion row (spec
+ * 2026-10-25-review-ui-redesign §5.3). */
+export function DiscussionThreads() {
   const d = useWs().data, layerName = layerOf(d);
+  return <>
+    <Comments reviewId={d.id} comments={d.comments} kind="review" anchor={{}} onChange={d.loadComments} />
+    {[...new Set(d.comments.filter((c) => c.anchor_kind === "chapter" && c.parent_id === null)
+      .map((c) => (typeof c.anchor.level === "number" ? c.anchor.level : null)))]
+      .map((level) => (
+        <div key={String(level)} className="bd-layer-thread">
+          <div className="m">Layer {layerName(level) ?? (level === null ? "unlayered" : `L${level}`)}</div>
+          <Comments reviewId={d.id} comments={d.comments} kind="chapter" anchor={{ level }} onChange={d.loadComments} compact />
+        </div>
+      ))}
+  </>;
+}
+
+/** The Discussion section of a review run before the reading. */
+function Discussion() {
   return (
     <section aria-labelledby="ws-talk">
       <h2 id="ws-talk">Discussion</h2>
-      <Comments reviewId={d.id} comments={d.comments} kind="review" anchor={{}} onChange={d.loadComments} />
-      {[...new Set(d.comments.filter((c) => c.anchor_kind === "chapter" && c.parent_id === null)
-        .map((c) => (typeof c.anchor.level === "number" ? c.anchor.level : null)))]
-        .map((level) => (
-          <div key={String(level)} className="bd-layer-thread">
-            <div className="m">Layer {layerName(level) ?? (level === null ? "unlayered" : `L${level}`)}</div>
-            <Comments reviewId={d.id} comments={d.comments} kind="chapter" anchor={{ level }} onChange={d.loadComments} compact />
-          </div>
-        ))}
+      <DiscussionThreads />
     </section>
   );
 }
@@ -97,7 +106,7 @@ function OldWhole() {
     <div className="ws-page"><div className="ws-text ws-whole">
       <section aria-labelledby="ws-intent">
         <h2 id="ws-intent">What this change is trying to do</h2>
-        {about ? <p className="ws-lead">{about.intent_source === "llm" && <span className="ai-label">AI</span>}<NameText text={about.intent} /></p>
+        {about ? <AiText className="ws-lead" ai={about.intent_source === "llm"}><NameText text={about.intent} /></AiText>
           : <p className="muted">No summary for this review (reviews made before the board existed have none).</p>}
       </section>
       {about && about.why.length > 0 && (

@@ -96,7 +96,7 @@ export function hiddenLabel(hidden: ReadonlySet<CheckKind>, causes: Cause[]): st
 export function progressLine(read: number, stories: number, open: number, total: number): string {
   const head = `${read} of ${stories} stories read`;
   if (!total) return head;
-  return `${head} · ${open ? `${open} cause${open === 1 ? "" : "s"} open` : "every check done"}`;
+  return `${head} · ${open ? `${open} check${open === 1 ? "" : "s"} open` : "every check done"}`;
 }
 
 export interface CauseGroup { thread: string | null; label: string; stories: { story: string | null; causes: Cause[] }[] }

@@ -512,8 +512,9 @@ def test_two_kinds_at_one_place_stay_two_rows_each_knowing_what_raised_it():
     next(e for e in c.after[0].calls if e.caller == "c:@F@flush").result_used = False
     open_, _ = _checks(c, ss)
     assert [(k.kind, k.function) for k in open_] == [("caller", "flush"), ("result", "flush")]
-    assert [(k.cause_fn, k.cause_subject) for k in open_] == [("N1", ""), ("N1", "-2")]
-    assert "also" not in open_[0].model_dump() and "cause_fn" not in open_[0].model_dump()
+    assert [(k.related, k.cause_subject) for k in open_] == [("N1", ""), ("N1", "-2")]
+    dump = open_[0].model_dump()
+    assert "also" not in dump and "cause_subject" not in dump and dump["related"] == "N1"   # sent: it ties a flow to its places
 
 
 def test_each_kind_records_the_subject_that_makes_two_rows_one_cause():
@@ -523,7 +524,7 @@ def test_each_kind_records_the_subject_that_makes_two_rows_one_cause():
     ss.finding_story = {"F1": "S1"}
     c.findings = [_f("F1", verdict="hazard", reason="drops data", source="tier1")]
     open_, _ = _checks(c, ss)
-    assert {(k.kind, k.cause_fn, k.cause_subject) for k in open_} == {
+    assert {(k.kind, k.related, k.cause_subject) for k in open_} == {
         ("hazard", "N1", "contract:contract F1"), ("reader", "N1", "Uart::errors")}
 
 

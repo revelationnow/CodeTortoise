@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { expectIconsOnly, expectNamed, expectNoNodeIds, openIndex, startReview } from "./helpers";
+import { expectIconsOnly, expectNamed, expectNoNodeIds, openFold, openIndex, startReview } from "./helpers";
 
 /** The detail panel (spec 2026-10-04-review-workspace §3.7): a node's code or a file's diff, on demand. */
 
@@ -189,7 +189,7 @@ test.describe("desktop", () => {
     await post("why -2 and not -EINVAL?", "function", { key: send.key });
     await page.goto(`${base}?open=${send.id}`);
     await expect(page.getByRole("complementary", { name: "Code: uart_send" }).getByText("why -2 and not -EINVAL?")).toBeVisible();
-    const talk = page.locator("section", { has: page.getByRole("heading", { name: "Discussion" }) });
+    const talk = await openFold(page, "Discussion");
     await expect(talk.getByText("overall: please split the CLs")).toBeVisible();
     await expect(talk.getByText("driver layer looks risky")).toBeVisible();
     const head = talk.locator(".bd-layer-thread .m");

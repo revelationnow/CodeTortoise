@@ -1,16 +1,20 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { Comment } from "../api";
 import type { BoardFlow, StoryDetail } from "../board/types";
 import Comments from "../components/Comments";
-import { causeOpen, firstOpenAt, shown } from "../reading/causes";
-import { byEntry, codeOrder, flowLabel, flowPart, foldPath, readOrder, rewriteText, storyTabs, type TabSec, type TabSpec, whereByCl, whereTree } from "../reading/story";
-import type { CallPath, Cause, ContractRow, StoryReading, WhereFile } from "../reading/types";
+import AiText from "../components/AiText";
+import { useAi } from "../lib/ai";
+import { storyModel } from "../lib/aiMarks";
+import { shown } from "../reading/causes";
+import { byEntry, codeOrder, foldPath, readOrder, rewriteText, storyTabs, type TabSec, type TabSpec, whereByCl, whereTree } from "../reading/story";
+import type { CallPath, ContractRow, StoryReading, WhereFile } from "../reading/types";
 import type { Address } from "./address";
+import Chips from "./Chips";
 import { useWs } from "./context";
+import FlowsTab from "./FlowsTab";
 import FunctionCode from "./FunctionCode";
 import NameText, { Ticks } from "./NameText";
-import { plainNames } from "./names";
 import { MechanicalStory, TestsStory } from "./StoryBodies";
 import { StoryWhy } from "./StoryPlan";
 
@@ -169,24 +173,6 @@ function Code({ sr, detail }: { sr: StoryReading; detail: StoryDetail }) {
   );
 }
 
-const bare = (s: string) => s.replaceAll("`", "");
-
-/** A flow card's or the story's check chips (§2.3): one per shown cause, done ones muted with ✓; a chip opens the
- * stepper at the cause's first open place. */
-function Chips({ causes }: { causes: Cause[] }) {
-  const ws = useWs(), d = ws.data, marks = d.reading?.marks ?? {};
-  if (!causes.length) return null;
-  return (
-    <ul className="st-chips">{causes.map((c) => {
-      const line = plainNames(c.text, d.names), done = !causeOpen(c, marks);
-      return (
-        <li key={c.id}><Link className={`st-chip ${c.kind}${done ? " done" : ""}`} to={ws.link(ws.opened({ cause: c.id, at: firstOpenAt(c, marks) }))}
-                             title={bare(line)} aria-label={`Open check: ${bare(line)}`}>{done && <span aria-hidden>✓ </span>}<Ticks text={line} /></Link></li>
-      );
-    })}</ul>
-  );
-}
-
 /** The checks of a story with no Flows tab (§2.3), at the end of its first tab. */
 function StoryCauses({ sr }: { sr: StoryReading }) {
   const causes = shown(sr.causes ?? [], useWs().hidden);
@@ -194,45 +180,18 @@ function StoryCauses({ sr }: { sr: StoryReading }) {
   return <section className="st-other" aria-label="Checks in this story"><h3>Checks in this story</h3><Chips causes={causes} /></section>;
 }
 
-/** Flows (§2.3): a numbered card per flow with the account's section for it (else the flow's text) and its checks;
- * then the story's checks that touch no flow, then what it means for the rest. */
-function Flows({ detail, sr, flows }: { detail: StoryDetail; sr: StoryReading; flows: BoardFlow[] }) {
-  const ws = useWs(), d = ws.data, lit = ws.addr.flow;
-  const parts = sr.account ?? [], effects = parts.find((p) => p.kind === "effects");
-  const causes = shown(sr.causes ?? [], ws.hidden);
-  const labels = new Map(detail.board.nodes.map((n) => [n.id, n.label]));
-  useEffect(() => { if (lit) document.getElementById(`flow-${lit}`)?.scrollIntoView({ block: "start" }); }, [lit]);
-  const ids = new Set(flows.map((f) => f.id)), loose = causes.filter((c) => !c.flows.some((f) => ids.has(f)));
-  return (
-    <div className="st-flows">
-      {flows.map((f, i) => {
-        const label = flowLabel(f, (n) => labels.get(n) ?? d.names[n]?.label), part = flowPart(parts, f);
-        return (
-          <section key={f.id} id={`flow-${i + 1}`} className={`st-flow${lit === i + 1 ? " lit" : ""}`} aria-label={`Flow ${i + 1}: ${label}`}>
-            <h3><span className="st-flow-n">{i + 1}</span> <span className="mono">{label}</span></h3>
-            {part ? <p><span className="ai-label">AI</span><NameText text={part.text} /></p>
-              : <p>{f.what_source === "llm" && <span className="ai-label">AI</span>}<NameText text={f.what} /></p>}
-            <Chips causes={causes.filter((c) => c.flows.includes(f.id))} />
-          </section>
-        );
-      })}
-      {!flows.length && <p className="muted">No flows in this story.</p>}
-      {loose.length > 0 && <section className="st-other" aria-label="Other checks in this story"><h3>Other checks in this story</h3><Chips causes={loose} /></section>}
-      {effects && <section className="st-effects" aria-label={effects.heading}><h3>{effects.heading}</h3>
-        <p><span className="ai-label">AI</span><NameText text={effects.text} /></p></section>}
-    </div>
-  );
-}
-
 /** Talk (§2.4): the strong model's questions and suggested checks, then the story's comment thread. */
 function Talk({ detail }: { detail: StoryDetail }) {
-  const d = useWs().data, st = detail.story, questions = st.questions ?? [], suggested = st.check ?? [];
+  const d = useWs().data, ai = useAi(), st = detail.story, questions = st.questions ?? [], suggested = st.check ?? [];
+  const model = storyModel(st, ai?.view);
   return (
     <section aria-labelledby="ws-talk" className="ws-talk">
       <h3 id="ws-talk">Questions and comments</h3>
-      {questions.length > 0 && <ul className="st-questions">{questions.map((q, k) => <li key={k}><span className="ai-label">AI</span><NameText text={q} /></li>)}</ul>}
-      {suggested.length > 0 && <div className="st-suggested"><h4><span className="ai-label">AI</span>The strong model also suggests</h4>
-        <ul>{suggested.map((c, k) => <li key={k}><NameText text={c} /></li>)}</ul></div>}
+      {questions.length > 0 && <ul className="st-questions">{questions.map((q, k) => (
+        <AiText key={k} as="li" by={model}><NameText text={q} /></AiText>
+      ))}</ul>}
+      {suggested.length > 0 && <div className="st-suggested"><h4>Also worth checking</h4>
+        <AiText as="div" by={model}><ul>{suggested.map((c, k) => <li key={k}><NameText text={c} /></li>)}</ul></AiText></div>}
       <Comments reviewId={d.id} comments={d.comments} kind="story" anchor={{ id: st.id }} onChange={d.loadComments} compact />
     </section>
   );
@@ -270,7 +229,7 @@ export default function StoryTabs({ detail, sr, flows, tabs }: { detail: StoryDe
   return <>
     <StoryTabNav tabs={tabs} active={active} sid={st.id} />
     <div className="st-panel">
-      {active === "flows" && <Flows detail={detail} sr={sr} flows={flows} />}
+      {active === "flows" && <FlowsTab key={st.id} detail={detail} sr={sr} flows={flows} />}
       {active === "changes" && (st.kind === "mechanical" ? <MechanicalStory detail={detail} />
         : st.kind === "tests" ? <TestsStory detail={detail} /> : <StoryWhy detail={detail} />)}
       {active === "contracts" && <Contracts sr={sr} />}

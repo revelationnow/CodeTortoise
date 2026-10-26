@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { openIndex, startReview } from "./helpers";
+import { contrast, explainItem, openAiUsage, openIndex, reviewMenu, startReview } from "./helpers";
 
 const AI = "http://127.0.0.1:8798";      // e2e/serve-ai.sh: CodeTortoise with the fake model in e2e/fake_llm.py
 
@@ -39,14 +39,15 @@ test.describe("with an AI", () => {
     const reply = viewer.locator(".comment.ai");
     await expect(reply).toContainText("logger_flush drops the -2 that uart_send now returns.", { timeout: 30_000 });
     await expect(reply).toContainText("read: callers of uart_send");
-    await expect(reply.locator(".ai-label")).toHaveText("AI");
+    await expect(reply.locator(".comment-body")).toHaveClass(/\bai-text\b/);
+    await expect(reply.locator(".ai-label")).toHaveCount(0);
     await expect(reply.getByRole("button", { name: "edit" })).toHaveCount(0);   // tortoise replies can't be edited
   });
 
-  test("Ask… on an explain button puts the question to tortoise in a thread on that finding, story, flow or file", async ({ page }) => {
+  test("Ask a question… in an Explain menu puts the question to tortoise in a thread on that finding, story, flow or file", async ({ page }) => {
     const base = await startReview(page);
     const ask = async (where: Locator, question: string) => {
-      await where.getByRole("button", { name: "Ask…" }).first().click();
+      await explainItem(where, "Ask a question…");
       await where.getByLabel("What should the AI explain?").fill(question);
       await where.getByRole("button", { name: "Ask", exact: true }).click();
     };
@@ -79,11 +80,11 @@ test.describe("with an AI", () => {
 
   test("when the review's budget is spent, tortoise says so and the owner can raise it from the reply", async ({ page }) => {
     await startReview(page);
-    await page.getByRole("button", { name: /^AI \d+\/200$/ }).click();
-    const usage = page.getByRole("dialog", { name: "AI usage" });
+    const usage = await openAiUsage(page);
     await usage.getByLabel("New budget").fill("6");          // the run used 6: verdicts, summary, 1 flow, 1 finding, 2 story accounts
     await usage.getByRole("button", { name: "Raise budget" }).click();
-    await expect(page.getByRole("button", { name: "AI 6/6" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "AI 6/6" })).toBeVisible();          // at the limit the pill comes back
+    expect(await contrast(page, ".ws-head .ai-pill")).toBeGreaterThanOrEqual(4.5);   // readable on the light head
     await usage.getByRole("button", { name: "Close" }).click();
     const { viewer, box } = await commentOnReturn(page);
     await box.fill("@tortoise does this leak?");
@@ -99,7 +100,9 @@ test.describe("without an AI", () => {
   test("@tortoise is greyed out with the reason, and there are no AI controls", async ({ page }) => {
     await startReview(page);
     await expect(page.getByRole("button", { name: /^AI \d+/ })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: /✦/ })).toHaveCount(0);
+    await expect((await reviewMenu(page)).getByRole("menuitem", { name: /^AI calls used/ })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("button", { name: /^(Explain|Summarise|Ask…)$/ })).toHaveCount(0);
     const { viewer, box } = await commentOnReturn(page);
     await box.pressSequentially("@");
     const first = viewer.getByRole("listbox", { name: "Mention" }).getByRole("option").first();

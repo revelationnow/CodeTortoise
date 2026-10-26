@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { startReview } from "./helpers";
+import { startReview, storyLink } from "./helpers";
 
 /** The map and the stories, related: each changed node on a map is tagged with its story; a story in the rail lights its
  * nodes on the map; a story's "Show on the map" opens its map with the story lit and in view. */
@@ -27,7 +27,7 @@ test.describe("one board", () => {
       await expect(canvas.locator(`.bd-node[data-id="${n}"] .bd-story`)).toHaveText(ss.node_story[n]);
     await expect(canvas.locator(".bd-node:not(.chg) .bd-story")).toHaveCount(0);
 
-    await page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ }).hover();
+    await (await storyLink(page, /^Go to story S1/)).hover();
     await expect.poll(() => ids(page, "instory")).toEqual(s1);
     expect((await ids(page, "offstory")).length).toBe(drawn.length - s1.length);
     await page.locator(".ws-head h1").hover();                         // off the rail

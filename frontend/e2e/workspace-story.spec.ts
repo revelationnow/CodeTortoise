@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, flowStripHolds, openIndex, startReview } from "./helpers";
+import { expectNamed, expectNoNodeIds, flowStripHolds, openIndex, reviewMenu, startReview, storyLink } from "./helpers";
 
 /** A story in the workspace (spec 2026-10-04-review-workspace §3.2, §2.4). */
 
@@ -10,7 +10,7 @@ test.describe("desktop", () => {
 
   test("Where opens a function's diff in the side panel and Code opens it in place", async ({ page }) => {
     const base = await startReview(page);
-    await page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ }).click();
+    await (await storyLink(page, /^Go to story S1/)).click();
     await expect(page.locator(".ws-story-head h2")).toContainText("uart_send can now return -2");
     const tabs = page.getByRole("navigation", { name: "Story sections" });
     await expect(tabs.getByRole("link", { name: /^Flows/ })).toHaveAttribute("aria-current", "page");
@@ -60,7 +60,7 @@ test.describe("desktop", () => {
     await expectNamed(page);
 
     await tabs.getByRole("link", { name: /^Flows/ }).click();
-    await expect(page.getByRole("region", { name: /^Flow 1:/ })).toBeVisible();      // measure in the Flows layout
+    await expect(page.locator(".fl-row").first()).toBeVisible();                     // measure in the Flows layout
     const next = page.getByRole("link", { name: /^Next story/ });
     const x = (await next.boundingBox())!.x;
     await next.click();
@@ -79,7 +79,7 @@ test.describe("desktop", () => {
     await openIndex(page, "CLs");
     await page.getByRole("link", { name: "Open CL 101" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}/cl/101$`));
-    await page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ }).click();
+    await (await storyLink(page, /^Go to story S1/)).click();
     await expect(page).toHaveURL(there);
     await expect(page.getByRole("complementary", { name: "Code: uart_send" })).toBeVisible();
     await expect(page.locator(".ws-flow-pos")).toHaveText("flow 2 of 2");
@@ -240,7 +240,7 @@ test.describe("re-run", () => {
       j.story.title = "the new run's S1";
       await route.fulfill({ response: res, json: j });
     });
-    await page.getByRole("button", { name: "Re-run" }).click();
+    await (await reviewMenu(page)).getByRole("menuitem", { name: "Re-run", exact: true }).click();
     await expect(page.locator(".ws-story-head h2")).toContainText("the new run's S1", { timeout: 40_000 });
   });
 });
@@ -251,7 +251,7 @@ test.describe("phone", () => {
 
   test("rail → story → detail sheet, each top bar naming the place", async ({ page }) => {
     await startReview(page);
-    await page.getByRole("link", { name: /^Go to story S1/ }).click();
+    await (await storyLink(page, /^Go to story S1/)).click();
     await expect(page.locator(".ws-phonebar")).toContainText("‹ Thread A");
     await page.getByRole("navigation", { name: "Story sections" }).getByRole("link", { name: /^Where/ }).click();
     await page.getByRole("region", { name: "Where" }).getByRole("link", { name: /^Open uart_send in/ }).click();

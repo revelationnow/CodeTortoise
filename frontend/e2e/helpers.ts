@@ -26,9 +26,36 @@ export async function startReview(page: Page, cls = "101 102"): Promise<string> 
   await login(page);
   await page.getByLabel("Changelists (shelved or submitted)").fill(cls);
   await page.getByRole("button", { name: "Start review" }).click();
-  await expect(page.locator(".ws-rail").getByRole("link", { name: /^Go to story/ }).first()).toBeVisible({ timeout: 60_000 });
+  await railReady(page);
   return page.url().match(/\/r\/\d+/)![0];
 }
+
+/** Waits for the outline's first thread bar or story row (a review without threads, or before the reading, has rows). */
+export async function railReady(page: Page) {
+  const rail = page.locator(".ws-rail");
+  await expect(rail.getByRole("button", { name: /^Thread \w+:/ }).or(rail.getByRole("link", { name: /^Go to story/ })).first())
+    .toBeVisible({ timeout: 60_000 });
+}
+
+/** A story's row in the outline, opening thread bars in turn until it shows (spec 2026-10-25-review-ui-redesign §6: one
+ * thread open at a time). */
+export async function storyLink(page: Page, name: RegExp): Promise<Locator> {
+  const rail = page.locator(".ws-rail"), link = rail.getByRole("link", { name }).first();
+  const bars = rail.getByRole("button", { name: /^Thread \w+:/ });
+  await expect(bars.or(link).first()).toBeVisible({ timeout: 60_000 });
+  if (await link.isVisible()) return link;
+  for (let i = 0; i < await bars.count(); i++) {
+    const bar = bars.nth(i);
+    if ((await bar.getAttribute("aria-expanded")) !== "true") await bar.click();
+    await rail.locator(".ws-bar-list > li").first().waitFor({ state: "visible", timeout: 5000 }).catch(() => {});   // the stories load after the reading
+    if (await link.waitFor({ state: "visible", timeout: 1000 }).then(() => true, () => false)) return link;
+  }
+  return link;
+}
+
+/** The outline's thread bars' names, top to bottom. */
+export const barNames = (page: Page) =>
+  page.locator(".ws-rail .ws-bar > button").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
 
 /** No node id is ever shown (spec §8): visible text never matches N<digits>. */
 export async function expectNoNodeIds(page: Page) {
@@ -42,6 +69,15 @@ export async function expectNamed(page: Page) {
     els.filter((e) => !(e.getAttribute("aria-label") || e.textContent?.trim() || e.getAttribute("title")))
        .map((e) => e.outerHTML.slice(0, 120)));
   expect(unnamed).toEqual([]);
+}
+
+/** Opens one of the overview's folded rows (spec 2026-10-25-review-ui-redesign §5.3) if it is shut; returns its region. */
+export async function openFold(page: Page, name: "Build impact" | "Coverage" | "Discussion"): Promise<Locator> {
+  const region = page.getByRole("region", { name, exact: true }), fold = region.locator("details.ov-fold");
+  await expect(fold).toBeVisible();
+  if ((await fold.getAttribute("open")) === null) await region.locator("summary").click();
+  await expect(fold).toHaveAttribute("open", "");
+  return region;
 }
 
 /** The flow strip's ‹ › keep their place across flows and its row never scrolls sideways (spec §3.6, §8). */
@@ -98,4 +134,26 @@ export async function openIndex(page: Page, tab: "CLs" | "Files" | "Findings" | 
   const index = outline.locator("details.ws-index");
   if (!(await index.evaluate((el) => (el as HTMLDetailsElement).open))) await index.locator("summary").click();
   await index.getByRole("link", { name: `Open the Index: ${tab}` }).click();
+}
+
+/** Pick an item of the first Explain ▾ (or Summarise ▾) menu inside `scope` (spec 2026-10-25-review-ui-redesign §4.1). */
+export async function explainItem(scope: Locator, item: string | RegExp) {
+  await scope.getByRole("button", { name: /^(Explain|Summarise)$/ }).first().click();
+  await scope.getByRole("menuitem", typeof item === "string" ? { name: item, exact: true } : { name: item }).click();
+}
+
+/** Open the header's ⋯ menu (spec 2026-10-25-review-ui-redesign §2.2) unless it is open; returns the menu. */
+export async function reviewMenu(page: Page): Promise<Locator> {
+  const menu = page.getByRole("menu", { name: "Review menu" });
+  if (!(await menu.isVisible())) await page.getByRole("button", { name: /^Review menu/ }).click();
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+/** Open the AI usage panel from the review menu; returns the panel. */
+export async function openAiUsage(page: Page): Promise<Locator> {
+  await (await reviewMenu(page)).getByRole("menuitem", { name: /^AI calls used · / }).click();
+  const usage = page.getByRole("dialog", { name: "AI usage" });
+  await expect(usage).toBeVisible();
+  return usage;
 }

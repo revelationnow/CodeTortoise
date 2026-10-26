@@ -30,7 +30,7 @@ def _group(k: Check) -> tuple[str, str, str]:
         return k.kind, f"story:{k.story or ''}", ""
     if k.kind in _ALONE:
         return k.kind, "", k.key
-    return k.kind, k.cause_fn or "", k.cause_subject
+    return k.kind, k.related or "", k.cause_subject
 
 
 def _text(kind: str, rows: list[Check], fn: str) -> str:
@@ -94,11 +94,11 @@ def _block(x: _Ctx, local: str, lo: int | None, hi: int | None, focus: set[int])
 def change_for(kind: str, rows: list[Check], x: _Ctx) -> CauseChange | None:
     """The 2–6 changed lines that raised a cause of `kind` made of `rows` (spec 2026-10-16 §4.8)."""
     lead = rows[0]
-    if kind == "target" and lead.cause_fn is None:          # a changed header included by another target's files
+    if kind == "target" and lead.related is None:          # a changed header included by another target's files
         local = next((p for p in x.texts if rel_path(x, p) == lead.cause_subject), None)
         lines = _block(x, local, None, None, set()) if local else []
         return CauseChange(path=lead.cause_subject, lines=lines) if lines else None
-    n = lead.cause_fn
+    n = lead.related
     if n is None or n not in x.im.nodes:
         return None
     key = x.im.nodes[n].key
@@ -146,7 +146,7 @@ def build_causes(rows: list[Check], x: _Ctx, threads: list[Thread], order: list[
         members.sort(key=lambda k: (k.path, k.line or 0, k.key))
         lead = members[0]
         if kind == "untested":
-            fn_id = ",".join(sorted({fn_part(x, k.cause_fn) for k in members if k.cause_fn}))
+            fn_id = ",".join(sorted({fn_part(x, k.related) for k in members if k.related}))
         else:
             fn_id = fn_part(x, n) if n and n in x.im.nodes else ""
         cid = cause_id(kind, fn_id, subject)
@@ -155,8 +155,8 @@ def build_causes(rows: list[Check], x: _Ctx, threads: list[Thread], order: list[
         if cid in by_id:                                  # two groups with one id are one cause
             by_id[cid].places += [k.key for k in members]
             continue
-        fn = x.label(lead.cause_fn) if lead.cause_fn else ""
-        touched = {lead.cause_fn} | {k.node for k in members}
+        fn = x.label(lead.related) if lead.related else ""
+        touched = {lead.related} | {k.node for k in members}
         flows = [fl.id for fl in flows_of.get(lead.story or "", []) if touched & set(fl.path)]
         by_id[cid] = Cause(id=cid, kind=kind, thread=lead.thread, story=lead.story, text=_text(kind, members, fn),
                            places=[k.key for k in members], flows=flows, finding=lead.finding,

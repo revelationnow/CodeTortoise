@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, openIndex, startReview } from "./helpers";
+import { barNames, expectNamed, expectNoNodeIds, openIndex, startReview } from "./helpers";
 
 /** A review read as threads (spec 2026-10-07-review-reading §5, §7, §13): fixture CLs 101–104 make three threads, the
  * first two joined by a shared caller, the third only by arriving in CL 104. */
@@ -23,13 +23,13 @@ test.describe("desktop", () => {
 
   test("the overview tells the change as threads, how they connect and what to check", async ({ page }) => {
     await startReview(page, FOUR);
-    await expect(page.locator(".ov3 h2")).toHaveText(["The change as a whole", "Threads", "How the threads connect", "Build impact",
-                                                      "Coverage", "Discussion"]);
+    await expect(page.locator(".ov3 h2")).toHaveText(["3 threads", "Build impact · up to 4 files rebuild", "Coverage · 2 notes",
+                                                      "Discussion · no comments yet"]);
     await expect(page.locator(".ov3 .ws-lead")).toHaveText("3 threads: A and B: both run inside main; B and C: nothing besides arriving in CL 104.");
-    await expect(page.locator(".ov-conn-rows li")).toHaveText(["A and B: both run inside main",
-                                                               "B and C: nothing besides arriving in CL 104 — ask the author"]);
-    const threads = page.locator(".ov-thread");
-    await expect(threads.locator("h3")).toHaveText(["hal_write in hal", "logger_init in service", "svc::Engine::step in cpp"]);
+    await expect(page.locator(".ov-links li")).toHaveText(["With Thread A: both run inside main",
+                                                           "With Thread B: nothing besides arriving in CL 104 — ask the author"]);
+    const threads = page.locator("section.ov-sec");
+    await expect(threads.locator(".ov-sec-name")).toHaveText(["hal_write in hal", "logger_init in service", "svc::Engine::step in cpp"]);
     const outline = page.locator("aside.ws-outline");
     await outline.getByRole("button", { name: "Checks" }).click();
     await expect(outline.locator(".ws-thread h3")).toHaveText(["A · hal_write in hal", "C · svc::Engine::step in cpp"]);
@@ -42,17 +42,17 @@ test.describe("desktop", () => {
     await expect(page.getByRole("region", { name: "Coverage" })).toContainText("No test code found in the workspace");
     await expectNoNodeIds(page);
     await expectNamed(page);
-    await threads.first().getByRole("link", { name: "Go to thread A's first unread story" }).click();
+    await threads.first().getByRole("link", { name: "Start thread A" }).click();
     await expect(page).toHaveURL(/\/s\/S2$/);
   });
 
   test("the overview gives each thread its intro and a way into its first unread story", async ({ page }) => {
     const base = await startReview(page, FOUR);
-    const card = page.locator(".ov-thread").first();
+    const card = page.locator("section.ov-sec").first();
     await expect(card.locator(".ov-purpose")).toHaveCount(2);                            // its purpose, then the fixed intro
     await expect(card.locator(".ov-purpose").last()).toContainText("Starts with “hal_write's signature changed");
-    await expect(card.locator(".ov-purpose .ai-label")).toHaveCount(0);
-    await card.getByRole("link", { name: "Go to thread A's first unread story" }).click();
+    await expect(card.locator(".ov-purpose.ai-text")).toHaveCount(0);
+    await card.getByRole("link", { name: "Start thread A" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S2$`));
     await expectNamed(page);
   });
@@ -67,7 +67,7 @@ test.describe("desktop", () => {
     await panel.getByRole("button", { name: "Looks fine & next" }).click();
     await expect(panel.locator(".ck-mark")).toHaveText("Looks fine · demo · just now");
     await expect(row.locator(".ws-cdone")).toHaveText("✓");
-    await expect(page.locator(".ws-progress")).toHaveText("0 of 5 stories read · 3 causes open");
+    await expect(page.locator(".ws-progress")).toHaveText("0 of 5 stories read · 3 checks open");
     await rerun(page, base);
     await page.reload();                                                             // the cause keeps its id across the re-run
     await expect(row.locator(".ws-cdone")).toHaveText("✓");
@@ -94,7 +94,7 @@ test.describe("desktop", () => {
     const head = page.locator(".ws-story-head");
     await expect(head.locator(".st-crumb")).toHaveText(/^Thread A · story 1 of 2 · feeds: /);
     await expect(head.locator(".ws-story-meta .ws-chip").first()).toHaveText("CL 102 · 1 function");
-    const chips = page.getByRole("region", { name: /^Flow 1: / }).locator(".st-chip");      // the checks on its flow, Confirm hidden
+    const chips = page.getByRole("region", { name: "hal_write's signature changed" }).locator(".st-chip");   // its group's checks, Confirm hidden
     await expect(chips).toHaveText(["uart_init calls hal_write and was not updated for its new signature"]);
     await expect(chips.first()).toHaveClass(/\bcaller\b/);
     await chips.first().click();
@@ -117,8 +117,10 @@ test.describe("desktop", () => {
     await head.getByRole("link", { name: /^Next story: S1/ }).click();
     await expect(head.locator(".st-crumb")).toHaveText(/^Thread A · story 2 of 2 · after: /);
     await expect(page.locator(".st-place")).toHaveText("Uses what story 1 adds.");
-    await expect(page.getByRole("region", { name: /^Flow 1: / }).locator(".st-chip")).toHaveText([
-      "logger_flush ignores the result of uart_send, which can now return -2", "uart_errors reads Uart::errors, which uart_send now writes"]);
+    await expect(page.getByRole("region", { name: "uart_send returns new values" }).locator(".st-chip"))
+      .toHaveText(["logger_flush ignores the result of uart_send, which can now return -2"]);
+    await expect(page.getByRole("region", { name: "Uart::errors gets a new writer: uart_send" }).locator(".st-chip"))
+      .toHaveText(["uart_errors reads Uart::errors, which uart_send now writes"]);
     await tabs.getByRole("link", { name: /^Call paths/ }).click();
     await expect(paths.locator(".st-steps").nth(1)).toHaveText("statemain→… 2 more→Uart::errors→uart_errors");
     await paths.getByRole("button", { name: "Show the 2 folded steps" }).click();
@@ -133,12 +135,14 @@ test.describe("desktop", () => {
   test("the outline: the overview, each thread with its stories in reading order, its checks and the Index", async ({ page }) => {
     const base = await startReview(page, FOUR);
     const outline = page.locator("aside.ws-outline");
-    await expect(outline.getByRole("link", { name: "Go to the overview" })).toContainText("Medium risk · rules only");
-    await expect(outline.locator(".ws-thread h3")).toHaveText(["A hal_write in hal, 3 open, 0 of 2 read", "B logger_init in service, 0 of 2 read",
-                                                               "C svc::Engine::step in cpp, 1 open, 0 of 1 read"]);
-    await expect(outline.locator(".ws-thread").first().getByRole("link", { name: /^Go to story/ })).toHaveCount(2);
-    await expect(outline.locator(".ws-thread").first().getByRole("link", { name: /^Go to story/ }).nth(1)).toHaveAccessibleName(/^Go to story S1/);
-    await outline.getByRole("link", { name: /^Go to story S1/ }).click();
+    await expect(outline.getByRole("link", { name: "Go to the overview" })).toHaveText("⌂ Overview");   // the header has the risk
+    await expect.poll(() => barNames(page)).toEqual(["Thread A: hal_write in hal, 3 open, 0 of 2 read",
+      "Thread B: logger_init in service, 0 of 2 read", "Thread C: svc::Engine::step in cpp, 1 open, 0 of 1 read"]);
+    await outline.getByRole("button", { name: /^Thread A:/ }).click();
+    const rows = outline.locator(".ws-bar-list > li > .ws-row.story");
+    await expect(rows).toHaveCount(2);
+    await expect(rows.nth(1)).toHaveAccessibleName(/^Go to story S1/);
+    await rows.nth(1).click();
     await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toContainText("Thread A");
     await openIndex(page, "Files");
     await expect(page).toHaveURL(new RegExp(`${base}/i/files$`));
@@ -179,8 +183,8 @@ test.describe("phone", () => {
   test("the overview's connections are sentences and nothing scrolls sideways", async ({ page }) => {
     await startReview(page, FOUR);
     await page.getByRole("link", { name: "Go to the overview" }).click();
-    await expect(page.locator(".ov-conn-rows li")).toHaveText(["A and B: both run inside main",
-                                                               "B and C: nothing besides arriving in CL 104 — ask the author"]);
+    await expect(page.locator(".ov-links li")).toHaveText(["With Thread A: both run inside main",
+                                                           "With Thread B: nothing besides arriving in CL 104 — ask the author"]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
   });
 

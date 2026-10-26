@@ -8,6 +8,14 @@ changes. Changed functions open as diffs with inline annotations and comment thr
 fetched on demand from your workspace. An LLM (your endpoint, your key) can rewrite the narratives,
 and every claim it makes must cite analysis facts.
 
+A review opens on an overview of the change. Its stories are grouped into **threads**, Thread A, B…, each with a
+section of the overview that counts its stories, its open checks and the stories you have read; the outline beside it
+opens one thread at a time. A story's **Flows** tab groups its flows by what changed, one line each: a line opens in
+place, and its tick box marks the flow's places fine for every reviewer. A group shows eight lines, then
+**Show N more**. On that tab J and K move between lines, Enter opens one, and F marks it fine and moves to the next
+line still open; while you type, or while a check is open beside the page, the keys leave the tab alone. The header's
+`⋯` menu holds workspace drift, stage notes, AI usage, the help and the owner's re-runs.
+
 The web app is the system of record for review discussion. P4 Swarm is a side channel: CodeTortoise reads review state,
 can create a Swarm review for a shelved CL and posts a summary link.
 
@@ -187,7 +195,7 @@ llm:                                # optional; without it, narratives use built
   api_key_env: TORTOISE_LLM_KEY     # name of the environment variable holding the key
   max_context_tokens: 64000
   concurrency: 4                    # parallel LLM calls
-  upfront_flows: 3                  # flow narratives written when a review runs; the rest on demand (✦ Explain)
+  upfront_flows: 3                  # flow narratives written when a review runs; the rest on demand (Explain)
   upfront_side_effects: 36          # new field writes the AI judges when a review runs (12 a call); red only if a hazard
   budget:                           # AI calls (failed calls count; refused ones cost nothing)
     per_review: 200                 # per review, everyone and the pipeline together; the owner can raise it
@@ -207,9 +215,9 @@ analysis:
 
 A **shared sink** is a field like a log buffer, a trace ring or a statistics counter that so many functions touch that a
 new write to it says nothing about its users. A review leaves its users out: no To check rows, no notes on other
-functions, no flows, no story links, and no AI judgement. The overview lists the sinks it hid and why; each viewer can
-**Show** them. The owner can also mark a field as a sink (or unmark it) from a finding, a To check row, a field's
-declaration note or the Health page; marks apply to every review from its next run.
+functions, no flows, no story links, and no AI judgement. The overview's folded **Coverage** section lists the sinks it
+hid and why; each viewer can **Show** them. The owner can also mark a field as a sink (or unmark it) from a finding, a
+To check row, a field's declaration note or the Health page; marks apply to every review from its next run.
 
 ### 4. Index, check, run
 
@@ -379,19 +387,21 @@ favour of the deterministic text, and the LLM stage says how many outputs were d
 
 A function that newly writes a field other code uses is a *side effect*: normal, and shown neutral. When a review runs
 the AI judges up to `upfront_side_effects` of them and marks one red only when the code shows a clear hazard or breaks
-an assumption other code makes, with its reason; **✦ Explain** on a side effect judges it too. Without an AI they stay
-neutral, marked "not yet assessed".
+an assumption other code makes, with its reason; **Explain** in a side effect's `Explain ▾` menu judges it too. Without
+an AI they stay neutral, marked "not yet assessed".
 
 When a review runs, the AI writes only the change summary and the first `upfront_flows` flow narratives. Everything
-else is written when someone asks, once, and shown to everyone: **✦ Explain** on a flow or a finding, **✦ Summarise**
-on a changed file. Type `@tortoise` in any comment (the `@` menu offers it) to ask the AI about that thread; it reads the
-functions, callers, declarations and files it needs from this review and the workspace, in up to `per_mention` rounds,
-and answers in the thread with what it read. The whole answer counts as one AI call; the owner can change the rounds
-per review in the AI usage panel.
+else is written when someone asks, once, and shown to everyone: **Explain** in a flow's or a finding's `Explain ▾`
+menu, **Summarise** in a changed file's `Summarise ▾` menu. Type `@tortoise` in any comment (the `@` menu offers it), or
+pick **Ask a question…** in one of those menus, to ask the AI about that thread or item; it reads the functions,
+callers, declarations and files it needs from this review and the workspace, in up to `per_mention` rounds, and answers
+in the thread with what it read. The whole answer counts as one AI call; the owner can change the rounds per review in
+the AI usage panel.
 
-Every call is recorded and checked against `llm.budget` before it is made. The **AI 57/200** pill in the review
-header shows the review's usage (by person, by purpose, every call); the owner raises the review's budget there. The
-Health page shows the limits and today's total.
+Every call is recorded and checked against `llm.budget` before it is made. On the review page, **AI calls used · 57 of
+200** in the `⋯` menu opens the review's usage (by person, by purpose, every call); the owner raises the review's budget
+there. Once 90% of the budget is used, an **AI 180/200** pill in the header opens it too. The Health page shows the
+limits and today's total.
 
 ### Swarm
 
@@ -443,7 +453,7 @@ restart. Reviews keep working across upgrades, and re-running a review rebuilds 
 | `CL … is pending with no shelved files` | The CL isn't shelved, or it was shelved on another edge server. See [SSL, Unicode and network topology](#ssl-unicode-and-network-topology). |
 | Files listed as warnings ("content unavailable", "not in client view") | The owner lacks `read` on those paths, or the client view doesn't map them. |
 | `facts` stage degraded, "fell back to tree-sitter" | Run `codetortoise check-parse` on one of the files: it shows the compile entry, compiler, target, library and first errors. Common causes: the build's compiler isn't on this machine (set `toolchain.clang`), a missing generated header, a target libclang doesn't know (set `toolchain.target`, or a vendor `libclang`). See [Toolchains and libclang](#toolchains-and-libclang). |
-| Board warns about workspace drift | The workspace isn't at the CL's base revision. Sync it, or expect context code to differ from what was analysed. |
+| Board warns about workspace drift, or the review page's `⋯` menu has an amber dot and a **Workspace drift · N** item (its panel lists the files) | The workspace isn't at the CL's base revision. Sync it, or expect context code to differ from what was analysed. |
 | `llm` stage degraded | The endpoint is unreachable or rejected the request. Reviews are complete without it. Check `llm.base_url` and the key variable. |
 | Swarm actions missing | The owner hasn't signed in since the server started, or `swarm.url` is wrong. |
 

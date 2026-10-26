@@ -645,6 +645,22 @@ def test_a_reading_stored_before_causes_is_served_without_causes_not_with_none_t
     assert owner.get(f"/api/reviews/{rid}/reading").json()["causes"] is None
 
 
+def test_checks_name_the_changed_function_that_raised_them_and_a_reading_stored_before_still_serves(env):
+    svc, app, _ = env
+    owner, rid = _review(app)
+    checks = owner.get(f"/api/reviews/{rid}/reading").json()["checks"]
+    caller = next(k for k in checks if k["kind"] == "caller")
+    assert caller["related"] and caller["related"].startswith("N")         # a node id, never shown, matched to a flow
+    s1 = owner.get(f"/api/reviews/{rid}/stories/S1").json()["reading"]
+    assert s1["checks"] and all("related" in k for k in s1["checks"])
+    old = svc.store.get_blob(rid, "reading")                               # a reading stored before `related`
+    for k in old["checks"]:
+        del k["related"]
+    svc.store.put_blob(rid, "reading", old)
+    r = owner.get(f"/api/reviews/{rid}/reading")
+    assert r.status_code == 200 and all(k["related"] is None for k in r.json()["checks"])
+
+
 def test_all_look_fine_marks_every_place_of_a_cause_in_one_request_or_none(env):
     svc, app, _ = env
     owner, rid = _review(app)

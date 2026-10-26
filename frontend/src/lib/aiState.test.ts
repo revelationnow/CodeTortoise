@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AiJob, AiView } from "../api";
-import { aiAvailability, callTitle, finished, jobFor } from "./aiState";
+import { aiAvailability, callTitle, finished, jobFor, nearLimit } from "./aiState";
 
 const view = (over: Partial<AiView> = {}): AiView => ({
   used: 57, budget: 200, by_person: {}, by_purpose: {}, llm: true, me_today: 3, me_limit: 100,
@@ -37,5 +37,14 @@ describe("jobs", () => {
 describe("callTitle", () => {
   it("names the cost on hover", () => {
     expect(callTitle(view())).toBe("1 AI call · 143 left on this review");
+  });
+});
+
+describe("nearLimit", () => {
+  it("shows the AI pill from 90% of the review's budget, and never without an AI", () => {
+    expect(nearLimit(view({ used: 179, budget: 200 }))).toBe(false);
+    expect(nearLimit(view({ used: 180, budget: 200 }))).toBe(true);
+    expect(nearLimit(view({ used: 200, budget: 200, llm: false }))).toBe(false);
+    expect(nearLimit(null)).toBe(false);
   });
 });

@@ -1,18 +1,19 @@
 import { devices, expect, test } from "@playwright/test";
-import { login, startReview } from "./helpers";
+import { login, railReady, startReview } from "./helpers";
 
 test.describe("desktop", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
   test("landing page: start a review, search and filter reviews", async ({ page }) => {
     // the e2e server is shared by the whole run, so other tests' reviews are in the list too
-    const title = `flags field only ${Date.now()}`;
+    // its unique part is letters only: digits from the clock (…101…) would match the CL search below
+    const title = `flags field only ${String(Date.now()).replace(/\d/g, (d) => "abcdefghij"[Number(d)])}`;
     await startReview(page);
     await page.goto("/");
     await page.getByLabel("Changelists (shelved or submitted)").fill("102");
     await page.getByLabel("Title (optional)").fill(title);
     await page.getByRole("button", { name: "Start review" }).click();
-    await expect(page.locator(".ws-rail").getByRole("link", { name: /^Go to story/ }).first()).toBeVisible({ timeout: 60_000 }); // a review opens on its workspace
+    await railReady(page);                                                   // a review opens on its workspace
     await page.getByRole("link", { name: "Reviews" }).first().click();
 
     const rows = page.locator(".rv-list .rv-row");
@@ -37,7 +38,10 @@ test.describe("desktop", () => {
     await high.click();
     await expect(rows).toHaveCount(n);
     // each row says what to act on; without the strong model that is the rules' top severity (review reading §5.4)
-    for (const r of await rows.all()) await expect(r.locator(".rv-headline")).toHaveText(/ risk · rules only$/);
+    for (const r of await rows.all()) {
+      await expect(r.locator(".rv-headline")).toHaveText(/ risk$/);
+      await expect(r.locator(".rv-headline")).toHaveAttribute("title", "Judged by the detectors' rules, without the strong model");
+    }
     await page.getByRole("button", { name: /^Mine/ }).click();
     await expect(rows).toHaveCount(total);                                            // every review here was started by demo
   });

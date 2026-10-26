@@ -11,7 +11,7 @@ test.describe("desktop", () => {
     await page.goto(`${base}/f/F4?details=1`);
     await expect(page.locator(".ws-finding h2")).toContainText("uart_send: new return value -2");
     await expect(page.locator(".ws-finding")).toContainText("returns before: 0; after: -2, 0");      // evidence as a list, not a repr
-    await expect(page.getByRole("region", { name: "AI analysis" })).toContainText("AI analysis unavailable.");
+    await expect(page.getByRole("region", { name: "Analysis", exact: true })).toContainText("No analysis: AI is not set up.");
     await page.getByRole("link", { name: /^Go to story S1/ }).first().click();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S1$`));
     await page.goBack();
@@ -33,6 +33,22 @@ test.describe("desktop", () => {
     await expect(page.locator(".ws-finding .ws-badge")).toHaveText("acknowledged");
     await expectNoNodeIds(page);
     await expectNamed(page);
+  });
+
+  test("section headings are dark sentence-case titles, not grey capitals", async ({ page }) => {
+    const base = await startReview(page);
+    const look = (selector: string) => page.locator(selector).first().evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return [cs.textTransform, cs.letterSpacing, cs.fontWeight, cs.fontSize, cs.color === getComputedStyle(document.body).color];
+    });
+    await expect(page.locator(".ws-whole h2").first()).toBeVisible();
+    expect(await look(".ws-whole h2")).toEqual(["none", "normal", "650", "16px", true]);
+    await page.goto(`${base}/f/F4?details=1`);
+    await expect(page.locator(".ws-finding h3").first()).toBeVisible();
+    expect(await look(".ws-finding h3")).toEqual(["none", "normal", "650", "15px", true]);
+    await page.goto("/");
+    await expect(page.locator(".rv-head h2")).toBeVisible();
+    expect(await look(".rv-head h2")).toEqual(["none", "normal", "650", "16px", true]);
   });
 
   test("a header's reach reads as words: counts with their nouns, its layers as a list", async ({ page }) => {
@@ -70,14 +86,14 @@ test.describe("desktop", () => {
     const rid = base.split("/")[2];
     await page.route(`**/api/reviews/${rid}/ai`, async (r) => { await new Promise((ok) => setTimeout(ok, 1500)); await r.continue(); });
     await page.goto(`${base}/f/F5`);
-    const ai = page.getByRole("region", { name: "AI analysis" });
+    const ai = page.getByRole("region", { name: "Analysis", exact: true });
     await expect(ai).toBeVisible();
     for (let i = 0; i < 6; i++) {
       expect(await ai.getByRole("button", { name: /Explain/ }).count()).toBe(0);
       expect(await ai.innerText()).not.toContain("Not written yet");                 // it may never be: say nothing yet
       await page.waitForTimeout(150);
     }
-    await expect(ai).toContainText("AI analysis unavailable.");
+    await expect(ai).toContainText("No analysis: AI is not set up.");
   });
 
   test("the owner's Swarm buttons say what happened, and a new press clears the last answer", async ({ page }) => {

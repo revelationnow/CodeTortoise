@@ -1,5 +1,5 @@
 import { devices, expect, test } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, openIndex, startReview } from "./helpers";
+import { expectNamed, expectNoNodeIds, openIndex, startReview, storyLink } from "./helpers";
 
 /** The workspace shell (spec 2026-10-04-review-workspace §2): rail, breadcrumb, addresses, phone levels. */
 
@@ -9,13 +9,13 @@ test.describe("desktop", () => {
   test("the outline lists the overview, the thread's stories and the Index", async ({ page }) => {
     const base = await startReview(page);
     const rail = page.locator("aside.ws-outline");
-    await expect(rail.locator(".ws-thread h3")).toHaveText([/^A hal_write in hal\b/]);
+    await expect(rail.getByRole("button", { name: /^Thread A: hal_write in hal\b/ })).toHaveAttribute("aria-expanded", "false");
     await expect(rail.getByRole("link", { name: "Go to the overview" })).toHaveAttribute("aria-current", "page");
-    const home = (await rail.locator(".ws-home").boundingBox())!, first = (await rail.locator(".ws-thread").first().boundingBox())!;
+    const home = (await rail.locator(".ws-home").boundingBox())!, first = (await rail.locator(".ws-bar").first().boundingBox())!;
     expect(first.y - (home.y + home.height)).toBeLessThan(12);               // sections follow on: the grip takes no room
     await rail.locator("details.ws-index summary").click();
     await expect(rail.locator(".ws-index-row")).toHaveText(["CLs", "Files", "Findings", "Map"]);
-    const s1 = rail.getByRole("link", { name: /^Go to story S1/ });
+    const s1 = await storyLink(page, /^Go to story S1/);
     await s1.click();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S1$`));
     await expect(s1).toHaveAttribute("aria-current", "page");
@@ -33,10 +33,11 @@ test.describe("desktop", () => {
   test("the overview: the change as a whole, its one thread and what to check", async ({ page }) => {
     const base = await startReview(page);
     const ov = page.locator(".ov3");
-    await expect(ov.locator("h2")).toHaveText(["The change as a whole", "Threads", "How the threads connect", "Build impact",
-                                               "Coverage", "Discussion"]);
+    await expect(ov.locator("h2")).toHaveText(["1 thread", "Build impact · up to 4 files rebuild", "Coverage · 2 notes",
+                                               "Discussion · no comments yet"]);
     await expect(ov.locator(".ws-lead")).toHaveText("One thread: hal_write in hal.");
-    await expect(ov).toContainText("One thread: all stories are connected by calls or shared data.");
+    await expect(ov.locator("section.ov-sec")).toHaveCount(1);
+    await expect(ov.locator(".ov-links")).toHaveCount(0);                    // one thread connects to nothing
     const r = await (await page.request.get(`/api/reviews/${base.split("/")[2]}/reading`)).json() as { causes: { kind: string }[] };
     const outline = page.locator("aside.ws-outline");
     await outline.getByRole("button", { name: "Checks" }).click();
@@ -48,7 +49,8 @@ test.describe("desktop", () => {
   test("the header says what to act on in place of the risk pill", async ({ page }) => {
     await startReview(page);
     const head = page.locator(".ws-head");
-    await expect(head.locator(".ct-headline")).toHaveText("Medium risk · rules only");   // header fan-out never raises it
+    await expect(head.locator(".ct-headline")).toHaveText("Medium risk");                // header fan-out never raises it
+    await expect(head.locator(".ct-headline")).toHaveAttribute("title", "Judged by the detectors' rules, without the strong model");
     await expect(head.locator(".bd-pill.high")).toHaveCount(0);
   });
 
@@ -82,6 +84,7 @@ test.describe("desktop", () => {
     await page.setViewportSize({ width: 1440, height: 300 });
     await startReview(page);
     const rail = page.locator(".ws-rail");
+    await rail.getByRole("button", { name: /^Thread A:/ }).click();
     expect(await rail.evaluate((e) => { const s = e.querySelector(".ws-rail-scroll") ?? e; return s.scrollHeight > s.clientHeight; })).toBe(true);
     const r = (await rail.boundingBox())!, x = r.x + r.width + 3, y = r.y + r.height / 2;   // just past the border
     expect(await page.evaluate(([px, py]) => !!document.elementFromPoint(px, py)?.closest(".bd-resizer"), [x, y])).toBe(true);
@@ -112,7 +115,7 @@ test.describe("tablet", () => {
     await expect(rail).not.toBeInViewport();
     await page.getByRole("button", { name: "Review contents" }).click();
     await expect(rail).toBeInViewport();
-    await rail.getByRole("link", { name: /^Go to story S2/ }).click();
+    await (await storyLink(page, /^Go to story S2/)).click();
     await expect(page).toHaveURL(/\/s\/S2$/);
     await expect(rail).not.toBeInViewport();
   });
@@ -137,7 +140,7 @@ test.describe("phone", () => {
     const base = await startReview(page);
     await expect(page.locator(".topbar")).toBeHidden();
     await expect(page.locator(".ws-centre")).toHaveCount(0);
-    await page.getByRole("link", { name: /^Go to story S1/ }).click();
+    await (await storyLink(page, /^Go to story S1/)).click();
     await expect(page.locator(".ws-rail")).toHaveCount(0);
     const bar = page.locator(".ws-phonebar");
     await expect(bar).toContainText("‹ Thread A");

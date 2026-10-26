@@ -4,6 +4,9 @@ import { ApiError } from "../api";
 import type { StoryDetail } from "../board/types";
 import Comments from "../components/Comments";
 import Explain from "../components/Explain";
+import AiText, { AiName } from "../components/AiText";
+import { useAi } from "../lib/ai";
+import { storyModel } from "../lib/aiMarks";
 import { isOpen } from "../reading/checks";
 import { nextUnread } from "../reading/plan";
 import { clCounts, stepIn, storyNeighbours, threadCrumb } from "../reading/story";
@@ -50,7 +53,7 @@ function MarkRead({ sid, order }: { sid: string; order: string[] }) {
  * fixed-width group; its tiles (spec 2026-10-07-review-reading §6) or its graph with the flow strip. A review run before
  * the reading keeps ‹ S1 of 4 › and the steps with the flow strip. */
 export default function StoryPage({ sid, view }: { sid: string; view: "steps" | "graph" }) {
-  const ws = useWs(), d = ws.data, ss = d.stories!;
+  const ws = useWs(), d = ws.data, ss = d.stories!, ai = useAi();
   // held with its story: another story starts loading, while a refreshed one (AI text) replaces it in place
   const [held, setHeld] = useState<{ sid: string; detail: StoryDetail } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -63,6 +66,7 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
   }, [story, sid]);
   const detail = held?.sid === sid ? held.detail : null;
   const st = detail?.story ?? ss.stories.find((s) => s.id === sid)!;
+  const model = storyModel(st, ai?.view);
   const at = ss.stories.findIndex((s) => s.id === sid);
   // known from the list, so the switch is there at once; gone if the story arrives without a graph after all
   const hasGraph = (st.kind === "behaviour" || st.kind === "other" || st.kind === "unsorted") && (!detail || !!detail.graph);
@@ -104,7 +108,7 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
       <div className="ws-story-title">
         <h2>{!r && st.risk && <span className={`bd-pill ${st.risk}`}>{st.risk}</span>}
           {hazards > 0 && <span className="ct-headline hazard">{hazards} hazard{hazards === 1 ? "" : "s"}</span>}
-          {st.text_source === "llm" && <span className="ai-label">AI</span>}<Ticks text={st.title} /></h2>
+          <AiName ai={st.text_source === "llm"} by={model}><Ticks text={st.title} /></AiName></h2>
         {hasGraph && (
           <span className="ws-switch" role="tablist" aria-label="View">
             {(["steps", "graph"] as const).map((v) => (
@@ -134,7 +138,7 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
   const readingHeader = (summary: boolean) => r && (
     <header className="ws-story-head st-head">
       <h2>{hazards > 0 && <span className="ct-headline hazard">{hazards} hazard{hazards === 1 ? "" : "s"}</span>}
-        {st.text_source === "llm" && <span className="ai-label">AI</span>}<Ticks text={st.title} /></h2>
+        <AiName ai={st.text_source === "llm"} by={model}><Ticks text={st.title} /></AiName></h2>
       <p className="st-crumb">
         {crumb ? <><Link to={ws.link(addressAt({ kind: "whole" }))} state={{ page: true }} title={`Go to thread ${crumb.letter} on the overview`}
                          aria-label={`Go to thread ${crumb.letter} on the overview`}>Thread {crumb.letter}</Link> · {crumb.text}</> : "Tests"}
@@ -150,8 +154,8 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
         {!summary && explain}
       </div>
       {summary && <div className="st-summary">
-        {purpose ? <p><span className="ai-label">AI</span><NameText text={purpose.text} /></p>
-          : <p>{st.text_source === "llm" && <span className="ai-label">AI</span>}<NameText text={st.purpose || st.summary} /></p>}
+        {purpose ? <AiText><NameText text={purpose.text} /></AiText>
+          : <AiText ai={st.text_source === "llm"} by={model}><NameText text={st.purpose || st.summary} /></AiText>}
         {sr?.place_text && <p className="st-place">{sr.place_text}</p>}
         {explain}
       </div>}

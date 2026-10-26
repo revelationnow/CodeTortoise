@@ -2,6 +2,8 @@ import { useState } from "react";
 import { type AiKind, type AnchorKind, api } from "../api";
 import { useAi } from "../lib/ai";
 import { aiAvailability, callTitle, jobFor } from "../lib/aiState";
+import { useMenu } from "../lib/useMenu";
+import AiText from "./AiText";
 
 const REFUSED = /AI calls|AI budget/;
 
@@ -17,12 +19,17 @@ interface Props {
   askOnly?: boolean;
 }
 
-/** ✦ Explain / ✦ Summarise (spec 2026-10-03 §4): one AI call, shown to everyone; a refusal or failure shows here. */
+/** Explain ▾ (spec 2026-10-25-review-ui-redesign §4.1): a small menu of Explain — or the caller's label, "again" once
+ * the item has a result — and Ask a question…; one AI call, shown to everyone. An item the strong model wrote allows
+ * only Ask… (two-tier stories §8). A refusal or failure, and the sent note, show beside it. Ask a question… (or Ask…)
+ * opens the question box with focus in it; picked again, or Escape in the box, shuts it with focus back on the button. */
 export default function Explain({ kind, target, has, label = "Explain", ask, askOnly = false }: Props) {
   const ai = useAi();
   const [asking, setAsking] = useState(false);
   const [question, setQuestion] = useState("");
   const [sent, setSent] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const { button, menu } = useMenu<HTMLSpanElement>(open, () => setOpen(false));
   if (!ai?.view?.llm) return null;
   const can = aiAvailability(ai.view);
   const send = () => {
@@ -39,24 +46,41 @@ export default function Explain({ kind, target, has, label = "Explain", ask, ask
   const failed = asked ?? (job && (job.status === "failed" || job.status === "refused")
     ? { error: job.error ?? "the AI call failed", refused: job.status === "refused" || REFUSED.test(job.error ?? "") } : null);
   const what = kind === "file" ? "summary" : "explanation";
+  const doing = `${label === "Explain" ? "Explaining" : "Summarising"}…`;
+  const run = () => {
+    setOpen(false);
+    button.current?.focus();
+    if (!has || window.confirm(`Replace the current ${what}? It costs 1 AI call.`)) ai.explain(kind, target);
+  };
+  const shut = () => { setAsking(false); button.current?.focus(); };
+  // title="": nothing here is the AI's text, though it may sit inside it (AiText's "Written by AI" hover stops here)
   return (
-    <span className="ai-ask" onClick={(e) => e.stopPropagation()}>
-      {!askOnly && (
-        <button className="ai-btn" disabled={running} title={callTitle(ai.view)}
-                onClick={() => (!has || window.confirm(`Replace the current ${what}? It costs 1 AI call.`)) && ai.explain(kind, target)}>
-          ✦ {running ? `${label === "Explain" ? "Explaining" : "Summarising"}…` : has ? `${label} again` : label}
-        </button>
-      )}
-      {ask && (
-        <button className="link small" aria-expanded={asking} title="Ask the AI something specific about this; it answers in a thread"
+    <span className="ai-ask" title="" onClick={(e) => e.stopPropagation()}>
+      {askOnly ? ask && (
+        <button ref={button} className="ai-btn" aria-expanded={asking} title="Ask the AI something specific about this; it answers in a thread"
                 onClick={() => setAsking(!asking)}>Ask…</button>
+      ) : (
+        <span className="ai-menuwrap">
+          <button ref={button} className="ai-btn" aria-haspopup="menu" aria-expanded={open} title="Ask the AI about this"
+                  onClick={() => setOpen(!open)}>{running ? doing : label}<span aria-hidden> ▾</span></button>
+          {open && (
+            <span className="ai-menu" role="menu" aria-label={label} ref={menu}>
+              <button role="menuitem" disabled={running} title={callTitle(ai.view)} onClick={run}>
+                {running ? doing : has ? `${label} again` : label}</button>
+              {ask && <button role="menuitem" onClick={() => { setOpen(false); if (asking) shut(); else setAsking(true); }}>Ask a question…</button>}
+            </span>
+          )}
+        </span>
       )}
       {ask && asking && (
         <span className="ai-askq">
           <textarea aria-label="What should the AI explain?" rows={2} value={question} autoFocus
                     placeholder="What should it explain? @tortoise answers in a thread here."
                     onChange={(e) => setQuestion(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send(); }} />
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send();
+                      else if (e.key === "Escape") { e.preventDefault(); shut(); }
+                    }} />
           <button className="ai-btn" disabled={!question.trim() || !can.ok} title={can.detail} onClick={send}>Ask</button>
         </span>
       )}
@@ -73,15 +97,15 @@ export default function Explain({ kind, target, has, label = "Explain", ask, ask
   );
 }
 
-/** A file's AI summary, above its code. */
+/** A file's AI summary, above its code (spec 2026-10-25-review-ui-redesign §4): the edge, and its model on hover. */
 export function FileSummaryView({ path }: { path: string }) {
   const s = useAi()?.view?.file_summaries[path];
   if (!s || !s.summary) return null;
   return (
-    <div className="ai-summary">
-      <div className="ai-tag"><span className="ai-label">AI</span> summary by {s.by}</div>
+    <AiText as="div" by={s.by} className="ai-summary">
+      <h4>Summary</h4>
       <p>{s.summary}</p>
       {s.check.length > 0 && <><b>Check</b><ol>{s.check.map((c, i) => <li key={i}>{c}</li>)}</ol></>}
-    </div>
+    </AiText>
   );
 }

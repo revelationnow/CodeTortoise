@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { isChange, useEnsureSource } from "../board/useSources";
@@ -8,13 +8,11 @@ import { KIND_LABEL, markLine } from "../reading/checks";
 import { alsoAt, around, doneCount, nextOpenAt, openPlaces, placeOpen } from "../reading/causes";
 import type { Cause, Check, Mark } from "../reading/types";
 import { useWs } from "./context";
+import { inPopup, typing } from "./keys";
 import NameText, { Ticks } from "./NameText";
 import { plainNames } from "./names";
 
 const bare = (s: string) => s.replaceAll("`", "");
-/** J, K and F are letters while the reader types (Review Focus 5). */
-const typing = (t: EventTarget | null) =>
-  t instanceof HTMLElement && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName));
 
 /** About seven lines around the place, from the after text of a changed file or the fetched text of another. */
 function PlaceCode({ k }: { k: Check | null }) {
@@ -70,13 +68,14 @@ export default function CauseStepper({ cause, at }: { cause: Cause; at: number }
   // the handler is read from a ref set in the render, so a key pressed before React's effects flush meets this render
   const onKey = useRef<(e: KeyboardEvent) => void>(() => {});
   onKey.current = (e) => {
-    // while a mark is on its way J, K and F wait: its "next" is worked out from the place it was made at
-    if (busy || e.ctrlKey || e.metaKey || e.altKey || typing(e.target)) return;
+    // while a mark is on its way J, K and F wait: its "next" is worked out from the place it was made at; they are a menu's
+    // or a dialog's while one has focus; and F acts once per press, as a held key's repeats would clear place after place
+    if (busy || e.ctrlKey || e.metaKey || e.altKey || typing(e.target) || inPopup(e.target)) return;
     if (e.key === "j" && ahead !== null) { e.preventDefault(); go(ahead); }
     else if (e.key === "k" && behind !== null) { e.preventDefault(); go(behind); }
-    else if (e.key === "f" && open) { e.preventDefault(); fineNext(); }
+    else if (e.key === "f" && !e.repeat && open) { e.preventDefault(); fineNext(); }
   };
-  useEffect(() => {
+  useLayoutEffect(() => {                                 // heard from the commit that shows the stepper, not from the next paint
     const on = (e: KeyboardEvent) => onKey.current(e);
     window.addEventListener("keydown", on);
     return () => window.removeEventListener("keydown", on);

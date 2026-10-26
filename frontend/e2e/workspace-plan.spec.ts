@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { login, startReview } from "./helpers";
+import { login, startReview, storyLink } from "./helpers";
 
 /** The reading plan (spec 2026-10-07-review-reading-phase2 §6): each reader's own ticks on stories and checks. */
 const FOUR = "101 102 103 104";
@@ -28,22 +28,29 @@ test.describe("desktop", () => {
     const base = await startReview(page, FOUR);
     const { order } = await readingOf(page, base);
     const head = page.locator(".ws-head .ws-progress");
-    const line = (k: number) => new RegExp(`^${k} of ${order.length} stories read( · (\\d+ causes? open|every check done))?$`);
+    const line = (k: number) => new RegExp(`^${k} of ${order.length} stories read( · (\\d+ checks? open|every check done))?$`);
     await expect(head).toHaveText(line(0));
     for (const sid of order.slice(0, -1))
       expect((await page.request.put(`/api${base.replace("/r/", "/reviews/")}/ticks/story/${sid}`)).ok()).toBe(true);
     await page.goto(`${base}/s/${order.at(-1)}`);
     await expect(head).toHaveText(line(order.length - 1));
     const rail = page.locator(".ws-rail");
-    await expect(rail.locator(".ws-read", { hasText: "✓" })).toHaveCount(order.length - 1);
-    await expect(rail.getByRole("link", { name: new RegExp(`^Go to story ${order[0]}: .* \\(read\\)`) })).toBeVisible();
-    await expect(rail.locator(".ws-thread .ws-thread-read").first()).toHaveText(/^, \d+ of \d+ read$/);
+    const readInBars = async () => (await rail.locator(".ws-bar > button").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label") ?? "")))
+      .reduce((n, label) => n + Number(/, (\d+) of \d+ read$/.exec(label)?.[1] ?? 0), 0);
+    await expect.poll(readInBars).toBe(order.length - 1);
+    await expect(await storyLink(page, new RegExp(`^Go to story ${order[0]}: .* \\(read\\)`))).toBeVisible();
+    await expect(rail.locator(".ws-bar .ws-thread-read").first()).toHaveText(/^\d+ of \d+$/);
     await page.getByRole("button", { name: "Mark as read" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}$`));
     await expect(page.getByText("You've read every story.")).toBeVisible();
     await expect(head).toHaveText(line(order.length));
-    const metas = page.locator(".ov-thread .ov-meta");
-    for (const m of await metas.allInnerTexts()) expect(m).toMatch(/^(\d+) stor(y|ies) · \1 read( · |$)/);
+    const secs = page.locator("section.ov-sec");
+    await expect(secs.first()).toBeVisible();
+    for (const s of await secs.all()) {
+      const [stories, , read] = (await s.locator(".ov-n").allTextContents()).map((t) => parseInt(t.replace(/\D+/g, " "), 10));
+      expect(read).toBe(stories);
+      await expect(s.locator(".ov-act")).toHaveText("All read ✓");
+    }
   });
 
   test("a failed load of the reader's ticks says so and keeps the reading plan (review M5)", async ({ page }) => {
@@ -121,6 +128,6 @@ test.describe("phone", () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
     await page.goto(base);
     await page.getByRole("link", { name: "Go to the overview" }).click();
-    await expect(page.locator(".ov-thread .ov-meta").filter({ hasText: " · 1 read" })).toHaveCount(1);   // its thread counts it
+    await expect(page.locator("section.ov-sec .ov-n").filter({ hasText: /^, 1 read$/ })).toHaveCount(1);   // its thread counts it
   });
 });
