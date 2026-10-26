@@ -262,4 +262,19 @@ test.describe("phone", () => {
     await expect(a.locator(".ov-sep").first()).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
   });
+
+  test("back on the contents page the outline opens the thread of the story just read, not the bar tapped before", async ({ page }) => {
+    await startReview(page, FOUR);
+    const rail = page.locator("aside.ws-outline");
+    const bar = (L: string) => rail.getByRole("button", { name: new RegExp(`^Thread ${L}:`) });
+    await bar("A").click();                                                       // tapped on the contents page…
+    await expect(bar("A")).toHaveAttribute("aria-expanded", "true");
+    await rail.getByRole("link", { name: "Go to the overview" }).click();         // …then the overview, with no outline beside it
+    await page.getByRole("region", { name: /^Thread B:/ }).getByRole("link", { name: "Start thread B" }).click();   // and a story of B, no reload
+    await expect(page).toHaveURL(/\/s\/S3$/);
+    await expect(page.locator(".st-crumb")).toContainText("Thread B");            // drawn: the address changes first
+    await page.getByRole("link", { name: "Back to Thread B" }).click();           // the phone bar's way back to the contents
+    await expect(bar("B")).toHaveAttribute("aria-expanded", "true");
+    await expect(bar("A")).toHaveAttribute("aria-expanded", "false");
+  });
 });

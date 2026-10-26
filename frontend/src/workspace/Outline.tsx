@@ -64,6 +64,14 @@ function OutlineBody({ onPick, hidden = false, folded }: Props & { folded: boole
   );
 }
 
+/** Going to a story makes its thread the one last opened in this review (spec 2026-10-25-review-ui-redesign §6), for each
+ * story, not only when the thread changes, or a bar clicked since would stay the last opened. The workspace keeps it,
+ * since on a phone the outline is not there while a story shows; the outline reads it when it mounts. */
+export function useStoryThread(rid: number, r: Reading | null | undefined, sid: string | null) {
+  const holding = r && sid ? r.threads.find((t) => t.stories.includes(sid))?.id ?? null : null;
+  useEffect(() => { if (holding) saveThread(rid, holding); }, [rid, sid, holding]);
+}
+
 /** Stories (spec 2026-10-25-review-ui-redesign §6): the overview; a bar per thread, one open at a time with its stories
  * numbered and the current story's flows, the bars before it pinned to the top of the scroll area and those after it to
  * the bottom; the tests; the Index folded at the bottom. */
@@ -79,11 +87,9 @@ function StoriesView({ r, onPick }: { r: Reading; onPick: () => void }) {
   const [chosen, setChosen] = useState<{ here: string | null; id: string | null } | null>(null);   // a bar clicked at `here`
   useEffect(() => { setChosen(null); }, [here]);           // a bar clicked at one story does not outlive it: Back, or the overview, return to the rules
   const holding = here ? r.threads.find((t) => t.stories.includes(here))?.id ?? null : null;
-  useEffect(() => {                                        // going to a story opens its thread, and the outline keeps it: for each story,
-    if (!holding) return;                                  // not only when the thread changes, or a bar clicked since stays the last opened
-    setLast(holding);
-    saveThread(d.id, holding);
-  }, [here, holding, d.id]);
+  useEffect(() => {                                        // going to a story opens its thread, and the outline keeps it (stored by
+    if (holding) setLast(holding);                         // useStoryThread): for each story, or a bar clicked since stays the last opened
+  }, [here, holding]);
   const on = chosen && chosen.here === here ? chosen.id : openThread(r.threads, here, last);
   const at = r.threads.findIndex((t) => t.id === on);
   const toggle = (id: string) => {

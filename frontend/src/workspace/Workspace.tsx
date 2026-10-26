@@ -23,7 +23,7 @@ import ClPage from "./ClPage";
 import ClusterPage from "./ClusterPage";
 import FindingPage from "./FindingPage";
 import IndexPage from "./IndexPage";
-import Outline from "./Outline";
+import Outline, { useStoryThread } from "./Outline";
 import Rail from "./Rail";
 import ReviewMenu from "./ReviewMenu";
 import StoryPage from "./StoryPage";
@@ -90,6 +90,7 @@ export default function Workspace() {
 
   const d = data.detail;
   const r = data.reading;
+  useStoryThread(id, r, addr.place.kind === "story" ? addr.place.sid : null);   // here, not in the outline: a phone shows no outline beside a story
   const threadOf = useMemo(() => r ? (sid: string) => threadLabel(r.threads, sid) : undefined, [r]);
   const waiting = r === undefined || !loadedFor(addr.place, data);   // the trail waits, as the centre does
   const trail = useMemo(() => waiting && addr.place.kind !== "whole"
