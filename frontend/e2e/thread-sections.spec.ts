@@ -19,6 +19,33 @@ async function patchReading(page: Page, edit: (r: any) => void) {
 /** An element's right edge, to the pixel. */
 const right = async (l: Locator) => { const b = (await l.boundingBox())!; return Math.round(b.x + b.width); };
 
+/** Each thread bar measured in the page: how wide its name is, whether its Start/Continue stays inside its section, and
+ * how many of its counts the "Thread X" label runs into. */
+const bars = (page: Page) => page.locator("section.ov-sec").evaluateAll((secs) => secs.map((sec) => {
+  const box = (sel: string) => sec.querySelector(sel)!.getBoundingClientRect();
+  const section = sec.getBoundingClientRect(), label = box(".ov-sec-l"), act = box(".ov-act");
+  const hit = (c: DOMRect) => c.left < label.right - 1 && c.right > label.left + 1 && c.top < label.bottom - 1 && c.bottom > label.top + 1;
+  return { name: box(".ov-sec-name").width, actInside: act.right <= section.right + 1,
+           overCounts: Array.from(sec.querySelectorAll(".ov-n")).filter((n) => hit(n.getBoundingClientRect())).length };
+}));
+
+/** The overview is narrower than `under` px because a panel is open beside it, whatever the window's width: its bars
+ * still hold every name and their action, the label row is gone, and nothing sticks out or scrolls sideways (spec §5.2:
+ * "below 640px wide" is the overview's own width). */
+async function barsHold(page: Page, under: number) {
+  await expect.poll(async () => (await page.locator(".ov3").boundingBox())!.width).toBeLessThan(under);
+  await expect.soft(page.locator(".ov-cols")).toBeHidden();
+  const found = await bars(page);
+  expect(found).toHaveLength(3);
+  found.forEach((b, i) => {
+    expect.soft(b.name, `thread ${i + 1}: its name has room`).toBeGreaterThan(0);
+    expect.soft(b.actInside, `thread ${i + 1}: its Start stays inside its section`).toBe(true);
+    expect.soft(b.overCounts, `thread ${i + 1}: its label runs into its counts`).toBe(0);
+  });
+  expect.soft(await page.locator(".ws-page").evaluate((e) => e.scrollWidth - e.clientWidth), "the page scrolls sideways")
+    .toBeLessThanOrEqual(0);
+}
+
 test.describe("desktop", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -110,6 +137,23 @@ test.describe("desktop", () => {
     await expect(page.locator(".ov-cols, section.ov-sec")).toHaveCount(0);
     await page.getByRole("link", { name: "Start here ›" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S2$`));
+  });
+});
+
+test.describe("beside the side panel", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test("a panel open beside the overview narrows it: the thread bars wrap by its width and keep their names", async ({ page }) => {
+    await startReview(page, FOUR);
+    const outline = page.locator("aside.ws-outline");
+    await outline.getByRole("button", { name: "Checks" }).click();
+    await outline.getByRole("link", { name: /^Open check: / }).first().click();
+    const panel = page.getByRole("complementary", { name: /^Check: / });
+    await expect(panel).toBeVisible();
+    await expect(page.locator("section.ov-sec")).toHaveCount(3);          // the overview stays in the centre
+    await barsHold(page, 640);
+    await panel.getByRole("button", { name: "Focus" }).click();           // Focus leaves the centre 360px: the overview ~312
+    await barsHold(page, 330);
   });
 });
 
