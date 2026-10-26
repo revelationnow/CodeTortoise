@@ -1,8 +1,10 @@
 /** How to read a review (spec 2026-10-16-outline-and-causes §1.1), for a reader new to CodeTortoise: a panel the
- * header's ⋯ menu opens at `top` (spec 2026-10-25-review-ui-redesign §2.2); the menu closes it. */
+ * header's ⋯ menu opens at `top` (spec 2026-10-25-review-ui-redesign §2.2), scrolling inside itself rather than
+ * running past 16px above the window's bottom; the menu closes it. */
 export default function HowToRead({ top }: { top: number }) {
   return (
-    <div className="ws-help-pop rm-panel" role="dialog" aria-label="How to read this page" tabIndex={-1} style={{ top }}>
+    <div className="ws-help-pop rm-panel" role="dialog" aria-label="How to read this page" tabIndex={-1}
+         style={{ top, maxHeight: `calc(100vh - ${top + 16}px)` }}>
       <h2>How to read this page</h2>
       <ul>
         <li><b>The outline</b> on the left lists the change's threads — stories joined by calls or shared data, lettered

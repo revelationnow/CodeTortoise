@@ -17,7 +17,8 @@ export default function AiPill() {
 }
 
 /** The AI usage panel (spec 2026-10-03 §6): this review's and the viewer's calls; the owner raises the budget. It sits
- * under the header's right end at `top`, whoever opened it (spec 2026-10-25-review-ui-redesign §2.2). */
+ * under the header's right end at `top`, whoever opened it (spec 2026-10-25-review-ui-redesign §2.2), scrolling inside
+ * itself rather than running past 16px above the window's bottom. */
 export function Usage({ onClose, top }: { onClose: () => void; top: number }) {
   const ai = useAi()!;
   const v = ai.view!;
@@ -38,7 +39,7 @@ export function Usage({ onClose, top }: { onClose: () => void; top: number }) {
   }, [onClose]);
   const counts = (m: Record<string, number>) => Object.entries(m).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k, n]) => `${k} ${n}`).join(" · ") || "none";
   return (
-    <div className="ai-usage" role="dialog" aria-label="AI usage" ref={box} style={{ top }}>
+    <div className="ai-usage" role="dialog" aria-label="AI usage" ref={box} style={{ top, maxHeight: `min(70vh, calc(100vh - ${top + 16}px))` }}>
       <div className="row"><b>AI calls</b><span className="sp" /><button className="link small" onClick={onClose}>Close</button></div>
       <p>This review: <b>{v.used}</b> of {v.budget}. You today: <b>{v.me_today}</b> of {v.me_limit}.</p>
       {v.strong && v.tier1 && <p>Strong model ({v.strong}): <b>{v.tier1.used}</b> of {v.tier1.budget} calls for stories and

@@ -29,6 +29,7 @@ export default function ReviewMenu({ under }: { under: () => number }) {
     ai: v?.llm ? { used: v.used, budget: v.budget } : null, reading: !!d.reading,
     owner: !!me?.is_owner, ready: d.ready, strong: !!v?.strong };
   const items = menuItems(state), why = menuAttention(state);
+  const at = { top, maxHeight: `calc(100vh - ${top + 16}px)` };   // a panel scrolls inside itself rather than run past 16px above the window's bottom
   useEffect(() => {                           // a panel takes focus; Escape (back to ⋯) or a press outside closes it
     if (!panel) return;
     box.current?.querySelector<HTMLElement>('[role="dialog"]')?.focus();
@@ -73,14 +74,14 @@ export default function ReviewMenu({ under }: { under: () => number }) {
       )}
       <div ref={box}>
         {panel === "drift" && (
-          <div className="rm-panel" role="dialog" aria-label="Workspace drift" tabIndex={-1} style={{ top }}>
+          <div className="rm-panel" role="dialog" aria-label="Workspace drift" tabIndex={-1} style={at}>
             <h2>Workspace drift</h2>
             <p className="muted small">The workspace differs from the change in these files; what the review says about them may be off.</p>
             <ul className="mono small">{drift.map((t) => <li key={t}>{t}</li>)}</ul>
           </div>
         )}
         {panel === "notes" && (
-          <div className="rm-panel" role="dialog" aria-label="Stage notes" tabIndex={-1} style={{ top }}>
+          <div className="rm-panel" role="dialog" aria-label="Stage notes" tabIndex={-1} style={at}>
             <h2>Stage notes</h2>
             {notes.map((s) => <div key={s.name} className={`banner ${s.status === "failed" ? "error" : "warn"}`}><strong>{s.name}</strong>: {s.message}</div>)}
           </div>
