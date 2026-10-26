@@ -117,6 +117,28 @@ test.describe("with an AI", () => {
     await expect(ai.getByRole("menuitem", { name: "Explain again" })).toBeVisible();
   });
 
+  test("Ask a question… opens a box that Escape or a second pick closes, back on the Explain button; the box is not AI text", async ({ page }) => {
+    const base = await startReview(page);
+    const findings: { id: string; severity: string }[] = await (await page.request.get(`/api/reviews/${base.split("/")[2]}/findings`)).json();
+    await page.goto(`${base}/f/${findings.find((f) => f.severity === "high")!.id}?details=1`);
+    const ai = page.getByRole("region", { name: "Analysis", exact: true });
+    await expect(ai.locator(".ai-text")).toHaveAttribute("title", "Written by AI", { timeout: 30_000 });   // Explain sits in the AI's text
+    const button = ai.getByRole("button", { name: "Explain", exact: true });
+    const box = ai.getByRole("textbox", { name: "What should the AI explain?" });
+    await explainItem(ai, "Ask a question…");
+    await expect(box).toBeFocused();
+    const hover = await box.evaluate((el) => el.closest("[title]")?.getAttribute("title") ?? "");
+    expect(hover, "the box, its note and its errors are not the AI's text").not.toMatch(/^Written by AI/);
+    await page.keyboard.press("Escape");
+    await expect(box).toHaveCount(0);
+    await expect(button).toBeFocused();
+    await explainItem(ai, "Ask a question…");                                        // the item opens the box…
+    await expect(box).toBeFocused();
+    await explainItem(ai, "Ask a question…");                                        // …and shuts it again
+    await expect(box).toHaveCount(0);
+    await expect(button).toBeFocused();
+  });
+
   test("a side effect the AI judges a hazard turns red and says why; one it clears stays neutral with its reason", async ({ page }) => {
     const base = await startReview(page);
     const findings = await (await page.request.get(`/api/reviews/${base.split("/")[2]}/findings`)).json() as { id: string; title: string }[];

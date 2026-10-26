@@ -21,7 +21,8 @@ interface Props {
 
 /** Explain ▾ (spec 2026-10-25-review-ui-redesign §4.1): a small menu of Explain — or the caller's label, "again" once
  * the item has a result — and Ask a question…; one AI call, shown to everyone. An item the strong model wrote allows
- * only Ask… (two-tier stories §8). A refusal or failure, and the sent note, show beside it. */
+ * only Ask… (two-tier stories §8). A refusal or failure, and the sent note, show beside it. Ask a question… (or Ask…)
+ * opens the question box with focus in it; picked again, or Escape in the box, shuts it with focus back on the button. */
 export default function Explain({ kind, target, has, label = "Explain", ask, askOnly = false }: Props) {
   const ai = useAi();
   const [asking, setAsking] = useState(false);
@@ -51,10 +52,12 @@ export default function Explain({ kind, target, has, label = "Explain", ask, ask
     button.current?.focus();
     if (!has || window.confirm(`Replace the current ${what}? It costs 1 AI call.`)) ai.explain(kind, target);
   };
+  const shut = () => { setAsking(false); button.current?.focus(); };
+  // title="": nothing here is the AI's text, though it may sit inside it (AiText's "Written by AI" hover stops here)
   return (
-    <span className="ai-ask" onClick={(e) => e.stopPropagation()}>
+    <span className="ai-ask" title="" onClick={(e) => e.stopPropagation()}>
       {askOnly ? ask && (
-        <button className="ai-btn" aria-expanded={asking} title="Ask the AI something specific about this; it answers in a thread"
+        <button ref={button} className="ai-btn" aria-expanded={asking} title="Ask the AI something specific about this; it answers in a thread"
                 onClick={() => setAsking(!asking)}>Ask…</button>
       ) : (
         <span className="ai-menuwrap">
@@ -64,7 +67,7 @@ export default function Explain({ kind, target, has, label = "Explain", ask, ask
             <span className="ai-menu" role="menu" aria-label={label} ref={menu}>
               <button role="menuitem" disabled={running} title={callTitle(ai.view)} onClick={run}>
                 {running ? doing : has ? `${label} again` : label}</button>
-              {ask && <button role="menuitem" onClick={() => { setOpen(false); setAsking(true); }}>Ask a question…</button>}
+              {ask && <button role="menuitem" onClick={() => { setOpen(false); if (asking) shut(); else setAsking(true); }}>Ask a question…</button>}
             </span>
           )}
         </span>
@@ -74,7 +77,10 @@ export default function Explain({ kind, target, has, label = "Explain", ask, ask
           <textarea aria-label="What should the AI explain?" rows={2} value={question} autoFocus
                     placeholder="What should it explain? @tortoise answers in a thread here."
                     onChange={(e) => setQuestion(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send(); }} />
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send();
+                      else if (e.key === "Escape") { e.preventDefault(); shut(); }
+                    }} />
           <button className="ai-btn" disabled={!question.trim() || !can.ok} title={can.detail} onClick={send}>Ask</button>
         </span>
       )}
