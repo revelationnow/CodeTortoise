@@ -31,8 +31,11 @@ function check(key: string, kind: CheckKind, node: string, related: string | nul
   if (related !== undefined) k.related = related;
   return k;
 }
-/** The same checks as a reading stored before `related` has them (Review Focus 1). */
-const stored = (ks: Check[]) => ks.map((k) => check(k.key, k.kind, k.node!, undefined, k.field ?? null));
+/** The same checks as a reading stored before `related` has them (Review Focus 1): `related` absent, or null as the server
+ * sends it on a row with no changed function behind it; the page reads the two alike. */
+const stored = (ks: Check[], missing: null | undefined = undefined) =>
+  ks.map((k) => check(k.key, k.kind, k.node!, missing, k.field ?? null));
+const MISSING = [["related absent", undefined], ["related null", null]] as const;
 const cause = (id: string, kind: CheckKind, places: string[], flows: string[] = [], finding: string | null = null): Cause =>
   ({ id, kind, thread: "T1", story: "S1", text: id, places, flows, finding, change: null });
 const mark = (key: string, changed = false): Mark => ({ key, user: "ana", at: "", source_line: "", changed });
@@ -133,8 +136,8 @@ describe("a flow's places", () => {
     expect(flowPlaces(ignored, checks, new Set<CheckKind>(["result"]), label).map((k) => k.key)).toEqual(["caller|flush"]);
   });
 
-  it("are none on a reading stored before checks named their change, or for a flow without one (Review Focus 1)", () => {
-    expect([ignored, reads, blind].map((f) => flowPlaces(f, stored(checks), none, label))).toEqual([[], [], []]);
+  it.each(MISSING)("are none on a reading stored before `related` (%s), or for a flow without a change (Review Focus 1)", (_, missing) => {
+    expect([ignored, reads, blind].map((f) => flowPlaces(f, stored(checks, missing), none, label))).toEqual([[], [], []]);
     expect(flowPlaces({ ...ignored, cause: null }, checks, none, label)).toEqual([]);
   });
 
@@ -167,8 +170,8 @@ describe("groupCauses", () => {
     expect(rest.map((c) => c.id)).toEqual(["target", "untested", "state"]);
   });
 
-  it("falls back to the group holding a cause's first flow on a reading stored before `related` (Review Focus 1)", () => {
-    const { byGroup, rest } = groupCauses(groups, [...causes, cause("lost", "caller", [], [])], stored(checks), label);
+  it.each(MISSING)("falls back to the group of a cause's first flow on a reading stored before `related` (%s; Review Focus 1)", (_, missing) => {
+    const { byGroup, rest } = groupCauses(groups, [...causes, cause("lost", "caller", [], [])], stored(checks, missing), label);
     expect(ids(byGroup)).toEqual([["function:N3", ["result", "hazard"]], ["field:N4", ["reader"]], ["function:N7", ["caller"]]]);
     expect(rest.map((c) => c.id)).toEqual(["target", "untested", "state", "lost"]);
   });

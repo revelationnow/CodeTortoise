@@ -540,7 +540,7 @@ def test_a_four_cl_review_reads_as_three_connected_threads(fx, tmp_path):
         ("T1", "T2", "caller", "both run inside `main`"), ("T2", "T3", "bundled", "nothing besides arriving in CL 104")]
     assert [(k["kind"], k["thread"]) for k in r["checks"]] == [
         ("confirm", "T1"), ("confirm", "T1"), ("caller", "T1"), ("result", "T1"), ("reader", "T1"), ("ask", "T3")]
-    assert r["whole"] == "3 threads: A and B: both run inside `main`; B and C: nothing besides arriving in CL 104."
+    assert r["whole"] == "A and B: both run inside `main`; B and C: nothing besides arriving in CL 104."     # no "3 threads"
     assert "`service/logger.h` header change → 2 files rebuild" in [b["text"] for b in r["build_impact"]]
 
 

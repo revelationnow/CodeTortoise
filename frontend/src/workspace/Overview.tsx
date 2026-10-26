@@ -122,8 +122,9 @@ function Fold({ name, title, open, children }: { name: string; title: string; op
   );
 }
 
-/** The overview (§5): how many threads and the change as a whole, where to start, a section per thread with its counts
- * under one row of column labels, the tests, then Build impact, Coverage and Discussion folded. */
+/** The overview (§5): how many threads and the change as a whole (no paragraph when the rules have nothing to add to the
+ * heading), where to start, a section per thread with its counts under one row of column labels, the tests, then Build
+ * impact, Coverage and Discussion folded. */
 export default function Overview({ r }: { r: Reading }) {
   const ws = useWs(), loc = useLocation(), read = new Set(ws.data.ticks?.stories ?? []);
   const [coverageOpen] = useState(() => (loc.state as { coverage?: boolean } | null)?.coverage === true);   // read once: it only sets how Coverage starts
@@ -134,7 +135,7 @@ export default function Overview({ r }: { r: Reading }) {
     <div className="ws-page"><div className="ws-text ws-whole ov3">
       <section aria-labelledby="ov-whole" className="ov-top">
         <h2 id="ov-whole">{overviewHeading(r.threads.length)}</h2>
-        <AiText className="ws-lead" ai={r.whole_source === "llm"}><Ticks text={r.whole} /></AiText>
+        {r.whole && <AiText className="ws-lead" ai={r.whole_source === "llm"}><Ticks text={r.whole} /></AiText>}
         {start ? <Link className="ov-start" to={storyTo(ws, start.sid)}>{start.label}</Link>
           : r.order.length > 0 && <p className="muted">You've read every story.</p>}
       </section>

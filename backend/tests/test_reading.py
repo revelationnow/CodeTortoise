@@ -22,6 +22,7 @@ from codetortoise.reading import (
     fixed_intro,
     fixed_introduction,
     fixed_route,
+    fixed_whole,
     headline,
     module_of,
     pick_files,
@@ -428,6 +429,17 @@ def test_a_check_reads_its_finding_tidied():
     assert [k.text for k in open_] == ["send: new return value -2"]
 
 
+def test_a_finding_without_a_function_is_a_check_that_names_no_changed_function():
+    c = _world([_edit("send", "drv/uart.c")])
+    ss = _set(["N1"])
+    ss.finding_story = {"F1": "S1", "F2": "S1"}
+    c.findings = [_f("F1", nodes=("N1",), verdict="hazard", reason="drops data", source="tier1"),
+                  _f("F2", nodes=(), verdict="needs_review", reason="check the build", source="tier1")]
+    open_, _ = _checks(c, ss)
+    assert [(k.kind, k.related) for k in open_] == [("hazard", "N1"), ("confirm", None)]
+    assert open_[1].model_dump()["related"] is None
+
+
 def _caller_world(**kw):
     """`send` (S1) changed its signature; `log` and `flush` call it, `log` is changed too (S2)."""
     c = _world([_edit("send", "drv/uart.c"), _edit("log", "svc/log.c"), _same("flush", "svc/flush.c")],
@@ -505,6 +517,7 @@ def test_a_thread_connected_only_by_its_bundle_raises_ask_the_author_on_the_thre
         ("ask", None, "T2", "Ask the author how this thread relates to the rest of the change: nothing besides arriving "
                             "in CL 1")]
     assert open_[0].key == "ask|||b"
+    assert open_[0].model_dump()["related"] is None                           # no changed function behind it: sent, as null
 
 
 def test_two_kinds_at_one_place_stay_two_rows_each_knowing_what_raised_it():
@@ -556,6 +569,7 @@ def test_a_header_included_only_by_files_of_another_target_is_a_check_across_the
     targets = {"/w/drv/uart.c": ["fw"], "/w/drv/uart.h": ["fw"], "/w/host/a.c": ["host"], "/w/host/b.c": ["host"]}
     open_, _ = _checks(c, _set(["N1"]), targets=targets, includers=lambda h: {"/w/host/a.c", "/w/host/b.c", "/w/drv/uart.c"})
     assert _rows(open_) == [("target", None, "host/a.c", None, None, "`drv/uart.h` is included by 2 files built only for `host`")]
+    assert open_[0].model_dump()["related"] is None                           # a header is no changed function: sent, as null
 
 
 # ---- §5.4 headline, §5.2 build impact and coverage
@@ -890,23 +904,81 @@ def test_a_threads_fixed_intro_says_where_what_is_open_and_where_it_starts():
     t = Thread(id="T1", name="n", purpose="p", stories=["S2", "S1", "S3"], cls=[101],
                modules=["driver/", "service/"])
     titles = {"S1": "b", "S2": "`uart_send` can now return -2", "S3": "c"}
-    assert fixed_intro(t, [_ck("confirm"), _ck("result", n=1), _ck("confirm", "T2")], titles) == (
-        "3 stories in `driver/` and `service/` across CL 101. 2 checks open: Confirm, Result handled the old way. "
+    checks = [_ck("hazard"), _ck("caller", n=1), _ck("confirm", n=2), _ck("confirm", "T2"), _ck("result", "T2", 3)]
+    assert fixed_intro(t, checks, titles) == (       # T2's checks are not T1's
+        "3 stories in `driver/` and `service/` across CL 101. Checks open: Hazard, Caller not updated. "
         "Starts with “`uart_send` can now return -2”.")
 
 
-def test_a_fixed_intro_caps_directories_and_check_kinds_and_says_nothing_is_open():
+def test_a_fixed_intro_caps_directories_and_says_nothing_is_open():
     t = Thread(id="T1", name="n", purpose="p", stories=["S1"], cls=[1, 2], modules=["a/", "b/", "c/", "d/"])
     assert fixed_intro(t, [], {"S1": "s"}) == (
         "1 story in `a/`, `b/`, `c/` and 1 more across CL 1 and CL 2. Nothing is open. Starts with “s”.")
-    kinds = ["hazard", "confirm", "caller", "result", "reader"]
+
+
+def _open_sentence(*kinds):
+    """The sentence of a one-story thread's fixed intro that says what is open, for one check of each given kind."""
+    t = Thread(id="T1", name="n", purpose="p", stories=["S1"])
     text = fixed_intro(t, [_ck(k, n=i) for i, k in enumerate(kinds)], {"S1": "s"})
-    assert "5 checks open: Hazard, Confirm, Caller not updated and 2 more." in text
+    return text.removeprefix("1 story. ").removesuffix(" Starts with “s”.")
+
+
+def test_a_fixed_intro_names_the_kinds_open_without_a_count_and_leaves_confirm_out():
+    """Owner decision 2026-10-26: the overview's Open column carries the number, with Confirm hidden."""
+    assert _open_sentence("hazard", "caller", "confirm") == "Checks open: Hazard, Caller not updated."
+    assert _open_sentence("confirm") == _open_sentence() == "Nothing is open."
+    assert _open_sentence("confirm", "confirm", "ask") == "Checks open: Ask the author."
+    assert _open_sentence("reader", "hazard") == "Checks open: Hazard, Unchanged reader."             # in the checks' order
+
+
+def test_a_fixed_intro_names_each_kind_once_whatever_the_number_of_its_checks():
+    t = Thread(id="T1", name="n", purpose="p", stories=["S1"])
+    checks = [_ck("caller", n=i) for i in range(4)] + [_ck("result", n=4)]
+    assert fixed_intro(t, checks, {"S1": "s"}) == (
+        "1 story. Checks open: Caller not updated, Result handled the old way. Starts with “s”.")
+
+
+def test_a_fixed_intro_names_three_kinds_then_how_many_more_not_counting_confirm():
+    assert _open_sentence("hazard", "caller", "result") == "Checks open: Hazard, Caller not updated, Result handled the old way."
+    assert _open_sentence("hazard", "caller", "result", "reader", "target") == (
+        "Checks open: Hazard, Caller not updated, Result handled the old way and 2 more.")
+    assert _open_sentence("hazard", "confirm", "caller", "result", "reader") == (          # Confirm is not one of the 2
+        "Checks open: Hazard, Caller not updated, Result handled the old way and 1 more.")
 
 
 def test_a_fixed_intro_without_modules_or_cls_leaves_those_parts_out():
     t = Thread(id="T1", name="n", purpose="p", stories=["S1"])
-    assert fixed_intro(t, [_ck("ask")], {"S1": "s"}) == "1 story. 1 check open: Ask the author. Starts with “s”."
+    assert fixed_intro(t, [_ck("ask")], {"S1": "s"}) == "1 story. Checks open: Ask the author. Starts with “s”."
+
+
+def _joined(a, b, text, shown=True):
+    return Connection(a=a, b=b, kind="caller", text=text, shown=shown)
+
+
+def test_the_fixed_lead_is_the_shown_connections_alone_because_the_heading_counts_the_threads():
+    ts = _threads(["S1"], ["S2"], ["S3"])
+    conns = [_joined("T1", "T2", "both run inside `main`"), _joined("T1", "T3", "both use `struct Uart`", shown=False),
+             _joined("T2", "T3", "nothing besides arriving in CL 104")]
+    assert fixed_whole(ts, conns) == "A and B: both run inside `main`; B and C: nothing besides arriving in CL 104."
+    assert fixed_whole(ts, conns[:1]) == "A and B: both run inside `main`."
+    assert fixed_whole(ts, [conns[1]]) == fixed_whole(ts, []) == ""              # no pair shown: nothing to add
+
+
+def test_the_fixed_lead_is_empty_for_one_thread_and_still_says_so_for_none():
+    assert fixed_whole(_threads(["S1"]), []) == ""                                # its section names it
+    assert fixed_whole([], []) == "No changed code to read."
+
+
+def test_a_template_lead_is_rebuilt_when_the_reading_is_served_and_the_strong_models_lead_stays():
+    r = Reading(whole="2 threads: A and B: both run inside `main`.", threads=_threads(["S1"], ["S2"]),
+                connections=[_joined("T1", "T2", "both run inside `main`")])     # stored when the lead still counted
+    assert with_marks(r, {}, [])["whole"] == "A and B: both run inside `main`."
+    assert with_marks(r, {}, [], _set(["N1"], ["N2"]))["whole"] == "A and B: both run inside `main`."
+    assert r.whole == "2 threads: A and B: both run inside `main`."               # what is stored is left as it was
+    r.connections[0].shown = False
+    assert with_marks(r, {}, [])["whole"] == ""
+    r.whole, r.whole_source = "The change reworks the driver.", "llm"
+    assert with_marks(r, {}, [])["whole"] == "The change reworks the driver."
 
 
 def test_the_fixed_route_keeps_the_threads_order_moves_skim_threads_last_and_says_why():
@@ -955,12 +1027,14 @@ def test_marked_checks_leave_the_fixed_intro_and_route_and_text_the_strong_model
     ss = _set(["N1"], ["N2"], kinds={"S2": "mechanical"})
     r = Reading(threads=[Thread(id="T1", name="a", purpose="p", stories=["S1"], open_checks=1),
                          Thread(id="T2", name="b", purpose="p", stories=["S2"], open_checks=1)],
-                checks=[_ck("confirm"), _ck("hazard", "T2")])
+                checks=[_ck("caller"), _ck("hazard", "T2")])
     fixed_introduction(r, ss)
+    assert [t.intro for t in r.threads] == ["1 story. Checks open: Caller not updated. Starts with “story 1”.",
+                                            "1 story. Checks open: Hazard. Starts with “story 2”."]
     assert [(s.thread, s.reason, s.skim) for s in r.route] == [("T1", "1 check open.", False), ("T2", "1 hazard open.", False)]
     marks = {r.checks[1].key: {"user": "ana", "source_line": ""}}
     view = with_marks(r, marks, [], ss)
-    assert [t["intro"] for t in view["threads"]] == ["1 story. 1 check open: Confirm. Starts with “story 1”.",
+    assert [t["intro"] for t in view["threads"]] == ["1 story. Checks open: Caller not updated. Starts with “story 1”.",
                                                      "1 story. Nothing is open. Starts with “story 2”."]
     assert [(s["thread"], s["reason"], s["skim"]) for s in view["route"]] == [
         ("T1", "1 check open.", False), ("T2", "Only repeated edits and tests; skim it.", True)]

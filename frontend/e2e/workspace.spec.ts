@@ -35,7 +35,7 @@ test.describe("desktop", () => {
     const ov = page.locator(".ov3");
     await expect(ov.locator("h2")).toHaveText(["1 thread", "Build impact · up to 4 files rebuild", "Coverage · 2 notes",
                                                "Discussion · no comments yet"]);
-    await expect(ov.locator(".ws-lead")).toHaveText("One thread: hal_write in hal.");
+    await expect(ov.locator(".ws-lead")).toHaveCount(0);                      // the heading says it; no empty paragraph stands in its place
     await expect(ov.locator("section.ov-sec")).toHaveCount(1);
     await expect(ov.locator(".ov-links")).toHaveCount(0);                    // one thread connects to nothing
     const r = await (await page.request.get(`/api/reviews/${base.split("/")[2]}/reading`)).json() as { causes: { kind: string }[] };

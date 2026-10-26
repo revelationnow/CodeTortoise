@@ -25,7 +25,8 @@ test.describe("desktop", () => {
     await startReview(page, FOUR);
     await expect(page.locator(".ov3 h2")).toHaveText(["3 threads", "Build impact · up to 4 files rebuild", "Coverage · 2 notes",
                                                       "Discussion · no comments yet"]);
-    await expect(page.locator(".ov3 .ws-lead")).toHaveText("3 threads: A and B: both run inside main; B and C: nothing besides arriving in CL 104.");
+    await expect(page.locator(".ov3 .ws-lead"))                                         // the heading counts the threads
+      .toHaveText("A and B: both run inside main; B and C: nothing besides arriving in CL 104.");
     await expect(page.locator(".ov-links li")).toHaveText(["With Thread A: both run inside main",
                                                            "With Thread B: nothing besides arriving in CL 104 — ask the author"]);
     const threads = page.locator("section.ov-sec");
@@ -51,6 +52,8 @@ test.describe("desktop", () => {
     const card = page.locator("section.ov-sec").first();
     await expect(card.locator(".ov-purpose")).toHaveCount(2);                            // its purpose, then the fixed intro
     await expect(card.locator(".ov-purpose").last()).toContainText("Starts with “hal_write's signature changed");
+    await expect(card.locator(".ov-purpose").last())                                     // the kinds, with no count and no Confirm
+      .toContainText("Checks open: Caller not updated, Result handled the old way, Unchanged reader.");
     await expect(card.locator(".ov-purpose.ai-text")).toHaveCount(0);
     await card.getByRole("link", { name: "Start thread A" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S2$`));

@@ -27,7 +27,8 @@ export interface Check {
   /** A reader row's field (the owner may mark it a shared sink). */
   field?: string | null;
   /** The changed function that raised it, a node id (spec 2026-10-25-review-ui-redesign §8): a flow's places are the
-   * checks its `cause` raised at its landing. Absent on a reading stored before it. */
+   * checks its `cause` raised at its landing. Absent on a reading stored before it, and null on a row with no changed
+   * function behind it (a header target, an ask row, a finding without a function): either way it ties to no flow. */
   related?: string | null;
 }
 /** One changed line of a cause's change; `line` is in the after text ("+", " ") or the before text ("-"). */
