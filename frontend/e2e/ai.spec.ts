@@ -1,7 +1,22 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import { contrast, explainItem, login, openIndex, startReview } from "./helpers";
 
 const AI = "http://127.0.0.1:8798";      // e2e/serve-ai.sh: CodeTortoise with the fake model in e2e/fake_llm.py
+
+/** An open menu ends on the screen, and the page or panel around it has nothing running past its right edge (a page that
+ * scrolls would scroll sideways, one that clips would cut the menu off) and has not been scrolled sideways. */
+async function menuFits(page: Page, menu: Locator) {
+  await expect(menu).toBeVisible();
+  const box = (await menu.boundingBox())!;
+  expect(box.x, "the menu starts on the screen").toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width, "the menu ends on the screen").toBeLessThanOrEqual(page.viewportSize()!.width);
+  const around = await menu.evaluate((el) => {
+    const holder = el.closest(".ws-page, .ws-detail-body")!;
+    return { name: holder.className, over: holder.scrollWidth - holder.clientWidth, left: holder.scrollLeft };
+  });
+  expect(around.over, `nothing in ${around.name} runs past its right edge`).toBeLessThanOrEqual(0);
+  expect(around.left, `${around.name} is not scrolled sideways`).toBe(0);
+}
 
 test.describe("with an AI", () => {
   test.use({ baseURL: AI });
@@ -134,6 +149,38 @@ test.describe("with an AI", () => {
     await expect(summary).toHaveClass(/\bai-text\b/);
     await expect(summary).toHaveAttribute("title", /^Written by AI · \S+/);
     await expect(summary.locator("h4")).toHaveText("Summary");
+  });
+
+  test("the Summarise menu in the code panel stays on the screen when its button ends the toolbar's row", async ({ page }) => {
+    const base = await startReview(page);
+    await page.goto(`${base}?open=${encodeURIComponent("file://fixture/driver/uart.c")}`);
+    const panel = page.getByRole("complementary", { name: "Code: uart.c" });
+    await panel.getByRole("button", { name: "Summarise", exact: true }).click();
+    await menuFits(page, panel.getByRole("menu"));
+  });
+
+  test.describe("on a phone", () => {
+    test.use({ viewport: { width: 390, height: 844 } });
+
+    // The last line of a paragraph often ends near a phone's right edge, and an Explain button ends that line. Right-aligning
+    // the paragraph puts the button there whatever the fixture's text says; a menu opening rightwards from it would run past
+    // the screen: a page that scrolls would scroll sideways, a page that clips would cut the menu's items off.
+    const atTheEdge: [string, string, (page: Page) => Locator][] = [
+      ["a finding's analysis, on a page that scrolls", "/f/F1?details=1",
+        (page) => page.getByRole("region", { name: "Analysis", exact: true }).locator("p.ai-text").first()],
+      ["a flow's text, on a graph page that clips", "?view=graph&flow=2",
+        (page) => page.getByRole("region", { name: "Flow" }).locator(".ws-flow-text p").first()],
+    ];
+    for (const [where, path, text] of atTheEdge) {
+      test(`an Explain menu that would run past its container opens to the left: ${where}`, async ({ page }) => {
+        const base = await startReview(page);
+        await page.goto(`${base}${path}`);
+        const paragraph = text(page);
+        await paragraph.evaluate((el) => { el.style.textAlign = "right"; });
+        await paragraph.getByRole("button", { name: "Explain", exact: true }).click();
+        await menuFits(page, paragraph.getByRole("menu"));
+      });
+    }
   });
 
   test("the owner raises the budget from the AI pill; a reviewer sees the usage without the control", async ({ page, browser }) => {
