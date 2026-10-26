@@ -38,8 +38,10 @@ export default function FlowsTab({ detail, sr, flows }: { detail: StoryDetail; s
   };
   const fine = (keys: string[]) => run(() => api.markChecks(d.id, keys));
   const reopen = (keys: string[]) => run(async () => { for (const k of keys) await api.unmarkCheck(d.id, k); });
-  // a row an address or Next flow › opens unfolds its group
-  const unfolded = (g: FlowGroup) => g.rows.length <= FOLD_AT || more.has(g.key) || g.rows.some((r) => r.n === lit || r.n === open);
+  // only a hidden row an address or Next flow › opens unfolds its group, and a group once unfolded stays so, its row closed or not
+  const unfolded = (g: FlowGroup) => g.rows.length <= FOLD_AT || more.has(g.key) || g.rows.slice(FOLD_AT).some((r) => r.n === lit || r.n === open);
+  const revealed = groups.filter((g) => g.rows.length > FOLD_AT && !more.has(g.key) && unfolded(g)).map((g) => g.key);
+  if (revealed.length) setMore(new Set([...more, ...revealed]));          // remembered here, in the render that unfolds it
   return (
     <div className="st-flows">
       {error && <div className="banner warn">{error}</div>}

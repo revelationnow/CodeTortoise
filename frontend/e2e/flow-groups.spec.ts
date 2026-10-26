@@ -105,6 +105,50 @@ test.describe("a story with many flows", () => {
     await expect(page.getByRole("region", { name: /^Flow 60: / })).toBeInViewport();
     await expectNoNodeIds(page);
   });
+
+  test("a row among a group's first eight opens in place and leaves the group folded", async ({ page }) => {
+    const base = await startReview(page, "201 202");
+    await page.goto(`${base}/s/S1`);
+    const first = page.locator("section.fl-group").first(), toggles = first.locator(".fl-toggle");
+    await expect(first.locator(".fl-row")).toHaveCount(8);
+    for (const i of [2, 7]) {                                                        // the third row, and the eighth: the last showing
+      await toggles.nth(i).click();
+      await expect(toggles.nth(i)).toHaveAttribute("aria-expanded", "true");
+      await expect(first.locator(".fl-row")).toHaveCount(8);
+      await expect(first.locator(".fl-more")).toHaveText("Show 17 more");
+      await toggles.nth(i).click();                                                  // and closing it changes nothing either
+      await expect(toggles.nth(i)).toHaveAttribute("aria-expanded", "false");
+      await expect(first.locator(".fl-row")).toHaveCount(8);
+      await expect(first.locator(".fl-more")).toHaveText("Show 17 more");
+    }
+  });
+
+  test("Next flow › from the last row showing opens the first hidden one, which unfolds its group for good", async ({ page }) => {
+    const base = await startReview(page, "201 202");
+    await page.goto(`${base}/s/S1`);
+    const first = page.locator("section.fl-group").first(), toggles = first.locator(".fl-toggle");
+    await toggles.nth(7).click();                                                    // the eighth row, the last showing
+    await first.getByRole("region", { name: /^Flow \d+: / }).getByRole("button", { name: "Next flow ›" }).click();
+    await expect(first.locator(".fl-row")).toHaveCount(25);                          // the ninth was hidden: its group unfolds
+    await expect(first.locator(".fl-more")).toHaveCount(0);
+    await expect(toggles.nth(8)).toHaveAttribute("aria-expanded", "true");
+    await toggles.nth(8).click();                                                    // closing it does not fold the group away
+    await expect(toggles.nth(8)).toHaveAttribute("aria-expanded", "false");
+    await expect(first.locator(".fl-row")).toHaveCount(25);
+    await expect(first.locator(".fl-more")).toHaveCount(0);
+  });
+
+  test("a flow=N address beyond the fold unfolds its group, and closing the row leaves it unfolded", async ({ page }) => {
+    const base = await startReview(page, "201 202");
+    await page.goto(`${base}/s/S1?flow=60`);
+    const group = page.getByRole("region", { name: /^UartDev::errors gets new writers: / });
+    await expect(group.locator(".fl-row")).toHaveCount(25);
+    await expect(page.locator("#flow-60 .fl-toggle")).toHaveAttribute("aria-expanded", "true");
+    await page.locator("#flow-60 .fl-toggle").click();
+    await expect(page.locator("#flow-60 .fl-toggle")).toHaveAttribute("aria-expanded", "false");
+    await expect(group.locator(".fl-row")).toHaveCount(25);
+    await expect(group.locator(".fl-more")).toHaveCount(0);
+  });
 });
 
 test.describe("the Flows tab on a phone", () => {
@@ -117,11 +161,23 @@ test.describe("the Flows tab on a phone", () => {
     await expect(page.locator(".fl-row").first()).toBeVisible();
     const wrapped = () => page.locator(".fl-one").evaluateAll((els) => els.filter((e) =>
       e.getBoundingClientRect().height > 1.5 * parseFloat(getComputedStyle(e).lineHeight)).length);
+    // The page scrolls inside `.ws-page`, never the document (`main` and the centre clip), so that is what to measure; and a
+    // row is readable only when its button sits inside it and its sentence has room (`.fl-one` is nowrap: it can't wrap, it can vanish).
+    const sideways = () => page.locator(".ws-page").evaluate((e) => e.scrollWidth - e.clientWidth);
+    const unreadable = () => page.locator(".fl-row").evaluateAll((rows) => rows.filter((r) => {
+      const b = r.getBoundingClientRect(), t = r.querySelector(".fl-toggle")!.getBoundingClientRect(), o = r.querySelector(".fl-one")!.getBoundingClientRect();
+      return t.right > b.right + 1 || o.width < 40;
+    }).length);
+    await expect(page.getByRole("region", { name: "Also in this story" })).toBeVisible();   // its chips are on this page
     expect(await wrapped()).toBe(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    expect(await unreadable()).toBe(0);
+    expect(await sideways()).toBeLessThanOrEqual(0);
     await page.locator(".fl-toggle").first().click();
     await expect(page.getByRole("region", { name: /^Flow 1: / })).toBeVisible();
     expect(await wrapped()).toBe(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    expect(await unreadable()).toBe(0);
+    expect(await sideways()).toBeLessThanOrEqual(0);
   });
 });
