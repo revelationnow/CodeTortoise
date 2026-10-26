@@ -1,6 +1,6 @@
 /** The overview's rules (spec 2026-10-25-review-ui-redesign §5): its heading and start button, each thread section's
  * counts, action and connections, the Tests row, the thread intro and the folded rows after the threads. */
-import { causeOpen, shown } from "./causes";
+import { openCount } from "./causes";
 import { letter } from "./checks";
 import type { Cause, CheckKind, Connection, Mark, Reading, TestsRow, Thread } from "./types";
 
@@ -52,7 +52,7 @@ export function threadCounts(t: Thread, causes: Cause[] | null | undefined, hidd
                              marks: Record<string, Mark>, read: ReadonlySet<string>): { stories: number; open: number | null; read: number } {
   return {
     stories: t.stories.length,
-    open: causes ? shown(causes, hidden).filter((c) => c.thread === t.id && causeOpen(c, marks)).length : null,
+    open: causes ? openCount(causes.filter((c) => c.thread === t.id), hidden, marks) : null,
     read: t.stories.filter((s) => read.has(s)).length,
   };
 }

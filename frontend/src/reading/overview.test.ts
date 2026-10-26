@@ -37,6 +37,12 @@ describe("the overview's heading and start button (spec 2026-10-25-review-ui-red
     expect(startButton(r, new Set(["S2", "S1", "S3", "S9"]))).toBeNull();
     expect(startButton({ order: [], threads: [] }, new Set())).toBeNull();
   });
+
+  it("still says Start while the only stories read are ones the reading no longer has", () => {
+    // ticks outlive a re-run: a story gone from the order is no reason to say Continue
+    expect(startButton(r, new Set(["S77"]))).toEqual({ sid: "S2", label: "Start with Thread A ›" });
+    expect(startButton(r, new Set(["S77", "S3"]))).toEqual({ sid: "S2", label: "Continue ›" });
+  });
 });
 
 describe("a thread section's action and counts (§5.2)", () => {
@@ -65,6 +71,10 @@ describe("a thread section's action and counts (§5.2)", () => {
     expect(threadCounts(t, null, new Set(), {}, new Set())).toEqual({ stories: 3, open: null, read: 0 });
     expect(threadCounts(t, undefined, new Set(), {}, new Set())).toEqual({ stories: 3, open: null, read: 0 });
   });
+
+  it("counts none open, not an unknown count, on a reading whose causes are an empty list", () => {
+    expect(threadCounts(t, [], new Set(), {}, new Set())).toEqual({ stories: 3, open: 0, read: 0 });
+  });
 });
 
 describe("how the threads connect, under the later thread (§5.2)", () => {
@@ -78,6 +88,17 @@ describe("how the threads connect, under the later thread (§5.2)", () => {
       ["T2", [{ text: "With Thread A: both run inside `main`", bundled: false }]],
       ["T4", [{ text: "With Thread B: nothing besides arriving in CL 104 — ask the author", bundled: true }]],
       ["T3", [{ text: "With Thread A: both use `hal_write`", bundled: false }]],
+    ]);
+  });
+
+  it("keeps every connection under one thread, in the order given", () => {
+    const rows = sectionConnections(T, [conn("T4", "T2", "bundled", true, "nothing besides arriving in CL 104"),
+                                        conn("T1", "T3", "caller", true, "both run inside `main`"),
+                                        conn("T4", "T3", "vocabulary", true, "both use `hal_write`")]);
+    expect([...rows.entries()]).toEqual([
+      ["T4", [{ text: "With Thread B: nothing besides arriving in CL 104 — ask the author", bundled: true },
+              { text: "With Thread C: both use `hal_write`", bundled: false }]],
+      ["T3", [{ text: "With Thread A: both run inside `main`", bundled: false }]],
     ]);
   });
 

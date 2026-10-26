@@ -4,6 +4,8 @@ import { barNames, expectNamed, expectNoNodeIds, openFold, startReview } from ".
 /** The overview's thread sections (spec 2026-10-25-review-ui-redesign §5): fixture CLs 101–104 make three threads, the
  * first two joined by a shared caller, the third only by arriving in CL 104. */
 const FOUR = "101 102 103 104";
+/** The server whose tortoise.yaml lists Stats::* as shared sinks (e2e/serve-sinks.sh): its Coverage has the Show/Hide line. */
+const SINKS = "http://127.0.0.1:8794";
 
 /** Serves the review's reading with `edit` applied, every time the page asks for it. */
 async function patchReading(page: Page, edit: (r: any) => void) {
@@ -227,6 +229,43 @@ test.describe("desktop", () => {
     await expect(bar("B")).toHaveAttribute("aria-expanded", "true");               // the thread of the story the reader was on, not A
     await expect(bar("A")).toHaveAttribute("aria-expanded", "false");
     expect(await page.evaluate((k) => localStorage.getItem(k), `ct.ws.${base.split("/")[2]}.thread`)).toBe('"T2"');   // and kept so
+  });
+});
+
+test.describe("shared sinks", () => {
+  test.use({ baseURL: SINKS });
+
+  test("Coverage stays open when Show or Hide on its sinks line loads the page again", async ({ page }) => {
+    const base = await startReview(page);
+    await page.goto(base);
+    const cov = await openFold(page, "Coverage"), fold = cov.locator("details.ov-fold");
+    await cov.getByRole("button", { name: "Show" }).click();
+    await expect(cov).toContainText(/shared sinks? shown/);                      // the page that loaded again…
+    await expect(fold).toHaveAttribute("open", "");                              // …has Coverage open
+    await expect(cov.getByRole("button", { name: "Hide" })).toBeVisible();
+    await cov.getByRole("button", { name: "Hide" }).click();
+    await expect(cov).toContainText(/shared sinks? hidden/);
+    await expect(fold).toHaveAttribute("open", "");
+    await expect(cov.getByRole("button", { name: "Show" })).toBeVisible();
+    await page.goto(`${base}/s/S1`);                                             // a visit of its own to the overview: shut, as folds are
+    await page.goto(base);
+    await expect(fold).toBeVisible();
+    await expect(fold).not.toHaveAttribute("open", "");
+  });
+
+  test.describe("on a phone", () => {
+    test.use({ viewport: devices["iPhone 13"].viewport, userAgent: devices["iPhone 13"].userAgent,
+      deviceScaleFactor: devices["iPhone 13"].deviceScaleFactor, isMobile: true, hasTouch: true });
+
+    test("the page that loads again is still the overview, Coverage open", async ({ page }) => {
+      await startReview(page);                                                   // a phone opens on the contents: the overview is a page of its own
+      await page.getByRole("link", { name: "Go to the overview" }).click();
+      const cov = await openFold(page, "Coverage");
+      await cov.getByRole("button", { name: "Show" }).click();
+      await expect(cov).toContainText(/shared sinks? shown/);
+      await expect(cov.locator("details.ov-fold")).toHaveAttribute("open", "");
+      await expect(page.locator(".ov3 h2").first()).toHaveText("1 thread");
+    });
   });
 });
 

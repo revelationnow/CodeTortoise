@@ -161,7 +161,7 @@ test.describe("phone", () => {
   test.use({ viewport: devices["iPhone 13"].viewport, userAgent: devices["iPhone 13"].userAgent,
     deviceScaleFactor: devices["iPhone 13"].deviceScaleFactor, isMobile: true, hasTouch: true });
 
-  test("a long thread name keeps its outline bar on one line at 390px, the whole name on hover, and nothing scrolls sideways (review focus 5)", async ({ page }) => {
+  test("a long thread name keeps its outline bar and its overview header on one line at 390px, the whole name on hover, and nothing scrolls sideways (review focus 5)", async ({ page }) => {
     const NAME = await longThreadName(page);
     await startReview(page);                                                   // a phone opens on the contents: the outline is the page
     await expect(page.locator("main.ws")).toHaveClass(/\bphone\b/);
@@ -174,5 +174,18 @@ test.describe("phone", () => {
     expect((await page.locator(".ws-rail .ws-bar").first().boundingBox())!.height).toBe(36);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
     expect(await problems(page)).toEqual([]);
+    // the overview's section headers (§5.2), the counts wrapped under each name: the same, measured on the page's own scroller
+    await page.getByRole("link", { name: "Go to the overview" }).click();
+    const names = page.locator(".ov-sec-name");
+    await expect(names.first()).toBeVisible();
+    expect(await oneLine(page, ".ov-sec-name")).toEqual([]);
+    for (const name of await names.all()) {
+      expect((await name.boundingBox())!.width, "the name has room").toBeGreaterThan(0);
+      expect(await name.evaluate((e) => getComputedStyle(e).textOverflow), "a cut name ends in an ellipsis").toBe("ellipsis");
+      await expect(name, "the whole name on hover").toHaveAttribute("title", /\S/);
+    }
+    expect(await names.first().evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(true);                    // cut short…
+    await expect(names.first()).toHaveAttribute("title", NAME);                                               // …with the whole name on hover
+    expect(await page.locator(".ws-page").evaluate((e) => e.scrollWidth - e.clientWidth)).toBeLessThanOrEqual(0);
   });
 });

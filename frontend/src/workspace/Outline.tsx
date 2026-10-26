@@ -4,7 +4,7 @@ import type { Story, StoryDetail } from "../board/types";
 import { keys, load, loadWidth, save } from "../board/prefs";
 import Resizer from "../board/Resizer";
 import { CHECK_ORDER, KIND_LABEL, letter, placeOf } from "../reading/checks";
-import { causeGroups, causeOpen, doneCount, firstOpenAt, hiddenLabel, shown } from "../reading/causes";
+import { causeGroups, causeOpen, doneCount, firstOpenAt, hiddenLabel, openCount, shown } from "../reading/causes";
 import { threadRead } from "../reading/plan";
 import { flowGroups, flowsWord, groupShort, openFlows, placesOf } from "../reading/flowGroups";
 import type { Cause, Check, CheckKind, Reading } from "../reading/types";
@@ -78,8 +78,7 @@ export function useStoryThread(rid: number, r: Reading | null | undefined, sid: 
 function StoriesView({ r, onPick }: { r: Reading; onPick: () => void }) {
   const ws = useWs(), d = ws.data, ss = d.stories;
   const byId = new Map((ss?.stories ?? []).map((st) => [st.id, st]));
-  const list = shown(r.causes ?? [], ws.hidden);
-  const open = (pick: (c: Cause) => boolean) => list.filter((c) => pick(c) && causeOpen(c, r.marks)).length;
+  const open = (pick: (c: Cause) => boolean) => openCount((r.causes ?? []).filter(pick), ws.hidden, r.marks);
   const read = d.ticks ? new Set(d.ticks.stories) : null;
   const here = ws.addr.place.kind === "story" ? ws.addr.place.sid : null;
   const tests = (ss?.stories ?? []).filter((st) => st.kind === "tests");

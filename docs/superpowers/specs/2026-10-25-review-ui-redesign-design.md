@@ -101,7 +101,9 @@ each shown only when it applies, in this order:
   light it). The button's accessible name then adds what needs attention, e.g. `Review menu (workspace drift)`.
 - Escape or a click outside closes the menu and the panels it opened; Escape returns focus to ⋯.
 - The AI usage panel opens from the menu, from the near-limit pill, and from **Raise budget** in an Explain error
-  (`ai.setUsageOpen(true)`); it renders under the header's right end whichever opened it.
+  (`ai.setUsageOpen(true)`); it renders under the header's right end whichever opened it. It takes focus when it opens;
+  Escape or Close returns focus to whatever opened it (the ⋯ button, the AI pill, or a Raise budget link), or to ⋯ when
+  that opener is gone.
 - `HowToRead` gains one line: "A faint violet line at the left of a paragraph marks text the AI wrote."
 
 ## 3. Headings
@@ -135,7 +137,7 @@ Every site, before and after. "Edge" is `AiText`, "name" is `AiName`.
 | Finding not yet assessed (`FindingBody.tsx`) | `…; ✦ Explain asks the AI whether this one is a hazard.` | `…; Explain asks whether this one is a hazard.` |
 | Finding analysis (`FindingBody.tsx`) | `h3` `AI analysis`; `AI` chip on the explanation; `Checking for AI analysis…`; `AI analysis unavailable.` | `h3` `Analysis`; the explanation in edge; `Checking for an analysis…`; `No analysis: AI is not set up.` |
 | Finding hypotheses (`FindingBody.tsx`) | `AI` chip each | edge each |
-| Tortoise reply (`Comments.tsx`) | mascot, `tortoise`, `AI` chip | mascot and `tortoise` (name keeps its colour); body: edge |
+| Tortoise reply (`Comments.tsx`) | mascot, `tortoise`, `AI` chip | mascot and `tortoise` (name keeps its colour); body: edge, except a reply the app writes itself on an error (its `meta.error` is set: "I stopped…", "I couldn't answer…", budget spent), which is plain, with no edge |
 | @ menu (`Comments.tsx`) | logo, `@tortoise`, `AI` chip, its detail | logo, `@tortoise`, its detail; no chip |
 | File summary (`Explain.tsx`) | box with 3px edge, `AI` chip, `summary by <model>` | box in edge (§1.1), heading `Summary`, hover `Written by AI · <model>` |
 | ✦ Explain and Ask… (`Explain.tsx`, every caller) | a pill button and a link | one `Explain ▾` menu (§4.1) |
@@ -189,8 +191,10 @@ Each thread is a `section` labelled `Thread A: <name>`:
 - **Connections**: every shown connection whose later thread (in thread order) is this one, one line each:
   `With Thread A: <connection text>`, adding ` — ask the author` for a bundled one.
 
-Below 640px wide the header wraps: the counts move under the name as `15 stories · 52 open · 0 read`, and the
-column label row is hidden.
+Below 640px of the overview's own width (a container query on the overview, not on the window) the header wraps: the
+counts move under the name as `15 stories · 52 open · 0 read`, and the column label row is hidden. So a window just
+over 640px wide gets the wrapped header, because the page's margins leave the overview itself narrower than 640px
+there; so does a wider window with a panel open beside the overview, or the outline dragged wide.
 
 ### 5.3 After the threads
 
