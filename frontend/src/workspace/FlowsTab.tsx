@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { BoardFlow, StoryDetail } from "../board/types";
 import AiText from "../components/AiText";
@@ -9,7 +9,7 @@ import { flowPart } from "../reading/story";
 import type { StoryReading } from "../reading/types";
 import Chips from "./Chips";
 import { useWs } from "./context";
-import { typing } from "./keys";
+import { inPopup, typing } from "./keys";
 import NameText, { Ticks } from "./NameText";
 
 const bare = (s: string) => s.replaceAll("`", "");
@@ -29,7 +29,7 @@ export default function FlowsTab({ detail, sr, flows }: { detail: StoryDetail; s
   const [more, setMore] = useState<ReadonlySet<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [cur, setCur] = useState<number | null>(lit);                         // the row J, K and F act on
+  const [cur, setCur] = useState<number | null>(lit);                         // the row J, K and F act on: the last with focus in it, or clicked
   useEffect(() => { if (lit) { setOpen(lit); setCur(lit); } }, [lit]);
   useEffect(() => { if (lit) document.getElementById(`flow-${lit}`)?.scrollIntoView({ block: "start" }); }, [lit]);
   const order = groups.flatMap((g) => g.rows.map((r) => r.n));                  // the rows as they read, group by group
@@ -42,8 +42,9 @@ export default function FlowsTab({ detail, sr, flows }: { detail: StoryDetail; s
   };
   const fine = (keys: string[]) => run(() => api.markChecks(d.id, keys));
   const reopen = (keys: string[]) => run(async () => { for (const k of keys) await api.unmarkCheck(d.id, k); });
-  // J, K and F (§7.3), read from a ref set in the render as the stepper's are: they wait while a mark is on its way and
-  // stay the stepper's while a cause is open beside the page. Enter is the focused row's own button.
+  // J, K and F (§7.3), read from a ref set in the render as the stepper's are: they wait while a mark is on its way, stay
+  // the stepper's while a cause is open beside the page and are a menu's or a dialog's while one has focus. F acts once per
+  // press: a held key's repeats would mark row after row. Enter is the focused row's own button.
   const byN = new Map(flows.map((f, i) => [i + 1, f]));
   const leftAt = (n: number) => openKeys(places.get(byN.get(n)?.id ?? "") ?? [], marks);
   const focusRow = (n: number) => document.querySelector<HTMLElement>(`#flow-${n} .fl-toggle`)?.focus();
@@ -66,18 +67,18 @@ export default function FlowsTab({ detail, sr, flows }: { detail: StoryDetail; s
   const onKey = useRef<(e: KeyboardEvent) => void>(() => {});
   onKey.current = (e) => {
     const stepper = !!ws.addr.open && "cause" in ws.addr.open;
-    if (busy || stepper || e.ctrlKey || e.metaKey || e.altKey || typing(e.target) || !order.length) return;
+    if (busy || stepper || e.ctrlKey || e.metaKey || e.altKey || typing(e.target) || inPopup(e.target) || !order.length) return;
     const at = cur === null ? -1 : order.indexOf(cur);
     if (e.key === "j") { e.preventDefault(); move(order[at + 1]); }
     else if (e.key === "k") { e.preventDefault(); move(order[Math.max(at, 1) - 1]); }
-    else if (e.key === "f" && cur !== null && at >= 0) {
+    else if (e.key === "f" && !e.repeat && cur !== null && at >= 0) {
       e.preventDefault();
       const left = leftAt(cur), next = [...order.slice(at + 1), ...order.slice(0, at)].find((n) => leftAt(n).length > 0);
       if (left.length) fine(left);
       move(next ?? cur);                                                     // none left: stay on this row, not on a button its mark takes away
     }
   };
-  useEffect(() => {
+  useLayoutEffect(() => {                                                      // heard from the commit that shows the rows, not from the next paint
     const on = (e: KeyboardEvent) => onKey.current(e);
     window.addEventListener("keydown", on);
     return () => window.removeEventListener("keydown", on);
@@ -101,13 +102,13 @@ export default function FlowsTab({ detail, sr, flows }: { detail: StoryDetail; s
               const sentence = rowSentence(flow, label), mine = places.get(flow.id) ?? [], left = openKeys(mine, marks);
               const done = mine.length > 0 && !left.length, on = open === n, part = flowPart(parts, flow), field = fieldOf(flow);
               return (
-                <li key={flow.id} id={`flow-${n}`} className={`fl-row${on ? " on" : ""}`}>
+                <li key={flow.id} id={`flow-${n}`} className={`fl-row${on ? " on" : ""}`} onFocus={() => setCur(n)}>
                   <div className="fl-head">
                     {mine.length > 0 && <input type="checkbox" className="fl-tick" checked={done}
                                                aria-label={`Looks fine: ${bare(sentence)}`}
-                                               onChange={() => (done ? reopen(mine.map((k) => k.key)) : fine(left))} />}
+                                               onChange={() => { setCur(n); if (done) reopen(mine.map((k) => k.key)); else fine(left); }} />}
                     <button className="fl-toggle" aria-expanded={on} title={bare(sentence)} aria-label={`Flow ${n}: ${bare(sentence)}`}
-                            onClick={() => setOpen(on ? null : n)} onFocus={() => setCur(n)}>
+                            onClick={() => { setOpen(on ? null : n); setCur(n); }}>
                       <span className="fl-n">{n}</span><span className="fl-one"><Ticks text={sentence} /></span>
                     </button>
                   </div>

@@ -230,6 +230,55 @@ test.describe("a cause of many places", () => {
     await expect(panel.locator(".cs-donecount")).toHaveText("1 done");
   });
 
+  test("a held F clears one place, not place after place", async ({ page }) => {
+    const panel = await openReaders(page);
+    await expect(panel.locator(".cs-pos")).toHaveText("1 / 5");
+    await page.keyboard.down("f");                                       // a fresh press clears place 1 and steps on to place 2
+    await expect(panel.locator(".cs-pos")).toHaveText("2 / 5");
+    await expect(panel.getByRole("button", { name: "Looks fine & next" })).toBeEnabled();
+    await page.keyboard.down("f");                                       // the key is still down: the browser's repeats are not presses
+    await page.keyboard.down("f");
+    await page.keyboard.up("f");
+    await page.waitForTimeout(300);                                      // a mark that wrongly started would have landed by now
+    await expect(panel.locator(".cs-pos")).toHaveText("2 / 5");
+    await expect(panel.locator(".cs-donecount")).toHaveText("1 done");
+  });
+
+  test("with the review menu or the How to read dialog open, J and F are the popup's, not the stepper's", async ({ page }) => {
+    const panel = await openReaders(page);
+    await expect(panel.locator(".cs-pos")).toHaveText("1 / 5");
+    const menu = await reviewMenu(page);
+    const item = menu.getByRole("menuitem").first();
+    await expect(item).toBeFocused();
+    for (const key of ["j", "f"]) await page.keyboard.press(key);
+    await page.waitForTimeout(300);                                      // a mark that wrongly started would have landed by now
+    await expect(item).toBeFocused();
+    await menu.getByRole("menuitem", { name: "How to read this page" }).click();
+    const dialog = page.getByRole("dialog", { name: "How to read this page" });
+    await expect(dialog).toBeFocused();
+    for (const key of ["j", "f"]) await page.keyboard.press(key);
+    await page.waitForTimeout(300);
+    await expect(dialog).toBeFocused();
+    await expect(panel.locator(".cs-pos")).toHaveText("1 / 5");
+    await expect(panel.locator(".cs-donecount")).toHaveText("0 done");
+  });
+
+  test("a J pressed the moment the stepper shows is heard, not lost to the next paint", async ({ page }) => {
+    await startReview(page, "201 202");
+    const outline = page.locator("aside.ws-outline");
+    await outline.getByRole("button", { name: "Checks" }).click();
+    const link = outline.getByRole("link", { name: `Open check: ${READERS}` });
+    await page.evaluate(() => {
+      new MutationObserver((_, watcher) => {
+        if (!document.querySelector(".cs-pos")) return;
+        watcher.disconnect();
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "j" }));   // in the microtask after the commit that shows the stepper
+      }).observe(document, { childList: true, subtree: true });
+    });
+    await link.click();
+    await expect(page.getByRole("complementary", { name: `Check: ${READERS}` }).locator(".cs-pos")).toHaveText("2 / 5");
+  });
+
   test("a failed Looks fine's banner goes when the reader steps to another place", async ({ page }) => {
     await holdMarks(page, "fail");
     const panel = await openReaders(page);

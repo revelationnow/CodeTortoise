@@ -1,5 +1,5 @@
 import { devices, expect, test, type APIResponse, type Locator, type Page, type Route } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, explainItem, startReview } from "./helpers";
+import { expectNamed, expectNoNodeIds, explainItem, reviewMenu, startReview } from "./helpers";
 
 const FOUR = "101 102 103 104";
 
@@ -131,6 +131,176 @@ test.describe("the Flows tab", () => {
     await page.keyboard.press("Enter");                                   // the last row: Next flow › closes it, and the button goes with it
     await expect(toggles.nth(1)).toHaveAttribute("aria-expanded", "false");
     await expect(toggles.nth(1)).toBeFocused();
+  });
+
+  /** The marks the page asks for, one entry per request. */
+  function watchMarks(page: Page): string[] {
+    const asked: string[] = [];
+    page.on("request", (r) => { if (r.method() === "POST" && r.url().endsWith("/checks/marks")) asked.push(r.url()); });
+    return asked;
+  }
+
+  test("a held F marks one row, not row after row; Ctrl+F and Meta+F mark none", async ({ page }) => {
+    const marks = watchMarks(page);
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const toggles = page.locator(".fl-toggle"), ticks = page.locator(".fl-tick");
+    await expect(toggles).toHaveCount(2);
+    await toggles.nth(0).focus();
+    await page.keyboard.press("Control+f");                               // the browser's find and the platform's shortcut are not ours
+    await page.keyboard.press("Meta+f");
+    await page.waitForTimeout(300);                                       // a mark that wrongly started would have landed by now
+    expect(marks).toHaveLength(0);
+    await expect(ticks.nth(0)).not.toBeChecked();
+    await page.keyboard.down("f");                                        // a fresh press marks row 1 and moves on to row 2
+    await expect(ticks.nth(0)).toBeChecked();
+    await marksDone(page);
+    await page.keyboard.down("f");                                        // the key is still down: the browser's repeats are not presses
+    await page.keyboard.down("f");
+    await page.keyboard.up("f");
+    await page.waitForTimeout(300);                                       // a mark that wrongly started would have landed by now
+    expect(marks).toHaveLength(1);
+    await expect(ticks.nth(1)).not.toBeChecked();
+  });
+
+  test("with the review menu or the How to read dialog open, J, K and F are the popup's, not the tab's", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const toggles = page.locator(".fl-toggle");
+    await expect(toggles).toHaveCount(2);
+    await page.keyboard.press("j");                                       // row 1 is the one the keys would act on
+    await expect(toggles.nth(0)).toBeFocused();
+    const menu = await reviewMenu(page);
+    const item = menu.getByRole("menuitem").first();
+    await expect(item).toBeFocused();
+    for (const key of ["f", "j", "k"]) await page.keyboard.press(key);
+    await page.waitForTimeout(300);                                       // a mark that wrongly started would have landed by now
+    await expect(item).toBeFocused();
+    await expect(menu).toBeVisible();
+    await menu.getByRole("menuitem", { name: "How to read this page" }).click();
+    const dialog = page.getByRole("dialog", { name: "How to read this page" });
+    await expect(dialog).toBeFocused();
+    for (const key of ["f", "j", "k"]) await page.keyboard.press(key);
+    await page.waitForTimeout(300);
+    await expect(dialog).toBeFocused();
+    await expect(page.locator(".fl-tick:checked")).toHaveCount(0);
+  });
+
+  test("F acts on the row whose tick box has focus", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const toggles = page.locator(".fl-toggle");
+    const t1 = page.getByRole("checkbox", { name: "Looks fine: logger_flush ignores -2" });
+    const t2 = page.getByRole("checkbox", { name: /^Looks fine: uart_errors/ });
+    await expect(toggles).toHaveCount(2);
+    await page.keyboard.press("j");                                       // row 1's toggle had focus last
+    await expect(toggles.nth(0)).toBeFocused();
+    await t2.focus();                                                     // then the reader tabs onto row 2's tick box
+    await page.keyboard.press("f");
+    await expect(t2).toBeChecked();
+    await marksDone(page);
+    await expect(t1).not.toBeChecked();
+  });
+
+  test("F acts on the row whose open card has focus", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const toggles = page.locator(".fl-toggle");
+    const t1 = page.getByRole("checkbox", { name: "Looks fine: logger_flush ignores -2" });
+    const t2 = page.getByRole("checkbox", { name: /^Looks fine: uart_errors/ });
+    await expect(toggles).toHaveCount(2);
+    await page.keyboard.press("j");
+    await page.keyboard.press("j");
+    await page.keyboard.press("Enter");                                   // opens row 2
+    await expect(toggles.nth(1)).toHaveAttribute("aria-expanded", "true");
+    await page.keyboard.press("k");                                       // row 1's toggle has focus again; row 2's card stays open
+    await expect(toggles.nth(0)).toBeFocused();
+    await page.getByRole("region", { name: /^Flow 2: / }).getByRole("button", { name: "Looks fine", exact: true }).focus();
+    await page.keyboard.press("f");
+    await expect(t2).toBeChecked();
+    await marksDone(page);
+    await expect(t1).not.toBeChecked();
+  });
+
+  test("a click on a toggle that does not take focus (Safari, Firefox on macOS) still makes its row the one F acts on", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const toggles = page.locator(".fl-toggle");
+    const t1 = page.getByRole("checkbox", { name: "Looks fine: logger_flush ignores -2" });
+    const t2 = page.getByRole("checkbox", { name: /^Looks fine: uart_errors/ });
+    await expect(toggles).toHaveCount(2);
+    await page.keyboard.press("j");                                       // row 1's toggle has focus
+    await expect(toggles.nth(0)).toBeFocused();
+    await toggles.nth(1).dispatchEvent("click");                          // opens row 2 and leaves focus where it was
+    await expect(toggles.nth(1)).toHaveAttribute("aria-expanded", "true");
+    await page.keyboard.press("f");                                       // the reader means the row they opened
+    await expect(t2).toBeChecked();
+    await marksDone(page);
+    await expect(t1).not.toBeChecked();
+  });
+
+  test("a click on a tick box that does not take focus still makes its row the one F acts on", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const toggles = page.locator(".fl-toggle");
+    const t1 = page.getByRole("checkbox", { name: "Looks fine: logger_flush ignores -2" });
+    const t2 = page.getByRole("checkbox", { name: /^Looks fine: uart_errors/ });
+    await expect(toggles).toHaveCount(2);
+    await page.keyboard.press("j");                                       // row 1's toggle has focus
+    await expect(toggles.nth(0)).toBeFocused();
+    await t2.dispatchEvent("click");                                      // marks row 2 and leaves focus where it was
+    await expect(t2).toBeChecked();
+    await marksDone(page);
+    await t2.dispatchEvent("click");                                      // and reopens it
+    await expect(t2).not.toBeChecked();
+    await marksDone(page);
+    await page.keyboard.press("f");                                       // row 2 is the one the reader last worked on
+    await expect(t2).toBeChecked();
+    await marksDone(page);
+    await expect(t1).not.toBeChecked();
+  });
+
+  test("while a mark is on its way every tick box is dimmed and shows a progress cursor, stays enabled, and a click on another is dropped", async ({ page }) => {
+    const marks = watchMarks(page);
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const ticks = page.locator(".fl-tick");
+    await expect(ticks).toHaveCount(2);
+    await expect(ticks.nth(1)).toHaveCSS("opacity", "1");
+    let release = () => {};
+    const gate = new Promise<void>((done) => { release = done; });
+    await page.route((u) => u.pathname.endsWith("/checks/marks"), async (route) => { await gate; await route.continue(); });
+    await ticks.nth(0).click();
+    await expect(page.locator(".st-flows")).toHaveAttribute("aria-busy", "true");
+    for (const i of [0, 1]) {
+      await expect(ticks.nth(i)).toBeEnabled();                           // enabled, so a tick box keeps the focus it has
+      await expect(ticks.nth(i)).toHaveCSS("opacity", "0.5");
+      await expect(ticks.nth(i)).toHaveCSS("cursor", "progress");
+    }
+    await ticks.nth(1).click();                                           // dropped, not queued
+    release();
+    await expect(ticks.nth(0)).toBeChecked();
+    await marksDone(page);
+    for (const i of [0, 1]) {
+      await expect(ticks.nth(i)).toHaveCSS("opacity", "1");
+      await expect(ticks.nth(i)).toHaveCSS("cursor", "default");
+    }
+    await page.waitForTimeout(300);                                       // a queued click would have been sent by now
+    expect(marks).toHaveLength(1);
+    await expect(ticks.nth(1)).not.toBeChecked();
+  });
+
+  test("a J pressed the moment the rows show is heard, not lost to the next paint", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.addInitScript(() => {
+      new MutationObserver((_, watcher) => {
+        if (!document.querySelector(".fl-toggle")) return;
+        watcher.disconnect();
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "j" }));   // in the microtask after the commit that shows the rows
+      }).observe(document, { childList: true, subtree: true });
+    });
+    await page.goto(`${base}/s/S1`);
+    await expect(page.locator(".fl-toggle").first()).toBeFocused();
   });
 });
 

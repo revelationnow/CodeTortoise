@@ -759,6 +759,7 @@ a.ws-chip { text-decoration: none; }
 .fl-row { border-bottom: 1px solid var(--line); scroll-margin-top: 12px; }
 .fl-head { display: flex; align-items: center; gap: 6px; min-width: 0; padding-left: 4px; }
 .fl-tick { flex: none; width: auto; margin: 0; }                  /* not styles.css's input { width: 100% } */
+.st-flows[aria-busy="true"] .fl-tick { opacity: .5; cursor: progress; }   /* a mark is on its way: the boxes stay enabled, to keep their focus, but look it */
 .fl-toggle { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; border: 0; border-radius: 0; background: none;
   padding: 6px 4px; font: 400 13.5px/1.4 var(--sans); color: var(--ink); text-align: left; }
 .fl-toggle:hover, .fl-toggle:focus-visible { background: var(--gap-bg); }
