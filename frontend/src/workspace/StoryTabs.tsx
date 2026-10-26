@@ -3,6 +3,9 @@ import { Link } from "react-router-dom";
 import type { Comment } from "../api";
 import type { BoardFlow, StoryDetail } from "../board/types";
 import Comments from "../components/Comments";
+import AiText from "../components/AiText";
+import { useAi } from "../lib/ai";
+import { storyModel } from "../lib/aiMarks";
 import { causeOpen, firstOpenAt, shown } from "../reading/causes";
 import { byEntry, codeOrder, flowLabel, flowPart, foldPath, readOrder, rewriteText, storyTabs, type TabSec, type TabSpec, whereByCl, whereTree } from "../reading/story";
 import type { CallPath, Cause, ContractRow, StoryReading, WhereFile } from "../reading/types";
@@ -210,8 +213,8 @@ function Flows({ detail, sr, flows }: { detail: StoryDetail; sr: StoryReading; f
         return (
           <section key={f.id} id={`flow-${i + 1}`} className={`st-flow${lit === i + 1 ? " lit" : ""}`} aria-label={`Flow ${i + 1}: ${label}`}>
             <h3><span className="st-flow-n">{i + 1}</span> <span className="mono">{label}</span></h3>
-            {part ? <p><span className="ai-label">AI</span><NameText text={part.text} /></p>
-              : <p>{f.what_source === "llm" && <span className="ai-label">AI</span>}<NameText text={f.what} /></p>}
+            {part ? <AiText><NameText text={part.text} /></AiText>
+              : <AiText ai={f.what_source === "llm"}><NameText text={f.what} /></AiText>}
             <Chips causes={causes.filter((c) => c.flows.includes(f.id))} />
           </section>
         );
@@ -219,20 +222,23 @@ function Flows({ detail, sr, flows }: { detail: StoryDetail; sr: StoryReading; f
       {!flows.length && <p className="muted">No flows in this story.</p>}
       {loose.length > 0 && <section className="st-other" aria-label="Other checks in this story"><h3>Other checks in this story</h3><Chips causes={loose} /></section>}
       {effects && <section className="st-effects" aria-label={effects.heading}><h3>{effects.heading}</h3>
-        <p><span className="ai-label">AI</span><NameText text={effects.text} /></p></section>}
+        <AiText><NameText text={effects.text} /></AiText></section>}
     </div>
   );
 }
 
 /** Talk (§2.4): the strong model's questions and suggested checks, then the story's comment thread. */
 function Talk({ detail }: { detail: StoryDetail }) {
-  const d = useWs().data, st = detail.story, questions = st.questions ?? [], suggested = st.check ?? [];
+  const d = useWs().data, ai = useAi(), st = detail.story, questions = st.questions ?? [], suggested = st.check ?? [];
+  const model = storyModel(st, ai?.view);
   return (
     <section aria-labelledby="ws-talk" className="ws-talk">
       <h3 id="ws-talk">Questions and comments</h3>
-      {questions.length > 0 && <ul className="st-questions">{questions.map((q, k) => <li key={k}><span className="ai-label">AI</span><NameText text={q} /></li>)}</ul>}
-      {suggested.length > 0 && <div className="st-suggested"><h4><span className="ai-label">AI</span>The strong model also suggests</h4>
-        <ul>{suggested.map((c, k) => <li key={k}><NameText text={c} /></li>)}</ul></div>}
+      {questions.length > 0 && <ul className="st-questions">{questions.map((q, k) => (
+        <AiText key={k} as="li" by={model}><NameText text={q} /></AiText>
+      ))}</ul>}
+      {suggested.length > 0 && <div className="st-suggested"><h4>Also worth checking</h4>
+        <AiText as="div" by={model}><ul>{suggested.map((c, k) => <li key={k}><NameText text={c} /></li>)}</ul></AiText></div>}
       <Comments reviewId={d.id} comments={d.comments} kind="story" anchor={{ id: st.id }} onChange={d.loadComments} compact />
     </section>
   );

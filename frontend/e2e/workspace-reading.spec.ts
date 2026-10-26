@@ -51,7 +51,7 @@ test.describe("desktop", () => {
     const card = page.locator(".ov-thread").first();
     await expect(card.locator(".ov-purpose")).toHaveCount(2);                            // its purpose, then the fixed intro
     await expect(card.locator(".ov-purpose").last()).toContainText("Starts with “hal_write's signature changed");
-    await expect(card.locator(".ov-purpose .ai-label")).toHaveCount(0);
+    await expect(card.locator(".ov-purpose.ai-text")).toHaveCount(0);
     await card.getByRole("link", { name: "Go to thread A's first unread story" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S2$`));
     await expectNamed(page);

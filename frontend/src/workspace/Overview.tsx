@@ -1,5 +1,7 @@
 import { Link } from "react-router-dom";
 import SinkMark from "../components/SinkMark";
+import AiText, { AiName } from "../components/AiText";
+import { aiTitle } from "../lib/aiMarks";
 import { setShowSinks, showSinks, sinkLine } from "../lib/sinks";
 import { causeOpen, shown } from "../reading/causes";
 import { letter } from "../reading/checks";
@@ -37,10 +39,11 @@ function ThreadBlock({ t, i, r }: { t: Thread; i: number; r: Reading }) {
     <article className="ov-thread" id={`thread-${t.id}`} aria-label={`Thread ${L}`}>
       <header>
         <span className="ov-letter">{L}</span>
-        <h3>{t.text_source === "llm" && <span className="ai-label">AI</span>}<Ticks text={t.name} /></h3>
+        <h3><AiName ai={t.text_source === "llm"}><Ticks text={t.name} /></AiName></h3>
       </header>
       <div className="ov-intro" title={full}>{cardText(t).map((p) => (
-        <p key={p.text} className="ov-purpose">{p.ai && <span className="ai-label">AI</span>}<Ticks text={p.text} /></p>
+        <AiText key={p.text} className="ov-purpose" ai={p.ai} title={p.ai ? `${aiTitle()}\n${full}` : undefined}>
+          <Ticks text={p.text} /></AiText>
       ))}</div>
       <p className="ov-meta">{meta}</p>
       {to && <Link to={ws.link(ws.item({ kind: "story", sid: to, view: "steps" }))}
@@ -73,7 +76,7 @@ export default function Overview({ r }: { r: Reading }) {
     <div className="ws-page"><div className="ws-text ws-whole ov3">
       <section aria-labelledby="ov-whole" className="ov-top">
         <h2 id="ov-whole">The change as a whole</h2>
-        <p className="ws-lead">{r.whole_source === "llm" && <span className="ai-label">AI</span>}<Ticks text={r.whole} /></p>
+        <AiText className="ws-lead" ai={r.whole_source === "llm"}><Ticks text={r.whole} /></AiText>
         {next ? <Link className="ov-start" to={ws.link(ws.item({ kind: "story", sid: next, view: "steps" }))}>{started ? "Continue ›" : "Start here ›"}</Link>
           : r.order.length > 0 && <p className="muted">You've read every story.</p>}
       </section>

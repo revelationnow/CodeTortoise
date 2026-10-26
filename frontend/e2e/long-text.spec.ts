@@ -120,7 +120,7 @@ test.describe("with an AI", () => {
     await longNames(page);
     const base = await startReview(page);
     await page.goto(`${base}/s/S1`);
-    await expect(page.locator(".st-summary .ai-label")).toBeVisible({ timeout: 30_000 });   // the account is in
+    await expect(page.locator(".st-summary .ai-text")).toBeVisible({ timeout: 30_000 });    // the account is in
     await expect(page.getByRole("region", { name: "What it means for the rest" })).toBeVisible();
     await page.waitForLoadState("networkidle");
     expect(await problems(page)).toEqual([]);

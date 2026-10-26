@@ -16,7 +16,8 @@ test.describe("with an AI", () => {
     await expect(what).not.toContainText("reaches logger_flush, which drops it");
     await ask.click();
     await expect(what).toContainText("The new -2 from uart_send reaches logger_flush, which drops it.", { timeout: 30_000 });
-    await expect(what.locator(".ai-label")).toBeVisible();
+    await expect(what).toHaveClass(/\bai-text\b/);
+    await expect(what).toHaveAttribute("title", "Written by AI");
     await expect(ask).toHaveText("✦ Explain again");
   });
 
@@ -24,11 +25,11 @@ test.describe("with an AI", () => {
     await startReview(page);
     await page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ }).click();
     const head = page.locator(".ws-story-head");
-    await expect(head.locator(".ai-label")).toHaveCount(0);                  // this server's up-front pass skips stories
+    await expect(head.locator("h2 .ai-name")).toHaveCount(0);                // this server's up-front pass skips stories
     await head.getByRole("button", { name: "✦ Explain" }).click();
     await expect(head.locator("h2")).toContainText("uart_send's new error count reaches uart_errors", { timeout: 30_000 });
-    await expect(head.locator("h2 .ai-label")).toBeVisible();                // the title…
-    await expect(head.locator(".st-summary .ai-label")).toBeVisible();       // …and the summary, retold
+    await expect(head.locator("h2 .ai-name")).toHaveAttribute("title", "Written by AI");   // the title…
+    await expect(head.locator(".st-summary .ai-text").first()).toBeVisible();              // …and the summary, retold
     await expect(head.getByRole("button", { name: /Explain/ })).toHaveText("✦ Explain again");
     await expect(page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ }))
       .toContainText("uart_send's new error count reaches uart_errors");
@@ -65,7 +66,7 @@ test.describe("with an AI", () => {
     const s = ss.stories.find((x: { id: string }) => x.id === sid);
     await page.goto(`${base}/s/${sid}?view=graph&flow=${s.flows.indexOf(told.id) + 1}`);
     const what = page.getByRole("region", { name: "Flow" }).locator(".ws-flow-text p").first();
-    await expect(what.locator(".ai-label")).toBeVisible();                     // the board's narrative, on the story
+    await expect(what).toHaveClass(/\bai-text\b/);                             // the board's narrative, on the story
     await expect(what.getByRole("button", { name: /Explain/ })).toHaveText("✦ Explain again");
     const other = ss.stories.flatMap((x: { id: string; flows: string[] }) => x.flows.map((f) => [x.id, f]))
       .find(([, f]: string[]) => f !== told.id)!;
@@ -105,7 +106,9 @@ test.describe("with an AI", () => {
     await page.goto(`${base}/s/S1?view=graph`);                              // a story's flows are on its graph
     const lands = page.getByRole("region", { name: "Flow" }).locator(".ws-flow-lands");
     await expect(lands).toContainText("⚠ Side effect lands on uart_errors.");
-    await expect(lands).toContainText("AI: uart_errors assumes only uart_init writes Uart::errors.");
+    await expect(lands.locator(".ws-flow-why")).toHaveText("Written by AI. uart_errors assumes only uart_init writes Uart::errors.");
+    await expect(lands.locator(".ws-flow-why")).toHaveClass(/\bai-text\b/);
+    await expect(lands).not.toContainText("AI:");
   });
 
   test("✦ Summarise sums up a file in its diff", async ({ page }) => {
@@ -155,18 +158,20 @@ test.describe("with an AI", () => {
     await expect(card).toContainText(/Today: \d+ calls across reviews/);
   });
 
-  test("a story tells the weak model's account: purpose, its flows and what it means, each AI-labelled", async ({ page }) => {
+  test("a story tells the weak model's account: purpose, its flows and what it means, each with the AI edge", async ({ page }) => {
     await startReview(page);
     await page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ }).click();
     const purpose = page.locator(".st-summary");
-    await expect(purpose.locator(".ai-label")).toBeVisible({ timeout: 30_000 });
+    await expect(purpose.locator(".ai-text")).toBeVisible({ timeout: 30_000 });
+    await expect(purpose.locator(".ai-text")).toHaveAttribute("title", "Written by AI");
     await expect(purpose).toContainText("This story makes uart_send count its transmit errors.");
     const cards = page.getByRole("region", { name: /^Flow \d+: / });
     expect(await cards.count()).toBeGreaterThan(0);
-    await expect(cards.locator("> p .ai-label")).toHaveCount(await cards.count());
+    await expect(cards.locator("> p.ai-text")).toHaveCount(await cards.count());
     await expect(cards.first()).toContainText("The caller reaches uart_send on this path.");
     const effects = page.getByRole("region", { name: "What it means for the rest" });
-    await expect(effects.locator(".ai-label")).toBeVisible();
+    await expect(effects.locator(".ai-text")).toBeVisible();
     await expect(effects).toContainText("Code that reads Uart::errors now sees transmit errors too.");
+    await expect(page.locator(".ai-label")).toHaveCount(0);
   });
 });

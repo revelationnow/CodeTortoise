@@ -15,6 +15,7 @@ test.describe("stories formed by a strong model", () => {
     const head = page.locator(".ws-story-head");
     await expect(head.locator(".ws-chip.target")).toHaveText("⌖ fw");
     await expect(head.locator(".ct-headline.hazard")).toHaveText("1 hazard");
+    await expect(head.locator("h2 .ai-name")).toHaveAttribute("title", "Written by AI · fake-strong");   // the strong model's title
     await expect(head.getByRole("button", { name: /Explain/ })).toHaveCount(0);       // tier 2 never retells it
     await expect(head.getByRole("button", { name: "Ask…" })).toBeVisible();
     const chip = page.getByRole("region", { name: /^Flow 1: / }).locator(".st-chip").first();   // the hazard leads its flow's checks
@@ -33,10 +34,10 @@ test.describe("stories formed by a strong model", () => {
     await expectNamed(page);
   });
 
-  test("the overview's introduction is the strong model's, each part labelled AI", async ({ page }) => {
+  test("the overview's introduction is the strong model's, its AI parts edged", async ({ page }) => {
     await startReview(page);
     const intro = page.locator(".ov-thread").first().locator(".ov-purpose");
-    await expect(intro.locator(".ai-label")).toBeVisible();
+    await expect(intro.first()).toHaveClass(/\bai-text\b/);
     await expect(intro).toContainText("This thread changes the UART driver.");
     await expect(page.locator(".ov3 .ws-lead")).toContainText("The main risk is a caller that misses a new result.");
   });
