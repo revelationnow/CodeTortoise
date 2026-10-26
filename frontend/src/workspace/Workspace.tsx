@@ -1,11 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api";
-import { useMe } from "../App";
-import { driftSummary } from "../board/drift";
 import { keys, load, save } from "../board/prefs";
 import Resizer from "../board/Resizer";
-import AiPill from "../components/AiPill";
+import AiPill, { Usage } from "../components/AiPill";
 import HeadlinePill from "../components/HeadlinePill";
 import { useSources } from "../board/useSources";
 import Stages from "../components/Stages";
@@ -18,7 +16,6 @@ import { type Address, at, href, type Item, type Open, type Place, readAddress, 
 import { type Folds, useWs, type Ws, WsContext } from "./context";
 import Crumbs, { PhoneBar } from "./Crumbs";
 import Detail from "./Detail";
-import HowToRead from "./HowToRead";
 import { type Crumb, crumbs } from "./crumbs";
 import { useScreen } from "./media";
 import { loadMemory, recall, remember, saveMemory } from "./memory";
@@ -28,6 +25,7 @@ import FindingPage from "./FindingPage";
 import IndexPage from "./IndexPage";
 import Outline from "./Outline";
 import Rail from "./Rail";
+import ReviewMenu from "./ReviewMenu";
 import StoryPage from "./StoryPage";
 import { addTab, closeTab as closeOf } from "./tabs";
 import { HEAD_MIN, headMax, loadHeadH } from "./layout";
@@ -169,11 +167,18 @@ function phoneBar(trail: Crumb[]): { back: Crumb; title: string; handle?: string
 }
 
 function Head({ onMenu, drawer }: { onMenu: () => void; drawer: boolean }) {
-  const ws = useWs(), me = useMe(), ai = useAi(), d = ws.data, r = d.detail!.review;
-  const notes = d.detail!.stages.filter((s) => s.status === "failed" || s.status === "degraded");
-  const drift = driftSummary(d.about?.drift ?? []).warn;
+  const ws = useWs(), ai = useAi(), d = ws.data, r = d.detail!.review;
   const box = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(loadHeadH);          // null: as tall as its content
+  const under = useCallback(() => (box.current?.getBoundingClientRect().bottom ?? 50) + 6, []);
+  const [usageTop, setUsageTop] = useState(56);
+  useLayoutEffect(() => {                                   // the usage panel sits under the header, whoever opened it
+    if (!ai?.usageOpen) return;
+    const place = () => setUsageTop(under());
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [ai?.usageOpen, under]);
   const rd = d.reading, causes = rd?.causes;
   const p = rd && d.ticks ? progress(rd, d.ticks) : null;
   const line = !rd || !p ? "" : causes
@@ -194,22 +199,11 @@ function Head({ onMenu, drawer }: { onMenu: () => void; drawer: boolean }) {
         {rd && d.ticks && <span className="ws-progress">{line}</span>}
         {next && <Link className="ws-next" to={ws.link(ws.opened({ cause: next.cause, at: next.at }))} aria-label="Next open check"
                        title={`Next open check: ${nextLine}`}>Next open check ›</Link>}
-        {rd && <HowToRead />}
         {!d.ready && <span className="bd-pill ghost">{r.status}</span>}
         {d.ready && <AiPill />}
-        {me?.is_owner && d.ready && <button className="link rerun" onClick={() => api.rerun(d.id).then(d.loadDetail)}>Re-run</button>}
-        {me?.is_owner && d.ready && ai?.view?.strong && (
-          <button className="link" title="Ask the strong model for new stories instead of reusing the ones it formed for this change"
-                  onClick={() => api.rerun(d.id, true).then(d.loadDetail)}>Re-run stories (fresh)</button>
-        )}
-        {drift.length > 0 && <span className="bd-pill high" title={drift.join("\n")}>⚠ workspace drift ({drift.length})</span>}
-        {notes.length > 0 && (
-          <details className="bd-notes">
-            <summary>{notes.length} stage note(s)</summary>
-            {notes.map((s) => <div key={s.name} className={`banner ${s.status === "failed" ? "error" : "warn"}`}><strong>{s.name}</strong>: {s.message}</div>)}
-          </details>
-        )}
+        <ReviewMenu under={under} />
       </header>
+      {ai?.usageOpen && ai.view?.llm && <Usage top={usageTop} onClose={() => ai.setUsageOpen(false)} />}
       {ws.screen === "desktop" && (
         <Resizer size={() => box.current?.offsetHeight ?? HEAD_MIN} edge="bottom" min={HEAD_MIN} max={() => headMax(window.innerHeight)}
                  onSize={setHeight} onDone={(h) => save(keys.headH, h)} onReset={() => { setHeight(null); save(keys.headH, null); }} />

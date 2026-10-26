@@ -67,7 +67,7 @@ test.describe("desktop", () => {
     await panel.getByRole("button", { name: "Looks fine & next" }).click();
     await expect(panel.locator(".ck-mark")).toHaveText("Looks fine · demo · just now");
     await expect(row.locator(".ws-cdone")).toHaveText("✓");
-    await expect(page.locator(".ws-progress")).toHaveText("0 of 5 stories read · 3 causes open");
+    await expect(page.locator(".ws-progress")).toHaveText("0 of 5 stories read · 3 checks open");
     await rerun(page, base);
     await page.reload();                                                             // the cause keeps its id across the re-run
     await expect(row.locator(".ws-cdone")).toHaveText("✓");
@@ -133,7 +133,8 @@ test.describe("desktop", () => {
   test("the outline: the overview, each thread with its stories in reading order, its checks and the Index", async ({ page }) => {
     const base = await startReview(page, FOUR);
     const outline = page.locator("aside.ws-outline");
-    await expect(outline.getByRole("link", { name: "Go to the overview" })).toContainText("Medium risk · rules only");
+    await expect(outline.getByRole("link", { name: "Go to the overview" })).toContainText("Medium risk");
+    await expect(outline.getByRole("link", { name: "Go to the overview" })).not.toContainText("rules only");
     await expect(outline.locator(".ws-thread h3")).toHaveText(["A hal_write in hal, 3 open, 0 of 2 read", "B logger_init in service, 0 of 2 read",
                                                                "C svc::Engine::step in cpp, 1 open, 0 of 1 read"]);
     await expect(outline.locator(".ws-thread").first().getByRole("link", { name: /^Go to story/ })).toHaveCount(2);

@@ -105,3 +105,19 @@ export async function explainItem(scope: Locator, item: string | RegExp) {
   await scope.getByRole("button", { name: /^(Explain|Summarise)$/ }).first().click();
   await scope.getByRole("menuitem", typeof item === "string" ? { name: item, exact: true } : { name: item }).click();
 }
+
+/** Open the header's ⋯ menu (spec 2026-10-25-review-ui-redesign §2.2) unless it is open; returns the menu. */
+export async function reviewMenu(page: Page): Promise<Locator> {
+  const menu = page.getByRole("menu", { name: "Review menu" });
+  if (!(await menu.isVisible())) await page.getByRole("button", { name: /^Review menu/ }).click();
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+/** Open the AI usage panel from the review menu; returns the panel. */
+export async function openAiUsage(page: Page): Promise<Locator> {
+  await (await reviewMenu(page)).getByRole("menuitem", { name: /^AI calls used · / }).click();
+  const usage = page.getByRole("dialog", { name: "AI usage" });
+  await expect(usage).toBeVisible();
+  return usage;
+}

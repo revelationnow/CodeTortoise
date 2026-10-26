@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, flowStripHolds, openIndex, startReview } from "./helpers";
+import { expectNamed, expectNoNodeIds, flowStripHolds, openIndex, reviewMenu, startReview } from "./helpers";
 
 /** A story in the workspace (spec 2026-10-04-review-workspace §3.2, §2.4). */
 
@@ -240,7 +240,7 @@ test.describe("re-run", () => {
       j.story.title = "the new run's S1";
       await route.fulfill({ response: res, json: j });
     });
-    await page.getByRole("button", { name: "Re-run" }).click();
+    await (await reviewMenu(page)).getByRole("menuitem", { name: "Re-run", exact: true }).click();
     await expect(page.locator(".ws-story-head h2")).toContainText("the new run's S1", { timeout: 40_000 });
   });
 });

@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, hold, startReview } from "./helpers";
+import { expectNamed, expectNoNodeIds, hold, reviewMenu, startReview } from "./helpers";
 
 /** The outline and checks by cause (spec 2026-10-16-outline-and-causes): fixture CLs 101–104 make three threads; with
  * Confirm hidden their causes are a caller, a result and a reader in thread A and an ask in thread C. */
@@ -271,14 +271,14 @@ test.describe("the top bar", () => {
     const r = await (await page.request.get(`/api/reviews/${base.split("/")[2]}/reading`)).json() as { causes: { kind: string; text: string }[] };
     const lines = r.causes.filter((c) => c.kind !== "confirm").map((c) => c.text.replaceAll("`", ""));
     expect(lines).toHaveLength(4);
-    await expect(page.locator(".ws-progress")).toHaveText("0 of 5 stories read · 4 causes open");
+    await expect(page.locator(".ws-progress")).toHaveText("0 of 5 stories read · 4 checks open");
     const next = page.getByRole("link", { name: "Next open check" });
     for (const line of [...lines, lines[0]]) {
       await next.click();
       await expect(page.getByRole("complementary", { name: `Check: ${line}` })).toBeVisible();
     }
     await page.getByRole("button", { name: "Looks fine & next" }).click();
-    await expect(page.locator(".ws-progress")).toHaveText("0 of 5 stories read · 3 causes open");
+    await expect(page.locator(".ws-progress")).toHaveText("0 of 5 stories read · 3 checks open");
     for (let i = 0; i < 3; i++) {
       await next.click();
       await page.getByRole("button", { name: "All look fine" }).click();
@@ -297,12 +297,12 @@ test.describe("the top bar", () => {
     await expect(page.getByRole("link", { name: "Next open check" })).toHaveCount(0);
   });
 
-  test("? opens how to read the page; Escape closes it", async ({ page }) => {
+  test("the review menu opens how to read the page; Escape closes it and returns to the menu", async ({ page }) => {
     await startReview(page, FOUR);
-    const help = page.getByRole("button", { name: "How to read this page" });
-    await help.click();
+    await (await reviewMenu(page)).getByRole("menuitem", { name: "How to read this page" }).click();
     const dialog = page.getByRole("dialog", { name: "How to read this page" });
     await expect(dialog).toContainText("J next, K back, F looks fine & next");
+    await expect(dialog).toContainText("A faint violet line at the left of a paragraph marks text the AI wrote.");
     for (const w of [1440, 600]) {
       await page.setViewportSize({ width: w, height: 900 });
       await expect(dialog).toBeVisible();
@@ -316,7 +316,7 @@ test.describe("the top bar", () => {
     }
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
-    await expect(help).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByRole("button", { name: /^Review menu/ })).toBeFocused();
   });
 });
 

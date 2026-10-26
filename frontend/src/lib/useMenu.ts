@@ -1,9 +1,11 @@
 import { type RefObject, useEffect, useLayoutEffect, useRef } from "react";
 
 /** How far right `el` can be seen: the screen's edge, or the edge of a container around it that scrolls or clips,
- * whichever is nearest. An inline box has no width to clip with, and its overflow does not apply. */
+ * whichever is nearest. An inline box has no width to clip with, and its overflow does not apply; a box fixed to the
+ * screen is clipped by no container, whatever scrolls around its place in the tree. */
 function seenTo(el: HTMLElement): number {
   let edge = document.documentElement.clientWidth;
+  if (getComputedStyle(el).position === "fixed") return edge;
   for (let up = el.parentElement; up && up !== document.documentElement; up = up.parentElement) {
     if (!up.clientWidth || getComputedStyle(up).overflowX === "visible") continue;
     edge = Math.min(edge, up.getBoundingClientRect().left + up.clientLeft + up.clientWidth);

@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { contrast, explainItem, login, openIndex, startReview } from "./helpers";
+import { explainItem, login, openAiUsage, openIndex, startReview } from "./helpers";
 
 const AI = "http://127.0.0.1:8798";      // e2e/serve-ai.sh: CodeTortoise with the fake model in e2e/fake_llm.py
 
@@ -183,18 +183,16 @@ test.describe("with an AI", () => {
     }
   });
 
-  test("the owner raises the budget from the AI pill; a reviewer sees the usage without the control", async ({ page, browser }) => {
+  test("the owner raises the budget from the review menu; a reviewer sees the usage without the control", async ({ page, browser }) => {
     await startReview(page);
-    const pill = page.getByRole("button", { name: /^AI \d+\/200$/ });
-    expect(await contrast(page, ".ws-head .ai-pill")).toBeGreaterThanOrEqual(4.5);   // readable on the light head
-    await pill.click();
-    const usage = page.getByRole("dialog", { name: "AI usage" });
+    await expect(page.getByRole("button", { name: /^AI \d+\/200$/ })).toHaveCount(0);   // far from the limit: no pill
+    const usage = await openAiUsage(page);
     await expect(usage).toContainText("By purpose: story_account 2 · finding 1 · flow 1 · summary 1 · verdict 1");
     await usage.getByText(/^All calls/).click();                          // the call list loads when opened
     await expect(usage.locator(".ai-calls tbody tr")).toHaveCount(6);                // + an account per behaviour story
     await usage.getByLabel("New budget").fill("300");
     await usage.getByRole("button", { name: "Raise budget" }).click();
-    await expect(page.getByRole("button", { name: /^AI \d+\/300$/ })).toBeVisible();
+    await expect(usage).toContainText(/This review: \d+ of 300\./);
     await expect(usage.getByLabel("Rounds per @tortoise answer")).toHaveValue("10");
     await usage.getByLabel("Rounds per @tortoise answer").fill("4");
     await usage.getByRole("button", { name: "Set rounds" }).click();
@@ -203,8 +201,7 @@ test.describe("with an AI", () => {
     const bob = await browser.newPage({ baseURL: AI });
     await login(bob, "bob");
     await bob.goto(page.url());
-    await bob.getByRole("button", { name: /^AI \d+\/300$/ }).click();
-    const theirs = bob.getByRole("dialog", { name: "AI usage" });
+    const theirs = await openAiUsage(bob);
     await expect(theirs).toContainText("You today: 0 of 100");
     await expect(theirs.getByRole("button", { name: "Raise budget" })).toHaveCount(0);
     await expect(theirs).toContainText("One @tortoise answer is 1 AI call of up to 4 rounds.");

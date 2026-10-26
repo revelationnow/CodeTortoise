@@ -28,7 +28,7 @@ test.describe("desktop", () => {
     const base = await startReview(page, FOUR);
     const { order } = await readingOf(page, base);
     const head = page.locator(".ws-head .ws-progress");
-    const line = (k: number) => new RegExp(`^${k} of ${order.length} stories read( · (\\d+ causes? open|every check done))?$`);
+    const line = (k: number) => new RegExp(`^${k} of ${order.length} stories read( · (\\d+ checks? open|every check done))?$`);
     await expect(head).toHaveText(line(0));
     for (const sid of order.slice(0, -1))
       expect((await page.request.put(`/api${base.replace("/r/", "/reviews/")}/ticks/story/${sid}`)).ok()).toBe(true);

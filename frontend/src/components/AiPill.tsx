@@ -1,40 +1,44 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type AiCall } from "../api";
 import { useAi } from "../lib/ai";
+import { nearLimit } from "../lib/aiState";
 import { hasRequests, requestLogHref } from "./requestLog";
 
-/** The review header's AI pill and its usage view; the owner can raise the review's budget (spec 2026-10-03 §6). */
+/** The review header's AI pill, shown only near the review's budget (spec 2026-10-25-review-ui-redesign §2.1); it
+ * opens the usage panel, as the ⋯ menu's "AI calls used" does. */
 export default function AiPill() {
   const ai = useAi();
   const v = ai?.view;
-  if (!ai || !v || !v.llm) return null;
-  const low = v.used >= v.budget * 0.9;
+  if (!ai || !v || !nearLimit(v)) return null;
   return (
-    <span className="ai-pillwrap">
-      <button className={`bd-pill ai-pill${low ? " high" : " ghost"}`} aria-expanded={ai.usageOpen}
-              title="AI calls used on this review" onClick={() => ai.setUsageOpen(!ai.usageOpen)}>
-        AI {v.used}/{v.budget}
-      </button>
-      {ai.usageOpen && <Usage onClose={() => ai.setUsageOpen(false)} />}
-    </span>
+    <button className="bd-pill ai-pill high" aria-expanded={ai.usageOpen} title="AI calls used on this review"
+            onClick={() => ai.setUsageOpen(!ai.usageOpen)}>AI {v.used}/{v.budget}</button>
   );
 }
 
-function Usage({ onClose }: { onClose: () => void }) {
+/** The AI usage panel (spec 2026-10-03 §6): this review's and the viewer's calls; the owner raises the budget. It sits
+ * under the header's right end at `top`, whoever opened it (spec 2026-10-25-review-ui-redesign §2.2). */
+export function Usage({ onClose, top }: { onClose: () => void; top: number }) {
   const ai = useAi()!;
   const v = ai.view!;
+  const box = useRef<HTMLDivElement>(null);
   const [total, setTotal] = useState(String(v.budget + 100));
   const [rounds, setRounds] = useState(String(v.per_mention));
   const [error, setError] = useState<string | null>(null);
   const [calls, setCalls] = useState<AiCall[] | null>(null);              // loaded when the list is opened
-  useEffect(() => {
+  useEffect(() => {                           // Escape or a press outside closes it; the pill toggles it itself
     const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const away = (e: PointerEvent) => {
+      const t = e.target as Element;
+      if (!box.current?.contains(t) && !t.closest?.(".ai-pill")) onClose();
+    };
     window.addEventListener("keydown", esc);
-    return () => window.removeEventListener("keydown", esc);
+    document.addEventListener("pointerdown", away);
+    return () => { window.removeEventListener("keydown", esc); document.removeEventListener("pointerdown", away); };
   }, [onClose]);
   const counts = (m: Record<string, number>) => Object.entries(m).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k, n]) => `${k} ${n}`).join(" · ") || "none";
   return (
-    <div className="ai-usage" role="dialog" aria-label="AI usage">
+    <div className="ai-usage" role="dialog" aria-label="AI usage" ref={box} style={{ top }}>
       <div className="row"><b>AI calls</b><span className="sp" /><button className="link small" onClick={onClose}>Close</button></div>
       <p>This review: <b>{v.used}</b> of {v.budget}. You today: <b>{v.me_today}</b> of {v.me_limit}.</p>
       {v.strong && v.tier1 && <p>Strong model ({v.strong}): <b>{v.tier1.used}</b> of {v.tier1.budget} calls for stories and

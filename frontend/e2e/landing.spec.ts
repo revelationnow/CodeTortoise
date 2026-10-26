@@ -37,7 +37,10 @@ test.describe("desktop", () => {
     await high.click();
     await expect(rows).toHaveCount(n);
     // each row says what to act on; without the strong model that is the rules' top severity (review reading §5.4)
-    for (const r of await rows.all()) await expect(r.locator(".rv-headline")).toHaveText(/ risk · rules only$/);
+    for (const r of await rows.all()) {
+      await expect(r.locator(".rv-headline")).toHaveText(/ risk$/);
+      await expect(r.locator(".rv-headline")).toHaveAttribute("title", "Judged by the detectors' rules, without the strong model");
+    }
     await page.getByRole("button", { name: /^Mine/ }).click();
     await expect(rows).toHaveCount(total);                                            // every review here was started by demo
   });

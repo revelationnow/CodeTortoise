@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { expectNamed, login, startReview } from "./helpers";
+import { expectNamed, login, openAiUsage, reviewMenu, startReview } from "./helpers";
 
 const STRONG = "http://127.0.0.1:8795";  // e2e/serve-strong.sh: stories and risk review by the fake strong model, targets hal and fw
 
@@ -78,11 +78,12 @@ test.describe("stories formed by a strong model", () => {
   test("the owner re-runs stories fresh and sees the strong model's calls", async ({ page }) => {
     const base = await startReview(page);
     await page.goto(base);
-    await page.getByRole("button", { name: /^AI \d+\/\d+$/ }).click();
-    const usage = page.getByRole("dialog", { name: "AI usage" });
+    const usage = await openAiUsage(page);
     await expect(usage).toContainText(/Strong model \(fake-strong\): \d+ of 40 calls/);
     await usage.getByRole("button", { name: "Close" }).click();
-    await page.getByRole("button", { name: "Re-run stories (fresh)" }).click();
+    const fresh = (await reviewMenu(page)).getByRole("menuitem", { name: "Re-run stories, fresh" });
+    await expect(fresh).toHaveAttribute("title", "Ask the strong model for new stories instead of reusing the ones it formed for this change");
+    await fresh.click();
     await expect(page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ })).toBeVisible({ timeout: 60_000 });
   });
 
@@ -90,8 +91,7 @@ test.describe("stories formed by a strong model", () => {
     const base = await startReview(page);
     await expect(page.locator(".ws-head .ct-headline")).toHaveText("1 hazard");      // the strong model's answers stand
     await page.goto(base);
-    await page.getByRole("button", { name: /^AI \d+\/\d+$/ }).click();
-    const usage = page.getByRole("dialog", { name: "AI usage" });
+    const usage = await openAiUsage(page);
     await usage.getByText(/^All calls/).click();
     await expect(usage.locator(".ai-calls tbody tr").first()).toBeVisible();
     await expect(usage.locator(".ai-calls")).toContainText("fake-strong");
