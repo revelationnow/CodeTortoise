@@ -76,3 +76,38 @@ test.describe("a tablet", () => {
     expect(await page.getByRole("dialog", { name: "Stage notes" }).evaluate(onTop)).toBe(true);
   });
 });
+
+test.describe("a phone", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+  const sideways = (el: Element) => el.scrollWidth - el.clientWidth;      // what a panel that scrolls sideways has to spare
+
+  test("a long path in the drift panel wraps inside it instead of scrolling it sideways", async ({ page }) => {
+    const base = await startReview(page);
+    const path = "//depot/main/firmware/peripheral_drivers/uart_controller_with_a_long_descriptive_directory_name/uart_transmit_queue.c";
+    await page.route("**/api/reviews/*/board", async (route) => {
+      const res = await route.fetch(), j = await res.json();
+      j.about.drift = [{ text: `${path} (base #3, workspace #2)`, kind: "behind", severity: "warn" }];
+      await route.fulfill({ response: res, json: j });
+    });
+    await page.goto(base);
+    await (await reviewMenu(page)).getByRole("menuitem", { name: "Workspace drift · 1" }).click();
+    const drift = page.getByRole("dialog", { name: "Workspace drift" });
+    await expect(drift).toContainText(path);
+    expect(await drift.evaluate(sideways), "the drift panel scrolls sideways").toBeLessThanOrEqual(0);
+  });
+
+  test("a long word in a stage note wraps inside the panel instead of scrolling it sideways", async ({ page }) => {
+    const base = await startReview(page);
+    const word = "swarm_endpoint_https_models_example_com_v1_chat_completions_deployment_unbroken_name_1234567890";
+    await page.route(/\/api\/reviews\/\d+$/, async (route) => {
+      const res = await route.fetch(), j = await res.json();
+      j.stages = j.stages.map((s: { name: string }) => (s.name === "swarm_read" ? { ...s, status: "failed", message: `Swarm is down: ${word}` } : s));
+      await route.fulfill({ response: res, json: j });
+    });
+    await page.goto(base);
+    await (await reviewMenu(page)).getByRole("menuitem", { name: /^Stage notes/ }).click();
+    const notes = page.getByRole("dialog", { name: "Stage notes" });
+    await expect(notes).toContainText(word);
+    expect(await notes.evaluate(sideways), "the stage-notes panel scrolls sideways").toBeLessThanOrEqual(0);
+  });
+});
