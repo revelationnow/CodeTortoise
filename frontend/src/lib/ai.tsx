@@ -3,7 +3,7 @@ import { api, ApiError, type AiJob, type AiKind, type AiView } from "../api";
 import { finished } from "./aiState";
 import { pollLoop } from "./poll";
 
-/** The review's AI state for every ✦ button, the @ menu, tortoise replies and the AI pill (spec 2026-10-03 §6). */
+/** The review's AI state for every Explain ▾ menu, the @ menu, tortoise replies and the AI pill (spec 2026-10-03 §6). */
 export interface Ai {
   reviewId: number;
   view: AiView | null;

@@ -91,6 +91,8 @@ test.describe("with an AI", () => {
     await viewer.getByRole("button", { name: "Comment", exact: true }).click();
     const reply = viewer.locator(".comment.ai");
     await expect(reply).toContainText("I couldn't answer: this review has used its 6 AI calls; the owner can raise it.");
+    await expect(reply.locator(".comment-body")).not.toHaveClass(/\bai-text\b/);        // the app wrote this one, not the AI
+    await expect(reply.locator(".comment-body .vh")).toHaveCount(0);                      // so no "Written by AI." for a screen reader
     await reply.getByRole("button", { name: "Raise budget" }).click();
     await expect(page.getByRole("dialog", { name: "AI usage" })).toBeVisible();
   });

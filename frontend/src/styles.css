@@ -202,7 +202,7 @@ button.go:disabled { opacity: .55; }
 /* AI-written text (spec 2026-10-25-review-ui-redesign §1.1): a faint edge at its left; who wrote it is on hover */
 .ai-text { border-left: 2px solid var(--ai-edge); padding-left: 10px; }
 
-/* AI: ✦ buttons, tortoise replies, the @ menu, the AI pill's usage view (spec 2026-10-03 §6) */
+/* AI: Explain ▾ menus, tortoise replies, the @ menu, the AI pill's usage view (spec 2026-10-03 §6) */
 .ai-ask { display: inline-flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
 .ai-askq { display: flex; flex-basis: 100%; gap: 6px; align-items: flex-end; }
 .ai-askq textarea { flex: 1; min-width: 200px; font: 13px/1.4 var(--sans); }

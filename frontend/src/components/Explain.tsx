@@ -13,7 +13,8 @@ interface Props {
   /** The item already has an AI result: asking again replaces it, after a confirmation. */
   has: boolean;
   label?: string;
-  /** Where a question typed into Ask… goes: an @tortoise thread on this item (spec: explain with a question). */
+  /** Where a question goes when asked from the menu's Ask a question… item (or the Ask… button): an @tortoise thread on
+   * this item (spec: explain with a question). */
   ask?: { kind: AnchorKind; anchor: Record<string, unknown>; onAsked: () => void };
   /** Only Ask…: the item's text is the strong model's and tier 2 never rewrites it (two-tier stories §8). */
   askOnly?: boolean;
@@ -53,7 +54,7 @@ export default function Explain({ kind, target, has, label = "Explain", ask, ask
     if (!has || window.confirm(`Replace the current ${what}? It costs 1 AI call.`)) ai.explain(kind, target);
   };
   const shut = () => { setAsking(false); button.current?.focus(); };
-  // title="": nothing here is the AI's text, though it may sit inside it (AiText's "Written by AI" hover stops here)
+  // title="": nothing here is the AI's text; an empty title keeps the hover of whatever surrounds these controls off them
   return (
     <span className="ai-ask" title="" onClick={(e) => e.stopPropagation()}>
       {askOnly ? ask && (

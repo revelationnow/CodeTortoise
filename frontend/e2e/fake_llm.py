@@ -99,6 +99,16 @@ def account(user: str) -> dict:
          "text": "Code that reads Uart::errors now sees transmit errors too. Check the readers you own."}]}
 
 
+def hypotheses(user: str) -> list[dict]:
+    """The side effects a finding's explanation proposes: one, for the Uart::errors write, citing its first function; no
+    other finding gets any, so only that finding's page shows a hypothesis."""
+    title = re.search(r"^FINDING:\n\S+ \[\w+\] \w+: (.*)$", user, re.M)
+    node = re.search(r"^nodes: \['(N\d+)'", user, re.M)
+    if not (title and node and "Uart::errors" in title.group(1)):
+        return []
+    return [{"text": "Another reader of Uart::errors may see the count change between two reads.", "cites": [node.group(1)]}]
+
+
 def answer(system: str, user: str) -> dict:
     if "THREAD DETAILS (id" in user:
         return intro(user)
@@ -128,7 +138,7 @@ def answer(system: str, user: str) -> dict:
                 "summary": "uart_send now counts errors in Uart::errors, which uart_errors reports.", "cites": CITES}
     if "Explain the risk" in user:
         return {"explanation": "uart_send can now return -2, and logger_flush drops it.",
-                "verify_steps": ["Check how logger_flush handles -2."], "hypotheses": []}
+                "verify_steps": ["Check how logger_flush handles -2."], "hypotheses": hypotheses(user)}
     if "Summarise this file" in user:
         path = re.search(r"FILE (\S+)", user)
         return {"summary": "This file now counts transmit errors.", "check": ["Check the readers of uart_errors."],

@@ -75,8 +75,10 @@ export default function FlowStrip({ board, flows, index, onFlow, steps, hideWhat
       {!shut && note && <div className="ws-flow-text"><p className="muted">{note}</p></div>}
       {!shut && !note && (
         <div className="ws-flow-text">
-          {!hideWhat && <AiText ai={flow.what_source === "llm"}><NameText text={flow.what} />{" "}
-            <Explain kind="flow" target={flow.id} has={flow.what_source === "llm"} ask={{ kind: "flow", anchor: { id: flow.id }, onAsked: ws.data.loadComments }} /></AiText>}
+          {!hideWhat && <>
+            <AiText ai={flow.what_source === "llm"}><NameText text={flow.what} /></AiText>
+            <Explain kind="flow" target={flow.id} has={flow.what_source === "llm"} ask={{ kind: "flow", anchor: { id: flow.id }, onAsked: ws.data.loadComments }} />
+          </>}
           {steps && (
             <p className="ws-flow-steps">{flow.path.map((id, i) => {
               const node = byId.get(id);

@@ -86,7 +86,10 @@ export default function FindingBody({ fid, head, ids }: { fid: string; head: Rea
     </section>
     <section aria-labelledby={`${ids}-ai`}>
       <h3 id={`${ids}-ai`}>Analysis</h3>
-      {f.explanation ? <AiText><NameText text={f.explanation} /> <Explain kind="finding" target={f.id} has ask={talk} /></AiText>
+      {f.explanation ? <>
+          <AiText><NameText text={f.explanation} /></AiText>
+          <Explain kind="finding" target={f.id} has ask={talk} />
+        </>
         : !ai?.view ? <p className="muted">Checking for an analysis…</p>
         : !ai.view.llm ? <p className="muted">No analysis: AI is not set up.</p>
         : <p className="muted">Not written yet. <Explain kind="finding" target={f.id} has={false} ask={talk} /></p>}

@@ -134,7 +134,7 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
   const purpose = sr?.account?.find((p) => p.kind === "purpose");
   const explain = st.kind !== "mechanical" && <Explain kind="story" target={st.id} has={st.text_source === "llm"} askOnly={st.source === "tier1"}
                                                      ask={{ kind: "story", anchor: { id: st.id }, onAsked: d.loadComments }} />;
-  // the Graph tab leaves out the summary (the AI purpose, its place) for the graph's sake; ✦ Explain moves to the tools
+  // the Graph tab leaves out the summary (the AI purpose, its place) for the graph's sake; Explain ▾ moves to the tools
   const readingHeader = (summary: boolean) => r && (
     <header className="ws-story-head st-head">
       <h2>{hazards > 0 && <span className="ct-headline hazard">{hazards} hazard{hazards === 1 ? "" : "s"}</span>}

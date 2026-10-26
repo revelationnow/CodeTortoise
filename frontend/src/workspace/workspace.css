@@ -430,6 +430,7 @@ a.ws-nb:hover { border-color: var(--accent); }
 .ws-flow-text p { margin: 4px 0; }
 .ws-flow-lands b { font-weight: 600; }
 .ws-flow-lands.warn b { color: var(--bad); }
+.ws-flow-why { display: block; }                    /* the AI's reason: its edge runs beside every line when it wraps */
 .ws-verdict { font-size: 13.5px; color: var(--muted); margin: 4px 0 0; }
 .ws-verdict.hazard { color: var(--bad); }
 .ws-verdict.needs_review { color: var(--warn); }
