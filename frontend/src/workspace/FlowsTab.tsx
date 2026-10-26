@@ -14,6 +14,7 @@ import { inPopup, typing } from "./keys";
 import NameText, { Ticks } from "./NameText";
 
 const bare = (s: string) => s.replaceAll("`", "");
+const ALSO = "also";                                                           // the end line's key in `more`; a group's is "kind:node"
 
 /** The Flows tab (spec 2026-10-25-review-ui-redesign §7): the story's flows in groups by what changed, a line each;
  * a row opens in place, and its box marks its places fine for everyone. Then the checks no group takes and what the
@@ -96,6 +97,11 @@ export default function FlowsTab({ detail, sr, flows }: { detail: StoryDetail; s
     || g.rows.slice(FOLD_AT).some((r) => r.n === lit || r.n === open || r.n === cur);
   const revealed = groups.filter((g) => g.rows.length > FOLD_AT && !more.has(g.key) && unfolded(g)).map((g) => g.key);
   if (revealed.length) setMore(new Set([...more, ...revealed]));          // remembered here, in the render that unfolds it
+  // the end line folds as a group does; its Show N more hands focus to the first chip it shows, before the next paint
+  const also = useRef<HTMLElement>(null), toChip = useRef(false), alsoShown = more.has(ALSO) ? rest : rest.slice(0, FOLD_AT);
+  useLayoutEffect(() => {
+    if (toChip.current && more.has(ALSO)) { toChip.current = false; also.current?.querySelectorAll<HTMLElement>(".st-chip")[FOLD_AT]?.focus(); }
+  }, [more]);
   return (
     <div className="st-flows" aria-busy={busy}>
       {error && <div className="banner warn">{error}</div>}
@@ -112,9 +118,9 @@ export default function FlowsTab({ detail, sr, flows }: { detail: StoryDetail; s
               return (
                 <li key={flow.id} id={`flow-${n}`} className={`fl-row${on ? " on" : ""}`} onFocus={() => setCur(n)}>
                   <div className="fl-head">
-                    {mine.length > 0 && <input type="checkbox" className="fl-tick" checked={done}
+                    {mine.length > 0 && <label className="fl-tickbox"><input type="checkbox" className="fl-tick" checked={done}
                                                aria-label={`Looks fine: ${bare(sentence)}`}
-                                               onChange={() => { setCur(n); if (done) reopen(mine.map((k) => k.key)); else fine(left); }} />}
+                                               onChange={() => { setCur(n); if (done) reopen(mine.map((k) => k.key)); else fine(left); }} /></label>}
                     <button className="fl-toggle" aria-expanded={on} title={bare(sentence)} aria-label={`Flow ${n}: ${bare(sentence)}`}
                             onClick={() => { setOpen(on ? null : n); setCur(n); }}>
                       <span className="fl-n">{n}</span><span className="fl-one"><Ticks text={sentence} /></span>
@@ -147,7 +153,14 @@ export default function FlowsTab({ detail, sr, flows }: { detail: StoryDetail; s
         );
       })}
       {!flows.length && <p className="muted">No flows in this story.</p>}
-      {rest.length > 0 && <section className="st-other fl-also" aria-label="Also in this story"><span>Also in this story:</span><Chips causes={rest} /></section>}
+      {rest.length > 0 && (
+        <section className="st-other fl-also" aria-label="Also in this story" ref={also}><span>Also in this story:</span><Chips causes={alsoShown} />
+          {alsoShown.length < rest.length && (
+            <button className="link" onClick={() => { toChip.current = true; setMore(new Set([...more, ALSO])); }}>
+              Show {rest.length - alsoShown.length} more</button>
+          )}
+        </section>
+      )}
       {effects && <section className="st-effects" aria-label={effects.heading}><h3>{effects.heading}</h3>
         <AiText><NameText text={effects.text} /></AiText></section>}
     </div>

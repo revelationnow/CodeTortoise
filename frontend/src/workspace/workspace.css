@@ -757,9 +757,14 @@ a.ws-chip { text-decoration: none; }
 .fl-group > .st-chips { margin: 0 0 8px; }
 .fl-rows { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
 .fl-row { border-bottom: 1px solid var(--line); scroll-margin-top: 12px; }
-.fl-head { display: flex; align-items: center; gap: 6px; min-width: 0; padding-left: 4px; }
+.fl-head { display: flex; align-items: center; min-width: 0; padding-left: 4px; }
+/* the tick box's label: a press anywhere in it, 24px wide and as tall as the row, ticks the 13px box (WCAG 2.5.8); it
+   starts at the row's edge, so the box sits about where the row's 4px padding and a 6px gap put it before */
+.fl-tickbox { flex: none; align-self: stretch; display: flex; align-items: center; justify-content: center; min-width: 24px;
+  min-height: 24px; margin-left: -4px; }
 .fl-tick { flex: none; width: auto; margin: 0; }                  /* not styles.css's input { width: 100% } */
 .st-flows[aria-busy="true"] .fl-tick { opacity: .5; cursor: progress; }   /* a mark is on its way: the boxes stay enabled, to keep their focus, but look it */
+.st-flows[aria-busy="true"] .fl-tickbox { cursor: progress; }
 .fl-toggle { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; border: 0; border-radius: 0; background: none;
   padding: 6px 4px; font: 400 13.5px/1.4 var(--sans); color: var(--ink); text-align: left; }
 .fl-toggle:hover, .fl-toggle:focus-visible { background: var(--gap-bg); }

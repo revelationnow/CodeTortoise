@@ -24,6 +24,12 @@ const labels = (l: Locator, name = "aria-label") => l.evaluateAll((els, a) => el
  * so a test that ticks again waits for this first. */
 const marksDone = (page: Page) => expect(page.locator(".st-flows")).toHaveAttribute("aria-busy", "false");
 
+/** Where a press reaches a tick box (the label around it, else the box itself), and the box. */
+const clickable = (tick: Locator) => tick.evaluate((el) => {
+  const rect = (r: DOMRect) => ({ x: r.x, y: r.y, width: r.width, height: r.height });
+  return { target: rect((el.closest("label") ?? el).getBoundingClientRect()), box: rect(el.getBoundingClientRect()) };
+});
+
 test.describe("the Flows tab", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -303,6 +309,24 @@ test.describe("the Flows tab", () => {
     await expect(page.locator(".fl-toggle").first()).toBeFocused();
   });
 
+  test("a tick box takes a press anywhere in a 24px square around it, not only on its 13px box (WCAG 2.5.8)", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const tick = page.getByRole("checkbox", { name: "Looks fine: logger_flush ignores -2" });
+    await tick.scrollIntoViewIfNeeded();                                  // a press goes to a point on the screen
+    const { target, box } = await clickable(tick);
+    expect(target.width, "the tick's target is wide enough").toBeGreaterThanOrEqual(24);
+    expect(target.height, "the tick's target is tall enough").toBeGreaterThanOrEqual(24);
+    const x = target.x + 2, y = target.y + 2;                             // a corner of the target, off the box itself
+    expect(x < box.x || y < box.y).toBe(true);
+    await page.mouse.click(x, y);
+    await expect(tick).toBeChecked();
+    await marksDone(page);
+    await page.mouse.click(x, y);                                         // and a second press there reopens it
+    await expect(tick).not.toBeChecked();
+    await expect(page.locator(".fl-toggle").first()).toHaveAttribute("aria-expanded", "false");   // the row's toggle is a separate target
+  });
+
   test("only a group line forces its row open: the Flows tab and the story's own row, links to the address the reader is at, do not", async ({ page }) => {
     const base = await startReview(page, FOUR);
     await page.goto(`${base}/s/S1`);
@@ -345,6 +369,24 @@ test.describe("a story with many flows", () => {
     await expect(page.locator("#flow-60 .fl-toggle")).toHaveAttribute("aria-expanded", "true");
     await expect(page.getByRole("region", { name: /^Flow 60: / })).toBeInViewport();
     await expectNoNodeIds(page);
+  });
+
+  test("the end line shows eight checks and Show N more, which shows the rest and puts focus on the first it shows", async ({ page }) => {
+    const base = await startReview(page, "201 202");
+    await page.goto(`${base}/s/S1`);
+    const also = page.getByRole("region", { name: "Also in this story" }), chips = also.locator(".st-chip");
+    await expect(chips).toHaveCount(8);                                              // of 41: not a wall
+    await expect(chips.nth(6)).toHaveText("26 functions no test calls");
+    const more = also.getByRole("button", { name: "Show 33 more" });
+    await expect(more).toHaveClass(/\blink\b/);
+    await more.focus();
+    await page.keyboard.press("Enter");
+    await expect(chips).toHaveCount(41);
+    await expect(also.getByRole("button", { name: /^Show \d+ more$/ })).toHaveCount(0);
+    await expect(chips.nth(8)).toBeFocused();                                        // the button went: focus is on the ninth chip, not the page
+    await page.keyboard.press("Tab");                                                // the chips are links: Tab walks them
+    await expect(chips.nth(9)).toBeFocused();
+    await expect(chips.nth(9)).toHaveText("2 callers handle regs_a1's result the old way");
   });
 
   test("a row among a group's first eight opens in place and leaves the group folded", async ({ page }) => {
@@ -577,6 +619,7 @@ test.describe("a story with many flows", () => {
     const one = "26 functions no test calls", other = "2 callers handle regs_a1";
     await also.getByRole("link", { name: `Open check: ${one}` }).click();
     await expect(page.getByRole("complementary", { name: `Check: ${one}` })).toBeVisible();
+    await also.getByRole("button", { name: "Show 33 more" }).click();                // the other is past the end line's first eight
     await also.getByRole("link", { name: new RegExp(`^Open check: ${other}`) }).click();
     const tabs = page.getByRole("list", { name: "Open items" });
     await expect(tabs.getByRole("link")).toHaveCount(2);                             // a tab for each check
@@ -625,6 +668,22 @@ test.describe("the Flows tab on a phone", () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
     expect(await unreadable()).toBe(0);
     expect(await sideways()).toBeLessThanOrEqual(0);
+  });
+
+  test("a tick box's target is a 24px square here too, and a click on its edge ticks it", async ({ page }) => {
+    const base = await startReview(page, "201 202");
+    await page.goto(`${base}/s/S1`);
+    const tick = page.locator(".fl-tick").first();
+    await tick.scrollIntoViewIfNeeded();                                  // a click goes to a point on the screen
+    const { target, box } = await clickable(tick);
+    expect(target.width, "the tick's target is wide enough").toBeGreaterThanOrEqual(24);
+    expect(target.height, "the tick's target is tall enough").toBeGreaterThanOrEqual(24);
+    const x = target.x + 2, y = target.y + target.height - 2;             // a corner of the target, off the box itself
+    expect(x < box.x || y > box.y + box.height).toBe(true);
+    // a mouse click, not a tap: Chromium moves a tap to the clickable thing it judges nearest (a tap here lands on the next
+    // row's box), so a tap tests its touch adjustment rather than where this box takes presses
+    await page.mouse.click(x, y);
+    await expect(tick).toBeChecked();
   });
 });
 
