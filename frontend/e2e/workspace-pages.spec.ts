@@ -35,6 +35,22 @@ test.describe("desktop", () => {
     await expectNamed(page);
   });
 
+  test("section headings are dark sentence-case titles, not grey capitals", async ({ page }) => {
+    const base = await startReview(page);
+    const look = (selector: string) => page.locator(selector).first().evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return [cs.textTransform, cs.letterSpacing, cs.fontWeight, cs.fontSize, cs.color === getComputedStyle(document.body).color];
+    });
+    await expect(page.locator(".ws-whole h2").first()).toBeVisible();
+    expect(await look(".ws-whole h2")).toEqual(["none", "normal", "650", "16px", true]);
+    await page.goto(`${base}/f/F4?details=1`);
+    await expect(page.locator(".ws-finding h3").first()).toBeVisible();
+    expect(await look(".ws-finding h3")).toEqual(["none", "normal", "650", "15px", true]);
+    await page.goto("/");
+    await expect(page.locator(".rv-head h2")).toBeVisible();
+    expect(await look(".rv-head h2")).toEqual(["none", "normal", "650", "16px", true]);
+  });
+
   test("a header's reach reads as words: counts with their nouns, its layers as a list", async ({ page }) => {
     const base = await startReview(page);
     await page.goto(`${base}/f/F1?details=1`);
