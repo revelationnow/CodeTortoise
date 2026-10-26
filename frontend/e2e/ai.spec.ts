@@ -86,9 +86,10 @@ test.describe("with an AI", () => {
     const high = findings.find((f) => f.severity === "high")!;
     expect(high, "the fixture has a high finding").toBeTruthy();
     await page.goto(`${base}/f/${high.id}?details=1`);
-    const ai = page.getByRole("region", { name: "AI analysis" });
+    const ai = page.getByRole("region", { name: "Analysis", exact: true });
     await expect(ai).toContainText("uart_send can now return -2, and logger_flush drops it.", { timeout: 30_000 });
-    await expect(ai.locator(".ai-label")).toBeVisible();
+    await expect(ai.locator(".ai-text")).toHaveAttribute("title", "Written by AI");
+    await expect(page.locator(".ai-label")).toHaveCount(0);
     await expect(ai.getByRole("button", { name: /Explain again/ })).toBeVisible();
   });
 
@@ -99,10 +100,11 @@ test.describe("with an AI", () => {
     const tx = findings.find((f) => f.title.startsWith("uart_send now writes Stats::tx"))!;
     await page.goto(`${base}/f/${errors.id}?details=1`);
     await expect(page.locator(".ws-finding h2 .badge")).toHaveText("high");
-    await expect(page.locator(".ws-verdict")).toContainText("AI: hazard — uart_errors assumes only uart_init writes Uart::errors.");
+    await expect(page.locator(".ws-verdict")).toContainText("Hazard — uart_errors assumes only uart_init writes Uart::errors.");
+    await expect(page.locator(".ws-verdict")).toHaveClass(/\bai-text\b/);
     await page.goto(`${base}/f/${tx.id}?details=1`);
     await expect(page.locator(".ws-finding h2 .badge")).toHaveText("info");
-    await expect(page.locator(".ws-verdict")).toContainText("AI: no clear hazard — Nothing else depends on the value it writes.");
+    await expect(page.locator(".ws-verdict")).toContainText("No clear hazard — Nothing else depends on the value it writes.");
     await page.goto(`${base}/s/S1?view=graph`);                              // a story's flows are on its graph
     const lands = page.getByRole("region", { name: "Flow" }).locator(".ws-flow-lands");
     await expect(lands).toContainText("⚠ Side effect lands on uart_errors.");
@@ -119,6 +121,10 @@ test.describe("with an AI", () => {
     await panel.getByRole("button", { name: /Summarise/ }).click();
     await expect(panel).toContainText("This file now counts transmit errors.", { timeout: 30_000 });
     await expect(panel).toContainText("Check the readers of uart_errors.");
+    const summary = panel.locator(".ai-summary");
+    await expect(summary).toHaveClass(/\bai-text\b/);
+    await expect(summary).toHaveAttribute("title", /^Written by AI · \S+/);
+    await expect(summary.locator("h4")).toHaveText("Summary");
   });
 
   test("the owner raises the budget from the AI pill; a reviewer sees the usage without the control", async ({ page, browser }) => {

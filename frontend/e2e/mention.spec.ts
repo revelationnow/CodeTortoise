@@ -39,7 +39,8 @@ test.describe("with an AI", () => {
     const reply = viewer.locator(".comment.ai");
     await expect(reply).toContainText("logger_flush drops the -2 that uart_send now returns.", { timeout: 30_000 });
     await expect(reply).toContainText("read: callers of uart_send");
-    await expect(reply.locator(".ai-label")).toHaveText("AI");
+    await expect(reply.locator(".comment-body")).toHaveClass(/\bai-text\b/);
+    await expect(reply.locator(".ai-label")).toHaveCount(0);
     await expect(reply.getByRole("button", { name: "edit" })).toHaveCount(0);   // tortoise replies can't be edited
   });
 

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { type AiKind, type AnchorKind, api } from "../api";
 import { useAi } from "../lib/ai";
 import { aiAvailability, callTitle, jobFor } from "../lib/aiState";
+import AiText from "./AiText";
 
 const REFUSED = /AI calls|AI budget/;
 
@@ -73,15 +74,15 @@ export default function Explain({ kind, target, has, label = "Explain", ask, ask
   );
 }
 
-/** A file's AI summary, above its code. */
+/** A file's AI summary, above its code (spec 2026-10-25-review-ui-redesign §4): the edge, and its model on hover. */
 export function FileSummaryView({ path }: { path: string }) {
   const s = useAi()?.view?.file_summaries[path];
   if (!s || !s.summary) return null;
   return (
-    <div className="ai-summary">
-      <div className="ai-tag"><span className="ai-label">AI</span> summary by {s.by}</div>
+    <AiText as="div" by={s.by} className="ai-summary">
+      <h4>Summary</h4>
       <p>{s.summary}</p>
       {s.check.length > 0 && <><b>Check</b><ol>{s.check.map((c, i) => <li key={i}>{c}</li>)}</ol></>}
-    </div>
+    </AiText>
   );
 }

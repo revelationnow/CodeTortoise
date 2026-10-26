@@ -63,12 +63,13 @@ test.describe("stories formed by a strong model", () => {
     await page.goto(`${base}/f/F1?details=1`);
     const hazard = page.locator(".ws-verdict");
     await expect(hazard).toHaveClass(/hazard/);
-    await expect(hazard).toContainText("AI review: hazard — logger_flush ignores the new -2, so a failed send goes unnoticed.");
+    await expect(hazard).toContainText("Hazard — logger_flush ignores the new -2, so a failed send goes unnoticed.");
+    await expect(hazard).not.toContainText("AI review");
     await hazard.getByRole("link", { name: "uart_send" }).click();               // a node id cited: its code opens
     await expect(page.getByRole("complementary", { name: /uart_send/ }).or(page.locator(".ws-detail"))).toBeVisible();
     await page.goto(`${base}/f/F2?details=1`);
     await expect(page.locator(".ws-verdict")).toHaveClass(/needs_review/);
-    await expect(page.locator(".ws-verdict")).toContainText("AI review: needs review —");
+    await expect(page.locator(".ws-verdict")).toContainText("Needs review —");
     await page.goto(`${base}/f/F5?details=1`);
     const cited = page.locator(".ws-verdict").getByRole("link", { name: /^driver\/uart\.c:\d+$/ });
     await expect(cited).toBeVisible();                                            // a file:line cited: the diff opens there

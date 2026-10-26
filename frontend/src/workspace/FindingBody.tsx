@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useMe } from "../App";
 import Comments from "../components/Comments";
+import AiText from "../components/AiText";
 import Explain from "../components/Explain";
 import SinkMark from "../components/SinkMark";
 import { useAi } from "../lib/ai";
@@ -15,7 +16,7 @@ import { depotFor } from "./evidence";
 import NameText from "./NameText";
 
 const STATE = { open: "open", ack: "acknowledged", dismissed: "dismissed" } as const;
-const VERDICT = { hazard: "hazard", needs_review: "needs review", no_hazard: "no hazard" } as const;
+const VERDICT = { hazard: "Hazard", needs_review: "Needs review", no_hazard: "No hazard" } as const;
 
 /** What a finding says (spec 2026-10-04-review-workspace §3.3), on its page and in the side panel (spec
  * 2026-10-12-story-account-and-panels §2.1): its status, the AI's verdict, where it lives, the AI analysis, the
@@ -54,8 +55,8 @@ export default function FindingBody({ fid, head, ids }: { fid: string; head: Rea
         {field && <SinkMark label={field} />}
       </p>
       {f.verdict_source === "tier1" && f.verdict ? (
-        <p className={`ws-verdict ${f.verdict}`}>
-          <span className="ai-label">AI</span>AI review: {VERDICT[f.verdict]} — <NameText text={f.verdict_reason ?? ""} />
+        <AiText className={`ws-verdict ${f.verdict}`}>
+          {VERDICT[f.verdict]} — <NameText text={f.verdict_reason ?? ""} />
           {(f.verdict_cites ?? []).length > 0 && <span className="ws-cites"> · cites {(f.verdict_cites ?? []).map((c, k) => {
             const t = citeTarget(c), depot = t && "file" in t ? depotFor(t.file, depots) : null;
             const link = t && "node" in t && d.names[c] ? <Link to={ws.link(ws.opened({ node: c }))} title={`Open ${d.names[c].label}'s code`}>{d.names[c].label}</Link>
@@ -63,13 +64,11 @@ export default function FindingBody({ fid, head, ids }: { fid: string; head: Rea
               : <span className="mono">{c}</span>;
             return <span key={c}>{k > 0 && ", "}{link}</span>;
           })}</span>}
-        </p>
+        </AiText>
       ) : f.side_effect && (
-        <p className={`ws-verdict${f.verdict === "hazard" ? " hazard" : ""}`}>
-          {f.verdict === "hazard" ? <><span className="ai-label">AI</span>AI: hazard — <NameText text={f.verdict_reason ?? ""} /></>
-            : f.verdict === "no_hazard" ? <><span className="ai-label">AI</span>AI: no clear hazard — <NameText text={f.verdict_reason ?? ""} /></>
-            : <>Side effect · not yet assessed. Side effects are normal; ✦ Explain asks the AI whether this one is a hazard.</>}
-        </p>
+        f.verdict === "hazard" ? <AiText className="ws-verdict hazard">Hazard — <NameText text={f.verdict_reason ?? ""} /></AiText>
+          : f.verdict === "no_hazard" ? <AiText className="ws-verdict">No clear hazard — <NameText text={f.verdict_reason ?? ""} /></AiText>
+          : <p className="ws-verdict">Side effect · not yet assessed. Side effects are normal; Explain asks whether this one is a hazard.</p>
       )}
     </header>
     <section aria-labelledby={`${ids}-where`} className="ws-where">
@@ -86,10 +85,10 @@ export default function FindingBody({ fid, head, ids }: { fid: string; head: Rea
       </ul>
     </section>
     <section aria-labelledby={`${ids}-ai`}>
-      <h3 id={`${ids}-ai`}>AI analysis</h3>
-      {f.explanation ? <p><span className="ai-label">AI</span><NameText text={f.explanation} /> <Explain kind="finding" target={f.id} has ask={talk} /></p>
-        : !ai?.view ? <p className="muted">Checking for AI analysis…</p>
-        : !ai.view.llm ? <p className="muted">AI analysis unavailable.</p>
+      <h3 id={`${ids}-ai`}>Analysis</h3>
+      {f.explanation ? <AiText><NameText text={f.explanation} /> <Explain kind="finding" target={f.id} has ask={talk} /></AiText>
+        : !ai?.view ? <p className="muted">Checking for an analysis…</p>
+        : !ai.view.llm ? <p className="muted">No analysis: AI is not set up.</p>
         : <p className="muted">Not written yet. <Explain kind="finding" target={f.id} has={false} ask={talk} /></p>}
     </section>
     <section aria-labelledby={`${ids}-ev`}>
@@ -115,8 +114,8 @@ export default function FindingBody({ fid, head, ids }: { fid: string; head: Rea
     {f.hypotheses.length > 0 && (
       <section aria-labelledby={`${ids}-hyp`}><h3 id={`${ids}-hyp`}>Possible side effects</h3>
         <ul>{f.hypotheses.map((h, k) => (
-          <li key={k}><span className="ai-label">AI</span><NameText text={h.text} />
-            {h.cites.filter((c) => c.startsWith("N")).length > 0 && <span className="muted"> — {h.cites.filter((c) => c.startsWith("N")).map((c, j) => <span key={c}>{j > 0 && ", "}{name(c)}</span>)}</span>}</li>
+          <AiText key={k} as="li"><NameText text={h.text} />
+            {h.cites.filter((c) => c.startsWith("N")).length > 0 && <span className="muted"> — {h.cites.filter((c) => c.startsWith("N")).map((c, j) => <span key={c}>{j > 0 && ", "}{name(c)}</span>)}</span>}</AiText>
         ))}</ul></section>
     )}
     <section aria-labelledby={`${ids}-fc`}><h3 id={`${ids}-fc`}>Comments</h3>

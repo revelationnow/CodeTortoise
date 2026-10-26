@@ -5,6 +5,7 @@ import { useAi } from "../lib/ai";
 import { aiAvailability } from "../lib/aiState";
 import { insertMention, mentionOptions, mentionQuery, TORTOISE } from "../lib/mention";
 import Logo from "./Logo";
+import AiText from "./AiText";
 
 export function anchorMatches(c: Comment, kind: AnchorKind, anchor: Record<string, unknown>): boolean {
   return c.anchor_kind === kind && Object.entries(anchor).every(([k, v]) => c.anchor[k] === v);
@@ -68,7 +69,6 @@ function CommentView({ c, onChange }: { c: Comment; onChange: () => void }) {
       <div className="comment-head">
         {ai && <Logo size={16} />}
         <strong>{c.author}</strong>
-        {ai && <span className="ai-label">AI</span>}
         <span className="muted small">{c.created_at.replace("T", " ").slice(0, 16)}{c.edited_at ? " (edited)" : ""}</span>
         {mine && !editing && <button className="link small" onClick={() => setEditing(true)}>edit</button>}
         {(mine || me?.is_owner) && (
@@ -86,7 +86,7 @@ function CommentView({ c, onChange }: { c: Comment; onChange: () => void }) {
       ) : meta?.pending ? (
         <div className="comment-body muted">thinking…{meta.round ? ` (round ${meta.round} of ${meta.of})` : ""}</div>
       ) : (
-        <div className="comment-body">{c.body}</div>
+        <AiText as="div" ai={ai} className="comment-body">{c.body}</AiText>
       )}
       {ai && meta && meta.read.length > 0 && <div className="ai-read muted small">read: {meta.read.join(", ")}</div>}
       {ai && me?.is_owner && usage && /review has used its/.test(meta?.error ?? "") && (
@@ -166,7 +166,7 @@ function MentionBox({ value, onChange, rows, placeholder, autoFocus }:
                 className={`${i === at ? "on" : ""}${o.disabled ? " off" : ""}`}
                 onMouseDown={(e) => e.preventDefault()} onClick={() => pick(i)}>
               {o.ai ? <Logo size={14} /> : <span className="who">@</span>}
-              <b>@{o.name}</b>{o.ai && <span className="ai-label">AI</span>}
+              <b>@{o.name}</b>
               {o.detail && <span className="detail">{o.detail}</span>}
             </li>
           ))}
