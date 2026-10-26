@@ -8,7 +8,7 @@ export default function HowToRead({ top }: { top: number }) {
       <h2>How to read this page</h2>
       <ul>
         <li><b>The outline</b> on the left lists the change's threads — stories joined by calls or shared data, lettered
-          A, B… — and each thread's stories in reading order; the story you are on shows its flows.</li>
+          A, B… — and each thread's stories in reading order; the story you are on shows its flow groups.</li>
         <li><b>Checks</b> at the top of the outline lists what needs a reviewer's eye, grouped by the change that raised
           it. <b>Showing</b> hides kinds of check; Confirm is hidden until you show it.</li>
         <li><b>A check</b> opens beside the page: the change that raised it above each place it asks you to look at.

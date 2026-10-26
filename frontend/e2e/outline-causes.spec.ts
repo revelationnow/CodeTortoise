@@ -354,6 +354,7 @@ test.describe("the top bar", () => {
     await (await reviewMenu(page)).getByRole("menuitem", { name: "How to read this page" }).click();
     const dialog = page.getByRole("dialog", { name: "How to read this page" });
     await expect(dialog).toContainText("J next, K back, F looks fine & next");
+    await expect(dialog).toContainText("the story you are on shows its flow groups.");
     await expect(dialog).toContainText("On Flows: J next row, K back, Enter opens it, F looks fine & next.");
     await expect(dialog).toContainText("A faint violet line at the left of a paragraph marks text the AI wrote.");
     for (const w of [1440, 600]) {
