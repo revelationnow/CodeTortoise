@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { explainItem, login, openAiUsage, openIndex, startReview } from "./helpers";
+import { explainItem, login, openAiUsage, openIndex, startReview, storyLink } from "./helpers";
 
 const AI = "http://127.0.0.1:8798";      // e2e/serve-ai.sh: CodeTortoise with the fake model in e2e/fake_llm.py
 
@@ -44,7 +44,7 @@ test.describe("with an AI", () => {
 
   test("Explain retells a story's title and summary, on the story and in the rail", async ({ page }) => {
     await startReview(page);
-    await page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ }).click();
+    await (await storyLink(page, /^Go to story S1/)).click();
     const head = page.locator(".ws-story-head");
     await expect(head.locator("h2 .ai-name")).toHaveCount(0);                // this server's up-front pass skips stories
     await explainItem(head, "Explain");
@@ -219,7 +219,7 @@ test.describe("with an AI", () => {
 
   test("a story tells the weak model's account: purpose, its flows and what it means, each with the AI edge", async ({ page }) => {
     await startReview(page);
-    await page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ }).click();
+    await (await storyLink(page, /^Go to story S1/)).click();
     const purpose = page.locator(".st-summary");
     await expect(purpose.locator(".ai-text")).toBeVisible({ timeout: 30_000 });
     await expect(purpose.locator(".ai-text")).toHaveAttribute("title", "Written by AI");

@@ -1,5 +1,5 @@
 import { devices, expect, test } from "@playwright/test";
-import { login, startReview } from "./helpers";
+import { login, railReady, startReview } from "./helpers";
 
 test.describe("desktop", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
@@ -12,7 +12,7 @@ test.describe("desktop", () => {
     await page.getByLabel("Changelists (shelved or submitted)").fill("102");
     await page.getByLabel("Title (optional)").fill(title);
     await page.getByRole("button", { name: "Start review" }).click();
-    await expect(page.locator(".ws-rail").getByRole("link", { name: /^Go to story/ }).first()).toBeVisible({ timeout: 60_000 }); // a review opens on its workspace
+    await railReady(page);                                                   // a review opens on its workspace
     await page.getByRole("link", { name: "Reviews" }).first().click();
 
     const rows = page.locator(".rv-list .rv-row");

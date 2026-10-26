@@ -26,9 +26,36 @@ export async function startReview(page: Page, cls = "101 102"): Promise<string> 
   await login(page);
   await page.getByLabel("Changelists (shelved or submitted)").fill(cls);
   await page.getByRole("button", { name: "Start review" }).click();
-  await expect(page.locator(".ws-rail").getByRole("link", { name: /^Go to story/ }).first()).toBeVisible({ timeout: 60_000 });
+  await railReady(page);
   return page.url().match(/\/r\/\d+/)![0];
 }
+
+/** Waits for the outline's first thread bar or story row (a review without threads, or before the reading, has rows). */
+export async function railReady(page: Page) {
+  const rail = page.locator(".ws-rail");
+  await expect(rail.getByRole("button", { name: /^Thread \w+:/ }).or(rail.getByRole("link", { name: /^Go to story/ })).first())
+    .toBeVisible({ timeout: 60_000 });
+}
+
+/** A story's row in the outline, opening thread bars in turn until it shows (spec 2026-10-25-review-ui-redesign §6: one
+ * thread open at a time). */
+export async function storyLink(page: Page, name: RegExp): Promise<Locator> {
+  const rail = page.locator(".ws-rail"), link = rail.getByRole("link", { name }).first();
+  const bars = rail.getByRole("button", { name: /^Thread \w+:/ });
+  await expect(bars.or(link).first()).toBeVisible({ timeout: 60_000 });
+  if (await link.isVisible()) return link;
+  for (let i = 0; i < await bars.count(); i++) {
+    const bar = bars.nth(i);
+    if ((await bar.getAttribute("aria-expanded")) !== "true") await bar.click();
+    await rail.locator(".ws-bar-list > li").first().waitFor({ state: "visible", timeout: 5000 }).catch(() => {});   // the stories load after the reading
+    if (await link.waitFor({ state: "visible", timeout: 1000 }).then(() => true, () => false)) return link;
+  }
+  return link;
+}
+
+/** The outline's thread bars' names, top to bottom. */
+export const barNames = (page: Page) =>
+  page.locator(".ws-rail .ws-bar > button").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
 
 /** No node id is ever shown (spec §8): visible text never matches N<digits>. */
 export async function expectNoNodeIds(page: Page) {

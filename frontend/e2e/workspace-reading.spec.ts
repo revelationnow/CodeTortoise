@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, openIndex, startReview } from "./helpers";
+import { barNames, expectNamed, expectNoNodeIds, openIndex, startReview } from "./helpers";
 
 /** A review read as threads (spec 2026-10-07-review-reading §5, §7, §13): fixture CLs 101–104 make three threads, the
  * first two joined by a shared caller, the third only by arriving in CL 104. */
@@ -133,13 +133,14 @@ test.describe("desktop", () => {
   test("the outline: the overview, each thread with its stories in reading order, its checks and the Index", async ({ page }) => {
     const base = await startReview(page, FOUR);
     const outline = page.locator("aside.ws-outline");
-    await expect(outline.getByRole("link", { name: "Go to the overview" })).toContainText("Medium risk");
-    await expect(outline.getByRole("link", { name: "Go to the overview" })).not.toContainText("rules only");
-    await expect(outline.locator(".ws-thread h3")).toHaveText(["A hal_write in hal, 3 open, 0 of 2 read", "B logger_init in service, 0 of 2 read",
-                                                               "C svc::Engine::step in cpp, 1 open, 0 of 1 read"]);
-    await expect(outline.locator(".ws-thread").first().getByRole("link", { name: /^Go to story/ })).toHaveCount(2);
-    await expect(outline.locator(".ws-thread").first().getByRole("link", { name: /^Go to story/ }).nth(1)).toHaveAccessibleName(/^Go to story S1/);
-    await outline.getByRole("link", { name: /^Go to story S1/ }).click();
+    await expect(outline.getByRole("link", { name: "Go to the overview" })).toHaveText("⌂ Overview");   // the header has the risk
+    await expect.poll(() => barNames(page)).toEqual(["Thread A: hal_write in hal, 3 open, 0 of 2 read",
+      "Thread B: logger_init in service, 0 of 2 read", "Thread C: svc::Engine::step in cpp, 1 open, 0 of 1 read"]);
+    await outline.getByRole("button", { name: /^Thread A:/ }).click();
+    const rows = outline.locator(".ws-bar-list > li > .ws-row.story");
+    await expect(rows).toHaveCount(2);
+    await expect(rows.nth(1)).toHaveAccessibleName(/^Go to story S1/);
+    await rows.nth(1).click();
     await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toContainText("Thread A");
     await openIndex(page, "Files");
     await expect(page).toHaveURL(new RegExp(`${base}/i/files$`));

@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { login, startReview } from "./helpers";
+import { login, startReview, storyLink } from "./helpers";
 
 /** The reading plan (spec 2026-10-07-review-reading-phase2 §6): each reader's own ticks on stories and checks. */
 const FOUR = "101 102 103 104";
@@ -35,9 +35,11 @@ test.describe("desktop", () => {
     await page.goto(`${base}/s/${order.at(-1)}`);
     await expect(head).toHaveText(line(order.length - 1));
     const rail = page.locator(".ws-rail");
-    await expect(rail.locator(".ws-read", { hasText: "✓" })).toHaveCount(order.length - 1);
-    await expect(rail.getByRole("link", { name: new RegExp(`^Go to story ${order[0]}: .* \\(read\\)`) })).toBeVisible();
-    await expect(rail.locator(".ws-thread .ws-thread-read").first()).toHaveText(/^, \d+ of \d+ read$/);
+    const readInBars = async () => (await rail.locator(".ws-bar > button").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label") ?? "")))
+      .reduce((n, label) => n + Number(/, (\d+) of \d+ read$/.exec(label)?.[1] ?? 0), 0);
+    await expect.poll(readInBars).toBe(order.length - 1);
+    await expect(await storyLink(page, new RegExp(`^Go to story ${order[0]}: .* \\(read\\)`))).toBeVisible();
+    await expect(rail.locator(".ws-bar .ws-thread-read").first()).toHaveText(/^\d+ of \d+$/);
     await page.getByRole("button", { name: "Mark as read" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}$`));
     await expect(page.getByText("You've read every story.")).toBeVisible();

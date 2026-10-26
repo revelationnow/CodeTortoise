@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { startReview } from "./helpers";
+import { startReview, storyLink } from "./helpers";
 
 /** Layout (owner feedback 2026-10-08, sub-project C): a wider story page with a divider, code in the side panel, a
  * resizable review header; the overview and the text pages as wide (owner feedback 2026-10-09). */
@@ -19,7 +19,7 @@ const height = (l: Locator) => l.evaluate((el) => el.getBoundingClientRect().hei
 
 async function story(page: Page) {
   const base = await startReview(page);
-  await page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ }).click();
+  await (await storyLink(page, /^Go to story S1/)).click();
   await expect(page.locator(".ws-story-head h2")).toContainText("uart_send can now return -2");
   return base;
 }
@@ -76,7 +76,7 @@ test("the overview and a story fill the centre", async ({ page }) => {
   const centre = page.getByRole("region", { name: "Centre" });
   expect(await width(page.locator(".ws-page > .ov3"))).toBeGreaterThan(Math.min(900, (await width(centre)) - 80));
   await expect(page.locator(".ov2-check")).toHaveCount(0);
-  await page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ }).click();
+  await (await storyLink(page, /^Go to story S1/)).click();
   await expect(page.locator(".ws-story-head h2")).toContainText("uart_send can now return -2");
   expect(await width(page.locator(".ws-page > .st-page"))).toBeGreaterThan((await width(centre)) - 80);   // only the page padding
 });

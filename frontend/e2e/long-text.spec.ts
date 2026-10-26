@@ -127,7 +127,7 @@ test.describe("with an AI", () => {
   });
 });
 
-test("a long thread name keeps its overview section header on one line, the whole name on hover (review focus 5)", async ({ page }) => {
+test("a long thread name keeps its overview section header and its outline bar on one line, the whole name on hover (review focus 5)", async ({ page }) => {
   const NAME = `${LONG_FN} in ${LONG_DIR.slice(0, -1)}`;
   await page.route("**/api/reviews/*/reading", async (route) => {
     let res: import("@playwright/test").APIResponse, j: any;
@@ -144,4 +144,10 @@ test("a long thread name keeps its overview section header on one line, the whol
   expect(await name.evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(true);         // cut short…
   await expect(name).toHaveAttribute("title", NAME);                                    // …with the whole name on hover
   expect((await head.boundingBox())!.height).toBeLessThan(50);
+  const bar = page.locator(".ws-rail .ws-bar > button").first();
+  expect(await oneLine(page, ".ws-rail .ws-bar .ws-one")).toEqual([]);
+  expect(await bar.locator(".ws-one").evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(true);
+  await expect(bar).toHaveAttribute("title", `Thread A: ${NAME}`);
+  expect((await page.locator(".ws-rail .ws-bar").first().boundingBox())!.height).toBe(36);
+  expect(await problems(page)).toEqual([]);
 });

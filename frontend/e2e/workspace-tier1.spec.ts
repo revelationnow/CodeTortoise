@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { expectNamed, login, openAiUsage, reviewMenu, startReview } from "./helpers";
+import { expectNamed, login, openAiUsage, reviewMenu, startReview, storyLink } from "./helpers";
 
 const STRONG = "http://127.0.0.1:8795";  // e2e/serve-strong.sh: stories and risk review by the fake strong model, targets hal and fw
 
@@ -8,8 +8,7 @@ test.describe("stories formed by a strong model", () => {
 
   test("a story shows its targets, its hazard, what the strong model suggests checking and its open questions", async ({ page }) => {
     const base = await startReview(page);
-    const rail = page.locator(".ws-rail");
-    const s1 = rail.getByRole("link", { name: /^Go to story S1/ });
+    const s1 = await storyLink(page, /^Go to story S1/);
     await expect(s1).toContainText("UART driver counts transmit errors");          // one line in the outline: no chips
     await page.goto(`${base}/s/S1`);
     const head = page.locator(".ws-story-head");
@@ -50,7 +49,7 @@ test.describe("stories formed by a strong model", () => {
 
   test("the pieces it could not place say so in the rail, each with the check that failed", async ({ page }) => {
     const base = await startReview(page);
-    const s3 = page.locator(".ws-rail").getByRole("link", { name: /^Go to story S3/ });
+    const s3 = await storyLink(page, /^Go to story S3/);
     await expect(s3.locator(".ws-row-sub")).toHaveText("Needs a person to place it");
     await page.goto(`${base}/s/S3`);
     const place = page.getByRole("region", { name: "Pieces to place" });
@@ -84,7 +83,7 @@ test.describe("stories formed by a strong model", () => {
     const fresh = (await reviewMenu(page)).getByRole("menuitem", { name: "Re-run stories, fresh" });
     await expect(fresh).toHaveAttribute("title", "Ask the strong model for new stories instead of reusing the ones it formed for this change");
     await fresh.click();
-    await expect(page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ })).toBeVisible({ timeout: 60_000 });
+    await expect(await storyLink(page, /^Go to story S1/)).toBeVisible();
   });
 
   test("a strong reply cut off by its limit recovers at double the limit, and the request log downloads", async ({ page }) => {

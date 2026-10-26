@@ -1,5 +1,5 @@
 import { type APIResponse, devices, expect, type Locator, type Page, test } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, openFold, startReview } from "./helpers";
+import { barNames, expectNamed, expectNoNodeIds, openFold, startReview } from "./helpers";
 
 /** The overview's thread sections (spec 2026-10-25-review-ui-redesign §5): fixture CLs 101–104 make three threads, the
  * first two joined by a shared caller, the third only by arriving in CL 104. */
@@ -137,6 +137,74 @@ test.describe("desktop", () => {
     await expect(page.locator(".ov-cols, section.ov-sec")).toHaveCount(0);
     await page.getByRole("link", { name: "Start here ›" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S2$`));
+  });
+
+  test("the outline opens one thread at a time, keeps it per review, and pins the other bars to its top and bottom", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 320 });                      // short, so the outline scrolls
+    const base = await startReview(page, FOUR);
+    const rail = page.locator("aside.ws-outline"), box = rail.locator(".ws-rail-scroll");
+    const bar = (L: string) => rail.getByRole("button", { name: new RegExp(`^Thread ${L}:`) });
+    await expect.poll(() => barNames(page)).toEqual(["Thread A: hal_write in hal, 3 open, 0 of 2 read",
+      "Thread B: logger_init in service, 0 of 2 read", "Thread C: svc::Engine::step in cpp, 1 open, 0 of 1 read"]);
+    await expect(rail.locator(".ws-bar-list")).toHaveCount(0);                     // a fresh review opens none
+    await expect(rail.getByRole("link", { name: "Go to the overview" })).toHaveText("⌂ Overview");   // the header has the risk
+    await page.goto(`${base}/s/S3`);
+    await expect(bar("B")).toHaveAttribute("aria-expanded", "true");               // the current story's thread
+    await expect(bar("A")).toHaveAttribute("aria-expanded", "false");
+    await expect(rail.locator(".ws-bar-list > li > .ws-row.story .ws-num")).toHaveText(["1", "2"]);
+    const edges = async () => { const b = (await box.boundingBox())!; return { top: b.y, bottom: b.y + b.height }; };
+    await box.evaluate((e) => { e.scrollTop = 0; });
+    const c = (await bar("C").boundingBox())!;
+    expect(Math.abs(c.y + c.height - (await edges()).bottom)).toBeLessThanOrEqual(1);   // C pinned at the bottom
+    await box.evaluate((e) => { e.scrollTop = e.scrollHeight; });
+    await expect.poll(async () => Math.round((await bar("A").boundingBox())!.y - (await edges()).top)).toBe(0);
+    expect(Math.round((await bar("B").boundingBox())!.y - (await edges()).top)).toBe(36);   // A and B pinned at the top
+    await bar("A").click();                                                       // another bar opens, the open one shuts
+    await expect(bar("A")).toHaveAttribute("aria-expanded", "true");
+    await expect(bar("B")).toHaveAttribute("aria-expanded", "false");
+    await bar("A").click();                                                       // the open bar shuts
+    await expect(rail.locator(".ws-bar-list")).toHaveCount(0);
+    await bar("C").click();
+    await page.goto(base);
+    await expect(bar("C")).toHaveAttribute("aria-expanded", "true");               // kept for this review
+    expect(await page.evaluate((k) => localStorage.getItem(k), `ct.ws.${base.split("/")[2]}.thread`)).toBe('"T3"');
+    await page.goto(`${base}/s/S1`);
+    await expect(bar("A")).toHaveAttribute("aria-expanded", "true");               // going to a story opens its thread
+    await expect(bar("C")).toHaveAttribute("aria-expanded", "false");
+    await expectNamed(page);
+  });
+
+  test("going back inside the app to a story opens its thread, not the bar clicked since", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    const rail = page.locator("aside.ws-outline");
+    const bar = (L: string) => rail.getByRole("button", { name: new RegExp(`^Thread ${L}:`) });
+    await page.goto(`${base}/s/S3`);                                               // Thread B
+    await expect(bar("B")).toHaveAttribute("aria-expanded", "true");
+    await bar("A").click();                                                       // looking at A's stories while on S3…
+    await expect(bar("A")).toHaveAttribute("aria-expanded", "true");
+    await rail.getByRole("link", { name: /^Go to story S2/ }).click();            // …and going to one: no reload
+    await expect(page).toHaveURL(new RegExp(`${base}/s/S2$`));
+    await expect(bar("A")).toHaveAttribute("aria-expanded", "true");
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp(`${base}/s/S3$`));
+    await expect(bar("B")).toHaveAttribute("aria-expanded", "true");               // back on S3: its thread, not the one clicked since
+    await expect(bar("A")).toHaveAttribute("aria-expanded", "false");
+    await expect(rail.getByRole("link", { name: /^Go to story S3/ })).toHaveAttribute("aria-current", "page");
+  });
+
+  test("on the overview the outline opens the thread last opened, not a bar clicked before going to a story", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    const rail = page.locator("aside.ws-outline");
+    const bar = (L: string) => rail.getByRole("button", { name: new RegExp(`^Thread ${L}:`) });
+    await bar("C").click();                                                       // clicked on the overview…
+    await expect(bar("C")).toHaveAttribute("aria-expanded", "true");
+    await page.getByRole("region", { name: /^Thread B:/ }).getByRole("link", { name: "Start thread B" }).click();   // …then a story of B, no reload
+    await expect(page).toHaveURL(new RegExp(`${base}/s/S3$`));
+    await expect(bar("B")).toHaveAttribute("aria-expanded", "true");
+    await rail.getByRole("link", { name: "Go to the overview" }).click();
+    await expect(page).toHaveURL(new RegExp(`${base}$`));
+    await expect(bar("B")).toHaveAttribute("aria-expanded", "true");               // the thread opened last is B, not the C clicked before
+    await expect(bar("C")).toHaveAttribute("aria-expanded", "false");
   });
 });
 

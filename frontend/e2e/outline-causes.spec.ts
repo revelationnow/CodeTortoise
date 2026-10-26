@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, hold, reviewMenu, startReview } from "./helpers";
+import { barNames, expectNamed, expectNoNodeIds, hold, reviewMenu, startReview, storyLink } from "./helpers";
 
 /** The outline and checks by cause (spec 2026-10-16-outline-and-causes): fixture CLs 101–104 make three threads; with
  * Confirm hidden their causes are a caller, a result and a reader in thread A and an ask in thread C. */
@@ -48,7 +48,7 @@ test.describe("desktop", () => {
       await expect(page.getByRole("complementary", { name: "Review contents" })).toContainText("Loading");
       await page.waitForTimeout(1000);                  // everything else has come; the reading is held back
       release();
-      await expect(page.locator(".ws-outline").getByRole("link", { name: /^Go to story S1/ })).toBeVisible();
+      await expect(page.locator(".ws-outline").getByRole("button", { name: /^Thread A:/ })).toBeVisible();
       expect(await page.evaluate(() => (window as unknown as { old: string[] }).old)).toEqual([]);
     }
     expect(asked.indexOf("reading")).toBeGreaterThan(-1);
@@ -57,8 +57,9 @@ test.describe("desktop", () => {
   });
 
   test("the outline comes back scrolled where the reader left it, though it shows before the reading", async ({ page }) => {
-    await page.setViewportSize({ width: 1440, height: 400 });          // short, so the outline scrolls
+    await page.setViewportSize({ width: 1440, height: 300 });          // short, so the outline scrolls
     const base = await startReview(page, FOUR);
+    await page.locator("aside.ws-outline").getByRole("button", { name: /^Thread A:/ }).click();   // kept, so it reopens
     const box = page.locator("aside.ws-outline .ws-rail-scroll");
     expect(await box.evaluate((e) => e.scrollHeight - e.clientHeight)).toBeGreaterThan(40);
     const want = await box.evaluate((e) => new Promise<number>((done) => {     // halfway down, once the outline saved it
@@ -102,9 +103,9 @@ test.describe("desktop", () => {
     const base = await startReview(page, FOUR);
     const outline = page.locator("aside.ws-outline");
     await expect(outline.getByRole("button", { name: "Stories" })).toHaveAttribute("aria-pressed", "true");
-    await expect(outline.locator(".ws-thread h3")).toHaveText(["A hal_write in hal, 3 open, 0 of 2 read",
-      "B logger_init in service, 0 of 2 read", "C svc::Engine::step in cpp, 1 open, 0 of 1 read"]);
-    await outline.getByRole("link", { name: /^Go to story S1/ }).click();
+    await expect.poll(() => barNames(page)).toEqual(["Thread A: hal_write in hal, 3 open, 0 of 2 read",
+      "Thread B: logger_init in service, 0 of 2 read", "Thread C: svc::Engine::step in cpp, 1 open, 0 of 1 read"]);
+    await (await storyLink(page, /^Go to story S1/)).click();
     const flows = outline.getByRole("link", { name: /^Go to flow / });
     await expect(flows.first()).toBeVisible();
     await flows.first().click();
@@ -144,7 +145,7 @@ test.describe("desktop", () => {
     await withoutCauses(page);
     const base = await startReview(page, FOUR);
     const outline = page.locator("aside.ws-outline");
-    await expect(outline.locator(".ws-thread h3").first()).toHaveText("A hal_write in hal, 0 of 2 read");
+    await expect.poll(async () => (await barNames(page))[0]).toBe("Thread A: hal_write in hal, 0 of 2 read");
     await expect(page.locator("section.ov-sec").first().locator(".ov-n")).toHaveText([", 2 stories", ", — open", ", 0 read"]);
     await outline.getByRole("button", { name: "Checks" }).click();
     await expect(outline).toContainText("Re-run the review to group its checks.");
@@ -353,7 +354,7 @@ test.describe("a story's tabs", () => {
   test("an outline flow line opens its card; a story remembers its tab; an old ?view=graph opens Graph", async ({ page }) => {
     const base = await startReview(page, FOUR);
     const outline = page.locator("aside.ws-outline");
-    await outline.getByRole("link", { name: /^Go to story S1/ }).click();
+    await (await storyLink(page, /^Go to story S1/)).click();
     await outline.getByRole("link", { name: /^Go to flow 1:/ }).click();
     await expect(page.getByRole("region", { name: /^Flow 1:/ })).toHaveClass(/\blit\b/);
     await expect(page.getByRole("region", { name: /^Flow 1:/ })).toBeInViewport();
