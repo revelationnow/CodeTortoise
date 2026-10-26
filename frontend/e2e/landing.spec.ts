@@ -6,7 +6,8 @@ test.describe("desktop", () => {
 
   test("landing page: start a review, search and filter reviews", async ({ page }) => {
     // the e2e server is shared by the whole run, so other tests' reviews are in the list too
-    const title = `flags field only ${Date.now()}`;
+    // its unique part is letters only: digits from the clock (…101…) would match the CL search below
+    const title = `flags field only ${String(Date.now()).replace(/\d/g, (d) => "abcdefghij"[Number(d)])}`;
     await startReview(page);
     await page.goto("/");
     await page.getByLabel("Changelists (shelved or submitted)").fill("102");
