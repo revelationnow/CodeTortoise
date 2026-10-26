@@ -6,7 +6,7 @@ import Resizer from "../board/Resizer";
 import { CHECK_ORDER, KIND_LABEL, letter, placeOf } from "../reading/checks";
 import { causeGroups, causeOpen, doneCount, firstOpenAt, hiddenLabel, shown } from "../reading/causes";
 import { threadRead } from "../reading/plan";
-import { flowLabel } from "../reading/story";
+import { flowGroups, flowsWord, groupShort, openFlows, placesOf } from "../reading/flowGroups";
 import type { Cause, Check, CheckKind, Reading } from "../reading/types";
 import { INDEX_TABS, type Place } from "./address";
 import { useWs } from "./context";
@@ -154,7 +154,9 @@ function StoriesView({ r, onPick }: { r: Reading; onPick: () => void }) {
   </>;
 }
 
-/** The current story's flows, numbered, one line each; a line opens the story's Flows tab at that flow's card. */
+/** The current story's flow groups (spec 2026-10-25-review-ui-redesign §7.6), one line each with how many flows and
+ * how many still open; a line opens the story's Flows tab at the group's first flow, and that row, though the address
+ * already names it: the link is then to where the reader is, so it says so in its navigation state for the tab to hear. */
 function StoryFlows({ sid, onPick }: { sid: string; onPick: () => void }) {
   const ws = useWs(), d = ws.data, storyOf = d.story;
   const [held, setHeld] = useState<{ sid: string; detail: StoryDetail } | null>(null);
@@ -168,16 +170,20 @@ function StoryFlows({ sid, onPick }: { sid: string; onPick: () => void }) {
   const flows = det.board.flows.filter((f) => det.story.flows.includes(f.id));
   if (!flows.length) return null;
   const labels = new Map(det.board.nodes.map((n) => [n.id, n.label]));
+  const label = (n: string) => labels.get(n) ?? d.names[n]?.label ?? "a function";
+  const places = placesOf(flows, det.reading?.checks ?? [], ws.hidden, label), marks = d.reading?.marks ?? {};
   const place: Place = { kind: "story", sid, view: "steps" };
   return (
-    <ol className="ws-flows">{flows.map((f, i) => {
-      const label = flowLabel(f, (n) => labels.get(n) ?? d.names[n]?.label);
+    <ol className="ws-flows">{flowGroups(flows).map((g) => {
+      const what = groupShort(g, label), open = openFlows(g, places, marks);
+      const count = flowsWord(g.rows.length), name = `${bare(what)} · ${count}`;
       return (
-        <li key={f.id}>
-          <Link className="ws-row flow" to={ws.link({ ...ws.item(place), place, sec: undefined, flow: i + 1 })}
-                aria-current={ws.addr.flow === i + 1 ? "true" : undefined}
-                aria-label={`Go to flow ${i + 1}: ${label}`} title={label} onClick={onPick}>
-            <span className="ws-row-top"><span className="muted">{i + 1}</span><span className="ws-one mono">{label}</span></span>
+        <li key={g.key}>
+          <Link className="ws-row fgroup" to={ws.link({ ...ws.item(place), place, sec: undefined, flow: g.rows[0].n })}
+                state={{ showFlow: true }} aria-current={g.rows.some((r) => r.n === ws.addr.flow) ? "true" : undefined}
+                aria-label={`Go to ${name}${open ? `, ${open} open` : ""}`} title={name} onClick={onPick}>
+            <span className="ws-row-top"><span className="ws-one"><Ticks text={what} /><span className="ws-fg-n"> · {count}</span></span>
+              {open > 0 && <span className="ck-count"><span className="vh">, </span>{open}<span className="vh"> open</span></span>}</span>
           </Link>
         </li>
       );

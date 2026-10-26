@@ -662,8 +662,8 @@ a.ws-chip { text-decoration: none; }
 .ws-one { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ws-pad { padding: 4px 14px; }
 .ws-flows { list-style: none; margin: 0 0 4px; padding: 0 0 0 18px; }
-.ws-row.flow { padding-top: 3px; padding-bottom: 3px; font-size: 12.5px; }
-.ws-row.flow .muted { flex: none; width: 1.4em; text-align: right; }
+.ws-row.fgroup { padding-top: 3px; padding-bottom: 3px; font-size: 12.5px; }
+.ws-fg-n { color: var(--muted); }
 .ws-cgroup h4 { margin: 6px 14px 2px; font-size: 12px; font-weight: 600; color: var(--muted); }
 .ws-row.cause .ck-tag { flex: none; }
 .ws-row.cause.finished { color: var(--muted); }

@@ -16,7 +16,7 @@ export interface FlowGroup { key: string; kind: GroupKind; node: string; rows: F
 export const FOLD_AT = 8;
 const CONTRACT_KINDS: readonly CheckKind[] = ["caller", "result", "target", "unanalysed"];
 const code = (s: string) => `\`${s}\``;
-const flowsWord = (n: number) => `${n} flow${n === 1 ? "" : "s"}`;
+export const flowsWord = (n: number) => `${n} flow${n === 1 ? "" : "s"}`;
 
 /** The changed function a flow comes from: its `cause` (every flow of a story with a reading names it); a contract
  * path ends at it. */

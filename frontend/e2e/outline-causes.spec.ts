@@ -99,16 +99,18 @@ test.describe("desktop", () => {
     }
   });
 
-  test("the outline's Stories: threads with open causes, the current story's flows", async ({ page }) => {
+  test("the outline's Stories: threads with open causes, the current story's flow groups", async ({ page }) => {
     const base = await startReview(page, FOUR);
     const outline = page.locator("aside.ws-outline");
     await expect(outline.getByRole("button", { name: "Stories" })).toHaveAttribute("aria-pressed", "true");
     await expect.poll(() => barNames(page)).toEqual(["Thread A: hal_write in hal, 3 open, 0 of 2 read",
       "Thread B: logger_init in service, 0 of 2 read", "Thread C: svc::Engine::step in cpp, 1 open, 0 of 1 read"]);
     await (await storyLink(page, /^Go to story S1/)).click();
-    const flows = outline.getByRole("link", { name: /^Go to flow / });
-    await expect(flows.first()).toBeVisible();
-    await flows.first().click();
+    const groups = outline.locator(".ws-flows .ws-row");                             // a line per group of flows
+    await expect(groups).toHaveCount(2);
+    expect(await groups.evaluateAll((els) => els.map((e) => e.getAttribute("aria-label"))))
+      .toEqual(["Go to uart_send · 1 flow, 1 open", "Go to Uart::errors · 1 flow, 1 open"]);
+    await groups.first().click();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S1\\?flow=1$`));
     await expect(outline.locator("details.ws-index")).not.toHaveAttribute("open");
     await expectNoNodeIds(page);
@@ -400,13 +402,14 @@ test.describe("a story's tabs", () => {
     await expectNamed(page);
   });
 
-  test("an outline flow line opens its card; a story remembers its tab; an old ?view=graph opens Graph", async ({ page }) => {
+  test("an outline group line opens its first row; a story remembers its tab; an old ?view=graph opens Graph", async ({ page }) => {
     const base = await startReview(page, FOUR);
     const outline = page.locator("aside.ws-outline");
     await (await storyLink(page, /^Go to story S1/)).click();
-    await outline.getByRole("link", { name: /^Go to flow 1:/ }).click();
-    await expect(page.locator("#flow-1 .fl-toggle")).toHaveAttribute("aria-expanded", "true");
-    await expect(page.getByRole("region", { name: /^Flow 1:/ })).toBeInViewport();
+    await outline.getByRole("link", { name: /^Go to Uart::errors · 1 flow/ }).click();
+    await expect(page).toHaveURL(/\/s\/S1\?flow=2$/);
+    await expect(page.locator("#flow-2 .fl-toggle")).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByRole("region", { name: /^Flow 2:/ })).toBeInViewport();
     await page.getByRole("navigation", { name: "Story sections" }).getByRole("link", { name: /^Code/ }).click();
     await outline.getByRole("link", { name: /^Go to story S2/ }).click();
     await outline.getByRole("link", { name: /^Go to story S1/ }).click();

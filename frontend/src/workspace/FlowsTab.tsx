@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLocation, useNavigationType } from "react-router-dom";
 import { api } from "../api";
 import type { BoardFlow, StoryDetail } from "../board/types";
 import AiText from "../components/AiText";
@@ -30,8 +31,15 @@ export default function FlowsTab({ detail, sr, flows }: { detail: StoryDetail; s
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cur, setCur] = useState<number | null>(lit);                         // the row J, K and F act on: the last with focus in it, or clicked
-  useEffect(() => { if (lit) { setOpen(lit); setCur(lit); } }, [lit]);
-  useEffect(() => { if (lit) document.getElementById(`flow-${lit}`)?.scrollIntoView({ block: "start" }); }, [lit]);
+  // An address that names a row opens it and brings it into view. An outline group line names its first row even when the address
+  // already holds it: `lit` then stays as it was, so the line says in its navigation state (`showFlow`) that it was clicked. Back and
+  // Forward land on an entry that still carries that state and are no click; any other step that keeps the flow carries none.
+  const loc = useLocation(), nav = useNavigationType();
+  const show = (n: number) => { setOpen(n); setCur(n); document.getElementById(`flow-${n}`)?.scrollIntoView({ block: "start" }); };
+  useEffect(() => { if (lit) show(lit); }, [lit]);                             // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (lit && nav !== "POP" && (loc.state as { showFlow?: boolean } | null)?.showFlow) show(lit);
+  }, [loc.key]);                                                               // eslint-disable-line react-hooks/exhaustive-deps
   const order = groups.flatMap((g) => g.rows.map((r) => r.n));                  // the rows as they read, group by group
   const run = (act: () => Promise<unknown>) => {
     if (busy) return;                                                          // one mark at a time; the tick boxes stay enabled, so they keep their focus

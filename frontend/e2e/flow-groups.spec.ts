@@ -302,6 +302,24 @@ test.describe("the Flows tab", () => {
     await page.goto(`${base}/s/S1`);
     await expect(page.locator(".fl-toggle").first()).toBeFocused();
   });
+
+  test("only a group line forces its row open: the Flows tab and the story's own row, links to the address the reader is at, do not", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const outline = page.locator("aside.ws-outline"), toggles = page.locator(".fl-toggle");
+    await outline.getByRole("link", { name: /^Go to Uart::errors · 1 flow/ }).click();
+    await expect(page).toHaveURL(/\/s\/S1\?flow=2$/);
+    await expect(toggles.nth(1)).toHaveAttribute("aria-expanded", "true");
+    await toggles.nth(1).click();                                                    // the reader closes it; the address still says flow=2
+    await expect(toggles.nth(1)).toHaveAttribute("aria-expanded", "false");
+    for (const link of [page.getByRole("navigation", { name: "Story sections" }).getByRole("link", { name: /^Flows/ }),
+                        outline.getByRole("link", { name: /^Go to story S1/ })]) {
+      await link.click();
+      await expect(page).toHaveURL(/\/s\/S1\?flow=2$/);
+      await page.waitForTimeout(300);                                                // a row that wrongly opened would have by now
+      await expect(toggles.nth(1)).toHaveAttribute("aria-expanded", "false");
+    }
+  });
 });
 
 test.describe("a story with many flows", () => {
@@ -469,6 +487,113 @@ test.describe("a story with many flows", () => {
     await page.keyboard.press("Enter");
     await expect(row.locator(".fl-tick")).not.toBeChecked();
     await expect(row.locator(".fl-toggle")).toBeFocused();
+  });
+
+  test("under the current story the outline lists a line per flow group, not per flow", async ({ page }) => {
+    const base = await startReview(page, "201 202");
+    await page.goto(`${base}/s/S1`);
+    const rows = page.locator("aside.ws-outline .ws-flows .ws-row");
+    await expect(rows).toHaveCount(6);                                               // not 140
+    await expect(rows.first()).toHaveAttribute("aria-label", "Go to TelemDev::errors · 25 flows, 25 open");
+    await expect(rows.first()).toHaveAttribute("title", "TelemDev::errors · 25 flows");
+    await rows.nth(2).click();
+    await expect(page).toHaveURL(/\/s\/S1\?flow=51$/);
+    await expect(page.locator("#flow-51 .fl-toggle")).toHaveAttribute("aria-expanded", "true");
+    await expect(rows.nth(2)).toHaveAttribute("aria-current", "true");
+  });
+
+  test("a click on an outline group line opens its first row and brings it into view, though the address already names it", async ({ page }) => {
+    const base = await startReview(page, "201 202");
+    await page.goto(`${base}/s/S1`);
+    const line = page.locator("aside.ws-outline .ws-flows .ws-row").nth(2);          // the third group: flows 51 to 75
+    const first = page.locator("#flow-51 .fl-toggle"), other = page.locator("#flow-52 .fl-toggle");
+    await line.click();
+    await expect(page).toHaveURL(/\/s\/S1\?flow=51$/);
+    await expect(first).toHaveAttribute("aria-expanded", "true");
+    await other.click();                                                             // another row opens; the address still says flow=51
+    await expect(other).toHaveAttribute("aria-expanded", "true");
+    await expect(first).toHaveAttribute("aria-expanded", "false");
+    await page.getByRole("region", { name: "Also in this story" }).scrollIntoViewIfNeeded();   // far from the group
+    await expect(page.locator("#flow-51")).not.toBeInViewport();
+    await line.click();                                                              // the link is to the address the reader is at: it still works
+    await expect(page).toHaveURL(/\/s\/S1\?flow=51$/);
+    await expect(first).toHaveAttribute("aria-expanded", "true");
+    await expect(other).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByRole("region", { name: /^Flow 51: / })).toBeInViewport();
+    await line.click();                                                              // with its row open and in view it opens nothing more, and does not close it
+    await expect(first).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByRole("region", { name: /^Flow 51: / })).toBeInViewport();
+  });
+
+  /** Row 51 opened by its group line in the outline and closed again by the reader, the page scrolled to the end of the tab, far from
+   * it. `quiet` says that nothing has opened the row or scrolled to it since. */
+  async function closedRowFarAway(page: Page) {
+    const base = await startReview(page, "201 202");
+    await page.goto(`${base}/s/S1`);
+    const first = page.locator("#flow-51 .fl-toggle"), also = page.getByRole("region", { name: "Also in this story" });
+    await page.locator("aside.ws-outline .ws-flows .ws-row").nth(2).click();
+    await expect(first).toHaveAttribute("aria-expanded", "true");
+    await first.click();                                                             // the reader closes it; the address still says flow=51
+    await expect(first).toHaveAttribute("aria-expanded", "false");
+    await also.scrollIntoViewIfNeeded();
+    await expect(page.locator("#flow-51")).not.toBeInViewport();
+    const quiet = async () => {
+      await page.waitForTimeout(300);                                                // a row that wrongly opened would have by now
+      await expect(first).toHaveAttribute("aria-expanded", "false");
+      await expect(page.locator("#flow-51")).not.toBeInViewport();
+    };
+    return { also, quiet };
+  }
+
+  test("a row the reader closed stays closed, and the page stays put, while a check opens and closes in the side panel and Back and Forward step over it", async ({ page }) => {
+    const { also, quiet } = await closedRowFarAway(page);
+    const text = "26 functions no test calls";
+    await also.getByRole("link", { name: `Open check: ${text}` }).click();
+    const panel = page.getByRole("complementary", { name: `Check: ${text}` });
+    await expect(panel).toBeVisible();
+    await expect(page).toHaveURL(/\?flow=51&open=cause%3Ac[0-9a-f]{10}&at=1$/);
+    await quiet();
+    await panel.getByRole("link", { name: "Close the check" }).click();
+    await expect(panel).toHaveCount(0);
+    await expect(page).toHaveURL(/\/s\/S1\?flow=51$/);
+    await quiet();
+    await page.goBack();                                                             // back to the check opened beside the page
+    await expect(panel).toBeVisible();
+    await quiet();
+    await page.goBack();                                                             // and to the entry the group line made, which still holds its click
+    await expect(panel).toHaveCount(0);
+    await expect(page).toHaveURL(/\/s\/S1\?flow=51$/);
+    await quiet();
+    await page.goForward();
+    await expect(panel).toBeVisible();
+    await quiet();
+    await page.goForward();
+    await expect(panel).toHaveCount(0);
+    await quiet();
+  });
+
+  test("a row the reader closed stays closed, and the page stays put, while the side panel's tabs are opened, switched and closed", async ({ page }) => {
+    const { also, quiet } = await closedRowFarAway(page);
+    const one = "26 functions no test calls", other = "2 callers handle regs_a1";
+    await also.getByRole("link", { name: `Open check: ${one}` }).click();
+    await expect(page.getByRole("complementary", { name: `Check: ${one}` })).toBeVisible();
+    await also.getByRole("link", { name: new RegExp(`^Open check: ${other}`) }).click();
+    const tabs = page.getByRole("list", { name: "Open items" });
+    await expect(tabs.getByRole("link")).toHaveCount(2);                             // a tab for each check
+    await expect(page.getByRole("complementary", { name: new RegExp(`^Check: ${other}`) })).toBeVisible();
+    await quiet();
+    await tabs.getByRole("link").first().click();                                    // a tab switch, and back
+    await expect(page.getByRole("complementary", { name: `Check: ${one}` })).toBeVisible();
+    await quiet();
+    await tabs.getByRole("link").last().click();
+    await expect(page.getByRole("complementary", { name: new RegExp(`^Check: ${other}`) })).toBeVisible();
+    await quiet();
+    await tabs.getByRole("button", { name: /^Close / }).last().click();              // closing a tab steps to the other without a new entry
+    await expect(page.getByRole("complementary", { name: `Check: ${one}` })).toBeVisible();
+    await quiet();
+    await page.getByRole("complementary", { name: `Check: ${one}` }).getByRole("link", { name: "Close the check" }).click();
+    await expect(page.getByRole("complementary", { name: /^Check: / })).toHaveCount(0);
+    await quiet();
   });
 });
 
