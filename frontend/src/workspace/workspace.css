@@ -785,6 +785,9 @@ a.ws-chip { text-decoration: none; }
 .st-chips li { min-width: 0; max-width: 100%; }
 
 /* the overview (spec 2026-10-16-outline-and-causes §3) */
+/* its sections sit close, as rows of one page: the thread cards set their own 14px and the folds after them are a list of
+   rows; the 20px of `.ws-whole > section` is for the pages whose sections stand apart */
+.ov3 > section { margin-bottom: 6px; }
 .ov3 .ov-top .ov-start { display: inline-block; margin-top: 6px; padding: 6px 14px; border-radius: 6px; background: var(--accent);
   color: var(--surface); font-weight: 600; text-decoration: none; }
 /* a section per thread (spec 2026-10-25-review-ui-redesign §5.2): the header bars and the label row share one grid, so the

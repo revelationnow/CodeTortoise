@@ -120,6 +120,13 @@ test.describe("desktop", () => {
     expect.soft(Math.min(...blocks), "the old whole-change page's sections and summary box").toBeGreaterThanOrEqual(20);
   });
 
+  test("the overview keeps its own spacing: its folds are rows 6px apart, not the 20px of a page's sections", async ({ page }) => {
+    await startReview(page);
+    const fold = "section:has(> details.ov-fold)";
+    await expect(page.locator(`.ov3 > ${fold}`)).toHaveCount(3);                       // Build impact, Coverage, Discussion
+    expect(await gapsAbove(page, `.ov3 > ${fold} + ${fold}`)).toEqual([6, 6]);
+  });
+
   test("a header's reach reads as words: counts with their nouns, its layers as a list", async ({ page }) => {
     const base = await startReview(page);
     await page.goto(`${base}/f/F1?details=1`);

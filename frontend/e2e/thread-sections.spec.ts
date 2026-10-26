@@ -184,6 +184,7 @@ test.describe("desktop", () => {
     await expect(bar("A")).toHaveAttribute("aria-expanded", "true");
     await rail.getByRole("link", { name: /^Go to story S2/ }).click();            // …and going to one: no reload
     await expect(page).toHaveURL(new RegExp(`${base}/s/S2$`));
+    await expect(rail.getByRole("link", { name: /^Go to story S2/ })).toHaveAttribute("aria-current", "page"); // the URL moves first: S2 must be drawn before going back
     await expect(bar("A")).toHaveAttribute("aria-expanded", "true");
     await page.goBack();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S3$`));
