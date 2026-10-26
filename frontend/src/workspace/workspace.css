@@ -334,7 +334,7 @@ a.ws-handle { text-decoration: none; }
 }
 
 /* whole change */
-.ws-whole > section { margin: 0 0 6px; }
+.ws-whole > section { margin: 0 0 20px; }
 .ws-whole > section:first-child > h2:first-child { margin-top: 0; }
 .bd-layer-thread { margin-top: 16px; }
 .bd-layer-thread .m { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 6px; }
@@ -452,7 +452,7 @@ a.ws-nb:hover { border-color: var(--accent); }
 .ws-graph .bd-stage { flex: 1; min-height: 0; position: relative; overflow: hidden; }
 .bd-node.lit { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ws-mapgraph { height: 460px; display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
-.ws-open-full { float: right; text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 13px; }
+.ws-open-full { float: right; font-weight: 500; font-size: 13px; }
 
 /* story page */
 .ws-story-head { margin-bottom: 14px; }
@@ -510,7 +510,6 @@ a.ws-chip { text-decoration: none; }
 }
 
 /* finding page */
-.ws-finding section { margin: 0; }
 .ws-finding h3 { font-size: 15px; font-weight: 650; color: var(--ink); margin: 20px 0 6px; }
 .ws-where ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .ws-where li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
@@ -821,13 +820,14 @@ a.ws-chip { text-decoration: none; }
 .ov3 .ov-more { display: block; margin: 0 14px 10px; font-size: 13px; }
 .ov3 .ov-links { margin: 0 14px 10px; padding: 6px 0 0 18px; border-top: 1px dashed var(--line); font-size: 13px; color: var(--muted); }
 .ov3 .ov-links li.bundled { color: var(--accent); }
-/* Build impact, Coverage and Discussion folded (§5.3): the summary is the heading */
+/* Build impact, Coverage and Discussion folded (§5.3): the summary is the heading; its arrow is decoration (the empty text
+   alternative after "/" keeps screen readers from reading it) */
 .ov3 .ov-fold { border-top: 1px solid var(--line); }
 .ov3 .ov-fold[open] { padding-bottom: 10px; }
 .ov3 .ov-fold > summary { display: flex; align-items: center; gap: 8px; padding: 10px 0; cursor: pointer; list-style: none; }
 .ov3 .ov-fold > summary::-webkit-details-marker { display: none; }
-.ov3 .ov-fold > summary::after { content: "▸"; margin-left: auto; color: var(--muted); }
-.ov3 .ov-fold[open] > summary::after { content: "▾"; }
+.ov3 .ov-fold > summary::after { content: "▸" / ""; margin-left: auto; color: var(--muted); }
+.ov3 .ov-fold[open] > summary::after { content: "▾" / ""; }
 .ov3 .ov-fold > summary h2 { margin: 0; }
 /* the header wraps under 640px of the overview's own width: the counts go under the name, with their words */
 @container (max-width: 640px) {
