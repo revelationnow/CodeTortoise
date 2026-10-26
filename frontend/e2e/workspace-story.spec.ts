@@ -60,7 +60,7 @@ test.describe("desktop", () => {
     await expectNamed(page);
 
     await tabs.getByRole("link", { name: /^Flows/ }).click();
-    await expect(page.getByRole("region", { name: /^Flow 1:/ })).toBeVisible();      // measure in the Flows layout
+    await expect(page.locator(".fl-row").first()).toBeVisible();                     // measure in the Flows layout
     const next = page.getByRole("link", { name: /^Next story/ });
     const x = (await next.boundingBox())!.x;
     await next.click();

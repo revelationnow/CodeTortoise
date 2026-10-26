@@ -340,8 +340,7 @@ test.describe("a story's tabs", () => {
     await expect(page).toHaveURL(new RegExp(`${base}/s/S2\\?view=graph$`));
     await expect(page.locator(".bd-node").first()).toBeVisible();
     await page.goto(`${base}/s/S1`);
-    const cards = page.getByRole("region", { name: /^Flow \d+:/ });
-    await expect(cards.first()).toBeVisible();
+    await expect(page.locator(".fl-row").first()).toBeVisible();
     const chips = page.locator(".st-chip");
     expect(await chips.count()).toBeGreaterThan(0);
     const name = (await chips.first().getAttribute("aria-label"))!;
@@ -356,7 +355,7 @@ test.describe("a story's tabs", () => {
     const outline = page.locator("aside.ws-outline");
     await (await storyLink(page, /^Go to story S1/)).click();
     await outline.getByRole("link", { name: /^Go to flow 1:/ }).click();
-    await expect(page.getByRole("region", { name: /^Flow 1:/ })).toHaveClass(/\blit\b/);
+    await expect(page.locator("#flow-1 .fl-toggle")).toHaveAttribute("aria-expanded", "true");
     await expect(page.getByRole("region", { name: /^Flow 1:/ })).toBeInViewport();
     await page.getByRole("navigation", { name: "Story sections" }).getByRole("link", { name: /^Code/ }).click();
     await outline.getByRole("link", { name: /^Go to story S2/ }).click();
@@ -366,21 +365,22 @@ test.describe("a story's tabs", () => {
     await expect(page.getByRole("navigation", { name: "Story sections" }).getByRole("link", { name: "Graph" })).toHaveAttribute("aria-current", "page");
   });
 
-  test("with every kind hidden a story shows no chips", async ({ page }) => {
+  test("with every kind hidden a story shows no chips and no tick boxes", async ({ page }) => {
     const base = await startReview(page, FOUR);
     await page.evaluate(() => window.localStorage.setItem("ct.ws.hiddenKinds", JSON.stringify(
       ["hazard", "confirm", "caller", "result", "reader", "target", "untested", "unanalysed", "ask"])));
     await page.goto(`${base}/s/S1`);
-    await expect(page.getByRole("region", { name: /^Flow 1:/ })).toBeVisible();
+    await expect(page.locator(".fl-row").first()).toBeVisible();
     await expect(page.locator(".st-chip")).toHaveCount(0);
-    await expect(page.getByRole("region", { name: "Other checks in this story" })).toHaveCount(0);
+    await expect(page.locator(".fl-tick")).toHaveCount(0);                     // a hidden kind is no place to tick
+    await expect(page.getByRole("region", { name: "Also in this story" })).toHaveCount(0);
   });
 
   test("a story stored before causes shows no chips", async ({ page }) => {
     await withoutCauses(page);
     const base = await startReview(page, FOUR);
     await page.goto(`${base}/s/S1`);
-    await expect(page.getByRole("region", { name: /^Flow 1:/ })).toBeVisible();
+    await expect(page.locator(".fl-row").first()).toBeVisible();
     await expect(page.locator(".st-chip")).toHaveCount(0);
   });
 
@@ -393,7 +393,7 @@ test.describe("a story's tabs", () => {
     });
   }
 
-  test("a very long check line ends in an ellipsis inside its flow card, the whole line on hover", async ({ page }) => {
+  test("a very long check line ends in an ellipsis inside its group, the whole line on hover", async ({ page }) => {
     const base = await startReview(page, FOUR);
     const long = "`uart_send` changed so that " + "every caller that passed the old value now sees something else ".repeat(8);
     await patchStory(page, "S1", (j) => { for (const c of j.reading.causes) c.text = long; });
@@ -413,8 +413,9 @@ test.describe("a story's tabs", () => {
       const fl = j.board.flows.filter((f: any) => j.story.flows.includes(f.id));
       j.reading.account = [{ kind: "flow", heading: fl[1].text, text: "SECOND-FLOW-ACCOUNT", cites: [] }];
     });
-    await page.goto(`${base}/s/S1`);
+    await page.goto(`${base}/s/S1?flow=2`);
     await expect(page.getByRole("region", { name: /^Flow 2:/ })).toContainText("SECOND-FLOW-ACCOUNT");
+    await page.locator("#flow-1 .fl-toggle").click();
     await expect(page.getByRole("region", { name: /^Flow 1:/ })).not.toContainText("SECOND-FLOW-ACCOUNT");
   });
 

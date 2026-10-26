@@ -17,7 +17,7 @@ test.describe("stories formed by a strong model", () => {
     await expect(head.locator("h2 .ai-name")).toHaveAttribute("title", "Written by AI · fake-strong");   // the strong model's title
     await expect(head.getByRole("button", { name: /Explain/ })).toHaveCount(0);       // tier 2 never retells it
     await expect(head.getByRole("button", { name: "Ask…" })).toBeVisible();
-    const chip = page.getByRole("region", { name: /^Flow 1: / }).locator(".st-chip").first();   // the hazard leads its flow's checks
+    const chip = page.getByRole("region", { name: "uart_send returns new values" }).locator(".st-chip").first();   // the hazard leads its group's checks
     await expect(chip).toHaveClass(/\bhazard\b/);
     await expect(chip).toHaveText("logger_flush ignores the new -2, so a failed send goes unnoticed.");
     const outline = page.locator("aside.ws-outline");

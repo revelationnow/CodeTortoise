@@ -224,10 +224,12 @@ test.describe("with an AI", () => {
     await expect(purpose.locator(".ai-text")).toBeVisible({ timeout: 30_000 });
     await expect(purpose.locator(".ai-text")).toHaveAttribute("title", "Written by AI");
     await expect(purpose).toContainText("This story makes uart_send count its transmit errors.");
-    const cards = page.getByRole("region", { name: /^Flow \d+: / });
-    expect(await cards.count()).toBeGreaterThan(0);
-    await expect(cards.locator("> p.ai-text")).toHaveCount(await cards.count());
-    await expect(cards.first()).toContainText("The caller reaches uart_send on this path.");
+    const rows = page.locator(".fl-row");
+    expect(await rows.count()).toBeGreaterThan(0);
+    await rows.first().locator(".fl-toggle").click();                                // a row opens in place
+    const card = page.getByRole("region", { name: /^Flow \d+: / });
+    await expect(card.locator("> p.ai-text")).toContainText("The caller reaches uart_send on this path.");
+    await expect(card.locator("> p.ai-text")).toHaveAttribute("title", "Written by AI");
     const effects = page.getByRole("region", { name: "What it means for the rest" });
     await expect(effects.locator(".ai-text")).toBeVisible();
     await expect(effects).toContainText("Code that reads Uart::errors now sees transmit errors too.");

@@ -94,7 +94,7 @@ test.describe("desktop", () => {
     const head = page.locator(".ws-story-head");
     await expect(head.locator(".st-crumb")).toHaveText(/^Thread A · story 1 of 2 · feeds: /);
     await expect(head.locator(".ws-story-meta .ws-chip").first()).toHaveText("CL 102 · 1 function");
-    const chips = page.getByRole("region", { name: /^Flow 1: / }).locator(".st-chip");      // the checks on its flow, Confirm hidden
+    const chips = page.getByRole("region", { name: "hal_write's signature changed" }).locator(".st-chip");   // its group's checks, Confirm hidden
     await expect(chips).toHaveText(["uart_init calls hal_write and was not updated for its new signature"]);
     await expect(chips.first()).toHaveClass(/\bcaller\b/);
     await chips.first().click();
@@ -117,8 +117,10 @@ test.describe("desktop", () => {
     await head.getByRole("link", { name: /^Next story: S1/ }).click();
     await expect(head.locator(".st-crumb")).toHaveText(/^Thread A · story 2 of 2 · after: /);
     await expect(page.locator(".st-place")).toHaveText("Uses what story 1 adds.");
-    await expect(page.getByRole("region", { name: /^Flow 1: / }).locator(".st-chip")).toHaveText([
-      "logger_flush ignores the result of uart_send, which can now return -2", "uart_errors reads Uart::errors, which uart_send now writes"]);
+    await expect(page.getByRole("region", { name: "uart_send returns new values" }).locator(".st-chip"))
+      .toHaveText(["logger_flush ignores the result of uart_send, which can now return -2"]);
+    await expect(page.getByRole("region", { name: "Uart::errors gets a new writer: uart_send" }).locator(".st-chip"))
+      .toHaveText(["uart_errors reads Uart::errors, which uart_send now writes"]);
     await tabs.getByRole("link", { name: /^Call paths/ }).click();
     await expect(paths.locator(".st-steps").nth(1)).toHaveText("statemain→… 2 more→Uart::errors→uart_errors");
     await paths.getByRole("button", { name: "Show the 2 folded steps" }).click();
