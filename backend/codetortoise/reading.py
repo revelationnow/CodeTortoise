@@ -134,7 +134,8 @@ class Check(BaseModel):
     finding: str | None = None
     cites: list[str] = Field(default_factory=list)
     cause: str | None = None          # its cause's id (spec 2026-10-16-outline-and-causes §4.1); none on a cleared row
-    cause_fn: str | None = Field(default=None, exclude=True)   # the changed function that raised it (node id)
+    related: str | None = None        # the changed function that raised it (node id): ties a flow to its places
+                                      # (spec 2026-10-25-review-ui-redesign §8); none on a reading stored before it
     cause_subject: str = Field(default="", exclude=True)       # what makes two rows of its kind one cause
     field: str | None = None          # a reader row's field label (the owner may mark it a shared sink)
 
@@ -892,7 +893,7 @@ def build_checks(ss: StorySet, threads: list[Thread], conns: list[Connection], x
         rows.append(Check(key=f"{kind}|{rel_path(x, path)}|{func or ''}|{_qual(x, related) if related else kw.pop('rel', '')}",
                           kind=kind, story=story, thread=thread_of.get(story) if story else kw.pop("thread", None),
                           path=rel_path(x, path), line=line, function=func, node=place, text=tidy(text),
-                          source_line=_source(x, path, line, read_text), cause_fn=related, **kw))
+                          source_line=_source(x, path, line, read_text), related=related, **kw))
 
     # 1–2: the strong model's verdicts; without one, high and medium findings (not header fan-out) to confirm
     cleared: list[Check] = []

@@ -26,6 +26,9 @@ export interface Check {
   cause?: string | null;
   /** A reader row's field (the owner may mark it a shared sink). */
   field?: string | null;
+  /** The changed function that raised it, a node id (spec 2026-10-25-review-ui-redesign §8): a flow's places are the
+   * checks its `cause` raised at its landing. Absent on a reading stored before it. */
+  related?: string | null;
 }
 /** One changed line of a cause's change; `line` is in the after text ("+", " ") or the before text ("-"). */
 export interface ChangeLine { sign: "+" | "-" | " "; text: string; line: number | null }
