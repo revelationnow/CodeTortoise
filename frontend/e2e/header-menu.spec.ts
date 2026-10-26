@@ -59,3 +59,20 @@ test("the menu hangs 16px in from the screen's edge even when the header ends sh
   const box = (await (await reviewMenu(page)).boundingBox())!;
   expect(box.x + box.width).toBeCloseTo(1440 - 16, 0);                              // fixed to the screen: no container clips it
 });
+
+test.describe("a tablet", () => {
+  test.use({ viewport: { width: 900, height: 900 } });
+  test("the menu and its panels stay above the side panel that is open over the page", async ({ page }) => {
+    const base = await startReview(page);
+    await page.goto(`${base}?open=${encodeURIComponent("file://fixture/driver/uart.c")}`);
+    await expect(page.getByRole("complementary", { name: "Code: uart.c" })).toBeVisible();
+    const onTop = (el: Element) => {                                      // the middle of it is what a click would hit
+      const b = el.getBoundingClientRect(), hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+      return !!hit && el.contains(hit);
+    };
+    const menu = await reviewMenu(page);
+    expect(await menu.evaluate(onTop)).toBe(true);
+    await menu.getByRole("menuitem", { name: /^Stage notes/ }).click({ timeout: 5_000 });
+    expect(await page.getByRole("dialog", { name: "Stage notes" }).evaluate(onTop)).toBe(true);
+  });
+});

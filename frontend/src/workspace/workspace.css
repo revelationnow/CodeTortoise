@@ -246,8 +246,9 @@ body.bd-resizing-v, body.bd-resizing-v * { cursor: row-resize !important; user-s
   border-bottom: 1px solid var(--line); background: var(--surface); }
 .ws-head h1 { font-size: 16px; margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ws-head h1 a { color: var(--ink); text-decoration: none; }
-/* the header is as tall as its content until the reader drags its bottom edge; then what doesn't fit scrolls */
-.ws-headbox { flex: none; position: relative; z-index: 8; display: flex; flex-direction: column; }
+/* the header is as tall as its content until the reader drags its bottom edge; then what doesn't fit scrolls. It sits above
+   the tablet's drawer (30) and side panel (20), since the ⋯ menu and its panels hang from it */
+.ws-headbox { flex: none; position: relative; z-index: 40; display: flex; flex-direction: column; }
 .ws-headbox > .ws-head { flex: 1 1 auto; min-height: 0; overflow-y: auto; align-content: flex-start; }
 .ws-menu { display: none; font-size: 17px; line-height: 1; padding: 3px 9px; }
 .ws-body { flex: 1; min-height: 0; display: flex; position: relative; }
