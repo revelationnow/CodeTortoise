@@ -8,13 +8,11 @@ import { KIND_LABEL, markLine } from "../reading/checks";
 import { alsoAt, around, doneCount, nextOpenAt, openPlaces, placeOpen } from "../reading/causes";
 import type { Cause, Check, Mark } from "../reading/types";
 import { useWs } from "./context";
+import { typing } from "./keys";
 import NameText, { Ticks } from "./NameText";
 import { plainNames } from "./names";
 
 const bare = (s: string) => s.replaceAll("`", "");
-/** J, K and F are letters while the reader types (Review Focus 5). */
-const typing = (t: EventTarget | null) =>
-  t instanceof HTMLElement && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName));
 
 /** About seven lines around the place, from the after text of a changed file or the fetched text of another. */
 function PlaceCode({ k }: { k: Check | null }) {

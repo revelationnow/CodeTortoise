@@ -13,8 +13,8 @@ export default function HowToRead({ top }: { top: number }) {
           <b> Looks fine &amp; next</b> clears a place for everyone, <b>All look fine</b> clears them all, <b>Comment</b>
           starts a thread. Keys: J next, K back, F looks fine &amp; next.</li>
         <li><b>Next open check ›</b> goes to the next place still open, in reading order.</li>
-        <li><b>A story</b> has tabs: Flows (each path through the change, with its checks), Before → after, Where, Call
-          paths, Code, Graph and Talk.</li>
+        <li><b>A story</b> has tabs: Flows (its flows grouped by what changed, a line each), Before → after, Where, Call
+          paths, Code, Graph and Talk. On Flows: J next row, K back, Enter opens it, F looks fine &amp; next.</li>
         <li><b>Mark as read</b> ticks a story for you alone; the top bar counts the stories you have read and the checks
           still open.</li>
         <li><b>The side panel</b> keeps a tab per thing you open; <b>Focus</b> folds the outline to give it room.</li>
