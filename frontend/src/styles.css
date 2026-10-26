@@ -206,9 +206,17 @@ button.go:disabled { opacity: .55; }
 .ai-ask { display: inline-flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
 .ai-askq { display: flex; flex-basis: 100%; gap: 6px; align-items: flex-end; }
 .ai-askq textarea { flex: 1; min-width: 200px; font: 13px/1.4 var(--sans); }
-.ai-btn { font-size: 12px; padding: 1px 8px; border-radius: 99px; border: 1px solid #8f75ff; background: transparent; color: inherit;
+.ai-btn { font-size: 12px; padding: 1px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: inherit;
   cursor: pointer; white-space: nowrap; }
-.ai-btn:hover:not(:disabled) { background: rgba(143,117,255,.15); } .ai-btn:disabled { opacity: .6; cursor: default; }
+.ai-btn:hover:not(:disabled) { background: var(--gap-bg); } .ai-btn:disabled { opacity: .6; cursor: default; }
+/* Explain ▾ (spec 2026-10-25-review-ui-redesign §4.1) */
+.ai-menuwrap { position: relative; display: inline-flex; }
+.ai-menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 40; display: flex; flex-direction: column; min-width: 170px;
+  padding: 4px 0; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0,0,0,.14); font-size: 13px; }
+.ai-menu [role="menuitem"] { border: 0; border-radius: 0; background: none; padding: 5px 12px; text-align: left; white-space: nowrap; }
+.ai-menu [role="menuitem"]:hover:not(:disabled), .ai-menu [role="menuitem"]:focus-visible { background: var(--gap-bg); }
+.ws-file-tools .ai-menu { left: auto; right: 0; }          /* the code panel's button ends its row at the screen edge: open leftwards */
 .ai-err { color: var(--bad); font-size: 12px; } .ai-err .link { margin-left: 6px; }
 .ai-summary { margin: 6px 10px; padding: 8px 10px; background: var(--surface); font-size: 13px; }
 .ai-summary h4 { margin: 0 0 4px; }

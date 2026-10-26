@@ -1,41 +1,49 @@
 import { expect, test } from "@playwright/test";
-import { contrast, login, openIndex, startReview } from "./helpers";
+import { contrast, explainItem, login, openIndex, startReview } from "./helpers";
 
 const AI = "http://127.0.0.1:8798";      // e2e/serve-ai.sh: CodeTortoise with the fake model in e2e/fake_llm.py
 
 test.describe("with an AI", () => {
   test.use({ baseURL: AI });
 
-  test("✦ Explain rewrites a flow that the up-front pass left", async ({ page }) => {
+  test("Explain rewrites a flow that the up-front pass left", async ({ page }) => {
     const base = await startReview(page);
     await page.goto(`${base}?view=graph&flow=2`);
     const what = page.getByRole("region", { name: "Flow" }).locator(".ws-flow-text p").first();
-    const ask = what.getByRole("button", { name: /Explain/ });
-    await expect(ask).toHaveText("✦ Explain");
-    await expect(ask).toHaveAttribute("title", /^1 AI call · \d+ left on this review$/);
+    const button = what.getByRole("button", { name: "Explain", exact: true });
+    await expect(button).toHaveAttribute("aria-haspopup", "menu");
+    await button.click();
+    const item = what.getByRole("menuitem", { name: "Explain", exact: true });
+    await expect(item).toHaveAttribute("title", /^1 AI call · \d+ left on this review$/);
     await expect(what).not.toContainText("reaches logger_flush, which drops it");
-    await ask.click();
+    await item.click();
     await expect(what).toContainText("The new -2 from uart_send reaches logger_flush, which drops it.", { timeout: 30_000 });
     await expect(what).toHaveClass(/\bai-text\b/);
     await expect(what).toHaveAttribute("title", "Written by AI");
-    await expect(ask).toHaveText("✦ Explain again");
+    await button.click();
+    await expect(what.getByRole("menuitem", { name: "Explain again" })).toBeVisible();
+    await page.keyboard.press("Escape");                                     // Escape closes it and returns to the button
+    await expect(what.getByRole("menu")).toHaveCount(0);
+    await expect(button).toBeFocused();
   });
 
-  test("✦ Explain retells a story's title and summary, on the story and in the rail", async ({ page }) => {
+  test("Explain retells a story's title and summary, on the story and in the rail", async ({ page }) => {
     await startReview(page);
     await page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ }).click();
     const head = page.locator(".ws-story-head");
     await expect(head.locator("h2 .ai-name")).toHaveCount(0);                // this server's up-front pass skips stories
-    await head.getByRole("button", { name: "✦ Explain" }).click();
+    await explainItem(head, "Explain");
     await expect(head.locator("h2")).toContainText("uart_send's new error count reaches uart_errors", { timeout: 30_000 });
     await expect(head.locator("h2 .ai-name")).toHaveAttribute("title", "Written by AI");   // the title…
     await expect(head.locator(".st-summary .ai-text").first()).toBeVisible();              // …and the summary, retold
-    await expect(head.getByRole("button", { name: /Explain/ })).toHaveText("✦ Explain again");
+    await head.getByRole("button", { name: "Explain", exact: true }).click();
+    await expect(head.getByRole("menuitem", { name: "Explain again" })).toBeVisible();
+    await page.keyboard.press("Escape");
     await expect(page.locator(".ws-rail").getByRole("link", { name: /^Go to story S1/ }))
       .toContainText("uart_send's new error count reaches uart_errors");
   });
 
-  test("✦ Explain on a story with its graph open neither flashes Loading nor redraws the graph", async ({ page }) => {
+  test("Explain on a story with its graph open neither flashes Loading nor redraws the graph", async ({ page }) => {
     const base = await startReview(page);
     await page.goto(`${base}/s/S1?view=graph`);
     await expect(page.locator(".ws-graph .bd-node").first()).toBeVisible();
@@ -48,7 +56,7 @@ test.describe("with an AI", () => {
         .observe(document.body, { subtree: true, childList: true, characterData: true });
     });
     const head = page.locator(".ws-story-head");
-    await head.getByRole("button", { name: "✦ Explain" }).click();
+    await explainItem(head, "Explain");
     await expect(head.locator("h2")).toContainText("uart_send's new error count reaches uart_errors", { timeout: 30_000 });
     await expect(page.locator(".ws-graph .bd-node").first()).toBeVisible();
     expect(await page.evaluate(() => (window as unknown as { loading: number }).loading)).toBe(0);
@@ -56,7 +64,7 @@ test.describe("with an AI", () => {
     await expect(page.getByRole("button", { name: "Whole graph" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  test("a story shows the flow narrative the up-front pass wrote, and ✦ Explain on another flow updates it", async ({ page }) => {
+  test("a story shows the flow narrative the up-front pass wrote, and Explain on another flow updates it", async ({ page }) => {
     const base = await startReview(page);
     const rid = base.split("/")[2];
     const board = await (await page.request.get(`/api/reviews/${rid}/board`)).json();
@@ -67,16 +75,16 @@ test.describe("with an AI", () => {
     await page.goto(`${base}/s/${sid}?view=graph&flow=${s.flows.indexOf(told.id) + 1}`);
     const what = page.getByRole("region", { name: "Flow" }).locator(".ws-flow-text p").first();
     await expect(what).toHaveClass(/\bai-text\b/);                             // the board's narrative, on the story
-    await expect(what.getByRole("button", { name: /Explain/ })).toHaveText("✦ Explain again");
+    await what.getByRole("button", { name: "Explain", exact: true }).click();
+    await expect(what.getByRole("menuitem", { name: "Explain again" })).toBeVisible();
     const other = ss.stories.flatMap((x: { id: string; flows: string[] }) => x.flows.map((f) => [x.id, f]))
       .find(([, f]: string[]) => f !== told.id)!;
     const st = ss.stories.find((x: { id: string }) => x.id === other[0]);
     await page.goto(`${base}/s/${other[0]}?view=graph&flow=${st.flows.indexOf(other[1]) + 1}`);
-    const ask = what.getByRole("button", { name: /Explain/ });
-    await expect(ask).toHaveText("✦ Explain");
-    await ask.click();
+    await explainItem(what, "Explain");
     await expect(what).toContainText("The new -2 from uart_send reaches logger_flush, which drops it.", { timeout: 30_000 });
-    await expect(ask).toHaveText("✦ Explain again");
+    await what.getByRole("button", { name: "Explain", exact: true }).click();
+    await expect(what.getByRole("menuitem", { name: "Explain again" })).toBeVisible();
   });
 
   test("a high finding's page shows the analysis the up-front pass wrote, without asking", async ({ page }) => {
@@ -90,7 +98,8 @@ test.describe("with an AI", () => {
     await expect(ai).toContainText("uart_send can now return -2, and logger_flush drops it.", { timeout: 30_000 });
     await expect(ai.locator(".ai-text")).toHaveAttribute("title", "Written by AI");
     await expect(page.locator(".ai-label")).toHaveCount(0);
-    await expect(ai.getByRole("button", { name: /Explain again/ })).toBeVisible();
+    await ai.getByRole("button", { name: "Explain", exact: true }).click();
+    await expect(ai.getByRole("menuitem", { name: "Explain again" })).toBeVisible();
   });
 
   test("a side effect the AI judges a hazard turns red and says why; one it clears stays neutral with its reason", async ({ page }) => {
@@ -113,12 +122,12 @@ test.describe("with an AI", () => {
     await expect(lands).not.toContainText("AI:");
   });
 
-  test("✦ Summarise sums up a file in its diff", async ({ page }) => {
+  test("Summarise sums up a file in its diff", async ({ page }) => {
     await startReview(page);
     await openIndex(page, "Files");
     await page.getByRole("link", { name: "Open uart.c's diff" }).click();
     const panel = page.getByRole("complementary", { name: "Code: uart.c" });
-    await panel.getByRole("button", { name: /Summarise/ }).click();
+    await explainItem(panel, "Summarise");
     await expect(panel).toContainText("This file now counts transmit errors.", { timeout: 30_000 });
     await expect(panel).toContainText("Check the readers of uart_errors.");
     const summary = panel.locator(".ai-summary");

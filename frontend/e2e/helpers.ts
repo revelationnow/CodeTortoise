@@ -99,3 +99,9 @@ export async function openIndex(page: Page, tab: "CLs" | "Files" | "Findings" | 
   if (!(await index.evaluate((el) => (el as HTMLDetailsElement).open))) await index.locator("summary").click();
   await index.getByRole("link", { name: `Open the Index: ${tab}` }).click();
 }
+
+/** Pick an item of the first Explain ▾ (or Summarise ▾) menu inside `scope` (spec 2026-10-25-review-ui-redesign §4.1). */
+export async function explainItem(scope: Locator, item: string | RegExp) {
+  await scope.getByRole("button", { name: /^(Explain|Summarise)$/ }).first().click();
+  await scope.getByRole("menuitem", typeof item === "string" ? { name: item, exact: true } : { name: item }).click();
+}

@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { openIndex, startReview } from "./helpers";
+import { explainItem, openIndex, startReview } from "./helpers";
 
 const AI = "http://127.0.0.1:8798";      // e2e/serve-ai.sh: CodeTortoise with the fake model in e2e/fake_llm.py
 
@@ -44,10 +44,10 @@ test.describe("with an AI", () => {
     await expect(reply.getByRole("button", { name: "edit" })).toHaveCount(0);   // tortoise replies can't be edited
   });
 
-  test("Ask… on an explain button puts the question to tortoise in a thread on that finding, story, flow or file", async ({ page }) => {
+  test("Ask a question… in an Explain menu puts the question to tortoise in a thread on that finding, story, flow or file", async ({ page }) => {
     const base = await startReview(page);
     const ask = async (where: Locator, question: string) => {
-      await where.getByRole("button", { name: "Ask…" }).first().click();
+      await explainItem(where, "Ask a question…");
       await where.getByLabel("What should the AI explain?").fill(question);
       await where.getByRole("button", { name: "Ask", exact: true }).click();
     };
@@ -100,7 +100,7 @@ test.describe("without an AI", () => {
   test("@tortoise is greyed out with the reason, and there are no AI controls", async ({ page }) => {
     await startReview(page);
     await expect(page.getByRole("button", { name: /^AI \d+/ })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: /✦/ })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^(Explain|Summarise|Ask…)$/ })).toHaveCount(0);
     const { viewer, box } = await commentOnReturn(page);
     await box.pressSequentially("@");
     const first = viewer.getByRole("listbox", { name: "Mention" }).getByRole("option").first();
