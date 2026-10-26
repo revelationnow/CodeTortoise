@@ -265,4 +265,57 @@ test.describe("by keyboard", () => {
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/flow=2/);
   });
+
+  test("the flow menu is a menu button: it opens on the flow shown, arrows wrap, Home and End jump, Escape, Tab or a press outside close it", async ({ page }) => {
+    const base = await startReview(page);
+    await page.goto(`${base}?view=graph&flow=2`);                            // the whole change: three flows, the second shown
+    const every = page.getByRole("button", { name: "Every flow" });
+    const menu = page.getByRole("menu", { name: "Every flow" });
+    const items = menu.getByRole("menuitemradio");
+    const open = async () => { await every.click(); await expect(items).toHaveCount(3); };
+    await open();
+    await expect(items.nth(1)).toHaveAttribute("aria-checked", "true");
+    await expect(items.nth(1), "opening focuses the flow shown").toBeFocused();
+    for (const [key, to] of [["ArrowDown", 2], ["ArrowDown", 0], ["ArrowUp", 2], ["Home", 0], ["End", 2], ["End", 2], ["Home", 0], ["Home", 0]] as const) {
+      await page.keyboard.press(key);                                        // the wraps, and Home and End stay put when already there
+      await expect(items.nth(to), `${key} moves focus to item ${to + 1}`).toBeFocused();
+    }
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+    await expect(every).toBeFocused();
+    await expect(every).toHaveAttribute("aria-expanded", "false");
+    await open();
+    await page.locator(".ws-flow-title").click();                            // a press outside
+    await expect(menu).toHaveCount(0);
+    await expect(every).toHaveAttribute("aria-expanded", "false");
+    await open();
+    await page.keyboard.press("Tab");                                        // Tab leaves the menu: it closes and focus stays where Tab took it
+    await expect(menu).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Hide the flow's text" })).toBeFocused();
+    await open();
+    await page.keyboard.press("Shift+Tab");                                  // back to ▾ closes it too
+    await expect(menu).toHaveCount(0);
+    await expect(every).toBeFocused();
+    await open();
+    await page.keyboard.press("ArrowDown");                                  // a pick shows that flow, closes the menu and refocuses ▾
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/flow=3/);
+    await expect(menu).toHaveCount(0);
+    await expect(every).toBeFocused();
+  });
+
+  test("a press inside a code comment thread, which keeps its presses to itself, still closes the flow menu", async ({ page }) => {
+    const base = await startReview(page);
+    await page.goto(`${base}/s/S1?view=graph&open=${encodeURIComponent("file://fixture/driver/uart.c")}`);
+    const file = page.getByRole("complementary", { name: "Code: uart.c" });
+    await file.getByRole("button", { name: "Stacked" }).click();
+    await file.locator(".bd-ln.a", { hasText: "return -2;" }).first().click();
+    const thread = file.locator(".bd-thread");
+    await expect(thread.getByPlaceholder("Leave a comment…")).toBeVisible();
+    await page.getByRole("button", { name: "Every flow" }).click();
+    const menu = page.getByRole("menu", { name: "Every flow" });
+    await expect(menu).toBeVisible();
+    await thread.click({ position: { x: 4, y: 6 } });                        // its padding: nothing there takes focus
+    await expect(menu).toHaveCount(0);
+  });
 });

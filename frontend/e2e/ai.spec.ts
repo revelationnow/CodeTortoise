@@ -52,6 +52,40 @@ test.describe("with an AI", () => {
     await expect(button).toBeFocused();
   });
 
+  test("an Explain menu is a menu button: it opens on its first item, arrows wrap, Home and End jump, checkbox and radio items are walked, a press outside closes it", async ({ page }) => {
+    const base = await startReview(page);
+    await page.goto(`${base}?view=graph&flow=2`);
+    const text = page.getByRole("region", { name: "Flow" }).locator(".ws-flow-text");
+    const button = text.getByRole("button", { name: "Explain", exact: true });
+    const menu = text.getByRole("menu"), items = menu.getByRole("menuitem");
+    await button.click();
+    await expect(items).toHaveText(["Explain", "Ask a question…"]);
+    const first = items.first(), last = items.last();
+    await expect(first, "opening focuses the first item").toBeFocused();
+    // two items, so each key is tried where a wrong one would land elsewhere: the wraps, and Home and End when already there
+    for (const [key, to] of [["ArrowDown", last], ["ArrowDown", first], ["ArrowUp", last], ["ArrowUp", first],
+                             ["End", last], ["End", last], ["Home", first], ["Home", first]] as const) {
+      await page.keyboard.press(key);
+      await expect(to, `${key} moves focus to the ${to === first ? "first" : "last"} item`).toBeFocused();
+    }
+    await menu.evaluate((el) => {                                            // add a checkbox item and a disabled radio item after the others
+      for (const [role, disabled] of [["menuitemcheckbox", false], ["menuitemradio", true]] as const) {
+        const item = document.createElement("button");
+        item.setAttribute("role", role);
+        item.textContent = role;
+        item.disabled = disabled;
+        el.append(item);
+      }
+    });
+    await page.keyboard.press("End");
+    await expect(menu.getByRole("menuitemcheckbox"), "End reaches a checkbox item, past the disabled radio one").toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(first, "ArrowDown skips the disabled item and wraps").toBeFocused();
+    await page.getByRole("region", { name: "Flow" }).locator(".ws-flow-title").click();      // a press outside
+    await expect(menu).toHaveCount(0);
+    await expect(button).toHaveAttribute("aria-expanded", "false");
+  });
+
   test("Explain retells a story's title and summary, on the story and in the rail", async ({ page }) => {
     await startReview(page);
     await (await storyLink(page, /^Go to story S1/)).click();
@@ -208,7 +242,14 @@ test.describe("with an AI", () => {
     const base = await startReview(page);
     await page.goto(`${base}?open=${encodeURIComponent("file://fixture/driver/uart.c")}`);
     const panel = page.getByRole("complementary", { name: "Code: uart.c" });
-    await panel.getByRole("button", { name: "Summarise", exact: true }).click();
+    const button = panel.getByRole("button", { name: "Summarise", exact: true });
+    // The guard means something only while Summarise ends its row at the panel's right edge: a menu hung from the button's left
+    // edge would then run past it. Where the row wraps differently, the menu fits on its own and the guard proves nothing.
+    await expect.poll(async () => {
+      const edge = (await panel.boundingBox())!, at = (await button.boundingBox())!;
+      return edge.x + edge.width - (at.x + at.width);
+    }, { message: "Summarise ends the toolbar's row at the panel's right edge" }).toBeLessThanOrEqual(24);   // the panel's 14px padding, and a little
+    await button.click();
     await menuFits(page, panel.getByRole("menu"));
   });
 
@@ -283,9 +324,38 @@ test.describe("with an AI", () => {
     const card = page.getByRole("region", { name: /^Flow \d+: / });
     await expect(card.locator("> p.ai-text")).toContainText("The caller reaches uart_send on this path.");
     await expect(card.locator("> p.ai-text")).toHaveAttribute("title", "Written by AI");
+    expect(await rows.count()).toBeGreaterThan(1);
+    await rows.nth(1).locator(".fl-toggle").click();                                 // the next row opens as the first shuts…
+    const second = page.getByRole("region", { name: /^Flow 2: / });
+    await expect(page.getByRole("region", { name: /^Flow 1: / })).toHaveCount(0);
+    await expect(second.locator("> p.ai-text")).toContainText("The caller reaches uart_send on this path.");   // …and has its paragraph too
+    await expect(second.locator("> p.ai-text")).toHaveAttribute("title", "Written by AI");
     const effects = page.getByRole("region", { name: "What it means for the rest" });
     await expect(effects.locator(".ai-text")).toBeVisible();
     await expect(effects).toContainText("Code that reads Uart::errors now sees transmit errors too.");
     await expect(page.locator(".ai-label")).toHaveCount(0);
+  });
+
+  test("a flow the story's account leaves out shows its own text, with the AI's edge only if the AI wrote it", async ({ page }) => {
+    const base = await startReview(page);
+    await page.route(`**/api/reviews/${base.split("/")[2]}/stories/S1`, async (route) => {   // the same story, its account without the flow sections
+      try {
+        const res = await route.fetch(), j = await res.json();
+        if (j.reading?.account) j.reading.account = j.reading.account.filter((p: { kind: string }) => p.kind !== "flow");
+        await route.fulfill({ response: res, json: j });
+      } catch { /* the page went away while it was fetched */ }
+    });
+    await page.goto(`${base}/s/S1`);
+    await expect(page.locator(".st-summary .ai-text")).toBeVisible({ timeout: 30_000 });     // the purpose is still the account's
+    const rows = page.locator(".fl-row");
+    await expect(rows).toHaveCount(2);
+    await rows.nth(0).locator(".fl-toggle").click();
+    const told = page.getByRole("region", { name: /^Flow 1: / }).locator("> p.ai-text");     // the up-front pass wrote this flow's text
+    await expect(told).toContainText("The new -2 from uart_send reaches logger_flush, which drops it.");
+    await expect(told).toHaveAttribute("title", "Written by AI");
+    await rows.nth(1).locator(".fl-toggle").click();
+    const rules = page.getByRole("region", { name: /^Flow 2: / });                            // the rules wrote this one's: no edge, no hover
+    await expect(rules).toContainText("main reaches logger_flush, which calls uart_send and ignores the result.");
+    await expect(rules.locator(".ai-text, .vh")).toHaveCount(0);
   });
 });

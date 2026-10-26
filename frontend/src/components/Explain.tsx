@@ -23,7 +23,8 @@ interface Props {
 /** Explain ▾ (spec 2026-10-25-review-ui-redesign §4.1): a small menu of Explain — or the caller's label, "again" once
  * the item has a result — and Ask a question…; one AI call, shown to everyone. An item the strong model wrote allows
  * only Ask… (two-tier stories §8). A refusal or failure, and the sent note, show beside it. Ask a question… (or Ask…)
- * opens the question box with focus in it; picked again, or Escape in the box, shuts it with focus back on the button. */
+ * opens the question box with focus in it; picked again, or Escape in the box, or once the question is sent, shuts it
+ * with focus back on the button. */
 export default function Explain({ kind, target, has, label = "Explain", ask, askOnly = false }: Props) {
   const ai = useAi();
   const [asking, setAsking] = useState(false);
@@ -33,12 +34,13 @@ export default function Explain({ kind, target, has, label = "Explain", ask, ask
   const { button, menu } = useMenu<HTMLSpanElement>(open, () => setOpen(false));
   if (!ai?.view?.llm) return null;
   const can = aiAvailability(ai.view);
+  const shut = () => { setAsking(false); button.current?.focus(); };
   const send = () => {
     const q = question.trim();
     if (!q || !ask) return;
     setSent(null);
     api.addComment(ai.reviewId, `@tortoise ${q}`, ask.kind, ask.anchor)
-      .then(() => { setQuestion(""); setAsking(false); setSent("Asked: the answer comes in this item's thread."); ask.onAsked(); })
+      .then(() => { setQuestion(""); shut(); setSent("Asked: the answer comes in this item's thread."); ask.onAsked(); })
       .catch((x) => setSent(String(x.message ?? x)));
   };
   const job = jobFor(ai.view, kind, target);
@@ -53,7 +55,6 @@ export default function Explain({ kind, target, has, label = "Explain", ask, ask
     button.current?.focus();
     if (!has || window.confirm(`Replace the current ${what}? It costs 1 AI call.`)) ai.explain(kind, target);
   };
-  const shut = () => { setAsking(false); button.current?.focus(); };
   // title="": nothing here is the AI's text; an empty title keeps the hover of whatever surrounds these controls off them
   return (
     <span className="ai-ask" title="" onClick={(e) => e.stopPropagation()}>

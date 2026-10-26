@@ -50,6 +50,7 @@ test.describe("with an AI", () => {
       await explainItem(where, "Ask a question…");
       await where.getByLabel("What should the AI explain?").fill(question);
       await where.getByRole("button", { name: "Ask", exact: true }).click();
+      await expect(where.getByRole("button", { name: /^(Explain|Summarise)$/ }).first(), "the question box is gone: focus is back on the button").toBeFocused();
     };
     const answer = "logger_flush drops the -2 that uart_send now returns.";
 
