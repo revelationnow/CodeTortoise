@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BAR, barPin, loadThread, openThread, saveThread } from "./outline";
+import { BAR, barPin, loadThread, openThread, pinnedSpace, saveThread } from "./outline";
 
 const threads = [{ id: "T1", stories: ["S2", "S1"] }, { id: "T2", stories: ["S3", "S5"] }, { id: "T3", stories: ["S4"] }];
 
@@ -29,6 +29,32 @@ describe("where the closed bars pin (§6)", () => {
   it("pins nothing while no thread is open", () => {
     expect(barPin(0, -1, 3)).toBeNull();
     expect(barPin(2, -1, 3)).toBeNull();
+  });
+});
+
+describe("what the pinned bars take of the scroll box (WCAG 2.2 2.4.11)", () => {
+  it("is the stacked height of the bars pinned at the top and of those pinned at the bottom", () => {
+    expect(pinnedSpace(1, 4)).toEqual({ top: 72, bottom: 72 });                // A, B up; C, D down
+    expect(pinnedSpace(0, 3)).toEqual({ top: 36, bottom: 72 });
+    expect(pinnedSpace(2, 3)).toEqual({ top: 108, bottom: 0 });
+    expect(pinnedSpace(0, 1)).toEqual({ top: 36, bottom: 0 });
+  });
+
+  it("takes nothing while no thread is open", () => {
+    expect(pinnedSpace(-1, 3)).toEqual({ top: 0, bottom: 0 });
+    expect(pinnedSpace(-1, 0)).toEqual({ top: 0, bottom: 0 });
+  });
+
+  it("follows barPin's rule: each pinned bar adds its height, flush from its edge, whatever the open bar and count", () => {
+    for (let n = 1; n <= 7; n++) {
+      for (let open = -1; open < n; open++) {
+        const pins = Array.from({ length: n }, (_, i) => barPin(i, open, n));
+        const tops = pins.flatMap((p) => (p && "top" in p ? [p.top] : [])), bottoms = pins.flatMap((p) => (p && "bottom" in p ? [p.bottom] : []));
+        expect(tops.sort((a, b) => a - b), `open ${open} of ${n}`).toEqual(tops.map((_, k) => k * BAR));       // stacked flush from the edge
+        expect(bottoms.sort((a, b) => a - b), `open ${open} of ${n}`).toEqual(bottoms.map((_, k) => k * BAR));
+        expect(pinnedSpace(open, n), `open ${open} of ${n}`).toEqual({ top: tops.length * BAR, bottom: bottoms.length * BAR });
+      }
+    }
   });
 });
 

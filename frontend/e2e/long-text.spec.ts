@@ -110,6 +110,12 @@ test("the story's file tree, the breadcrumb and the outline's story rows stay on
   const rows = page.locator(".ws-rail .ws-row.story .ws-one");
   await expect(rows.filter({ hasText: "logger_flush" }).first()).toBeVisible();
   expect(await oneLine(page, ".ws-rail .ws-row.story .ws-one")).toEqual([]);
+  // and so is a flow group's line under the current story, cut short with its whole text on hover (the long name is the first group's)
+  const long = page.locator(".ws-rail .ws-flows a", { hasText: LONG_FN });
+  await expect(long).toHaveCount(1);
+  expect(await long.locator(".ws-one").evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(true);   // cut short…
+  expect(await long.getAttribute("title")).toContain(LONG_FN);                                         // …the whole name on hover
+  expect(await oneLine(page, ".ws-rail .ws-flows .ws-one")).toEqual([]);
 });
 
 test.describe("with an AI", () => {

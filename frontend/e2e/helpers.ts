@@ -47,7 +47,7 @@ export async function storyLink(page: Page, name: RegExp): Promise<Locator> {
   for (let i = 0; i < await bars.count(); i++) {
     const bar = bars.nth(i);
     if ((await bar.getAttribute("aria-expanded")) !== "true") await bar.click();
-    await rail.locator(".ws-bar-list > li").first().waitFor({ state: "visible", timeout: 5000 }).catch(() => {});   // the stories load after the reading
+    await rail.locator(".ws-bar-list > li").first().waitFor({ state: "visible", timeout: 60_000 }).catch(() => {});   // the stories load after the reading: as long as startReview waits for it
     if (await link.waitFor({ state: "visible", timeout: 1000 }).then(() => true, () => false)) return link;
   }
   return link;

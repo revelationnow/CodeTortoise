@@ -255,7 +255,7 @@ body.bd-resizing-v, body.bd-resizing-v * { cursor: row-resize !important; user-s
 
 /* rail */
 .ws-rail { position: relative; z-index: 7; flex: none; display: flex; flex-direction: column; width: var(--w, 280px);
-  border-right: 1px solid var(--line); background: var(--surface); font-size: 13px; }
+  border-right: 1px solid var(--line); background: var(--surface); font-size: 13px; container-type: inline-size; container-name: rail; }
 .ws-rail-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 8px 0 24px; }
 /* the grip straddles the rail's border, outside its scrollbar */
 .ws-rail > .bd-resizer { right: -6px; }
@@ -684,9 +684,17 @@ a.ws-chip { text-decoration: none; }
 .ws-bar.on > button { background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
 .ws-bar .ov-letter { width: 18px; height: 18px; font-size: 10px; }
 .ws-bar-l { flex: none; font-weight: 650; }
+/* The rail is a size container: under 240px of its width (what the reader dragged it to; the query measures inside its 1px
+   border, hence 239) a bar drops the word "Thread" and keeps its letter circle, so the name keeps room and the caret stays
+   in the bar with a two-digit count or a classic scrollbar. The button's title and aria-label still say "Thread A: …". */
+@container rail (width < 239px) { .ws-bar-l { display: none; } }
 .ws-bar .ck-count, .ws-bar .ws-thread-read { flex: none; margin-left: 0; }
 .ws-bar-caret { flex: none; width: 10px; color: var(--muted); }
 .ws-rail .ws-bar-list { padding: 2px 0 6px; }
+/* Focus brings a link of the open thread into view clear of the bars pinned above and below it (WCAG 2.2, 2.4.11). The list
+   carries how much they take (pinnedSpace, from barPin's rule) and its links keep that much as scroll margin. Scroll padding
+   on the box would also move a pinned bar itself, when focused, to the padded edge. */
+.ws-bar-list a { scroll-margin-top: var(--pin-top, 0px); scroll-margin-bottom: var(--pin-bottom, 0px); }
 .ws-num { flex: none; min-width: 1.2em; color: var(--muted); font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
 /* a sticky bar's offsets are measured inside its scroll box's padding and it cannot leave the box's content, so with bars
    the box has none: the spacing is margin on the first and last rows, and the pinned bars sit flush with its edges */

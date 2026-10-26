@@ -190,7 +190,7 @@ test.describe("phone", () => {
     await expect(send).toBeVisible();
     await page.waitForTimeout(500);
     const cdp = await page.context().newCDPSession(page);
-    const touch = (type: string, pts: [number, number][]) =>
+    const touch = (type: "touchStart" | "touchMove" | "touchEnd", pts: [number, number][]) =>
       cdp.send("Input.dispatchTouchEvent", { type, touchPoints: pts.map(([x, y], id) => ({ x, y, id })) });
     const centre = async () => { const b = (await send.boundingBox())!; return [b.x + b.width / 2, b.y + b.height / 2, b.width] as const; };
 

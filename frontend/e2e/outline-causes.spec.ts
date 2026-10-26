@@ -117,6 +117,20 @@ test.describe("desktop", () => {
     await expectNamed(page);
   });
 
+  test("the outline's group lines recount what is open when a flow is marked fine, and when it is reopened", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const groups = page.locator("aside.ws-outline .ws-flows .ws-row"), tick = page.getByRole("checkbox", { name: "Looks fine: logger_flush ignores -2" });
+    await expect(groups).toHaveCount(2);
+    await expect(groups.first()).toHaveAttribute("aria-label", "Go to uart_send · 1 flow, 1 open");
+    await tick.click();                                                              // its one place is marked fine…
+    await expect(groups.first()).toHaveAttribute("aria-label", "Go to uart_send · 1 flow");
+    await expect(groups.nth(1)).toHaveAttribute("aria-label", "Go to Uart::errors · 1 flow, 1 open");   // …the other group is as it was
+    await expect(page.locator(".st-flows")).toHaveAttribute("aria-busy", "false");   // a click while a mark is on its way is ignored
+    await tick.click();                                                              // unticking reopens it
+    await expect(groups.first()).toHaveAttribute("aria-label", "Go to uart_send · 1 flow, 1 open");
+  });
+
   test("the outline's Checks: causes by thread and story, Confirm hidden until shown, both remembered", async ({ page }) => {
     await startReview(page, FOUR);
     const outline = page.locator("aside.ws-outline");
