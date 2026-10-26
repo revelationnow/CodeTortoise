@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { contrast, explainItem, openAiUsage, openIndex, reviewMenu, startReview } from "./helpers";
+import { contrast, explainItem, hold, openAiUsage, openIndex, reviewMenu, startReview } from "./helpers";
 
 const AI = "http://127.0.0.1:8798";      // e2e/serve-ai.sh: CodeTortoise with the fake model in e2e/fake_llm.py
 
@@ -77,6 +77,32 @@ test.describe("with an AI", () => {
     const file = page.getByRole("complementary", { name: "Code: uart.c" });
     await ask(file.locator(".ws-file-tools"), "what changed in error handling?");
     await expect(file.locator(".ws-file-talk .comment.ai")).toContainText(answer, { timeout: 30_000 });
+  });
+
+  test("a sent question takes focus back to the Explain button only if the reader has not moved it meanwhile", async ({ page }) => {
+    const base = await startReview(page);
+    const rid = base.split("/")[2];
+    await page.goto(`${base}/s/S1?view=graph`);
+    const strip = page.getByRole("region", { name: "Flow" });
+    const explain = strip.getByRole("button", { name: "Explain", exact: true }), next = strip.getByRole("button", { name: "Next flow" });
+    const box = strip.getByLabel("What should the AI explain?");
+    /** Ask with the server's answer held back, run `meanwhile` while the question is on its way, then let the answer land. */
+    const askWhile = async (question: string, meanwhile: () => Promise<unknown>) => {
+      const answer = await hold(page, `**/api/reviews/${rid}/comments`);
+      await explainItem(strip, "Ask a question…");
+      await box.fill(question);
+      await strip.getByRole("button", { name: "Ask", exact: true }).click();
+      await answer.held;
+      await meanwhile();
+      answer.release();
+      await expect(strip.getByText("Asked: the answer comes in this item's thread.")).toBeVisible();   // landed: the box is shut
+      await expect(box).toHaveCount(0);
+    };
+    await askWhile("is the new writer safe?", () => next.focus());                   // the reader moved to another control…
+    await expect(next, "…and keeps it").toBeFocused();
+    await expect(explain).not.toBeFocused();
+    await askWhile("and the other flow?", () => page.evaluate(() => (document.activeElement as HTMLElement).blur()));   // …or focus fell to the page
+    await expect(explain, "focus that fell to the page goes back to the button").toBeFocused();
   });
 
   test("when the review's budget is spent, tortoise says so and the owner can raise it from the reply", async ({ page }) => {
