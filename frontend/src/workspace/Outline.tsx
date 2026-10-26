@@ -79,11 +79,11 @@ function StoriesView({ r, onPick }: { r: Reading; onPick: () => void }) {
   const [chosen, setChosen] = useState<{ here: string | null; id: string | null } | null>(null);   // a bar clicked at `here`
   useEffect(() => { setChosen(null); }, [here]);           // a bar clicked at one story does not outlive it: Back, or the overview, return to the rules
   const holding = here ? r.threads.find((t) => t.stories.includes(here))?.id ?? null : null;
-  useEffect(() => {                                        // going to a story opens its thread, and the outline keeps it
-    if (!holding) return;
+  useEffect(() => {                                        // going to a story opens its thread, and the outline keeps it: for each story,
+    if (!holding) return;                                  // not only when the thread changes, or a bar clicked since stays the last opened
     setLast(holding);
     saveThread(d.id, holding);
-  }, [holding, d.id]);
+  }, [here, holding, d.id]);
   const on = chosen && chosen.here === here ? chosen.id : openThread(r.threads, here, last);
   const at = r.threads.findIndex((t) => t.id === on);
   const toggle = (id: string) => {

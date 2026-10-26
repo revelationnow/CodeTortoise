@@ -203,8 +203,29 @@ test.describe("desktop", () => {
     await expect(bar("B")).toHaveAttribute("aria-expanded", "true");
     await rail.getByRole("link", { name: "Go to the overview" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}$`));
+    await expect(rail.getByRole("link", { name: "Go to the overview" })).toHaveAttribute("aria-current", "page");   // drawn: the address changes first
     await expect(bar("B")).toHaveAttribute("aria-expanded", "true");               // the thread opened last is B, not the C clicked before
     await expect(bar("C")).toHaveAttribute("aria-expanded", "false");
+  });
+
+  test("stepping on to another story of the same thread makes that thread the last opened, not a bar clicked on the way", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    const rail = page.locator("aside.ws-outline");
+    const bar = (L: string) => rail.getByRole("button", { name: new RegExp(`^Thread ${L}:`) });
+    await page.goto(`${base}/s/S3`);                                               // Thread B, story 1 of 2
+    await expect(bar("B")).toHaveAttribute("aria-expanded", "true");
+    await bar("A").click();                                                       // a look at A's stories, kept as the last opened…
+    await expect(bar("A")).toHaveAttribute("aria-expanded", "true");
+    await page.getByRole("link", { name: /^Next story: S5/ }).click();            // …then the story page's › to B's second story, no reload
+    await expect(page).toHaveURL(new RegExp(`${base}/s/S5$`));
+    await expect(bar("B")).toHaveAttribute("aria-expanded", "true");               // B holds S5
+    await expect(bar("A")).toHaveAttribute("aria-expanded", "false");
+    await rail.getByRole("link", { name: "Go to the overview" }).click();
+    await expect(page).toHaveURL(new RegExp(`${base}$`));
+    await expect(rail.getByRole("link", { name: "Go to the overview" })).toHaveAttribute("aria-current", "page");   // drawn: the address changes first
+    await expect(bar("B")).toHaveAttribute("aria-expanded", "true");               // the thread of the story the reader was on, not A
+    await expect(bar("A")).toHaveAttribute("aria-expanded", "false");
+    expect(await page.evaluate((k) => localStorage.getItem(k), `ct.ws.${base.split("/")[2]}.thread`)).toBe('"T2"');   // and kept so
   });
 });
 

@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { devices, expect, type Page, test } from "@playwright/test";
 import { startReview } from "./helpers";
 
 /** Long names (owner feedback 2026-10-10): nothing sticks out of its box; a one-line label that is cut short ends in
@@ -127,8 +127,8 @@ test.describe("with an AI", () => {
   });
 });
 
-test("a long thread name keeps its overview section header and its outline bar on one line, the whole name on hover (review focus 5)", async ({ page }) => {
-  const NAME = `${LONG_FN} in ${LONG_DIR.slice(0, -1)}`;
+/** The first thread's name made very long in every reading the server sends; returns the whole name as a title shows it. */
+async function longThreadName(page: Page): Promise<string> {
   await page.route("**/api/reviews/*/reading", async (route) => {
     let res: import("@playwright/test").APIResponse, j: any;
     try { res = await route.fetch(); j = await res.json(); }
@@ -136,6 +136,11 @@ test("a long thread name keeps its overview section header and its outline bar o
     j.threads[0].name = `\`${LONG_FN}\` in ${LONG_DIR.slice(0, -1)}`;
     await route.fulfill({ response: res, json: j });
   });
+  return `${LONG_FN} in ${LONG_DIR.slice(0, -1)}`;
+}
+
+test("a long thread name keeps its overview section header and its outline bar on one line, the whole name on hover (review focus 5)", async ({ page }) => {
+  const NAME = await longThreadName(page);
   const base = await startReview(page);
   await page.goto(base);
   const head = page.locator(".ov-sec-head").first(), name = page.locator(".ov-sec-name").first();
@@ -150,4 +155,24 @@ test("a long thread name keeps its overview section header and its outline bar o
   await expect(bar).toHaveAttribute("title", `Thread A: ${NAME}`);
   expect((await page.locator(".ws-rail .ws-bar").first().boundingBox())!.height).toBe(36);
   expect(await problems(page)).toEqual([]);
+});
+
+test.describe("phone", () => {
+  test.use({ viewport: devices["iPhone 13"].viewport, userAgent: devices["iPhone 13"].userAgent,
+    deviceScaleFactor: devices["iPhone 13"].deviceScaleFactor, isMobile: true, hasTouch: true });
+
+  test("a long thread name keeps its outline bar on one line at 390px, the whole name on hover, and nothing scrolls sideways (review focus 5)", async ({ page }) => {
+    const NAME = await longThreadName(page);
+    await startReview(page);                                                   // a phone opens on the contents: the outline is the page
+    await expect(page.locator("main.ws")).toHaveClass(/\bphone\b/);
+    expect(page.viewportSize()!.width).toBe(390);
+    const bar = page.locator(".ws-rail .ws-bar > button").first();
+    await expect(bar).toBeVisible();
+    expect(await oneLine(page, ".ws-rail .ws-bar .ws-one")).toEqual([]);
+    expect(await bar.locator(".ws-one").evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(true);        // cut short…
+    await expect(bar).toHaveAttribute("title", `Thread A: ${NAME}`);                                          // …with the whole name on hover
+    expect((await page.locator(".ws-rail .ws-bar").first().boundingBox())!.height).toBe(36);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    expect(await problems(page)).toEqual([]);
+  });
 });
