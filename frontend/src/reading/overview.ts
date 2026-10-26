@@ -4,15 +4,6 @@ import { causeOpen, shown } from "./causes";
 import { letter } from "./checks";
 import type { Cause, CheckKind, Connection, Mark, Reading, TestsRow, Thread } from "./types";
 
-/** "A and B: both run inside `main`", one per shown connection: the tile on a phone, where arcs do not fit. */
-export function connectionRows(threads: Thread[], conns: Connection[]): { text: string; bundled: boolean }[] {
-  const name = new Map(threads.map((t, i) => [t.id, letter(i, t.id)]));
-  return conns.filter((k) => k.shown && name.has(k.a) && name.has(k.b)).map((k) => ({
-    text: `${name.get(k.a)} and ${name.get(k.b)}: ${k.text}${k.kind === "bundled" ? " — ask the author" : ""}`,
-    bundled: k.kind === "bundled",
-  }));
-}
-
 /** "A", "A and B", "A, B and C". */
 export function listed(xs: string[]): string {
   return xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`;

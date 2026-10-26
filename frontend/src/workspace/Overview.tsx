@@ -1,55 +1,86 @@
+import { type ReactNode, useState } from "react";
 import { Link } from "react-router-dom";
-import SinkMark from "../components/SinkMark";
 import AiText, { AiName } from "../components/AiText";
+import SinkMark from "../components/SinkMark";
 import { aiTitle } from "../lib/aiMarks";
 import { setShowSinks, showSinks, sinkLine } from "../lib/sinks";
 import { causeOpen, shown } from "../reading/causes";
 import { letter } from "../reading/checks";
-import { cardText, connectionRows, testsLine } from "../reading/overview";
+import { cardText, foldTitles, overviewHeading, sectionConnections, startButton, testsLine, threadAction,
+  threadCounts } from "../reading/overview";
 import type { Reading, SinkHit, Thread } from "../reading/types";
 import { useWs } from "./context";
 import { short } from "./crumbs";
 import { plainNames } from "./names";
 import { Ticks } from "./NameText";
-import { Discussion } from "./WholePage";
+import { DiscussionThreads } from "./WholePage";
 
-/** How the threads connect (spec 2026-10-16-outline-and-causes §3): a sentence per shown connection. */
-function Connections({ r }: { r: Reading }) {
-  if (!r.threads.length) return null;
-  return (
-    <section aria-labelledby="ov-conn">
-      <h2 id="ov-conn">How the threads connect</h2>
-      {r.threads.length === 1 ? <p className="muted">One thread: all stories are connected by calls or shared data.</p>
-        : <ul className="ov-conn-rows">{connectionRows(r.threads, r.connections).map((row) => (
-            <li key={row.text} className={row.bundled ? "bundled" : ""}><Ticks text={row.text} /></li>
-          ))}</ul>}
-    </section>
-  );
+/** A thread's stories shown before "Show the other N stories" (spec 2026-10-25-review-ui-redesign §5.2). */
+const SHOWN = 4;
+
+/** One count in a thread's header bar (§5.2): the number under its column label; its word shows only on a phone, where
+ * the counts wrap under the name. A screen reader hears ", 2 stories, 3 open, 0 read". */
+function Count({ n, word, sep = false }: { n: number | string; word: string; sep?: boolean }) {
+  return <>
+    {sep && <span className="ov-sep" aria-hidden> · </span>}
+    <span className="ov-n"><span className="vh">, </span>{n}<span className="ov-w"> {word}</span></span>
+  </>;
 }
 
-/** A thread (§3): its letter and name, its introduction, how far the reader is and what is open, and a way in. */
-function ThreadBlock({ t, i, r }: { t: Thread; i: number; r: Reading }) {
+/** A thread (§5.2): a header bar with its letter, name, counts and one action; its intro; its first stories, the rest a
+ * click away; how it connects to the threads before it. */
+function ThreadSection({ t, i, r, links }: { t: Thread; i: number; r: Reading; links: { text: string; bundled: boolean }[] }) {
   const ws = useWs(), read = new Set(ws.data.ticks?.stories ?? []);
-  const L = letter(i, t.id), done = t.stories.filter((s) => read.has(s)).length;
-  const unread = t.stories.find((s) => !read.has(s)), to = unread ?? t.stories[0];
-  const open = shown(r.causes ?? [], ws.hidden).filter((c) => c.thread === t.id && causeOpen(c, r.marks)).length;
-  const meta = `${t.stories.length} stor${t.stories.length === 1 ? "y" : "ies"} · ${done} read${r.causes ? ` · ${open} cause${open === 1 ? "" : "s"} open` : ""}`;
-  const full = cardText(t).map((p) => plainNames(p.text, ws.data.names)).join("\n").replaceAll("`", "");
+  const [all, setAll] = useState(false);
+  const plain = (s: string) => plainNames(s, ws.data.names).replaceAll("`", "");
+  const L = letter(i, t.id), name = plain(t.name);
+  const n = threadCounts(t, r.causes, ws.hidden, r.marks, read), act = threadAction(t.stories, read);
+  const byId = new Map((ws.data.stories?.stories ?? []).map((st) => [st.id, st]));
+  const causes = shown(r.causes ?? [], ws.hidden);
+  const full = cardText(t).map((p) => plain(p.text)).join("\n");
+  const more = t.stories.length - SHOWN;
+  const to = (sid: string) => ws.link(ws.item({ kind: "story", sid, view: "steps" }));
   return (
-    <article className="ov-thread" id={`thread-${t.id}`} aria-label={`Thread ${L}`}>
-      <header>
-        <span className="ov-letter">{L}</span>
-        <h3><AiName ai={t.text_source === "llm"}><Ticks text={t.name} /></AiName></h3>
-      </header>
+    <section className="ov-sec" id={`thread-${t.id}`} aria-label={`Thread ${L}: ${name}`}>
+      <div className="ov-sec-head">
+        <h3 className="ov-sec-t">
+          <span className="ov-letter" aria-hidden>{L}</span>
+          <b className="ov-sec-l">Thread {L}</b><span className="vh">: </span>
+          <span className="ov-sec-name" title={name}>
+            <AiName ai={t.text_source === "llm"} title={`${aiTitle()}\n${name}`}><Ticks text={t.name} /></AiName>
+          </span>
+        </h3>
+        <span className="ov-counts">
+          <Count n={n.stories} word={n.stories === 1 ? "story" : "stories"} />
+          <Count n={n.open ?? "—"} word="open" sep />
+          <Count n={n.read} word="read" sep />
+        </span>
+        <span className="ov-act">
+          {act?.kind === "done" ? <span className="ov-done">All read ✓</span>
+            : act && <Link to={to(act.sid)} aria-label={`${act.kind === "start" ? "Start" : "Continue"} thread ${L}`}>
+                {act.kind === "start" ? "Start ›" : "Continue ›"}</Link>}
+        </span>
+      </div>
       <div className="ov-intro" title={full}>{cardText(t).map((p) => (
         <AiText key={p.text} className="ov-purpose" ai={p.ai} title={p.ai ? `${aiTitle()}\n${full}` : undefined}>
           <Ticks text={p.text} /></AiText>
       ))}</div>
-      <p className="ov-meta">{meta}</p>
-      {to && <Link to={ws.link(ws.item({ kind: "story", sid: to, view: "steps" }))}
-                   aria-label={`Go to thread ${L}'s ${unread ? "first unread" : "first"} story`}>
-        {unread ? "First unread story ›" : "First story ›"}</Link>}
-    </article>
+      {t.stories.length > 0 && <ol className="ov-stories">{(all ? t.stories : t.stories.slice(0, SHOWN)).map((sid) => {
+        const st = byId.get(sid), open = causes.filter((c) => c.story === sid && causeOpen(c, r.marks)).length;
+        return (
+          <li key={sid}>
+            <Link to={to(sid)} title={st ? plain(st.title) : undefined}>{st ? <Ticks text={st.title} /> : `Story ${sid}`}</Link>
+            {open > 0 && <span className="ov-open"><span className="vh">, </span>{open} open</span>}
+            {read.has(sid) && <span className="ov-read"><span aria-hidden>✓</span><span className="vh">, read</span></span>}
+          </li>
+        );
+      })}</ol>}
+      {more > 0 && <button className="link ov-more" aria-expanded={all} onClick={() => setAll(!all)}>
+        {all ? "Show fewer ▴" : `Show the other ${more === 1 ? "story" : `${more} stories`} ▸`}</button>}
+      {links.length > 0 && <ul className="ov-links">{links.map((k) => (
+        <li key={k.text} className={k.bundled ? "bundled" : undefined}><Ticks text={k.text} /></li>
+      ))}</ul>}
+    </section>
   );
 }
 
@@ -66,52 +97,55 @@ function SinksLine({ hits }: { hits: SinkHit[] }) {
   );
 }
 
-/** The overview (§3): the change as a whole and where to start reading, a block per thread, how they connect, then
- * what the change does to the build and what the analysis could not cover. */
+/** A folded row after the threads (§5.3): its summary a heading that says what is inside. */
+function Fold({ name, title, children }: { name: string; title: string; children: ReactNode }) {
+  return (
+    <section aria-label={name}>
+      <details className="ov-fold">
+        <summary><h2>{title}</h2></summary>
+        {children}
+      </details>
+    </section>
+  );
+}
+
+/** The overview (§5): how many threads and the change as a whole, where to start, a section per thread with its counts
+ * under one row of column labels, the tests, then Build impact, Coverage and Discussion folded. */
 export default function Overview({ r }: { r: Reading }) {
   const ws = useWs(), ss = ws.data.stories, read = new Set(ws.data.ticks?.stories ?? []);
-  const next = r.order.find((s) => !read.has(s)) ?? null, started = r.order.some((s) => read.has(s));
+  const start = startButton(r, read), folds = foldTitles(r, ws.data.comments), links = sectionConnections(r.threads, r.connections);
   const tests = r.tests?.stories[0], testsStory = tests ? ss?.stories.find((s) => s.id === tests) : null;
   return (
     <div className="ws-page"><div className="ws-text ws-whole ov3">
       <section aria-labelledby="ov-whole" className="ov-top">
-        <h2 id="ov-whole">The change as a whole</h2>
+        <h2 id="ov-whole">{overviewHeading(r.threads.length)}</h2>
         <AiText className="ws-lead" ai={r.whole_source === "llm"}><Ticks text={r.whole} /></AiText>
-        {next ? <Link className="ov-start" to={ws.link(ws.item({ kind: "story", sid: next, view: "steps" }))}>{started ? "Continue ›" : "Start here ›"}</Link>
+        {start ? <Link className="ov-start" to={ws.link(ws.item({ kind: "story", sid: start.sid, view: "steps" }))}>{start.label}</Link>
           : r.order.length > 0 && <p className="muted">You've read every story.</p>}
       </section>
-      {r.threads.length > 0 && (
-        <section aria-labelledby="ov-threads">
-          <h2 id="ov-threads">Threads</h2>
-          {r.threads.map((t, i) => <ThreadBlock key={t.id} t={t} i={i} r={r} />)}
-          {r.tests && (
-            <p className="ov-tests">{testsStory
-              ? <Link to={ws.link(ws.item({ kind: "story", sid: testsStory.id, view: "steps" }))}
-                      title={`Go to story ${testsStory.id}: ${short(testsStory.title)}`}>{testsLine(r.tests, r.threads)}</Link>
-              : testsLine(r.tests, r.threads)}</p>
-          )}
-        </section>
-      )}
-      <Connections r={r} />
-      {r.build_impact.length > 0 && (
-        <section aria-labelledby="ov-build">
-          <h2 id="ov-build">Build impact</h2>
-          <ul className="ov-lines">{r.build_impact.map((b) => (
-            <li key={b.header}><Ticks text={b.text} />{b.note && <span className="muted"> {b.note}</span>}</li>
-          ))}</ul>
-        </section>
-      )}
-      {(r.coverage.length > 0 || (r.sinks?.length ?? 0) > 0 || r.rules_only) && (
-        <section aria-labelledby="ov-cover">
-          <h2 id="ov-cover">Coverage</h2>
-          <ul className="ov-lines">
-            {r.rules_only && <li>Risks judged by rules only.</li>}
-            {r.coverage.map((c) => <li key={c}><Ticks text={c} /></li>)}
-            {(r.sinks?.length ?? 0) > 0 && <SinksLine hits={r.sinks!} />}
-          </ul>
-        </section>
-      )}
-      <Discussion />
+      {r.threads.length > 0 && <>
+        <div className="ov-cols" aria-hidden><span /><span>Stories</span><span>Open</span><span>Read</span><span /></div>
+        {r.threads.map((t, i) => <ThreadSection key={t.id} t={t} i={i} r={r} links={links.get(t.id) ?? []} />)}
+        {r.tests && (
+          <p className="ov-tests">{testsStory
+            ? <Link to={ws.link(ws.item({ kind: "story", sid: testsStory.id, view: "steps" }))}
+                    title={`Go to story ${testsStory.id}: ${short(testsStory.title)}`}>{testsLine(r.tests, r.threads)}</Link>
+            : testsLine(r.tests, r.threads)}</p>
+        )}
+      </>}
+      {folds.build && <Fold name="Build impact" title={folds.build}>
+        <ul className="ov-lines">{r.build_impact.map((b) => (
+          <li key={b.header}><Ticks text={b.text} />{b.note && <span className="muted"> {b.note}</span>}</li>
+        ))}</ul>
+      </Fold>}
+      {folds.coverage && <Fold name="Coverage" title={folds.coverage}>
+        <ul className="ov-lines">
+          {r.rules_only && <li>Risks judged by rules only.</li>}
+          {r.coverage.map((c) => <li key={c}><Ticks text={c} /></li>)}
+          {(r.sinks?.length ?? 0) > 0 && <SinksLine hits={r.sinks!} />}
+        </ul>
+      </Fold>}
+      <Fold name="Discussion" title={folds.discussion}><DiscussionThreads /></Fold>
     </div></div>
   );
 }

@@ -145,7 +145,7 @@ test.describe("desktop", () => {
     const base = await startReview(page, FOUR);
     const outline = page.locator("aside.ws-outline");
     await expect(outline.locator(".ws-thread h3").first()).toHaveText("A hal_write in hal, 0 of 2 read");
-    await expect(page.locator(".ov-meta").first()).toHaveText("2 stories · 0 read");
+    await expect(page.locator("section.ov-sec").first().locator(".ov-n")).toHaveText([", 2 stories", ", — open", ", 0 read"]);
     await outline.getByRole("button", { name: "Checks" }).click();
     await expect(outline).toContainText("Re-run the review to group its checks.");
     await page.goto(`${base}?open=cause:c0123456789&at=1`);
@@ -433,31 +433,34 @@ test.describe("a story's tabs", () => {
 test.describe("the overview", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test("the change, Start here then Continue, a block per thread and how they connect; nothing pinned beside it", async ({ page }) => {
+  test("the change, Start with Thread A then Continue, a section per thread and how they connect; nothing pinned beside it", async ({ page }) => {
     const base = await startReview(page, FOUR);
     await page.goto(base);
-    await expect(page.locator(".ov3 h2")).toHaveText(["The change as a whole", "Threads", "How the threads connect", "Build impact",
-                                                 "Coverage", "Discussion"]);
-    await expect(page.locator(".ov-thread").first().locator(".ov-meta")).toHaveText("2 stories · 0 read · 3 causes open");
-    const intro = page.locator(".ov-thread").first().locator(".ov-intro");
+    await expect(page.locator(".ov3 h2")).toHaveText(["3 threads", "Build impact · up to 4 files rebuild", "Coverage · 2 notes",
+                                                      "Discussion · no comments yet"]);
+    const a = page.getByRole("region", { name: "Thread A: hal_write in hal" });
+    await expect(a.locator(".ov-n")).toHaveText([", 2 stories", ", 3 open", ", 0 read"]);
+    const intro = a.locator(".ov-intro");
     const full = (await intro.getAttribute("title")) ?? "";
     expect(full.length).toBeGreaterThan(0);
     expect(full).toContain(((await intro.innerText()).split("\n")[0] ?? "").slice(0, 20));
     expect(full).not.toMatch(/\bN\d+\b/);
-    await expect(page.locator(".ov-conn-rows li")).toHaveText(["A and B: both run inside main",
-                                                               "B and C: nothing besides arriving in CL 104 — ask the author"]);
+    await expect(page.locator(".ov-links li")).toHaveText(["With Thread A: both run inside main",
+                                                           "With Thread B: nothing besides arriving in CL 104 — ask the author"]);
     await expect(page.getByRole("region", { name: "Coverage" })).toContainText("Risks judged by rules only.");
-    await expect(page.locator(".ov-howto, .ck-tile, .ov-progress, .ov-route, .ov2-check")).toHaveCount(0);
-    await page.getByRole("link", { name: "Start here ›" }).click();
+    await expect(page.locator(".ov-howto, .ck-tile, .ov-progress, .ov-route, .ov2-check, .ov-thread, .ov-meta, .ov-conn-rows"))
+      .toHaveCount(0);
+    await page.getByRole("link", { name: "Start with Thread A ›" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S2`));
     await page.getByRole("button", { name: "Mark as read" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S1`));
     await page.goto(base);
-    await expect(page.locator(".ov-thread").first().locator(".ov-meta")).toHaveText("2 stories · 1 read · 3 causes open");
-    await page.getByRole("link", { name: "Continue ›" }).click();
+    await expect(a.locator(".ov-n")).toHaveText([", 2 stories", ", 3 open", ", 1 read"]);
+    await expect(a.getByRole("link", { name: "Continue thread A" })).toBeVisible();
+    await page.getByRole("link", { name: "Continue ›", exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S1`));
     await page.goto(base);
-    await page.getByRole("link", { name: "Go to thread B's first unread story" }).click();
+    await page.getByRole("link", { name: "Start thread B" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S3`));
     await expectNoNodeIds(page);
     await expectNamed(page);

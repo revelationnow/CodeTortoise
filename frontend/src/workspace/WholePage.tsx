@@ -69,21 +69,29 @@ export function MapSection() {
   </>;
 }
 
-/** The review's and its layers' comment threads. */
-export function Discussion() {
+/** The review's and its layers' comment threads; the overview folds them under its Discussion row (spec
+ * 2026-10-25-review-ui-redesign §5.3). */
+export function DiscussionThreads() {
   const d = useWs().data, layerName = layerOf(d);
+  return <>
+    <Comments reviewId={d.id} comments={d.comments} kind="review" anchor={{}} onChange={d.loadComments} />
+    {[...new Set(d.comments.filter((c) => c.anchor_kind === "chapter" && c.parent_id === null)
+      .map((c) => (typeof c.anchor.level === "number" ? c.anchor.level : null)))]
+      .map((level) => (
+        <div key={String(level)} className="bd-layer-thread">
+          <div className="m">Layer {layerName(level) ?? (level === null ? "unlayered" : `L${level}`)}</div>
+          <Comments reviewId={d.id} comments={d.comments} kind="chapter" anchor={{ level }} onChange={d.loadComments} compact />
+        </div>
+      ))}
+  </>;
+}
+
+/** The Discussion section of a review run before the reading. */
+function Discussion() {
   return (
     <section aria-labelledby="ws-talk">
       <h2 id="ws-talk">Discussion</h2>
-      <Comments reviewId={d.id} comments={d.comments} kind="review" anchor={{}} onChange={d.loadComments} />
-      {[...new Set(d.comments.filter((c) => c.anchor_kind === "chapter" && c.parent_id === null)
-        .map((c) => (typeof c.anchor.level === "number" ? c.anchor.level : null)))]
-        .map((level) => (
-          <div key={String(level)} className="bd-layer-thread">
-            <div className="m">Layer {layerName(level) ?? (level === null ? "unlayered" : `L${level}`)}</div>
-            <Comments reviewId={d.id} comments={d.comments} kind="chapter" anchor={{ level }} onChange={d.loadComments} compact />
-          </div>
-        ))}
+      <DiscussionThreads />
     </section>
   );
 }

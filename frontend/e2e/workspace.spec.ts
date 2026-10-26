@@ -33,10 +33,11 @@ test.describe("desktop", () => {
   test("the overview: the change as a whole, its one thread and what to check", async ({ page }) => {
     const base = await startReview(page);
     const ov = page.locator(".ov3");
-    await expect(ov.locator("h2")).toHaveText(["The change as a whole", "Threads", "How the threads connect", "Build impact",
-                                               "Coverage", "Discussion"]);
+    await expect(ov.locator("h2")).toHaveText(["1 thread", "Build impact · up to 4 files rebuild", "Coverage · 2 notes",
+                                               "Discussion · no comments yet"]);
     await expect(ov.locator(".ws-lead")).toHaveText("One thread: hal_write in hal.");
-    await expect(ov).toContainText("One thread: all stories are connected by calls or shared data.");
+    await expect(ov.locator("section.ov-sec")).toHaveCount(1);
+    await expect(ov.locator(".ov-links")).toHaveCount(0);                    // one thread connects to nothing
     const r = await (await page.request.get(`/api/reviews/${base.split("/")[2]}/reading`)).json() as { causes: { kind: string }[] };
     const outline = page.locator("aside.ws-outline");
     await outline.getByRole("button", { name: "Checks" }).click();

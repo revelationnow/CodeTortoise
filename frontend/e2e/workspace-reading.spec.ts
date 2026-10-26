@@ -23,13 +23,13 @@ test.describe("desktop", () => {
 
   test("the overview tells the change as threads, how they connect and what to check", async ({ page }) => {
     await startReview(page, FOUR);
-    await expect(page.locator(".ov3 h2")).toHaveText(["The change as a whole", "Threads", "How the threads connect", "Build impact",
-                                                      "Coverage", "Discussion"]);
+    await expect(page.locator(".ov3 h2")).toHaveText(["3 threads", "Build impact · up to 4 files rebuild", "Coverage · 2 notes",
+                                                      "Discussion · no comments yet"]);
     await expect(page.locator(".ov3 .ws-lead")).toHaveText("3 threads: A and B: both run inside main; B and C: nothing besides arriving in CL 104.");
-    await expect(page.locator(".ov-conn-rows li")).toHaveText(["A and B: both run inside main",
-                                                               "B and C: nothing besides arriving in CL 104 — ask the author"]);
-    const threads = page.locator(".ov-thread");
-    await expect(threads.locator("h3")).toHaveText(["hal_write in hal", "logger_init in service", "svc::Engine::step in cpp"]);
+    await expect(page.locator(".ov-links li")).toHaveText(["With Thread A: both run inside main",
+                                                           "With Thread B: nothing besides arriving in CL 104 — ask the author"]);
+    const threads = page.locator("section.ov-sec");
+    await expect(threads.locator(".ov-sec-name")).toHaveText(["hal_write in hal", "logger_init in service", "svc::Engine::step in cpp"]);
     const outline = page.locator("aside.ws-outline");
     await outline.getByRole("button", { name: "Checks" }).click();
     await expect(outline.locator(".ws-thread h3")).toHaveText(["A · hal_write in hal", "C · svc::Engine::step in cpp"]);
@@ -42,17 +42,17 @@ test.describe("desktop", () => {
     await expect(page.getByRole("region", { name: "Coverage" })).toContainText("No test code found in the workspace");
     await expectNoNodeIds(page);
     await expectNamed(page);
-    await threads.first().getByRole("link", { name: "Go to thread A's first unread story" }).click();
+    await threads.first().getByRole("link", { name: "Start thread A" }).click();
     await expect(page).toHaveURL(/\/s\/S2$/);
   });
 
   test("the overview gives each thread its intro and a way into its first unread story", async ({ page }) => {
     const base = await startReview(page, FOUR);
-    const card = page.locator(".ov-thread").first();
+    const card = page.locator("section.ov-sec").first();
     await expect(card.locator(".ov-purpose")).toHaveCount(2);                            // its purpose, then the fixed intro
     await expect(card.locator(".ov-purpose").last()).toContainText("Starts with “hal_write's signature changed");
     await expect(card.locator(".ov-purpose.ai-text")).toHaveCount(0);
-    await card.getByRole("link", { name: "Go to thread A's first unread story" }).click();
+    await card.getByRole("link", { name: "Start thread A" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S2$`));
     await expectNamed(page);
   });
@@ -180,8 +180,8 @@ test.describe("phone", () => {
   test("the overview's connections are sentences and nothing scrolls sideways", async ({ page }) => {
     await startReview(page, FOUR);
     await page.getByRole("link", { name: "Go to the overview" }).click();
-    await expect(page.locator(".ov-conn-rows li")).toHaveText(["A and B: both run inside main",
-                                                               "B and C: nothing besides arriving in CL 104 — ask the author"]);
+    await expect(page.locator(".ov-links li")).toHaveText(["With Thread A: both run inside main",
+                                                           "With Thread B: nothing besides arriving in CL 104 — ask the author"]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
   });
 

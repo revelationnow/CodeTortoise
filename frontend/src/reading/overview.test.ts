@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cardText, connectionRows, foldTitles, overviewHeading, sectionConnections, startButton, testsLine, threadAction,
+import { cardText, foldTitles, overviewHeading, sectionConnections, startButton, testsLine, threadAction,
   threadCounts } from "./overview";
 import type { BuildImpact, Cause, Connection, Mark, SinkHit, TestsRow, Thread } from "./types";
 
@@ -114,16 +114,6 @@ describe("the folded rows after the threads (§5.3)", () => {
     expect(foldTitles(none, [c(null, "review"), c(null, "chapter"), c(1, "review"), c(null, "function"), c(null, "story")]).discussion)
       .toBe("Discussion · 2 comments");
     expect(foldTitles(none, [c(null, "review")]).discussion).toBe("Discussion · 1 comment");
-  });
-});
-
-describe("how the threads connect", () => {
-  it("says each shown connection as a sentence row", () => {
-    const rows = connectionRows(T, [conn("T1", "T2", "caller", true, "both run inside `main`"),
-                                    conn("T2", "T4", "bundled", true, "nothing besides arriving in CL 104"),
-                                    conn("T1", "T3", "place", false)]);
-    expect(rows).toEqual([{ text: "A and B: both run inside `main`", bundled: false },
-                          { text: "B and D: nothing besides arriving in CL 104 — ask the author", bundled: true }]);
   });
 });
 

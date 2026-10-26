@@ -44,6 +44,15 @@ export async function expectNamed(page: Page) {
   expect(unnamed).toEqual([]);
 }
 
+/** Opens one of the overview's folded rows (spec 2026-10-25-review-ui-redesign §5.3) if it is shut; returns its region. */
+export async function openFold(page: Page, name: "Build impact" | "Coverage" | "Discussion"): Promise<Locator> {
+  const region = page.getByRole("region", { name, exact: true }), fold = region.locator("details.ov-fold");
+  await expect(fold).toBeVisible();
+  if ((await fold.getAttribute("open")) === null) await region.locator("summary").click();
+  await expect(fold).toHaveAttribute("open", "");
+  return region;
+}
+
 /** The flow strip's ‹ › keep their place across flows and its row never scrolls sideways (spec §3.6, §8). */
 export async function flowStripHolds(page: Page) {
   const strip = page.getByRole("region", { name: "Flow" });

@@ -36,7 +36,7 @@ test.describe("stories formed by a strong model", () => {
 
   test("the overview's introduction is the strong model's, its AI parts edged", async ({ page }) => {
     await startReview(page);
-    const intro = page.locator(".ov-thread").first().locator(".ov-purpose");
+    const intro = page.locator("section.ov-sec").first().locator(".ov-purpose");
     await expect(intro.first()).toHaveClass(/\bai-text\b/);
     await expect(intro).toContainText("This thread changes the UART driver.");
     await expect(page.locator(".ov3 .ws-lead")).toContainText("The main risk is a caller that misses a new result.");

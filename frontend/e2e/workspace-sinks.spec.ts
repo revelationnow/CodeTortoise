@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { login, openIndex, startReview } from "./helpers";
+import { login, openFold, openIndex, startReview } from "./helpers";
 
 const SINKS = "http://127.0.0.1:8794";
 const READER = "uart_errors reads Uart::errors";
@@ -30,11 +30,13 @@ test.describe("shared sinks", () => {
     await expect(page.getByText(`Finding ${sunk.id} isn't in this review.`)).toBeVisible();
     await expect(title).toHaveCount(0);
     await page.goto(base);
+    await openFold(page, "Coverage");
     await cov.getByRole("button", { name: "Show" }).click();
     await expect(cov).toContainText(/shared sinks? shown: .*Stats::tx/);
     await page.goto(`${base}/f/${sunk.id}?details=1`);
     await expect(title).toBeVisible();
     await page.goto(base);
+    await openFold(page, "Coverage");
     await cov.getByRole("button", { name: "Hide" }).click();
     await expect(cov).toContainText(/shared sinks? hidden/);
   });
@@ -48,6 +50,7 @@ test.describe("shared sinks", () => {
     await expect(cov).toContainText("Uart::errors (marked)", { timeout: 60_000 });
     const rows = page.locator("aside.ws-outline .ws-row.cause", { hasText: READER });
     await expect(rows).toHaveCount(0);
+    await openFold(page, "Coverage");
     await cov.getByRole("button", { name: "Unmark Uart::errors" }).click();
     await expect(cov).toContainText("Unmarked — re-run to apply");
     await cov.getByRole("button", { name: "Re-run" }).click();
@@ -66,7 +69,7 @@ test.describe("shared sinks", () => {
     };
     await expect(await openDiff()).toHaveCount(0);
     await page.goto(base);
-    await page.getByRole("region", { name: "Coverage" }).getByRole("button", { name: "Show" }).click();
+    await (await openFold(page, "Coverage")).getByRole("button", { name: "Show" }).click();
     await expect((await openDiff()).first()).toContainText("writes Stats::tx");
   });
 

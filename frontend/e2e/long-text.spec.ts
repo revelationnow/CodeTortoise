@@ -126,3 +126,22 @@ test.describe("with an AI", () => {
     expect(await problems(page)).toEqual([]);
   });
 });
+
+test("a long thread name keeps its overview section header on one line, the whole name on hover (review focus 5)", async ({ page }) => {
+  const NAME = `${LONG_FN} in ${LONG_DIR.slice(0, -1)}`;
+  await page.route("**/api/reviews/*/reading", async (route) => {
+    let res: import("@playwright/test").APIResponse, j: any;
+    try { res = await route.fetch(); j = await res.json(); }
+    catch { return; }                          // the page or the test went away while it was in flight: nobody reads it
+    j.threads[0].name = `\`${LONG_FN}\` in ${LONG_DIR.slice(0, -1)}`;
+    await route.fulfill({ response: res, json: j });
+  });
+  const base = await startReview(page);
+  await page.goto(base);
+  const head = page.locator(".ov-sec-head").first(), name = page.locator(".ov-sec-name").first();
+  await expect(head).toBeVisible();
+  expect(await oneLine(page, ".ov-sec-name")).toEqual([]);
+  expect(await name.evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(true);         // cut short…
+  await expect(name).toHaveAttribute("title", NAME);                                    // …with the whole name on hover
+  expect((await head.boundingBox())!.height).toBeLessThan(50);
+});

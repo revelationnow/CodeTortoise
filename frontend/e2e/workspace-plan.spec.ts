@@ -42,8 +42,13 @@ test.describe("desktop", () => {
     await expect(page).toHaveURL(new RegExp(`${base}$`));
     await expect(page.getByText("You've read every story.")).toBeVisible();
     await expect(head).toHaveText(line(order.length));
-    const metas = page.locator(".ov-thread .ov-meta");
-    for (const m of await metas.allInnerTexts()) expect(m).toMatch(/^(\d+) stor(y|ies) · \1 read( · |$)/);
+    const secs = page.locator("section.ov-sec");
+    await expect(secs.first()).toBeVisible();
+    for (const s of await secs.all()) {
+      const [stories, , read] = (await s.locator(".ov-n").allTextContents()).map((t) => parseInt(t.replace(/\D+/g, " "), 10));
+      expect(read).toBe(stories);
+      await expect(s.locator(".ov-act")).toHaveText("All read ✓");
+    }
   });
 
   test("a failed load of the reader's ticks says so and keeps the reading plan (review M5)", async ({ page }) => {
@@ -121,6 +126,6 @@ test.describe("phone", () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
     await page.goto(base);
     await page.getByRole("link", { name: "Go to the overview" }).click();
-    await expect(page.locator(".ov-thread .ov-meta").filter({ hasText: " · 1 read" })).toHaveCount(1);   // its thread counts it
+    await expect(page.locator("section.ov-sec .ov-n").filter({ hasText: /^, 1 read$/ })).toHaveCount(1);   // its thread counts it
   });
 });
