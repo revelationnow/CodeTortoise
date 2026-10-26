@@ -1,8 +1,22 @@
-import { expect, type Locator, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import { openAiUsage, reviewMenu, startReview } from "./helpers";
+
+const AI = "http://127.0.0.1:8798";      // e2e/serve-ai.sh: CodeTortoise with the fake model in e2e/fake_llm.py
 
 /** The header's one row and its ⋯ menu (spec 2026-10-25-review-ui-redesign §2). */
 test.use({ viewport: { width: 1440, height: 900 } });
+
+/** Open uart.c's diff beside the page and start a comment thread on its new `return -2;` line; returns the thread, which
+ * keeps its presses to itself. */
+async function openThread(page: Page, base: string): Promise<Locator> {
+  await page.goto(`${base}?open=${encodeURIComponent("file://fixture/driver/uart.c")}`);
+  const file = page.getByRole("complementary", { name: "Code: uart.c" });
+  await file.getByRole("button", { name: "Stacked" }).click();
+  await file.locator(".bd-ln.a", { hasText: "return -2;" }).first().click();
+  const thread = file.locator(".bd-thread");
+  await expect(thread.getByPlaceholder("Leave a comment…")).toBeVisible();
+  return thread;
+}
 
 test("the header keeps one quiet row; the rest is in the review menu, which the keyboard walks", async ({ page }) => {
   await startReview(page);
@@ -74,16 +88,33 @@ test("Tab out of the menu closes it and leaves focus where Tab took it; Shift+Ta
 });
 
 test("a press inside a code comment thread, which keeps its presses to itself, still closes the menu", async ({ page }) => {
-  const base = await startReview(page);
-  await page.goto(`${base}?open=${encodeURIComponent("file://fixture/driver/uart.c")}`);
-  const file = page.getByRole("complementary", { name: "Code: uart.c" });
-  await file.getByRole("button", { name: "Stacked" }).click();
-  await file.locator(".bd-ln.a", { hasText: "return -2;" }).first().click();
-  const thread = file.locator(".bd-thread");
-  await expect(thread.getByPlaceholder("Leave a comment…")).toBeVisible();
+  const thread = await openThread(page, await startReview(page));
   const menu = await reviewMenu(page);
   await thread.click({ position: { x: 4, y: 6 } });                      // its padding: nothing there takes focus
   await expect(menu).toHaveCount(0);
+});
+
+test("a press inside a code comment thread, which keeps its presses to itself, still closes a panel the menu opened", async ({ page }) => {
+  const thread = await openThread(page, await startReview(page));
+  await (await reviewMenu(page)).getByRole("menuitem", { name: "How to read this page" }).click();
+  const help = page.getByRole("dialog", { name: "How to read this page" });
+  await expect(help).toBeVisible();
+  await thread.click({ position: { x: 4, y: 6 } });
+  await expect(help).toHaveCount(0);
+});
+
+test("a re-run that fails says so in a panel under the header, and nothing throws; Escape closes it and returns to ⋯", async ({ page }) => {
+  await startReview(page);
+  const thrown: string[] = [];
+  page.on("pageerror", (e) => thrown.push(e.message));
+  await page.route("**/api/reviews/*/rerun*", (route) => route.fulfill({ status: 500, json: { detail: "The runner is not accepting reviews" } }));
+  await (await reviewMenu(page)).getByRole("menuitem", { name: "Re-run", exact: true }).click();
+  const failed = page.getByRole("dialog", { name: "Re-run failed" });
+  await expect(failed).toContainText("The runner is not accepting reviews");
+  expect(thrown, "the rejected request is handled, not thrown").toEqual([]);
+  await page.keyboard.press("Escape");
+  await expect(failed).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Review menu/ })).toBeFocused();
 });
 
 test("the menu hangs 16px in from the screen's edge even when the header ends short of it, as with a wide scrollbar", async ({ page }) => {
@@ -107,6 +138,24 @@ test.describe("a tablet", () => {
     expect(await menu.evaluate(onTop)).toBe(true);
     await menu.getByRole("menuitem", { name: /^Stage notes/ }).click({ timeout: 5_000 });
     expect(await page.getByRole("dialog", { name: "Stage notes" }).evaluate(onTop)).toBe(true);
+  });
+
+  test.describe("with the outline dragged wide", () => {
+    test.use({ viewport: { width: 700, height: 900 } });
+    test("the menu stays above the outline drawer that is open over the page", async ({ page }) => {
+      await page.addInitScript(() => localStorage.setItem("ct.ws.railW", "600"));   // dragged wide, the drawer reaches under the menu
+      await startReview(page);
+      const drawer = page.locator("aside.ws-outline");
+      await page.getByRole("button", { name: "Review contents", exact: true }).click();
+      await expect.poll(async () => (await drawer.boundingBox())!.x, { message: "the drawer has slid in" }).toBe(0);
+      const menu = await reviewMenu(page);
+      const m = await menu.evaluate((el) => {                                // the middle of it is what a click would hit
+        const b = el.getBoundingClientRect(), x = b.left + b.width / 2, y = b.top + b.height / 2, hit = document.elementFromPoint(x, y);
+        return { x, drawerEnd: document.querySelector("aside.ws-outline")!.getBoundingClientRect().right, inside: !!hit && el.contains(hit) };
+      });
+      expect(m.drawerEnd, "the drawer reaches under the middle of the menu, so the stacking is tested").toBeGreaterThan(m.x);
+      expect(m.inside, "the menu is above the drawer").toBe(true);
+    });
   });
 });
 
@@ -148,7 +197,7 @@ test.describe("a short window", () => {
   });
 
   test.describe("with an AI and a tall header", () => {
-    test.use({ baseURL: "http://127.0.0.1:8798" });
+    test.use({ baseURL: AI });
 
     test("the AI usage panel ends inside the window and scrolls inside itself to its end", async ({ page }) => {
       await page.addInitScript(() => localStorage.setItem("ct.ws.headH", "200"));   // dragged taller: the panels sit lower
@@ -196,5 +245,157 @@ test.describe("a phone", () => {
     const notes = page.getByRole("dialog", { name: "Stage notes" });
     await expect(notes).toContainText(word);
     expect(await notes.evaluate(sideways), "the stage-notes panel scrolls sideways").toBeLessThanOrEqual(0);
+  });
+});
+
+/** The AI usage panel (spec 2026-10-25-review-ui-redesign §2.2), opened from ⋯ or from the pill that shows near the budget. */
+test.describe("the AI usage panel", () => {
+  test.use({ baseURL: AI, viewport: { width: 1280, height: 800 } });
+  const pill = (page: Page) => page.getByRole("button", { name: /^AI \d+\/\d+$/ });
+  const panel = (page: Page) => page.getByRole("dialog", { name: "AI usage" });
+  /** The review has used 90% of its calls, so the header shows the pill (spec §2.1), until `near.on` is set false. */
+  const nearTheBudget = async (page: Page) => {
+    const near = { on: true };
+    await page.route("**/api/reviews/*/ai", async (route) => {
+      if (route.request().method() !== "GET") return route.continue();
+      const res = await route.fetch(), j = await res.json();
+      await route.fulfill({ response: res, json: near.on ? { ...j, used: Math.ceil(j.budget * 0.9) } : j });
+    });
+    return near;
+  };
+
+  test("opened from ⋯ it takes focus; Escape and Close give it back to ⋯", async ({ page }) => {
+    await startReview(page);
+    const button = page.getByRole("button", { name: /^Review menu/ }), usage = panel(page);
+    await openAiUsage(page);
+    await expect(usage, "opening moves focus into the panel").toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(usage).toHaveCount(0);
+    await expect(button, "Escape returns focus to ⋯").toBeFocused();
+    await openAiUsage(page);
+    await expect(usage).toBeFocused();
+    await usage.getByRole("button", { name: "Close" }).click();
+    await expect(usage).toHaveCount(0);
+    await expect(button, "Close returns focus to ⋯").toBeFocused();
+  });
+
+  test("opened from the pill it takes focus; Escape and Close give it back to the pill", async ({ page }) => {
+    await nearTheBudget(page);
+    await startReview(page);
+    const usage = panel(page);
+    await pill(page).click();
+    await expect(usage, "opening moves focus into the panel").toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(usage).toHaveCount(0);
+    await expect(pill(page), "Escape returns focus to the pill").toBeFocused();
+    await pill(page).click();
+    await expect(usage).toBeFocused();
+    await usage.getByRole("button", { name: "Close" }).click();
+    await expect(usage).toHaveCount(0);
+    await expect(pill(page), "Close returns focus to the pill").toBeFocused();
+  });
+
+  test("when the budget is raised so far that the pill goes, Escape hands focus to ⋯ instead of to nothing", async ({ page }) => {
+    const near = await nearTheBudget(page);
+    await startReview(page);
+    const usage = panel(page);
+    await pill(page).click();
+    await expect(usage).toBeFocused();
+    near.on = false;                                                     // the next load of the review's AI state is far from its limit
+    await usage.getByRole("button", { name: "Raise budget", exact: true }).click();
+    await expect(pill(page)).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(usage).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^Review menu/ }), "the pill is gone, so ⋯ has focus").toBeFocused();
+  });
+
+  test("J, K and F stay off the page's Flows tab while the panel has focus", async ({ page }) => {
+    const base = await startReview(page);
+    await page.goto(`${base}/s/S1`);
+    const rows = page.locator(".fl-toggle");
+    await expect(rows).toHaveCount(2);
+    await rows.first().click();                                          // the row J, K and F act from
+    const usage = await openAiUsage(page);
+    await expect(usage).toBeFocused();
+    for (const key of ["j", "k", "f"]) {
+      await page.keyboard.press(key);
+      await expect(usage, `${key} leaves focus in the panel`).toBeFocused();
+    }
+    await expect(page.locator(".fl-toggle:focus"), "no row took focus").toHaveCount(0);
+  });
+
+  test("a press outside it closes it", async ({ page }) => {
+    await startReview(page);
+    const usage = await openAiUsage(page);
+    await page.getByRole("region", { name: "Centre" }).click({ position: { x: 5, y: 5 } });
+    await expect(usage).toHaveCount(0);
+  });
+
+  test("a press inside a code comment thread, which keeps its presses to itself, still closes it", async ({ page }) => {
+    const thread = await openThread(page, await startReview(page));
+    const usage = await openAiUsage(page);
+    await thread.click({ position: { x: 4, y: 6 } });
+    await expect(usage).toHaveCount(0);
+  });
+
+  test("it sits under the header's right end, whichever opened it", async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("ct.ws.headH", "120"));   // dragged taller: under the header is no fixed place
+    await nearTheBudget(page);
+    await startReview(page);
+    const usage = panel(page), head = page.locator(".ws-headbox");
+    const placed = async (how: string) => {
+      await expect(usage).toBeVisible();
+      const at = (await usage.boundingBox())!, bar = (await head.boundingBox())!;
+      const gap = at.y - (bar.y + bar.height);
+      expect(gap, `from ${how}, its top is under the header's bottom`).toBeGreaterThanOrEqual(0);
+      expect(gap, `from ${how}, its top is at the header's bottom`).toBeLessThanOrEqual(8);
+      expect(1280 - (at.x + at.width), `from ${how}, its right edge is 16px in from the window's`).toBeCloseTo(16, 0);
+    };
+    await openAiUsage(page);
+    await placed("⋯");
+    await page.keyboard.press("Escape");
+    await pill(page).click();
+    await placed("the pill");
+  });
+
+  test.describe("on a phone", () => {
+    test.use({ viewport: { width: 390, height: 844 } });
+
+    test("the All calls table fits inside the panel instead of running past it, whatever its cells hold", async ({ page }) => {
+      await page.route("**/api/reviews/*/ai/calls", async (route) => {         // the fixture's calls, and one whose cells hold long names
+        const res = await route.fetch(), calls = await res.json();
+        const long = { ...calls[0], id: 9001, user: "a-reviewer-with-a-long-user-name", target: "S12.flow3_with_a_long_target_name",
+                       model: "example-model-with-a-long-name-2025-09-29", prompt_tokens: 123456, completion_tokens: 7890, outcome: "refused", requests: 3 };
+        await route.fulfill({ response: res, json: [...calls, long] });
+      });
+      await startReview(page);
+      const usage = await openAiUsage(page);
+      await usage.getByText(/^All calls/).click();
+      await expect(usage.locator(".ai-calls tbody tr").nth(1), "the fixture's calls, and the long one").toBeVisible();
+      const m = await usage.evaluate((el) => {
+        const own = getComputedStyle(el), box = el.getBoundingClientRect();
+        return { table: el.querySelector(".ai-calls")!.getBoundingClientRect().right,
+                 content: box.left + el.clientLeft + el.clientWidth - parseFloat(own.paddingRight), sideways: el.scrollWidth - el.clientWidth,
+                 spilling: [...el.querySelectorAll<HTMLElement>(".ai-calls th, .ai-calls td")].filter((c) => c.scrollWidth > c.clientWidth)
+                   .map((c) => c.textContent) };
+      });
+      expect(m.table, "the table ends inside the panel's padding").toBeLessThanOrEqual(m.content + 0.5);
+      expect(m.sideways, "the panel scrolls sideways").toBeLessThanOrEqual(0);
+      expect(m.spilling, "cells whose text runs out of them into the next").toEqual([]);
+      await expect(usage.locator(".ai-calls"), "a smaller font on a phone").toHaveCSS("font-size", "11px");
+    });
+  });
+});
+
+test.describe("a window 320px tall", () => {
+  test.use({ baseURL: AI, viewport: { width: 1280, height: 320 } });
+
+  test("the ⋯ menu ends 16px above the window's bottom and scrolls inside itself to its end", async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("ct.ws.headH", "200"));   // dragged taller: the menu sits lower
+    await startReview(page);
+    const menu = await reviewMenu(page);
+    await fitsTheWindow(menu, "⋯ menu");
+    const box = (await menu.boundingBox())!;
+    expect(box.y + box.height, "the menu ends 16px above the window's bottom").toBeLessThanOrEqual(320 - 16 + 0.5);
   });
 });
