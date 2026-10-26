@@ -12,6 +12,9 @@ export function aiAvailability(v: AiView | null): { ok: boolean; detail: string 
 /** The cost on a ✦ button's hover. */
 export const callTitle = (v: AiView): string => `1 AI call · ${Math.max(0, v.budget - v.used)} left on this review`;
 
+/** The header's AI pill shows only near the review's limit (spec 2026-10-25-review-ui-redesign §2.1). */
+export const nearLimit = (v: AiView | null | undefined): boolean => !!v?.llm && v.used >= v.budget * 0.9;
+
 /** The latest job for one item. */
 export const jobFor = (v: AiView | null, kind: string, target: string): AiJob | undefined =>
   v?.jobs.filter((j) => j.kind === kind && j.target === target).at(-1);

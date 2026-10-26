@@ -111,9 +111,9 @@ describe("a check's cause", () => {
 });
 
 describe("the header's progress", () => {
-  it("counts stories read and the open causes", () => {
-    expect(progressLine(3, 9, 12, 20)).toBe("3 of 9 stories read · 12 causes open");
-    expect(progressLine(3, 9, 1, 20)).toBe("3 of 9 stories read · 1 cause open");
+  it("counts stories read and the open checks", () => {
+    expect(progressLine(3, 9, 12, 20)).toBe("3 of 9 stories read · 12 checks open");
+    expect(progressLine(3, 9, 1, 20)).toBe("3 of 9 stories read · 1 check open");
     expect(progressLine(9, 9, 0, 20)).toBe("9 of 9 stories read · every check done");
     expect(progressLine(0, 2, 0, 0)).toBe("0 of 2 stories read");
   });
