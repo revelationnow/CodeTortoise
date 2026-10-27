@@ -33,6 +33,7 @@ test.describe("on a network host name", () => {
       const bar = (await page.locator(".ws-phonebar").boundingBox())!;
       expect(bar.y).toBeGreaterThanOrEqual(0);                                             // the back bar stays on screen
       expect(bar.y + bar.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+      await expect(page.getByRole("navigation", { name: "Story sections" })).toBeVisible();   // the story has loaded: its page is what scrolls
       expect(await sideways(page)).toBeLessThanOrEqual(0);
     });
   });

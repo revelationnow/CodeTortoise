@@ -125,6 +125,7 @@ test.describe("phone", () => {
     await expect(page.locator(".ws-head .ws-progress")).toBeHidden();
     await page.getByRole("button", { name: "Mark as read" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}/s/${order[1]}$`));
+    await expect(page.getByRole("navigation", { name: "Story sections" })).toBeVisible();   // the next story has loaded: its page is what scrolls
     expect(await sideways(page)).toBeLessThanOrEqual(0);
     await page.goto(base);
     await page.getByRole("link", { name: "Go to the overview" }).click();
