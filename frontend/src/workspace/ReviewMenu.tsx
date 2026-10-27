@@ -12,6 +12,10 @@ import { setShortcutsOn, shortcutsOn } from "./shortcuts";
 
 const FRESH = "Ask the strong model for new stories instead of reusing the ones it formed for this change";
 
+/** What a stage note says after the stage's name: ": the message", or nothing for a stage with nothing to say (a degraded
+ * one can come without a word), so its name is not left with a colon after it. */
+const said = (message: string) => (message.trim() ? `: ${message}` : "");
+
 /** The header's ⋯ menu (spec 2026-10-25-review-ui-redesign §2.2): drift, stage notes, AI usage, the help, the single-key
  * shortcuts switch and the owner's re-runs, with an amber dot when the workspace drifted or a stage failed. The switch is a
  * checkbox item kept in this browser (`shortcuts.ts`): a pick flips it, closes the menu and gives focus back to ⋯. The menu
@@ -102,7 +106,7 @@ export default function ReviewMenu({ under }: { under: () => number }) {
         {panel === "notes" && (
           <div className="rm-panel" role="dialog" aria-label="Stage notes" tabIndex={-1} style={at}>
             <h2>Stage notes</h2>
-            {notes.map((s) => <div key={s.name} className={`banner ${s.status === "failed" ? "error" : "warn"}`}><strong>{s.name}</strong>: {s.message}</div>)}
+            {notes.map((s) => <div key={s.name} className={`banner ${s.status === "failed" ? "error" : "warn"}`}><strong>{s.name}</strong>{said(s.message)}</div>)}
           </div>
         )}
         {panel === "rerun" && (

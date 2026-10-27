@@ -74,6 +74,23 @@ test("a drifted workspace or a failed stage lights a dot on the menu and says wh
   await expect(button).toBeFocused();
 });
 
+test("a stage note with no message shows its name alone, with no stray colon after it", async ({ page }) => {
+  const base = await startReview(page);
+  // a stage that failed or degraded without a word to say (an empty message, or one of only spaces), and one with words; the rest are fine
+  const say: Record<string, { status: string; message: string }> = {
+    ingest: { status: "failed", message: "" }, swarm_read: { status: "degraded", message: "Swarm is down" }, diffmap: { status: "degraded", message: " \n " } };
+  await page.route(/\/api\/reviews\/\d+$/, async (route) => {
+    const res = await route.fetch(), j = await res.json();
+    j.stages = j.stages.map((s: { name: string }) => ({ ...s, ...(say[s.name] ?? { status: "ok", message: "" }) }));
+    await route.fulfill({ response: res, json: j });
+  });
+  await page.goto(base);
+  await (await reviewMenu(page)).getByRole("menuitem", { name: "Stage notes · 3" }).click();
+  const notes = page.getByRole("dialog", { name: "Stage notes" });
+  await expect(notes.locator(".banner")).toHaveText(["ingest", "swarm_read: Swarm is down", "diffmap"]);
+  await expect(notes.locator(".banner.error"), "a failed stage keeps its red edge").toHaveText(["ingest"]);
+});
+
 test("Tab out of the menu closes it and leaves focus where Tab took it; Shift+Tab back to ⋯ closes it too; Escape still returns to ⋯", async ({ page }) => {
   await startReview(page);
   const button = page.getByRole("button", { name: "Review menu" });
