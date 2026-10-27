@@ -146,16 +146,42 @@ test.describe("desktop", () => {
     await expect(line(2).locator(".ai-text")).toHaveText("Written by AI. nothing besides arriving in CL 104");
   });
 
-  test("the edge of a reworded connection runs beside every line when its words wrap", async ({ page }) => {
+  test("a reworded connection's words begin on the line of their prefix, and the edge runs beside every line they wrap to", async ({ page }) => {
     const long = "both start up from `main` once the driver is brought up and the logger is ready to take its first line, ".repeat(4);
     await patchReading(page, (r) => { r.connections[0].text_source = "llm"; r.connections[0].text = long.trim(); });
     const base = await startReview(page, FOUR);
     await page.goto(base);
-    const words = page.locator("section.ov-sec").nth(1).locator(".ov-links li .ai-text");
-    await expect(words).toHaveCount(1);
-    const lineHeight = await words.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight) || el.getBoundingClientRect().height);
-    expect((await words.boundingBox())!.height, "the words wrap").toBeGreaterThan(lineHeight * 1.5);
-    expect(await words.evaluate((el) => el.getClientRects().length), "one box, so the edge is as tall as all its lines").toBe(1);
+    const line = page.locator("section.ov-sec").nth(1).locator(".ov-links li");
+    await expect(line.locator(".ai-text")).toHaveCount(1);
+    const m = await line.evaluate((li) => {
+      const span = li.querySelector(".ai-text")!, range = document.createRange(), box = (r: DOMRect) => ({ top: r.top, bottom: r.bottom, left: r.left });
+      range.selectNodeContents(li.firstChild!);                                       // "With Thread A: ", the text before the words
+      const prefix = box(range.getClientRects()[0]);
+      const texts: DOMRect[] = [];                                                    // each line of the words themselves, not the hidden "Written by AI."
+      for (const walk = document.createTreeWalker(span, NodeFilter.SHOW_TEXT); walk.nextNode();) {
+        if (walk.currentNode.parentElement!.closest(".vh")) continue;
+        range.selectNodeContents(walk.currentNode);
+        texts.push(...range.getClientRects());
+      }
+      const style = getComputedStyle(span);
+      return {
+        prefix,
+        // a box per line the words are on; the words start this far in from its left side, which only an edge and its padding there account for
+        lines: [...span.getClientRects()].map((f) => {
+          const here = texts.filter((t) => (t.top + t.bottom) / 2 > f.top && (t.top + t.bottom) / 2 < f.bottom);
+          return { ...box(f), texts: here.length, inset: Math.min(...here.map((t) => t.left)) - f.left };
+        }),
+        edge: { width: style.borderLeftWidth, style: style.borderLeftStyle, padding: style.paddingLeft,
+                clone: style.getPropertyValue("box-decoration-break") || style.getPropertyValue("-webkit-box-decoration-break") },
+      };
+    });
+    expect(m.lines.length, "the words wrap").toBeGreaterThan(1);
+    expect(m.lines[0].top < m.prefix.bottom && m.lines[0].bottom > m.prefix.top, "the words begin on the line of With Thread A:, not below it").toBe(true);
+    m.lines.forEach((l, i) => {
+      expect(l.texts, `line ${i + 1} of the words holds some of them`).toBeGreaterThan(0);
+      expect(l.inset, `line ${i + 1}: the words sit 12px in from its left side: the 2px edge and 10px of padding, drawn again on every line`).toBeGreaterThanOrEqual(11.5);
+    });
+    expect(m.edge, "the edge repeats on every line the words wrap to").toEqual({ width: "2px", style: "solid", padding: "10px", clone: "clone" });
   });
 
   test("a thread with more than four stories shows four, and the others in place", async ({ page }) => {

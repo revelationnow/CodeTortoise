@@ -843,7 +843,7 @@ a.ws-chip { text-decoration: none; }
 .ov3 .ov-more { display: block; margin: 0 14px 10px; font-size: 13px; }
 .ov3 .ov-links { margin: 0 14px 10px; padding: 6px 0 0 18px; border-top: 1px dashed var(--line); font-size: 13px; color: var(--muted); }
 .ov3 .ov-links li.bundled { color: var(--accent); }
-.ov3 .ov-links .ai-text { display: inline-block; }   /* the model's wording of a connection: its edge runs beside every line when it wraps */
+.ov3 .ov-links .ai-text { display: inline; -webkit-box-decoration-break: clone; box-decoration-break: clone; }   /* the model's wording of a connection: it starts on the line of its prefix, and its edge runs beside every line it wraps to */
 /* Build impact, Coverage and Discussion folded (§5.3): the summary is the heading; its arrow is decoration (the empty text
    alternative after "/" keeps screen readers from reading it; a browser without it drops that declaration whole, so the plain
    one comes first and keeps the arrow) */
