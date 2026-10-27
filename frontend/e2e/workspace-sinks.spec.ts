@@ -116,4 +116,29 @@ test.describe("shared sinks", () => {
     await card.getByRole("button", { name: "Unmark Probe::flag" }).click();
     await expect(card).not.toContainText("Probe::flag");
   });
+
+  test("a list of shared sinks that will not load again after an unmark keeps its card and says so; the next load clears it", async ({ page }) => {
+    await login(page);
+    const labels = ["Probe::one", "Probe::two"];
+    for (const l of labels) await page.request.put(`/api/sinks/${encodeURIComponent(l)}`);
+    try {
+      await page.goto("/health");
+      const card = page.locator("section.card", { has: page.getByRole("heading", { name: "Shared sinks" }) });
+      await expect(card).toContainText("Probe::one");
+      const list = { refusing: true };
+      // a refusal with no words in it: what the page has to go on when the status line is empty too, as over HTTP/2
+      await page.route("**/api/sinks", (route) => list.refusing ? route.fulfill({ status: 500, json: { detail: "" } }) : route.continue());
+      await card.getByRole("button", { name: "Unmark Probe::one" }).click();
+      await expect(card.getByRole("alert")).toHaveText("The shared sinks could not be loaded.");
+      await expect(card.getByRole("heading", { name: "Shared sinks" }), "the card stays").toBeVisible();
+      const second = card.getByRole("button", { name: "Unmark Probe::two" });
+      await expect(second, "what the card showed before stays").toBeVisible();
+      list.refusing = false;
+      await second.click();
+      await expect(card).not.toContainText("Probe::");                          // the list loaded again: neither is on it
+      await expect(card.getByRole("alert"), "a later load clears the failure").toHaveCount(0);
+    } finally {
+      for (const l of labels) await page.request.delete(`/api/sinks/${encodeURIComponent(l)}`);
+    }
+  });
 });

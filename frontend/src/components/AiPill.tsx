@@ -31,6 +31,7 @@ export function Usage({ onClose, top }: { onClose: () => void; top: number }) {
   const [rounds, setRounds] = useState(String(v.per_mention));
   const [error, setError] = useState<string | null>(null);
   const [calls, setCalls] = useState<AiCall[] | null>(null);              // loaded when the list is opened
+  const [callsError, setCallsError] = useState<string | null>(null);      // why it could not be: said in place of the table
   useEffect(() => {                           // once, when it opens; a strict-mode second run finds the opener remembered
     opener.current ??= document.activeElement as HTMLElement | null;
     box.current?.focus();
@@ -83,27 +84,33 @@ export function Usage({ onClose, top }: { onClose: () => void; top: number }) {
       )}
       {error && <span className="ai-err" role="alert">{error}</span>}
       <details onToggle={(e) => {
-        if ((e.currentTarget as HTMLDetailsElement).open) api.aiCalls(ai.reviewId).then(setCalls).catch(() => setCalls([]));
+        if (!(e.currentTarget as HTMLDetailsElement).open) return;
+        setCallsError(null);                                                 // opened again, it tries again
+        api.aiCalls(ai.reviewId).then(setCalls).catch((x) => setCallsError(errorText(x, "The AI calls could not be loaded.")));
       }}>
         <summary>All calls</summary>
-        {calls === null && <p className="muted small">Loading…</p>}
-        {hasRequests(calls) && <p className="small"><a href={requestLogHref(ai.reviewId)} download>Download request log</a></p>}
-        <table className="ai-calls">
-          <thead><tr><th>Time</th><th>Who</th><th>What</th><th>Model</th><th>Tokens</th><th>Outcome</th></tr></thead>
-          <tbody>
-            {[...(calls ?? [])].reverse().map((c) => (
-              <tr key={c.id} className={c.outcome ?? ""}>
-                <td>{c.started_at.replace("T", " ").slice(5, 16)}</td><td>{c.user}</td>
-                <td>{c.purpose}{c.target ? ` ${c.target}` : ""}</td>
-                <td>{c.model ?? "–"}</td>
-                <td>{c.prompt_tokens == null ? "–" : `${c.prompt_tokens} + ${c.completion_tokens ?? 0}`}</td>
-                <td title={c.error ?? undefined}>{c.outcome ?? "running"}
-                  {c.requests > 0 && <> · <a href={requestLogHref(ai.reviewId, c.id)} download
-                                             aria-label={`Requests of call ${c.id}`}>requests</a></>}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        {callsError ? <p className="ai-err" role="alert">{callsError}</p> : (
+          <>
+            {calls === null && <p className="muted small">Loading…</p>}
+            {hasRequests(calls) && <p className="small"><a href={requestLogHref(ai.reviewId)} download>Download request log</a></p>}
+            <table className="ai-calls">
+              <thead><tr><th>Time</th><th>Who</th><th>What</th><th>Model</th><th>Tokens</th><th>Outcome</th></tr></thead>
+              <tbody>
+                {[...(calls ?? [])].reverse().map((c) => (
+                  <tr key={c.id} className={c.outcome ?? ""}>
+                    <td>{c.started_at.replace("T", " ").slice(5, 16)}</td><td>{c.user}</td>
+                    <td>{c.purpose}{c.target ? ` ${c.target}` : ""}</td>
+                    <td>{c.model ?? "–"}</td>
+                    <td>{c.prompt_tokens == null ? "–" : `${c.prompt_tokens} + ${c.completion_tokens ?? 0}`}</td>
+                    <td title={c.error ?? undefined}>{c.outcome ?? "running"}
+                      {c.requests > 0 && <> · <a href={requestLogHref(ai.reviewId, c.id)} download
+                                                 aria-label={`Requests of call ${c.id}`}>requests</a></>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
       </details>
     </div>
   );

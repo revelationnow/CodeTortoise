@@ -127,6 +127,18 @@ test.describe("desktop", () => {
     await expect(page.getByRole("main").getByText("The health checks could not be loaded.")).toBeVisible();
     await expect(page.getByRole("main").getByRole("alert")).toHaveText("The health checks could not be loaded.");
   });
+
+  test("a list of shared sinks the server will not give leaves its card on the Health page, saying so in an alert", async ({ page }) => {
+    await login(page);
+    // a refusal with no words in it: what the page has to go on when the status line is empty too, as over HTTP/2
+    await page.route("**/api/sinks", (route) => route.fulfill({ status: 500, json: { detail: "" } }));
+    await page.goto("/health");
+    const card = page.locator("section.card", { has: page.getByRole("heading", { name: "Shared sinks" }) });
+    await expect(card, "the card and its heading stay").toBeVisible();
+    await expect(card.getByText("The shared sinks could not be loaded.")).toBeVisible();
+    await expect(card.getByRole("alert")).toHaveText("The shared sinks could not be loaded.");
+    await expect(page.getByRole("heading", { name: "Health" })).toBeVisible();      // the rest of the page is there
+  });
 });
 
 test.describe("phone", () => {
