@@ -254,4 +254,5 @@ button.go:disabled { opacity: .55; }
 
 /* Shared sinks (spec 2026-10-09): the owner's mark sits after the text it marks */
 .sink-mark { margin-left: 0.4em; white-space: nowrap; }
+.sink-mark .banner { white-space: normal; }           /* the mark's own words stay on a line; a failure beside them is a sentence and wraps */
 .sink-mark code { font-size: 0.95em; }

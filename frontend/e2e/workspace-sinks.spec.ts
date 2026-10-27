@@ -117,6 +117,29 @@ test.describe("shared sinks", () => {
     await expect(card).not.toContainText("Probe::flag");
   });
 
+  test("a long failure beside a sink mark wraps on a phone: the alert shows all of it and nothing scrolls sideways", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await login(page);
+    await page.request.put(`/api/sinks/${encodeURIComponent("Probe::wide")}`);
+    try {
+      await page.goto("/health");
+      const card = page.locator("section.card", { has: page.getByRole("heading", { name: "Shared sinks" }) });
+      const unmark = card.getByRole("button", { name: "Unmark Probe::wide" });
+      await expect(unmark).toBeVisible();
+      // what a server with something to explain sends for a refused write: a sentence or two, not a word
+      const said = "The sinks file could not be written: the server has no write access to it. Ask whoever runs the server to give it write access, or edit the list there by hand, and then unmark the field again.";
+      await page.route("**/api/sinks/*", (r) => r.fulfill({ status: 500, json: { detail: said } }));
+      await unmark.click();
+      await expect(card.getByRole("alert")).toHaveText(said);
+      // the Health page scrolls in `main.page`, which `sideways` (the workspace's scrollers) does not see: measure it and the document
+      const over = await page.evaluate(() => [document.documentElement, ...document.querySelectorAll("main.page")].map((e) => e.scrollWidth - e.clientWidth));
+      expect(over, "the document and the page's one scroller were both measured").toHaveLength(2);
+      expect(Math.max(...over), "a long failure wraps, so nothing scrolls sideways").toBeLessThanOrEqual(0);
+    } finally {
+      await page.request.delete(`/api/sinks/${encodeURIComponent("Probe::wide")}`);
+    }
+  });
+
   test("a list of shared sinks that will not load again after an unmark keeps its card and says so; the next load clears it", async ({ page }) => {
     await login(page);
     const labels = ["Probe::one", "Probe::two"];
