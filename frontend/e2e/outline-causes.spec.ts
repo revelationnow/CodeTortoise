@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { barNames, expectNamed, expectNoNodeIds, hold, recordSaid, reviewMenu, setShortcuts, startReview, storyLink } from "./helpers";
+import { barNames, expectNamed, expectNoNodeIds, hold, recordSaid, reviewMenu, setShortcuts, sideways, startReview, storyLink } from "./helpers";
 
 /** The outline and checks by cause (spec 2026-10-16-outline-and-causes): fixture CLs 101–104 make three threads; with
  * Confirm hidden their causes are a caller, a result and a reader in thread A and an ask in thread C. */
@@ -663,7 +663,7 @@ test.describe("phone", () => {
     await outline.getByRole("link", { name: /^Open check: logger_flush ignores the result/ }).click();
     const sheet = page.getByRole("complementary", { name: /^Check: logger_flush ignores the result/ });
     await expect(sheet.getByRole("region", { name: "The place" })).toBeVisible();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    expect(await sideways(page)).toBeLessThanOrEqual(0);
     await sheet.getByRole("button", { name: "Looks fine & next" }).click();
     await expect(sheet.locator(".cs-done")).toHaveText("Its place is done");
     await sheet.getByRole("link", { name: "Close the check" }).click();

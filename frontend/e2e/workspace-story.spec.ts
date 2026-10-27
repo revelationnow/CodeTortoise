@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, flowStripHolds, openIndex, reviewMenu, startReview, storyLink } from "./helpers";
+import { expectNamed, expectNoNodeIds, flowStripHolds, openIndex, reviewMenu, sideways, startReview, storyLink } from "./helpers";
 
 /** A story in the workspace (spec 2026-10-04-review-workspace §3.2, §2.4). */
 
@@ -260,7 +260,7 @@ test.describe("phone", () => {
     await expect(bar).toContainText("uart.c");
     await bar.getByRole("link", { name: "Close the code" }).click();
     await expect(page.locator(".ws-centre .ws-phonebar")).toContainText("‹ Thread A");
-    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    expect(await sideways(page)).toBeLessThanOrEqual(0);
   });
 });
 

@@ -1,5 +1,5 @@
 import { type APIResponse, devices, expect, type Locator, type Page, test } from "@playwright/test";
-import { barNames, expectNamed, expectNoNodeIds, openFold, startReview } from "./helpers";
+import { barNames, expectNamed, expectNoNodeIds, openFold, sideways, startReview } from "./helpers";
 
 /** The overview's thread sections (spec 2026-10-25-review-ui-redesign §5): fixture CLs 101–104 make three threads, the
  * first two joined by a shared caller, the third only by arriving in CL 104. */
@@ -408,7 +408,7 @@ test.describe("phone", () => {
     expect(counts.y).toBeGreaterThanOrEqual(name.y + name.height - 1);
     expect((await a.locator(".ov-w").first().boundingBox())!.width).toBeGreaterThan(10);   // "stories" shows
     await expect(a.locator(".ov-sep").first()).toBeVisible();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    expect(await sideways(page)).toBeLessThanOrEqual(0);
   });
 
   test("back on the contents page the outline opens the thread of the story just read, not the bar tapped before", async ({ page }) => {

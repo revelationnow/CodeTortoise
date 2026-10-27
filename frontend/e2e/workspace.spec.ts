@@ -1,5 +1,5 @@
 import { devices, expect, test } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, openIndex, startReview, storyLink } from "./helpers";
+import { expectNamed, expectNoNodeIds, openIndex, sideways, startReview, storyLink } from "./helpers";
 
 /** The workspace shell (spec 2026-10-04-review-workspace §2): rail, breadcrumb, addresses, phone levels. */
 
@@ -148,7 +148,7 @@ test.describe("phone", () => {
     await bar.getByRole("link", { name: "Back to Thread A" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}$`));
     await expect(page.locator(".ws-rail")).toBeVisible();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    expect(await sideways(page)).toBeLessThanOrEqual(0);
   });
 
   test("#map opens the Index at its map, not the rail", async ({ page }) => {
@@ -210,6 +210,6 @@ test.describe("a large change on a phone", () => {
     await expect(page.locator(".bd-node").first()).toBeVisible();
     await expect(page.getByRole("link", { name: /^Next part:/ })).toBeVisible();
     await expect(page.getByRole("link", { name: /^Back to Map/ })).toBeVisible();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    expect(await sideways(page)).toBeLessThanOrEqual(0);
   });
 });

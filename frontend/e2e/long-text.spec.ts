@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { startReview } from "./helpers";
+import { sideways, startReview } from "./helpers";
 
 /** Long names (owner feedback 2026-10-10): nothing sticks out of its box; a one-line label that is cut short ends in
  * "…" and shows the whole text on hover. The fixture's names are made long in every answer from the server. */
@@ -178,7 +178,7 @@ test.describe("phone", () => {
     expect(await bar.locator(".ws-one").evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(true);        // cut short…
     await expect(bar).toHaveAttribute("title", `Thread A: ${NAME}`);                                          // …with the whole name on hover
     expect((await page.locator(".ws-rail .ws-bar").first().boundingBox())!.height).toBe(36);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    expect(await sideways(page)).toBeLessThanOrEqual(0);
     expect(await problems(page)).toEqual([]);
     // the overview's section headers (§5.2), the counts wrapped under each name: the same, measured on the page's own scroller
     await page.getByRole("link", { name: "Go to the overview" }).click();

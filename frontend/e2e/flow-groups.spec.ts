@@ -1,5 +1,5 @@
 import { devices, expect, test, type APIResponse, type Locator, type Page, type Route } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, explainItem, recordSaid, reviewMenu, setShortcuts, startReview } from "./helpers";
+import { expectNamed, expectNoNodeIds, explainItem, recordSaid, reviewMenu, setShortcuts, sideways, startReview } from "./helpers";
 
 const FOUR = "101 102 103 104";
 
@@ -908,24 +908,20 @@ test.describe("the Flows tab on a phone", () => {
     await expect(page.locator(".fl-row").first()).toBeVisible();
     const wrapped = () => page.locator(".fl-one").evaluateAll((els) => els.filter((e) =>
       e.getBoundingClientRect().height > 1.5 * parseFloat(getComputedStyle(e).lineHeight)).length);
-    // The page scrolls inside `.ws-page`, never the document (`main` and the centre clip), so that is what to measure; and a
-    // row is readable only when its button sits inside it and its sentence has room (`.fl-one` is nowrap: it can't wrap, it can vanish).
-    const sideways = () => page.locator(".ws-page").evaluate((e) => e.scrollWidth - e.clientWidth);
+    // A row is readable only when its button sits inside it and its sentence has room (`.fl-one` is nowrap: it can't wrap, it can vanish).
     const unreadable = () => page.locator(".fl-row").evaluateAll((rows) => rows.filter((r) => {
       const b = r.getBoundingClientRect(), t = r.querySelector(".fl-toggle")!.getBoundingClientRect(), o = r.querySelector(".fl-one")!.getBoundingClientRect();
       return t.right > b.right + 1 || o.width < 40;
     }).length);
     await expect(page.getByRole("region", { name: "Also in this story" })).toBeVisible();   // its chips are on this page
     expect(await wrapped()).toBe(0);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
     expect(await unreadable()).toBe(0);
-    expect(await sideways()).toBeLessThanOrEqual(0);
+    expect(await sideways(page)).toBeLessThanOrEqual(0);
     await page.locator(".fl-toggle").first().click();
     await expect(page.getByRole("region", { name: /^Flow 1: / })).toBeVisible();
     expect(await wrapped()).toBe(0);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
     expect(await unreadable()).toBe(0);
-    expect(await sideways()).toBeLessThanOrEqual(0);
+    expect(await sideways(page)).toBeLessThanOrEqual(0);
   });
 
   test("rows are at least 44px apart and each tick's label is as tall as its row, so a finger lands on its own row (owner decision 1)", async ({ page }) => {

@@ -93,6 +93,17 @@ export async function flowStripHolds(page: Page) {
   }
 }
 
+/** How far the page scrolls sideways at most: the largest `scrollWidth - clientWidth` over the document and over each of the workspace's
+ * scrollers on the page, `.ws-page`, `.ws-rail-scroll` and `.ws-detail-body`. In the workspace the document never scrolls (`main` and
+ * the centre clip), so the document alone measures nothing there; the overflow is on these. A scroller that clips (`overflow-x: hidden`)
+ * counts too: what it hides is still too wide. Above zero is a real overflow: fix the CSS, never the check. */
+export async function sideways(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const scrollers = [document.documentElement, ...document.querySelectorAll(".ws-page, .ws-rail-scroll, .ws-detail-body")];
+    return Math.max(...scrollers.map((e) => e.scrollWidth - e.clientWidth));
+  });
+}
+
 /** WCAG contrast ratio between an element's text colour and the first opaque background behind it. */
 export async function contrast(page: Page, selector: string) {
   return page.locator(selector).first().evaluate((el) => {

@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { expectIconsOnly, expectNamed, expectNoNodeIds, openFold, openIndex, startReview } from "./helpers";
+import { expectIconsOnly, expectNamed, expectNoNodeIds, openFold, openIndex, sideways, startReview } from "./helpers";
 
 /** The detail panel (spec 2026-10-04-review-workspace §3.7): a node's code or a file's diff, on demand. */
 
@@ -219,7 +219,7 @@ test.describe("phone", () => {
     await expect(bar).toContainText("uart.c");
     await bar.getByRole("link", { name: "Close the code" }).click();
     await expect(page.locator(".ws-detail")).toHaveCount(0);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    expect(await sideways(page)).toBeLessThanOrEqual(0);
   });
 });
 

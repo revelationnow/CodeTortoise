@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { barNames, expectNamed, expectNoNodeIds, openIndex, startReview } from "./helpers";
+import { barNames, expectNamed, expectNoNodeIds, openIndex, sideways, startReview } from "./helpers";
 
 /** A review read as threads (spec 2026-10-07-review-reading §5, §7, §13): fixture CLs 101–104 make three threads, the
  * first two joined by a shared caller, the third only by arriving in CL 104. */
@@ -188,13 +188,13 @@ test.describe("phone", () => {
     await page.getByRole("link", { name: "Go to the overview" }).click();
     await expect(page.locator(".ov-links li")).toHaveText(["With Thread A: both run inside main",
                                                            "With Thread B: nothing besides arriving in CL 104 — ask the author"]);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    expect(await sideways(page)).toBeLessThanOrEqual(0);
   });
 
   test("a story's tabs wrap on a phone", async ({ page }) => {
     const base = await startReview(page, FOUR);
     await page.goto(`${base}/s/S1`);
     await expect(page.getByRole("navigation", { name: "Story sections" })).toBeVisible();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    expect(await sideways(page)).toBeLessThanOrEqual(0);
   });
 });

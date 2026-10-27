@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { startReview, storyLink } from "./helpers";
+import { sideways, startReview, storyLink } from "./helpers";
 
 /** CLs as a sequence (spec 2026-10-07-review-reading-phase2): fixture CL 103 adds logger_init's `lg->level = 1;`,
  * CL 104 adds logger_level, CL 105 rewrites CL 103's line to `lg->level = 2;`. */
@@ -78,6 +78,6 @@ test.describe("phone", () => {
     const code = await openLogger(page, await startReview(page, STACK));
     await expect(code.locator(".cl-chip .short")).toHaveText(["105", "104"]);
     await expect(code.locator(".cl-chip .long").first()).toBeHidden();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    expect(await sideways(page)).toBeLessThanOrEqual(0);
   });
 });
