@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ApiError } from "../api";
 import type { StoryDetail } from "../board/types";
@@ -18,6 +18,7 @@ import { pickFlow } from "./flows";
 import FlowStrip from "./FlowStrip";
 import GraphView from "./graph/GraphView";
 import NameText, { Ticks } from "./NameText";
+import { bare } from "./names";
 import { MechanicalStory, TestsStory } from "./StoryBodies";
 import { StoryChecks, StoryWhy } from "./StoryPlan";
 import StorySteps from "./StorySteps";
@@ -72,7 +73,9 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
   const hasGraph = (st.kind === "behaviour" || st.kind === "other" || st.kind === "unsorted") && (!detail || !!detail.graph);
   const targets = reviewTargets(ss).length > 1 ? st.targets ?? [] : [];      // chips only when the review spans targets
   const shown = hasGraph ? view : "steps";
-  const flows = detail ? detail.board.flows.filter((f) => st.flows.includes(f.id)) : [];
+  // the same array until the story changes: the Flows tab's memos are keyed on it, and this page renders for every hover on an
+  // outline row and every mark
+  const flows = useMemo(() => (detail ? detail.board.flows.filter((f) => st.flows.includes(f.id)) : []), [detail, st.flows]);
   const open = ws.addr.open && "node" in ws.addr.open ? ws.addr.open.node : null;
   const index = pickFlow(flows, ws.addr.flow, open);
   const onFlow = (i: number) => ws.go({ ...ws.addr, flow: i + 1 }, true);
@@ -128,7 +131,7 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
   const nb = r ? storyNeighbours(r, sid) : { after: null, feeds: null };
   const titleOf = (id: string) => ss.stories.find((s) => s.id === id)?.title ?? id;
   const storyLink = (id: string) => (
-    <Link className="st-nb" to={ws.link(ws.item({ kind: "story", sid: id, view: "steps" }))} title={titleOf(id).replaceAll("`", "")}
+    <Link className="st-nb" to={ws.link(ws.item({ kind: "story", sid: id, view: "steps" }))} title={bare(titleOf(id))}
           aria-label={`Go to story ${id}: ${short(titleOf(id))}`}><Ticks text={titleOf(id)} /></Link>
   );
   const purpose = sr?.account?.find((p) => p.kind === "purpose");

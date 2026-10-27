@@ -30,7 +30,7 @@ import StoryPage from "./StoryPage";
 import { addTab, closeTab as closeOf } from "./tabs";
 import { HEAD_MIN, headMax, loadHeadH } from "./layout";
 import { indexFor, legacy } from "./legacy";
-import { plainNames } from "./names";
+import { bare, plainNames } from "./names";
 import { type ReviewData, useReview } from "./useReview";
 import WholePage, { ReviewGraph } from "./WholePage";
 import "./workspace.css";
@@ -188,7 +188,7 @@ function Head({ onMenu, drawer }: { onMenu: () => void; drawer: boolean }) {
   const next = rd && causes ? nextOpen(causes, ws.hidden, rd.marks, {
     cause: ws.addr.open && "cause" in ws.addr.open ? ws.addr.open.cause : null,
     story: ws.addr.place.kind === "story" ? ws.addr.place.sid : null, order: rd.order }) : null;
-  const nextLine = next ? plainNames(causes!.find((c) => c.id === next.cause)!.text, d.names).replaceAll("`", "") : "";
+  const nextLine = next ? bare(plainNames(causes!.find((c) => c.id === next.cause)!.text, d.names)) : "";
   return (
     <div className="ws-headbox" ref={box} style={height === null ? undefined : { height }}>
       <header className="ws-head">

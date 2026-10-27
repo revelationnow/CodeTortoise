@@ -12,7 +12,7 @@ import { cardText, foldTitles, overviewHeading, sectionConnections, startButton,
 import type { Reading, SinkHit, Thread } from "../reading/types";
 import { useWs, type Ws } from "./context";
 import { short } from "./crumbs";
-import { plainNames } from "./names";
+import { bare, plainNames } from "./names";
 import { Ticks } from "./NameText";
 import { DiscussionThreads } from "./WholePage";
 
@@ -41,7 +41,7 @@ function ThreadSection({ t, i, r, links, read, stories }: {
 }) {
   const ws = useWs();
   const [all, setAll] = useState(false);
-  const plain = (s: string) => plainNames(s, ws.data.names).replaceAll("`", "");
+  const plain = (s: string) => bare(plainNames(s, ws.data.names));
   const L = letter(i, t.id), name = plain(t.name);
   const n = threadCounts(t, r.causes, ws.hidden, r.marks, read), act = threadAction(t.stories, read);
   const paras = cardText(t), full = paras.map((p) => plain(p.text)).join("\n");

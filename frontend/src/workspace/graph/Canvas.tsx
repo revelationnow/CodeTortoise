@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { type Band, flowSets } from "../../board/layout";
 import { BAND, type Lens, type Projected, type Viewport } from "../../board/lens";
 import type { Board, BoardFlow } from "../../board/types";
+import { bare } from "../names";
 import type { GraphAction, GraphState } from "./reducer";
 
 interface Props {
@@ -252,7 +253,7 @@ export default function Canvas({ board, lens, pos, vp, bands, state, dispatch, p
                           aria-label={`Go to story ${sid}`}>{sid}</span>}
             <span className="lbl" role="button" tabIndex={0} aria-pressed={sel}
                   aria-label={sel ? `Close ${n.label}'s code` : `Open ${n.label}'s code`}>{n.label}</span>
-            {n.note && <span className="note">{n.note.replace(/`/g, "")}</span>}
+            {n.note && <span className="note">{bare(n.note)}</span>}
             {!!n.fields?.length && <span className="fields">{n.fields.map((f) => <span key={f.id}>.{f.label}</span>)}</span>}
             {n.change && <span className="stat"><b className="p">+{n.change.add}</b><b className="m">−{n.change.rem}</b></span>}
             {!n.change && n.warn > 0 && <span className="warn-dot">{n.warn}</span>}

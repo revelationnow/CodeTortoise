@@ -15,7 +15,7 @@ import FileDiff from "./FileDiff";
 import FindingBody from "./FindingBody";
 import FunctionCode from "./FunctionCode";
 import Neighbours from "./Neighbours";
-import { plainNames } from "./names";
+import { bare, plainNames } from "./names";
 import { openKey, tabLabel } from "./tabs";
 
 /** The detail panel (spec 2026-10-04-review-workspace §3.7): a node's code or a file's diff, opened on demand; on a
@@ -40,7 +40,7 @@ export default function Detail() {
   const fid = "finding" in open ? open.finding : null, finding = fid ? d.findings.find((x) => x.id === fid) ?? null : null;
   const cid = "cause" in open ? open.cause : null;
   const cause = cid ? d.reading?.causes?.find((c) => c.id === cid) ?? null : null;
-  const causeLine = cause ? plainNames(cause.text, d.names).replaceAll("`", "") : null;
+  const causeLine = cause ? bare(plainNames(cause.text, d.names)) : null;
   // a node off every board (a Neighbours row's caller or callee) is named by its neighbours (§4.3); null: no such node
   const [asked, setAsked] = useState<{ nid: string; name: NodeName | null; error?: string } | null>(null);
   useEffect(() => {
@@ -129,7 +129,7 @@ export default function Detail() {
             {ws.tabs.map((t) => {
               const on = openKey(t) === openKey(open), tname = tabLabel(t, d.names, d.reading?.causes);
               const tc = "cause" in t ? d.reading?.causes?.find((c) => c.id === t.cause) : null;
-              const ttitle = tc ? plainNames(tc.text, d.names).replaceAll("`", "") : tname;
+              const ttitle = tc ? bare(plainNames(tc.text, d.names)) : tname;
               return (
                 <li key={openKey(t)} className={`ws-ptab${on ? " on" : ""}`}>
                   <Link aria-current={on || undefined} to={ws.link(ws.opened(t))} title={`Show ${ttitle}`} aria-label={`Show ${tname}`}>{tname}</Link>
