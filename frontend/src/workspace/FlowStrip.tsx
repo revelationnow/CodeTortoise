@@ -64,7 +64,7 @@ export default function FlowStrip({ board, flows, index, onFlow, steps, hideWhat
         <div className="ws-flow-text">
           {!hideWhat && <>
             <AiText ai={flow.what_source === "llm"}><NameText text={flow.what} /></AiText>
-            <Explain kind="flow" target={flow.id} has={flow.what_source === "llm"} ask={{ kind: "flow", anchor: { id: flow.id }, onAsked: ws.data.loadComments }} />
+            <Explain key={flow.id} kind="flow" target={flow.id} has={flow.what_source === "llm"} ask={{ kind: "flow", anchor: { id: flow.id }, onAsked: ws.data.loadComments }} />
           </>}
           {steps && (
             <p className="ws-flow-steps">{flow.path.map((id, i) => {
@@ -80,7 +80,8 @@ export default function FlowStrip({ board, flows, index, onFlow, steps, hideWhat
             <NameText text={flow.effect} />
             {why && <> <AiText as="span" className="ws-flow-why"><NameText text={why} /></AiText></>}</p>
           <p className="ws-flow-check"><NameText text={flow.check} /></p>
-          <Comments reviewId={ws.data.id} comments={ws.data.comments} kind="flow" anchor={{ id: flow.id }} onChange={ws.data.loadComments} compact />
+          {/* keyed with the Explain above by the flow: ‹ › leave a refused question's or comment's failure and draft with the flow they were for */}
+          <Comments key={flow.id} reviewId={ws.data.id} comments={ws.data.comments} kind="flow" anchor={{ id: flow.id }} onChange={ws.data.loadComments} compact />
         </div>
       )}
     </section>
