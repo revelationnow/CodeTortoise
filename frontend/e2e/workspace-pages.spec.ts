@@ -120,9 +120,18 @@ test.describe("desktop", () => {
     expect.soft(Math.min(...dirs), "the Files index's directories").toBeGreaterThanOrEqual(20);
     // a review whose reading has not come keeps the old page: a section, the stories' summary box, then the map
     await noReading(page, rid);
+    // the summary and the Discussion draw first; the sections the board or the overview feed (why, the map…) draw when those answer, so
+    // slow them: the page is measured only once they have drawn, which is the same wait a slow load needs
+    await page.route((u) => /\/api\/reviews\/\d+\/(board|overview)$/.test(u.pathname), async (route) => {
+      await new Promise((later) => setTimeout(later, 1000));
+      try { await route.continue(); } catch { /* the page went away while it waited */ }
+    });
     await page.goto(base);
     await expect(page.locator(".ws-whole > .ws-summary")).toBeVisible();
-    const blocks = await gapsAbove(page, ".ws-whole > :is(section, .ws-summary)");
+    const sections = ".ws-whole > :is(section, .ws-summary)";
+    await expect.poll(async () => (await gapsAbove(page, sections)).length, { message: "the sections from the board are drawn", timeout: 15_000 })
+      .toBeGreaterThanOrEqual(4);
+    const blocks = await gapsAbove(page, sections);
     expect(blocks.length).toBeGreaterThanOrEqual(4);
     expect.soft(Math.min(...blocks), "the old whole-change page's sections and summary box").toBeGreaterThanOrEqual(20);
   });
