@@ -60,12 +60,14 @@ the fuller one.
 
 **Thread intro.** From the thread's stories, the files they touch and its open checks:
 
-> 3 stories in `driver/` and `service/` across CL 101. 2 checks open: Confirm, Result handled the old way.
+> 3 stories in `driver/` and `service/` across CL 101. Checks open: Hazard, Caller not updated.
 > Starts with “uart_send can now return -2”.
 
 - Directories: the thread's `modules` (§3.3), at most 3, then "and N more".
-- Checks: "Nothing is open." when none; otherwise the count and the distinct check kinds by their `KIND_LABEL` labels
-  (the labels the To check rows show), at most 3 then "and N more".
+- Checks: "Nothing is open." when none; otherwise `Checks open:` and the distinct check kinds open in the thread by their
+  `KIND_LABEL` labels (the labels the To check rows show), in the To check order, at most 3 then "and N more". No count
+  (the overview's Open column carries it) and no Confirm (that column hides it); a thread with only Confirm checks
+  open says "Nothing is open."
 - The first story's title, in the thread's reading order.
 
 **Route.** The threads' own order, skim threads last:

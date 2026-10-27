@@ -94,7 +94,8 @@ function ThreadSection({ t, i, r, links, read, stories }: {
 /** The shared sinks the review hid (spec 2026-10-09 §5.2), with the viewer's Show/Hide and the owner's unmark. Show is
  * kept in the browser; the page reloads so every board, story and finding list follows it. The reload starts the page
  * over with Coverage shut, so the press leaves a note in the history entry's state, which a reload keeps (the phone's
- * `page` relies on the same), and the overview opens Coverage from it. */
+ * `page` relies on the same), and the overview opens Coverage from it. Accepted: the note stays in that entry, so F5 or Back to
+ * it reopens Coverage after the reader shut it; a visit of its own (a link, the Overview link) carries no note and finds it shut. */
 function SinksLine({ hits }: { hits: SinkHit[] }) {
   const shown = showSinks(), loc = useLocation(), navigate = useNavigate();
   const flip = () => {

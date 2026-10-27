@@ -94,6 +94,7 @@ each shown only when it applies, in this order:
 | `Stage notes · N` | a stage failed or degraded | opens the notes (today's `<details>` banners) |
 | `AI calls used · X of Y` | AI is configured | opens the AI usage panel (today's pill popover) |
 | `How to read this page` | the review has a reading | opens today's `HowToRead` help |
+| `Single-key shortcuts` | the review has a reading | a checkbox item, on at first: J, K and F act on the Flows tab and in a check's stepper only while it is on (WCAG 2.1.4); kept in this browser; a pick flips it, closes the menu and returns focus to ⋯ |
 | `Re-run` | the viewer is the owner and the review is ready | as today's button |
 | `Re-run stories, fresh` | as Re-run, and a strong model is configured | as today's button, same `title` |
 
@@ -102,8 +103,9 @@ each shown only when it applies, in this order:
 - Escape or a click outside closes the menu and the panels it opened; Escape returns focus to ⋯.
 - The AI usage panel opens from the menu, from the near-limit pill, and from **Raise budget** in an Explain error
   (`ai.setUsageOpen(true)`); it renders under the header's right end whichever opened it. It takes focus when it opens;
-  Escape or Close returns focus to whatever opened it (the ⋯ button, the AI pill, or a Raise budget link), or to ⋯ when
-  that opener is gone.
+  Escape or Close returns focus to whatever opened it, where the browser focuses a clicked button (the ⋯ button, the AI
+  pill, or a Raise budget link; Safari and Firefox on macOS leave a clicked button unfocused, so there the opener it
+  records is `<body>`), or to ⋯ when that opener is gone.
 - `HowToRead` gains one line: "A faint violet line at the left of a paragraph marks text the AI wrote."
 
 ## 3. Headings
@@ -166,7 +168,9 @@ When the item allows only Ask (`askOnly`), the button is `Ask…` and opens the 
 ### 5.1 Top
 
 - An `h2` counting the threads: `5 threads`, `1 thread`; with no threads, `The change`.
-- The reading's `whole` (in edge when `whole_source === "llm"`).
+- The reading's `whole` (in edge when `whole_source === "llm"`). The rules write it as "" for one thread and when no
+  connection is shown (the heading counts the threads, each section names its own, and threads no call or data link
+  joins are separate: saying so adds nothing); the overview then draws no lead paragraph.
 - The start button: before any story is read, `Start with Thread A ›` naming the thread of the first unread story in
   reading order (`Start here ›` when that story is in no thread); once one is read, `Continue ›`; all read: "You've
   read every story." as today.
@@ -223,6 +227,10 @@ there; so does a wider window with a panel open beside the overview, or the outl
 - **Pinned bars**: bars before the open thread are `position: sticky` at the top of the outline's scroll area
   (`top: i × 36px`), bars after it at the bottom (`bottom: j × 36px`, counting from the last), so every thread stays
   one click away however long the open list is.
+- **Narrow outline**: below 240px of its width (as the reader dragged it) a bar hides the `Thread A` word and keeps the
+  letter tile, so the name keeps room; its title and accessible name still say `Thread A: …`.
+- **Focus never rests under a pinned bar** (WCAG 2.2, 2.4.11): the open thread's rows keep a scroll margin of the height
+  of the bars pinned above and below it; the Tests rows and the Index, of the bars pinned above them.
 - Tests and the Index stay at the end; the Checks view is unchanged apart from §3. On a phone the outline is the same
   inside its drawer.
 
@@ -273,8 +281,11 @@ position in the story's list, as `flow=N` addresses and the Graph tab number it.
   line (§7.7) folds the same way.
 - **Keys**, on the Flows tab, when no cause is open in the side panel and focus is not in a text field: **J** next
   row, **K** previous row (focus moves and the row scrolls into view), **Enter** opens or closes the focused row,
-  **F** marks the focused row's open places fine and moves to the next row with open places. While a cause is open in
-  the side panel, J, K and F stay the stepper's, as today. `HowToRead` lists these keys.
+  **F** marks the focused row's open places fine and moves to the next row with open places, and says `Marked fine` in a
+  polite live region once the mark has landed (a mark the server refuses shows the tab's alert instead and says nothing).
+  While a cause is open in the side panel, J, K and F stay the stepper's, as today, with the same announcement. The ⋯
+  menu's `Single-key shortcuts` switch (§2.2; on at first, kept in this browser) turns J, K and F off, here and in the
+  stepper; Enter and Space still act on the focused row. `HowToRead` lists these keys.
 - **Address**: `flow=N` opens row N, unfolds its group and scrolls it into view (today it lights a card).
 
 ### 7.4 A group's causes
@@ -282,7 +293,7 @@ position in the story's list, as `flow=N` addresses and the Graph tab number it.
 A pure function sorts the story's shown causes (hidden kinds left out) between the groups and the end line (§7.7):
 
 - `reader`: the field group whose field label equals the `field` of its places' checks; when two field groups carry the
-  same label, the one one of whose rows lands where one of the cause's checks is, else the first;
+  same label, the one of whose rows lands where one of the cause's checks is, else the first;
 - `caller`, `result`, `target`, `unanalysed`: the function group whose function is its places' checks' `related`
   (§8); on a reading without `related`, the first function group among the groups holding the cause's `flows`, taking the
   flows in order, else the end line;

@@ -233,6 +233,11 @@ Stepping onto a place ticks it read for this reader (the personal tick, as today
 `{"keys": [...]}` — any signed-in user, as the single mark; keys that are not checks of the review are a 404 and
 nothing is marked.
 
+A flow row's **Reopen** (spec 2026-10-25-review-ui-redesign §7.3) clears several places in one request:
+`POST /api/reviews/{rid}/checks/unmarks` with `{"keys": [...]}` — any signed-in user, as the single unmark; all or none,
+like the marks: a key that is not a check of the review is a 404 `NO_CHECK` and nothing is cleared. It answers
+`{"ok": true}`.
+
 ### 4.4 The outline's Checks view
 
 - At its top, **Showing: all but Confirm ▾** (§4.6).
