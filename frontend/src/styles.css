@@ -93,6 +93,7 @@ h4 { font-size: 15px; font-weight: 650; color: var(--ink); margin: 20px 0 6px; }
 .comment-head { display: flex; gap: 8px; align-items: baseline; } .comment-body { white-space: pre-wrap; }
 .thread-actions { display: flex; gap: 8px; align-items: flex-start; margin-top: 6px; }
 .composer { display: flex; gap: 8px; align-items: flex-start; margin-top: 6px; flex: 1; } .composer textarea { flex: 1; }
+.cm-err { margin-top: 4px; color: var(--bad); font-size: 12px; }
 @media (max-width: 860px) { .page { padding: 16px; } }
 @media (max-width: 600px) {
   .topbar { padding: 8px 16px; }

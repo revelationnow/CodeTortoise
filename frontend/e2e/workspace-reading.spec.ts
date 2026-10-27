@@ -91,6 +91,94 @@ test.describe("desktop", () => {
     await expect(panel.getByRole("button", { name: "Comment (1)" })).toBeVisible();
   });
 
+  /** A check's comment box on the default server's "logger_flush ignores the result" check; returns the panel. */
+  async function openCheckTalk(page: Page) {
+    await startReview(page, FOUR);
+    const outline = page.locator("aside.ws-outline");
+    await outline.getByRole("button", { name: "Checks" }).click();
+    await outline.getByRole("link", { name: /^Open check: logger_flush ignores the result/ }).click();
+    const panel = page.getByRole("complementary", { name: /^Check: logger_flush ignores the result/ });
+    await panel.getByRole("button", { name: "Comment" }).click();
+    return panel;
+  }
+  /** The server refuses every write to a comment while `refusing.on` (a comment or reply posted, a thread resolved, a comment edited
+   * or deleted), with no words in it: what the page has to go on when the status line is empty too, as over HTTP/2. */
+  async function refuseWrites(page: Page) {
+    const refusing = { on: true };
+    await page.route((u) => /\/api\/(comments\/\d+|reviews\/\d+\/comments)$/.test(u.pathname), (route) =>
+      refusing.on && route.request().method() !== "GET" ? route.fulfill({ status: 500, json: { detail: "" } }) : route.continue());
+    return refusing;
+  }
+
+  test("a comment the server refuses to post says so beside the box and keeps the draft; sent again it posts and the alert goes", async ({ page }) => {
+    const panel = await openCheckTalk(page);
+    const composer = panel.locator(".comments > .composer");               // the box for a new thread, whatever its placeholder says
+    const box = composer.getByRole("textbox"), send = composer.getByRole("button", { name: "Comment" });
+    const refusing = await refuseWrites(page);
+    await box.fill("flush should retry");
+    await send.click();
+    await expect(panel.getByRole("alert")).toHaveText("The comment could not be posted.");
+    await expect(box, "the draft stays in its box").toHaveValue("flush should retry");
+    await expect(send, "…ready to be sent again").toBeEnabled();
+    await expect(panel.locator(".thread")).toHaveCount(0);
+    refusing.on = false;
+    await send.click();
+    await expect(panel.locator(".thread")).toContainText("flush should retry");
+    await expect(panel.getByRole("alert"), "a later success clears it").toHaveCount(0);
+    await expect(box).toHaveValue("");
+  });
+
+  test("a reply, Resolve, Reopen, edit and delete the server refuses each say so beside their thread, and the draft stays", async ({ page }) => {
+    const panel = await openCheckTalk(page);
+    await panel.getByPlaceholder("Leave a comment…").fill("flush should retry");
+    await panel.locator(".comments").getByRole("button", { name: "Comment" }).click();
+    const thread = panel.locator(".thread"), comment = thread.locator(".comment");
+    await expect(thread).toContainText("flush should retry");
+    const refusing = await refuseWrites(page);
+    const aboutThread = thread.locator(":scope > [role=alert]"), aboutComment = comment.getByRole("alert");
+
+    const reply = thread.getByPlaceholder("Reply…");                       // a reply
+    await reply.fill("and log it");
+    await thread.getByRole("button", { name: "Reply", exact: true }).click();
+    await expect(aboutThread).toHaveText("The reply could not be posted.");
+    await expect(reply, "the reply stays in its box").toHaveValue("and log it");
+    await thread.getByRole("button", { name: "Resolve", exact: true }).click();    // Resolve: the thread's own line says this now
+    await expect(aboutThread).toHaveText("The thread could not be resolved.");
+    await expect(thread).not.toHaveClass(/\bresolved\b/);
+    refusing.on = false;
+    await thread.getByRole("button", { name: "Resolve", exact: true }).click();
+    await expect(thread).toHaveClass(/\bresolved\b/);
+    await expect(aboutThread, "a later success clears it").toHaveCount(0);
+    refusing.on = true;
+    await thread.getByRole("button", { name: "Reopen", exact: true }).click();
+    await expect(aboutThread).toHaveText("The thread could not be reopened.");
+    await expect(thread).toHaveClass(/\bresolved\b/);
+    refusing.on = false;
+    await thread.getByRole("button", { name: "Reopen", exact: true }).click();
+    await expect(thread).not.toHaveClass(/\bresolved\b/);
+    await expect(aboutThread).toHaveCount(0);
+
+    refusing.on = true;                                                    // an edit
+    await comment.getByRole("button", { name: "edit", exact: true }).click();
+    const edit = comment.getByRole("textbox");
+    await edit.fill("flush should retry twice");
+    await comment.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(aboutComment).toHaveText("The edit could not be saved.");
+    await expect(edit, "the edit stays in its box").toHaveValue("flush should retry twice");
+    refusing.on = false;
+    await comment.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(comment).toContainText("flush should retry twice");
+    await expect(aboutComment).toHaveCount(0);
+
+    refusing.on = true;                                                    // a delete
+    await comment.getByRole("button", { name: "delete", exact: true }).click();
+    await expect(aboutComment).toHaveText("The comment could not be deleted.");
+    await expect(comment).toContainText("flush should retry twice");
+    refusing.on = false;
+    await comment.getByRole("button", { name: "delete", exact: true }).click();
+    await expect(thread).toHaveCount(0);
+  });
+
   test("a story: its thread, what it does, its tabs, its call paths and the checks on its flows", async ({ page }) => {
     const base = await startReview(page, FOUR);
     await page.goto(`${base}/s/S2`);

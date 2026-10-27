@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { api, type AnchorKind, type Comment } from "../api";
+import { api, type AnchorKind, type Comment, errorText } from "../api";
 import { useMe } from "../App";
 import { useAi } from "../lib/ai";
 import { aiAvailability } from "../lib/aiState";
@@ -23,10 +23,29 @@ interface Props {
   autoFocus?: boolean;
 }
 
-/** All threads for one anchor plus a composer. */
+/** What a refused action says, under the thread or composer it came from: the server's own words, else the action's sentence.
+ * The next action clears it, so a success after a failure leaves nothing behind. */
+function useFailure() {
+  const [said, setSaid] = useState<string | null>(null);
+  /** Runs `act`; settles to whether it landed (never rejects). */
+  const run = (act: () => Promise<unknown>, failed: string): Promise<boolean> => {
+    setSaid(null);
+    return act().then(() => true, (e) => { setSaid(errorText(e, failed)); return false; });
+  };
+  return { said, run, clear: () => setSaid(null) };
+}
+
+/** A refusal's words; a role of alert, so a screen reader hears them where focus did not go. */
+function Failure({ said }: { said: string | null }) {
+  return said ? <div className="cm-err" role="alert">{said}</div> : null;
+}
+
+/** All threads for one anchor plus a composer. A comment, reply, Resolve, Reopen, delete or edit the server refuses says so beside
+ * the thread or composer it came from, and a draft stays in its box. */
 export default function Comments({ reviewId, comments, kind, anchor, onChange, compact, match, autoFocus }: Props) {
   const roots = comments.filter((c) => c.parent_id === null && (match ? match(c) : anchorMatches(c, kind, anchor)));
   const [open, setOpen] = useState(!compact);
+  const post = useFailure();
   if (!open && roots.length === 0)                  // a thread that arrives later (an Ask…) shows without a click
     return <button className="link small" onClick={() => setOpen(true)}>+ comment</button>;
   return (
@@ -35,23 +54,28 @@ export default function Comments({ reviewId, comments, kind, anchor, onChange, c
         <Thread key={root.id} root={root} replies={comments.filter((c) => c.parent_id === root.id)}
                 reviewId={reviewId} onChange={onChange} />
       ))}
-      <Composer onSubmit={(body) => api.addComment(reviewId, body, kind, anchor).then(onChange)} autoFocus={autoFocus}
-                placeholder={roots.length ? "Start another thread…" : "Leave a comment…"} />
+      <Composer onSubmit={(body) => post.run(() => api.addComment(reviewId, body, kind, anchor).then(onChange), "The comment could not be posted.")}
+                autoFocus={autoFocus} placeholder={roots.length ? "Start another thread…" : "Leave a comment…"} />
+      <Failure said={post.said} />
     </div>
   );
 }
 
 function Thread({ root, replies, reviewId, onChange }: { root: Comment; replies: Comment[]; reviewId: number; onChange: () => void }) {
+  const act = useFailure();                          // a reply, Resolve or Reopen that was refused
   return (
     <div className={`thread ${root.resolved ? "resolved" : ""}`}>
       {[root, ...replies].map((c) => <CommentView key={c.id} c={c} onChange={onChange} />)}
       <div className="thread-actions">
         <Composer small placeholder="Reply…"
-                  onSubmit={(body) => api.addComment(reviewId, body, root.anchor_kind, root.anchor, root.id).then(onChange)} />
-        <button className="link small" onClick={() => api.patchComment(root.id, { resolved: !root.resolved }).then(onChange)}>
+                  onSubmit={(body) => act.run(() => api.addComment(reviewId, body, root.anchor_kind, root.anchor, root.id).then(onChange),
+                                              "The reply could not be posted.")} />
+        <button className="link small" onClick={() => act.run(() => api.patchComment(root.id, { resolved: !root.resolved }).then(onChange),
+                                                               `The thread could not be ${root.resolved ? "reopened" : "resolved"}.`)}>
           {root.resolved ? "Reopen" : "Resolve"}
         </button>
       </div>
+      <Failure said={act.said} />
     </div>
   );
 }
@@ -59,6 +83,7 @@ function Thread({ root, replies, reviewId, onChange }: { root: Comment; replies:
 function CommentView({ c, onChange }: { c: Comment; onChange: () => void }) {
   const me = useMe();
   const usage = useAi();
+  const act = useFailure();                          // a delete or an edit that was refused
   const [editing, setEditing] = useState(false);
   const [body, setBody] = useState(c.body);
   const ai = c.author === TORTOISE;
@@ -72,15 +97,16 @@ function CommentView({ c, onChange }: { c: Comment; onChange: () => void }) {
         <span className="muted small">{c.created_at.replace("T", " ").slice(0, 16)}{c.edited_at ? " (edited)" : ""}</span>
         {mine && !editing && <button className="link small" onClick={() => setEditing(true)}>edit</button>}
         {(mine || me?.is_owner) && (
-          <button className="link small" onClick={() => api.deleteComment(c.id).then(onChange)}>delete</button>
+          <button className="link small" onClick={() => act.run(() => api.deleteComment(c.id).then(onChange), "The comment could not be deleted.")}>delete</button>
         )}
       </div>
       {editing ? (
         <div className="stack">
           <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={3} />
           <div>
-            <button onClick={() => api.patchComment(c.id, { body }).then(() => { setEditing(false); onChange(); })}>Save</button>
-            <button className="link" onClick={() => setEditing(false)}>Cancel</button>
+            <button onClick={() => act.run(() => api.patchComment(c.id, { body }).then(() => { setEditing(false); onChange(); }),
+                                           "The edit could not be saved.")}>Save</button>
+            <button className="link" onClick={() => { act.clear(); setEditing(false); }}>Cancel</button>
           </div>
         </div>
       ) : meta?.pending ? (
@@ -93,12 +119,14 @@ function CommentView({ c, onChange }: { c: Comment; onChange: () => void }) {
       {ai && me?.is_owner && usage && /review has used its/.test(meta?.error ?? "") && (
         <button className="link small" onClick={() => usage.setUsageOpen(true)}>Raise budget</button>
       )}
+      <Failure said={act.said} />
     </div>
   );
 }
 
+/** `onSubmit` settles to whether the text went: the draft stays in its box when it did not. */
 function Composer({ onSubmit, placeholder, small, autoFocus }:
-  { onSubmit: (body: string) => Promise<unknown>; placeholder: string; small?: boolean; autoFocus?: boolean }) {
+  { onSubmit: (body: string) => Promise<boolean>; placeholder: string; small?: boolean; autoFocus?: boolean }) {
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   return (
@@ -106,7 +134,7 @@ function Composer({ onSubmit, placeholder, small, autoFocus }:
       e.preventDefault();
       if (!body.trim()) return;
       setBusy(true);
-      onSubmit(body.trim()).then(() => setBody("")).finally(() => setBusy(false));
+      onSubmit(body.trim()).then((sent) => { if (sent) setBody(""); }).finally(() => setBusy(false));
     }}>
       <MentionBox rows={small ? 1 : 2} value={body} placeholder={placeholder} autoFocus={autoFocus} onChange={setBody} />
       <button disabled={busy || !body.trim()}>{small ? "Reply" : "Comment"}</button>
