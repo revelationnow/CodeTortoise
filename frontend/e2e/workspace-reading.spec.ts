@@ -1,4 +1,4 @@
-import { devices, expect, type Page, test } from "@playwright/test";
+import { devices, expect, type Locator, type Page, test } from "@playwright/test";
 import { barNames, expectNamed, expectNoNodeIds, openIndex, sideways, startReview } from "./helpers";
 
 /** A review read as threads (spec 2026-10-07-review-reading §5, §7, §13): fixture CLs 101–104 make three threads, the
@@ -184,6 +184,34 @@ test.describe("desktop", () => {
     refusing.on = false;
     await comment.getByRole("button", { name: "delete", exact: true }).click();
     await expect(thread).toHaveCount(0);
+  });
+
+  test("a resolved thread fades its own words but not its failures: a refused Reopen and a refused delete read at full strength", async ({ page }) => {
+    const panel = await openCheckTalk(page);
+    await panel.getByPlaceholder("Leave a comment…").fill("flush should retry");
+    await panel.locator(".comments").getByRole("button", { name: "Comment" }).click();
+    const thread = panel.locator(".thread"), comment = thread.locator(".comment");
+    await thread.getByRole("button", { name: "Resolve", exact: true }).click();
+    await expect(thread).toHaveClass(/\bresolved\b/);
+    /** How much of its colour an element shows: the product of its own opacity and its ancestors'. */
+    const shown = (el: Locator) => el.evaluate((node) => {
+      let o = 1;
+      for (let e: Element | null = node; e; e = e.parentElement) o *= Number(getComputedStyle(e).opacity);
+      return o;
+    });
+    const words = comment.locator(".comment-body"), reopen = thread.getByRole("button", { name: "Reopen", exact: true });
+    expect(await shown(words), "a resolved thread fades its words").toBe(0.6);
+    expect(await shown(reopen), "…and its buttons").toBe(0.6);
+    await refuseWrites(page);
+    await reopen.click();
+    const aboutThread = thread.locator(":scope > [role=alert]"), aboutComment = comment.getByRole("alert");
+    await expect(aboutThread).toHaveText("The thread could not be reopened.");
+    expect(await shown(aboutThread), "a refused Reopen reads at full strength").toBe(1);
+    await comment.getByRole("button", { name: "delete", exact: true }).click();
+    await expect(aboutComment).toHaveText("The comment could not be deleted.");
+    expect(await shown(aboutComment), "so does a refused delete").toBe(1);
+    expect(await shown(words), "the words stay faded beside them").toBe(0.6);
+    expect(await shown(reopen), "…and the buttons").toBe(0.6);
   });
 
   test("a story: its thread, what it does, its tabs, its call paths and the checks on its flows", async ({ page }) => {

@@ -89,7 +89,9 @@ h4 { font-size: 15px; font-weight: 650; color: var(--ink); margin: 20px 0 6px; }
 .diff tr.gap td { background: var(--gap-bg); color: var(--muted); text-align: center; }
 .diff .sign { color: var(--muted); margin-right: 6px; }
 .comments { margin-top: 8px; } .thread { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 6px 0; background: var(--bg); }
-.thread.resolved { opacity: .6; } .comment + .comment { border-top: 1px dashed var(--line); margin-top: 6px; padding-top: 6px; }
+/* a resolved thread fades its comments and buttons, one level at a time so nothing fades twice, and not a failure (.cm-err) in it */
+.thread.resolved > :not(.cm-err):not(.comment), .thread.resolved > .comment > :not(.cm-err) { opacity: .6; }
+.comment + .comment { border-top: 1px dashed var(--line); margin-top: 6px; padding-top: 6px; }
 .comment-head { display: flex; gap: 8px; align-items: baseline; } .comment-body { white-space: pre-wrap; }
 .thread-actions { display: flex; gap: 8px; align-items: flex-start; margin-top: 6px; }
 .composer { display: flex; gap: 8px; align-items: flex-start; margin-top: 6px; flex: 1; } .composer textarea { flex: 1; }
