@@ -17,7 +17,7 @@
   `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` and `Claude-Session: https://claude.ai/code/session_01M17gxTwmjM6Qhg9xMppJuH`.
 - Backend tests: from `backend/`, `env PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest -q -p no:cacheprovider tests`; lint `../../../backend/.venv/bin/ruff check codetortoise tests`. Never use `uv`.
 - Frontend: from `frontend/`, `npx vitest run`, `npx tsc -b --noEmit`, `npm run build` (the e2e servers serve `frontend/dist`: rebuild before every e2e run).
-- e2e: `TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD="env PYTHONPATH=<worktree>/backend $(cd ../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test …` (create `.pwtmp` first, delete it when done).
+- e2e: `TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD="env PYTHONPATH=<worktree>/backend $(cd ../../../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test …` (create `.pwtmp` first, delete it when done).
 - Storage keys (spec): `ct.ws.outline` (`"stories"` | `"checks"`, default `"stories"`), `ct.ws.hiddenKinds` (list of kinds, default `["confirm"]`), `ct.ws.railFolded` (kept). Removed: `ct.ws.checkFolded`, `ct.ws.checkW`. Every storage read and write in try/catch (`board/prefs.ts` `load`/`save` already are).
 - Addresses (spec): `?open=cause:<id>&at=<n>` (1-based), story section `?sec=` (`contracts`, `where`, `paths`, `code`, `talk`; `flows` is the default and left out), the Graph tab is the existing `?view=graph`.
 - Cause id: `"c" + sha1("<kind>|<workspace-relative file>::<qualified function name>|<subject>").hexdigest()[:10]`; rows group by the changed function's node id, not its name.
@@ -1651,7 +1651,7 @@ test.describe("desktop", () => {
 
 - [ ] **Step 8: Build and run the e2e test**
 
-Run: `cd frontend && npx tsc -b --noEmit && npm run build && mkdir -p $(git rev-parse --show-toplevel)/.pwtmp && TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test e2e/outline-causes.spec.ts`
+Run: `cd frontend && npx tsc -b --noEmit && npm run build && mkdir -p $(git rev-parse --show-toplevel)/.pwtmp && TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../../../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test e2e/outline-causes.spec.ts`
 Expected: 3 passed.
 
 - [ ] **Step 9: Commit**
@@ -1989,7 +1989,7 @@ test.describe("an unknown check", () => {
 
 - [ ] **Step 8: Build and run**
 
-Run: `cd frontend && npx vitest run && npx tsc -b --noEmit && npm run build && TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test e2e/outline-causes.spec.ts`
+Run: `cd frontend && npx vitest run && npx tsc -b --noEmit && npm run build && TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../../../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test e2e/outline-causes.spec.ts`
 Expected: all pass (6 tests).
 
 - [ ] **Step 9: Commit**
@@ -2068,7 +2068,7 @@ test.describe("the top bar", () => {
 
 - [ ] **Step 2: Build and run them to see them fail**
 
-Run: `cd frontend && npm run build && TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test e2e/outline-causes.spec.ts -g "top bar"`
+Run: `cd frontend && npm run build && TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../../../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test e2e/outline-causes.spec.ts -g "top bar"`
 Expected: FAIL (the progress line reads `… · 0 of 6 checks`; no "Next open check"; no help button).
 
 - [ ] **Step 3: Create `frontend/src/workspace/HowToRead.tsx`**
@@ -2163,7 +2163,7 @@ Append to `frontend/src/workspace/workspace.css`:
 
 - [ ] **Step 6: Build and run**
 
-Run: `cd frontend && npx tsc -b --noEmit && npm run build && TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test e2e/outline-causes.spec.ts`
+Run: `cd frontend && npx tsc -b --noEmit && npm run build && TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../../../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test e2e/outline-causes.spec.ts`
 Expected: all pass.
 
 - [ ] **Step 7: Commit**
@@ -2577,7 +2577,7 @@ test.describe("a story's tabs", () => {
 
 - [ ] **Step 8: Build and run**
 
-Run: `cd frontend && npx vitest run && npx tsc -b --noEmit && npm run build && TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test e2e/outline-causes.spec.ts`
+Run: `cd frontend && npx vitest run && npx tsc -b --noEmit && npm run build && TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../../../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test e2e/outline-causes.spec.ts`
 Expected: all pass. (`workspace-reading.spec.ts` and other old specs fail until Task 13.)
 
 - [ ] **Step 9: Commit**
@@ -2640,7 +2640,7 @@ test.describe("the overview", () => {
 
 - [ ] **Step 2: Build and run it to see it fail**
 
-Run: `cd frontend && npm run build && TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test e2e/outline-causes.spec.ts -g "the overview"`
+Run: `cd frontend && npm run build && TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../../../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test e2e/outline-causes.spec.ts -g "the overview"`
 Expected: FAIL (the headings start with "How to read this page").
 
 - [ ] **Step 3: Rebuild `frontend/src/workspace/Overview.tsx`**
@@ -2773,7 +2773,7 @@ Append to `frontend/src/workspace/workspace.css`:
 
 - [ ] **Step 6: Build and run**
 
-Run: `cd frontend && npx vitest run && npx tsc -b --noEmit && npm run build && TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test e2e/outline-causes.spec.ts`
+Run: `cd frontend && npx vitest run && npx tsc -b --noEmit && npm run build && TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../../../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test e2e/outline-causes.spec.ts`
 Expected: all pass.
 
 - [ ] **Step 7: Commit**
@@ -2885,7 +2885,7 @@ cd frontend && for c in $(grep -oE '^\.[a-z0-9-]+' src/workspace/workspace.css |
 
 - [ ] **Step 5: Run everything that builds**
 
-Run: `cd frontend && npx vitest run && npx tsc -b --noEmit && npm run build && TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test e2e/outline-causes.spec.ts`
+Run: `cd frontend && npx vitest run && npx tsc -b --noEmit && npm run build && TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../../../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test e2e/outline-causes.spec.ts`
 Expected: vitest and tsc pass; `outline-causes.spec.ts` all pass.
 
 - [ ] **Step 6: Commit**
@@ -3189,7 +3189,7 @@ test("the overview fills the centre", async ({ page }) => {
 
 - [ ] **Step 4: Run every e2e spec**
 
-Run: `cd frontend && npm run build && TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test --workers=4 > $CLAUDE_JOB_DIR/tmp/e2e.txt 2>&1; tail -40 $CLAUDE_JOB_DIR/tmp/e2e.txt`
+Run: `cd frontend && npm run build && TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../../../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test --workers=4 > $CLAUDE_JOB_DIR/tmp/e2e.txt 2>&1; tail -40 $CLAUDE_JOB_DIR/tmp/e2e.txt`
 Expected: all pass. A `startReview` timeout under load that passes when the one spec is run again alone is the known flake; anything else is a real failure to fix.
 
 - [ ] **Step 5: Commit**
@@ -3289,7 +3289,7 @@ In `frontend/e2e/long-text.spec.ts`, inside "long names stay inside their boxes 
 
 - [ ] **Step 2: Build and run the new and long-text specs**
 
-Run: `cd frontend && npm run build && TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test e2e/outline-causes.spec.ts e2e/long-text.spec.ts`
+Run: `cd frontend && npm run build && TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../../../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test e2e/outline-causes.spec.ts e2e/long-text.spec.ts`
 Expected: all pass. A failure from `problems` names the element that sticks out or is cut without a hover text: give it the one-line rule (`overflow: hidden; text-overflow: ellipsis; white-space: nowrap` plus a `title` on it or an ancestor) or let it wrap (`overflow-wrap: anywhere`), in `workspace.css`, and run again.
 
 - [ ] **Step 3: The whole suite**
@@ -3300,7 +3300,7 @@ Run:
 cd backend && env PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest -q -p no:cacheprovider tests > $CLAUDE_JOB_DIR/tmp/py.txt 2>&1; tail -3 $CLAUDE_JOB_DIR/tmp/py.txt
 ../../../backend/.venv/bin/ruff check codetortoise tests
 cd ../frontend && npx vitest run && npx tsc -b --noEmit && npx eslint src e2e && npm run build
-TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test --workers=4 > $CLAUDE_JOB_DIR/tmp/e2e.txt 2>&1; tail -20 $CLAUDE_JOB_DIR/tmp/e2e.txt
+TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../../../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test --workers=4 > $CLAUDE_JOB_DIR/tmp/e2e.txt 2>&1; tail -20 $CLAUDE_JOB_DIR/tmp/e2e.txt
 rm -rf $(git rev-parse --show-toplevel)/.pwtmp
 ```
 

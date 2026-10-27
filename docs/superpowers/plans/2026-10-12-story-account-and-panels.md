@@ -27,12 +27,12 @@ Run backend commands from `backend/`, frontend ones from `frontend/`:
 
 ```bash
 # backend/
-export PYTEST="env PYTHONPATH=$PWD .venv/bin/python -m pytest -q -p no:cacheprovider"
-export RUFF=".venv/bin/ruff check codetortoise tests"
+export PYTEST="env PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest -q -p no:cacheprovider"
+export RUFF="../../../backend/.venv/bin/ruff check codetortoise tests"
 # frontend/  (once, before the first frontend task: the worktree shares main's node_modules)
 [ -e node_modules ] || ln -s ../../../frontend/node_modules node_modules
 mkdir -p $(git rev-parse --show-toplevel)/.pwtmp
-export E2E="env TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD='env PYTHONPATH=$(cd ../backend && pwd) $(cd ../backend && pwd)/.venv/bin/python -m codetortoise.cli' npx playwright test"
+export E2E="env TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD='env PYTHONPATH=$(cd ../backend && pwd) $(cd ../../../backend && pwd)/.venv/bin/python -m codetortoise.cli' npx playwright test"
 ```
 
 e2e runs need `npm run build` first. `startReview` can time out at 60 s when the whole suite runs at once: rerun a test that failed that way on its own before treating it as a failure. Remove `$(git rev-parse --show-toplevel)/.pwtmp` after the last e2e run, and remove the `frontend/node_modules` symlink before any `git worktree remove`.
