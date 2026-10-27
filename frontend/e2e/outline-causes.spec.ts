@@ -398,6 +398,23 @@ test.describe("a cause of many places", () => {
     await expect(panel.locator(".cs-pos")).toHaveText("1 / 5");
   });
 
+  test("a Reopen the server refuses without a word says that the check was not reopened, not that a mark was refused", async ({ page }) => {
+    const panel = await openReaders(page);
+    await expect(panel.locator(".cs-pos")).toHaveText("1 / 5");
+    await page.keyboard.press("f");                                       // place 1 is marked fine and the stepper moves on
+    await expect(panel.locator(".cs-pos")).toHaveText("2 / 5");
+    await panel.getByRole("button", { name: "Previous place" }).click();  // back to the done place, which offers Reopen, not Looks fine
+    await expect(panel.locator(".cs-pos")).toHaveText("1 / 5");
+    // a refusal with no words in it: what the page has to go on when the status line is empty too, as over HTTP/2
+    await page.route((u) => u.pathname.endsWith("/mark"), (route) =>
+      route.request().method() === "DELETE" ? route.fulfill({ status: 500, json: { detail: "" } }) : route.continue());
+    await panel.getByRole("button", { name: "Reopen", exact: true }).click();
+    await expect(panel.locator(".banner.warn")).toHaveText("The server did not reopen the check.");
+    await expect(panel.getByRole("alert"), "a screen reader is told of the refusal").toHaveText("The server did not reopen the check.");
+    await expect(panel.locator(".ck-mark"), "the place is still marked fine").toBeVisible();
+    await expect(panel.getByRole("button", { name: "Reopen", exact: true })).toBeEnabled();
+  });
+
   test("a failed Looks fine's banner goes when the reader steps to another place", async ({ page }) => {
     await holdMarks(page, "fail");
     const panel = await openReaders(page);

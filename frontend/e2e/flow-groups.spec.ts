@@ -590,6 +590,24 @@ test.describe("the Flows tab", () => {
     expect(await marked(page, base)).toEqual(before);
   });
 
+  test("a Reopen the server refuses without a word says that the checks were not reopened, not that a mark was refused", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const tick = page.getByRole("checkbox", { name: "Looks fine: logger_flush ignores -2" });
+    await page.locator(".fl-toggle").first().click();
+    const card = page.getByRole("region", { name: /^Flow 1: / });
+    await card.getByRole("button", { name: "Looks fine", exact: true }).click();
+    await expect(tick).toBeChecked();
+    await marksDone(page);
+    // a refusal with no words in it: what the page has to go on when the status line is empty too, as over HTTP/2
+    await page.route((u) => u.pathname.endsWith("/checks/unmarks"), (route) => route.fulfill({ status: 500, json: { detail: "" } }));
+    await card.getByRole("button", { name: "Reopen", exact: true }).click();
+    await expect(page.locator(".st-flows .banner.warn")).toHaveText("The server did not reopen these checks.");
+    await expect(page.locator(".st-flows").getByRole("alert"), "a screen reader is told of the refusal").toHaveText("The server did not reopen these checks.");
+    await marksDone(page);
+    await expect(tick, "the row still reads done").toBeChecked();
+  });
+
   test("a J pressed the moment the rows show is heard, not lost to the next paint", async ({ page }) => {
     const base = await startReview(page, FOUR);
     await page.addInitScript(() => {
