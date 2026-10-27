@@ -74,6 +74,7 @@ export async function storyLink(page: Page, name: RegExp): Promise<Locator> {
   await expect(bars.or(link).first()).toBeVisible({ timeout: 60_000 });
   if (await link.isVisible()) return link;
   const n = await bars.count();
+  if (!n) return link;                                  // the bars are gone (the outline drew again) and the loop below would only spin: the caller's own wait on the link decides
   for (const end = Date.now() + 60_000; Date.now() < end;) {
     for (let i = 0; i < n; i++) {
       const bar = bars.nth(i);
