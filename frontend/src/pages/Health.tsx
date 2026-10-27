@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type Health as HealthT, type SinkRules } from "../api";
+import { api, errorText, type Health as HealthT, type SinkRules } from "../api";
 import SinkMark from "../components/SinkMark";
 
 export default function Health() {
@@ -9,7 +9,7 @@ export default function Health() {
   const loadSinks = () => api.sinks().then(setSinks).catch(() => setSinks(null));
   const load = () => {
     loadSinks();
-    return api.health().then(setH).catch((e) => setError(String(e.message ?? e)));
+    return api.health().then(setH).catch((e) => setError(errorText(e, "The health checks could not be loaded.")));
   };
   useEffect(() => { load(); }, []);
 

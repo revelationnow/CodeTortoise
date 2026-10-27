@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { api } from "../api";
+import { api, errorText } from "../api";
 import Logo from "../components/Logo";
 
 export default function Login({ onLogin }: { onLogin: () => Promise<unknown> }) {
@@ -20,7 +20,7 @@ export default function Login({ onLogin }: { onLogin: () => Promise<unknown> }) 
       await onLogin();
       navigate(params.get("next") || "/");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorText(err, "You could not be signed in."));
     } finally {
       setBusy(false);
     }

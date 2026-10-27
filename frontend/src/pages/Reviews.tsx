@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, type ReviewRow } from "../api";
+import { api, errorText, type ReviewRow } from "../api";
 import { useMe } from "../App";
 import HeadlinePill from "../components/HeadlinePill";
 import Logo from "../components/Logo";
@@ -20,7 +20,7 @@ export default function Reviews() {
 
   useEffect(() => {
     let stop = false;
-    const load = () => api.reviews().then((r) => { if (!stop) setRows(r); }).catch((e) => setError(String(e.message ?? e)));
+    const load = () => api.reviews().then((r) => { if (!stop) setRows(r); }).catch((e) => setError(errorText(e, "The reviews could not be loaded.")));
     load();
     return () => { stop = true; };
   }, []);
@@ -102,7 +102,7 @@ function StartReview() {
       const r = await api.createReview(cls, title.trim() || undefined);
       navigate(`/r/${r.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorText(err, "The review could not be started."));
       setBusy(false);
     }
   }

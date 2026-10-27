@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { keys, loadWidth, save } from "../board/prefs";
 import Resizer from "../board/Resizer";
-import { api, ApiError, type NodeName } from "../api";
+import { api, ApiError, errorText, type NodeName } from "../api";
 import type { Board, StoryDetail } from "../board/types";
 import { SeverityBadge } from "../components/Badges";
 import { tidy } from "../lib/tidy";
@@ -47,7 +47,7 @@ export default function Detail() {
     if (!nid || known) return;
     let live = true;
     api.neighbours(d.id, nid, 1).then((m) => { if (live) setAsked({ nid, name: m.node }); }, (e) => {
-      if (live) setAsked({ nid, name: null, error: e instanceof ApiError && e.status === 404 ? undefined : String(e.message ?? e) });
+      if (live) setAsked({ nid, name: null, error: e instanceof ApiError && e.status === 404 ? undefined : errorText(e, "The node could not be loaded.") });
     });
     return () => { live = false; };
   }, [nid, known, d.id]);

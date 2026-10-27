@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ApiError } from "../api";
+import { errorText } from "../api";
 import type { StoryDetail } from "../board/types";
 import Comments from "../components/Comments";
 import Explain from "../components/Explain";
@@ -39,7 +39,7 @@ function MarkRead({ sid, order }: { sid: string; order: string[] }) {
       const next = nextUnread(order, new Set([...d.ticks!.stories, sid]), sid);
       if (next) ws.go(ws.item({ kind: "story", sid: next, view: "steps" }));
       else navigate(ws.link(addressAt({ kind: "whole" })), { state: { page: true } });
-    }).catch((e) => setError(String(e.message ?? e))).finally(() => setBusy(false));
+    }).catch((e) => setError(errorText(e, `The story could not be marked as ${on ? "read" : "unread"}.`))).finally(() => setBusy(false));
   };
   return (
     <span className="st-read">
@@ -62,7 +62,7 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
   useEffect(() => {
     let live = true;
     story(sid).then((x) => { if (live) { setHeld({ sid, detail: x }); setError(null); } })
-      .catch((e) => { if (live) setError(e instanceof ApiError && e.status === 404 ? e.message : String(e.message ?? e)); });
+      .catch((e) => { if (live) setError(errorText(e, "The story could not be loaded.")); });
     return () => { live = false; };
   }, [story, sid]);
   const detail = held?.sid === sid ? held.detail : null;

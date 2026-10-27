@@ -482,6 +482,17 @@ test.describe("the AI usage panel", () => {
     await expect(page.getByRole("button", { name: /^Review menu/ }), "the pill is gone, so ⋯ has focus").toBeFocused();
   });
 
+  test("a budget or a count of rounds the server refuses without saying why still says something", async ({ page }) => {
+    await startReview(page);
+    // an error with no words in it: what the page has to go on when the status line is empty too, as over HTTP/2
+    await page.route((u) => /\/ai\/(budget|rounds)$/.test(u.pathname), (route) => route.fulfill({ status: 500, json: { detail: "" } }));
+    const usage = await openAiUsage(page);
+    await usage.getByRole("button", { name: "Raise budget", exact: true }).click();
+    await expect(usage.locator(".ai-err")).toHaveText("The budget could not be saved.");
+    await usage.getByRole("button", { name: "Set rounds", exact: true }).click();
+    await expect(usage.locator(".ai-err")).toHaveText("The rounds could not be saved.");
+  });
+
   test("J, K and F stay off the page's Flows tab while the panel has focus", async ({ page }) => {
     const base = await startReview(page);
     await page.goto(`${base}/s/S1`);

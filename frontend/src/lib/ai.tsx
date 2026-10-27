@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { api, ApiError, type AiJob, type AiKind, type AiView } from "../api";
+import { api, ApiError, type AiJob, type AiKind, type AiView, errorText } from "../api";
 import { finished } from "./aiState";
 import { pollLoop } from "./poll";
 
@@ -49,7 +49,7 @@ export function useAiState(reviewId: number, enabled: boolean, people: string[],
     try {
       await api.explain(reviewId, kind, target);
     } catch (e) {
-      const error = e instanceof Error ? e.message : String(e);
+      const error = errorText(e, "The AI call could not be started.");
       setAsked((a) => ({ ...a, [key]: { error, refused: e instanceof ApiError && e.status === 429 } }));
     }
     await refresh();

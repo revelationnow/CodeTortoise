@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { type AiKind, type AnchorKind, api } from "../api";
+import { type AiKind, type AnchorKind, api, errorText } from "../api";
 import { useAi } from "../lib/ai";
 import { aiAvailability, callTitle, jobFor } from "../lib/aiState";
 import { useMenu } from "../lib/useMenu";
@@ -51,7 +51,7 @@ export default function Explain({ kind, target, has, label = "Explain", ask, ask
         setSent("Asked: the answer comes in this item's thread.");
         ask.onAsked();
       })
-      .catch((x) => setSent(String(x.message ?? x)));
+      .catch((x) => setSent(errorText(x, "The question could not be sent.")));
   };
   const job = jobFor(ai.view, kind, target);
   const running = job?.status === "running";

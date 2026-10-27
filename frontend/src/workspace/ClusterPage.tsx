@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type Board } from "../api";
+import { api, type Board, errorText } from "../api";
 import { stepCluster } from "../board/overview";
 import { counted } from "../lib/tidy";
 import { useWs } from "./context";
@@ -18,7 +18,7 @@ export default function ClusterPage({ cid }: { cid: string }) {
   useEffect(() => {
     let live = true;
     api.board(d.id, cid).then((b) => { if (live) { setBoard(b); setError(null); } })
-      .catch((e) => { if (live) setError(String(e.message ?? e)); });
+      .catch((e) => { if (live) setError(errorText(e, "The part could not be loaded.")); });
     return () => { live = false; };
   }, [d.id, cid, d.reload]);
   const c = ov.clusters.find((x) => x.id === cid)!;

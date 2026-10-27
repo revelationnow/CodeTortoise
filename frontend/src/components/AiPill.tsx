@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type AiCall } from "../api";
+import { api, type AiCall, errorText } from "../api";
 import { useAi } from "../lib/ai";
 import { nearLimit } from "../lib/aiState";
 import { holdsFocus } from "../lib/focus";
@@ -63,7 +63,7 @@ export function Usage({ onClose, top }: { onClose: () => void; top: number }) {
         <form className="ai-raise" onSubmit={(e) => {
           e.preventDefault();
           setError(null);
-          api.raiseBudget(ai.reviewId, Number(total)).then(ai.refresh).catch((x) => setError(String(x.message ?? x)));
+          api.raiseBudget(ai.reviewId, Number(total)).then(ai.refresh).catch((x) => setError(errorText(x, "The budget could not be saved.")));
         }}>
           <label>Raise budget to <input type="number" min={1} value={total} aria-label="New budget"
                                         onChange={(e) => setTotal(e.target.value)} /></label>
@@ -74,7 +74,7 @@ export function Usage({ onClose, top }: { onClose: () => void; top: number }) {
         <form className="ai-raise" onSubmit={(e) => {
           e.preventDefault();
           setError(null);
-          api.setRounds(ai.reviewId, Number(rounds)).then(ai.refresh).catch((x) => setError(String(x.message ?? x)));
+          api.setRounds(ai.reviewId, Number(rounds)).then(ai.refresh).catch((x) => setError(errorText(x, "The rounds could not be saved.")));
         }}>
           <label>Rounds per answer <input type="number" min={1} max={50} value={rounds} aria-label="Rounds per @tortoise answer"
                                           onChange={(e) => setRounds(e.target.value)} /></label>
