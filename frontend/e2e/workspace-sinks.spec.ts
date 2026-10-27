@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { login, openFold, openIndex, SINKS, startReview } from "./helpers";
+import { hold, login, openFold, openIndex, SINKS, startReview } from "./helpers";
 
 const READER = "uart_errors reads Uart::errors";
 
@@ -80,7 +80,28 @@ test.describe("shared sinks", () => {
                                                       body: JSON.stringify({ detail: "a run is already in progress" }) }));
       await row.getByRole("button", { name: "Re-run" }).click();
       await expect(row).toContainText("a run is already in progress");
+      await expect(row.getByRole("alert"), "a screen reader is told of the refusal").toHaveText("a run is already in progress");
       await expect(row.getByRole("button", { name: "Re-run" })).toBeEnabled();
+    } finally {
+      await page.request.delete(`/api/sinks/${encodeURIComponent("Uart::errors")}`);
+    }
+  });
+
+  test("a mark the server refuses says so; pressed again, the old failure is gone while it waits, and a success leaves none beside it", async ({ page }) => {
+    const row = await openReader(page);
+    try {
+      // a refusal with no words in it: what the page has to go on when the status line is empty too, as over HTTP/2
+      await page.route("**/api/sinks/*", (r) => r.fulfill({ status: 500, json: { detail: "" } }));
+      const treat = row.getByRole("button", { name: "Treat Uart::errors as a sink" });
+      await treat.click();
+      await expect(row.getByRole("alert")).toHaveText("The field could not be marked as a sink.");
+      const waiting = await hold(page, "**/api/sinks/*");                    // the server takes it this time, but not yet
+      await treat.click();
+      await waiting.held;
+      await expect(row.getByRole("alert"), "a new attempt clears the last failure at once").toHaveCount(0);
+      waiting.release();
+      await expect(row).toContainText("Marked — re-run to apply");
+      await expect(row.getByRole("alert"), "a success leaves no old failure beside it").toHaveCount(0);
     } finally {
       await page.request.delete(`/api/sinks/${encodeURIComponent("Uart::errors")}`);
     }
@@ -94,5 +115,53 @@ test.describe("shared sinks", () => {
     await expect(card).toContainText("Probe::flag");
     await card.getByRole("button", { name: "Unmark Probe::flag" }).click();
     await expect(card).not.toContainText("Probe::flag");
+  });
+
+  test("a long failure beside a sink mark wraps on a phone: the alert shows all of it and nothing scrolls sideways", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await login(page);
+    await page.request.put(`/api/sinks/${encodeURIComponent("Probe::wide")}`);
+    try {
+      await page.goto("/health");
+      const card = page.locator("section.card", { has: page.getByRole("heading", { name: "Shared sinks" }) });
+      const unmark = card.getByRole("button", { name: "Unmark Probe::wide" });
+      await expect(unmark).toBeVisible();
+      // what a server with something to explain sends for a refused write: a sentence or two, not a word
+      const said = "The sinks file could not be written: the server has no write access to it. Ask whoever runs the server to give it write access, or edit the list there by hand, and then unmark the field again.";
+      await page.route("**/api/sinks/*", (r) => r.fulfill({ status: 500, json: { detail: said } }));
+      await unmark.click();
+      await expect(card.getByRole("alert")).toHaveText(said);
+      // the Health page scrolls in `main.page`, which `sideways` (the workspace's scrollers) does not see: measure it and the document
+      const over = await page.evaluate(() => [document.documentElement, ...document.querySelectorAll("main.page")].map((e) => e.scrollWidth - e.clientWidth));
+      expect(over, "the document and the page's one scroller were both measured").toHaveLength(2);
+      expect(Math.max(...over), "a long failure wraps, so nothing scrolls sideways").toBeLessThanOrEqual(0);
+    } finally {
+      await page.request.delete(`/api/sinks/${encodeURIComponent("Probe::wide")}`);
+    }
+  });
+
+  test("a list of shared sinks that will not load again after an unmark keeps its card and says so; the next load clears it", async ({ page }) => {
+    await login(page);
+    const labels = ["Probe::one", "Probe::two"];
+    for (const l of labels) await page.request.put(`/api/sinks/${encodeURIComponent(l)}`);
+    try {
+      await page.goto("/health");
+      const card = page.locator("section.card", { has: page.getByRole("heading", { name: "Shared sinks" }) });
+      await expect(card).toContainText("Probe::one");
+      const list = { refusing: true };
+      // a refusal with no words in it: what the page has to go on when the status line is empty too, as over HTTP/2
+      await page.route("**/api/sinks", (route) => list.refusing ? route.fulfill({ status: 500, json: { detail: "" } }) : route.continue());
+      await card.getByRole("button", { name: "Unmark Probe::one" }).click();
+      await expect(card.getByRole("alert")).toHaveText("The shared sinks could not be loaded.");
+      await expect(card.getByRole("heading", { name: "Shared sinks" }), "the card stays").toBeVisible();
+      const second = card.getByRole("button", { name: "Unmark Probe::two" });
+      await expect(second, "what the card showed before stays").toBeVisible();
+      list.refusing = false;
+      await second.click();
+      await expect(card).not.toContainText("Probe::");                          // the list loaded again: neither is on it
+      await expect(card.getByRole("alert"), "a later load clears the failure").toHaveCount(0);
+    } finally {
+      for (const l of labels) await page.request.delete(`/api/sinks/${encodeURIComponent(l)}`);
+    }
   });
 });

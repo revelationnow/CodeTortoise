@@ -54,6 +54,24 @@ test.describe("desktop", () => {
     await expect(head.locator(".bd-pill.high")).toHaveCount(0);
   });
 
+  test("a review the server will not give says so in an alert, inside the page's main landmark", async ({ page }) => {
+    const base = await startReview(page);
+    // a refusal with no words in it: what the page has to go on when the status line is empty too, as over HTTP/2
+    await page.route((u) => u.pathname === `/api${base.replace("/r/", "/reviews/")}`, (route) => route.fulfill({ status: 500, json: { detail: "" } }));
+    await page.goto(base);
+    await expect(page.getByRole("main").getByText("The review could not be loaded.")).toBeVisible();
+    await expect(page.getByRole("main").getByRole("alert")).toHaveText("The review could not be loaded.");
+  });
+
+  test("a story the server will not give says so in an alert beside its header", async ({ page }) => {
+    const base = await startReview(page);
+    await page.route(`**/api${base.replace("/r/", "/reviews/")}/stories/S1`, (route) => route.fulfill({ status: 500, json: { detail: "" } }));
+    await page.goto(`${base}/s/S1`);
+    await expect(page.locator(".ws-centre").getByText("The story could not be loaded.")).toBeVisible();
+    await expect(page.locator(".ws-centre").getByRole("alert")).toHaveText("The story could not be loaded.");
+    await expect(page.locator(".ws-centre h2").first()).toBeVisible();
+  });
+
   test("an address to something that does not exist says so", async ({ page }) => {
     const base = await startReview(page);
     await page.goto(`${base}/s/S9`);
@@ -162,6 +180,17 @@ test.describe("phone", () => {
 
 test.describe("a large change", () => {
   test.use({ baseURL: LARGE, viewport: { width: 1440, height: 900 } });
+
+  test("a part the server will not give says so in an alert", async ({ page }) => {
+    const base = await startReview(page, "201 202"), rid = base.split("/")[2];
+    const overview = await (await page.request.get(`/api/reviews/${rid}/overview`)).json() as { clusters: { id: string }[] };
+    // a refusal with no words in it: what the page has to go on when the status line is empty too, as over HTTP/2
+    await page.route((u) => u.pathname === `/api/reviews/${rid}/board` && u.searchParams.has("cluster"), (route) =>
+      route.fulfill({ status: 500, json: { detail: "" } }));
+    await page.goto(`${base}/c/${overview.clusters[0].id}`);
+    await expect(page.locator(".ws-centre").getByText("The part could not be loaded.")).toBeVisible();
+    await expect(page.locator(".ws-centre").getByRole("alert")).toHaveText("The part could not be loaded.");
+  });
 
   test("the Index maps the change's parts; a part opens its page", async ({ page }) => {
     const base = await startReview(page, "201 202");

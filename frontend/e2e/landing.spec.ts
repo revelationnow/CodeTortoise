@@ -67,6 +67,78 @@ test.describe("desktop", () => {
     await expect(page.locator(".login-card svg")).toBeVisible();
     await expect(page.locator(".login-card").getByLabel("P4 user")).toBeVisible();
   });
+
+  test("a sign-in the server refuses says why in an alert; with no words it says that it could not sign in", async ({ page }) => {
+    await page.goto("/login");
+    const card = page.locator(".login-card");
+    await page.route("**/api/login", (route) => route.fulfill({ status: 401, json: { detail: "wrong password" } }));
+    await card.getByLabel("P4 user").fill("demo");
+    await card.getByRole("button", { name: "Sign in" }).click();
+    await expect(card.getByText("wrong password")).toBeVisible();
+    await expect(card.getByRole("alert"), "a screen reader is told of the refusal").toHaveText("wrong password");
+    // a refusal with no words in it: what the page has to go on when the status line is empty too, as over HTTP/2
+    await page.route("**/api/login", (route) => route.fulfill({ status: 500, json: { detail: "" } }));
+    await card.getByRole("button", { name: "Sign in" }).click();
+    await expect(card.getByText("You could not be signed in.")).toBeVisible();
+    await expect(card.getByRole("alert")).toHaveText("You could not be signed in.");
+  });
+
+  test("a list of reviews the server will not give, and a review it will not start, are told in alerts", async ({ page }) => {
+    await login(page);
+    // refusals with no words in them: what the page has to go on when the status line is empty too, as over HTTP/2
+    await page.route("**/api/reviews", (route) => route.fulfill({ status: 500, json: { detail: "" } }));
+    await page.reload();
+    await expect(page.locator(".rv-main").getByText("The reviews could not be loaded.")).toBeVisible();
+    await expect(page.locator(".rv-main").getByRole("alert")).toHaveText("The reviews could not be loaded.");
+    await page.getByLabel("Changelists (shelved or submitted)").fill("101");
+    await page.getByRole("button", { name: "Start review" }).click();
+    await expect(page.locator(".rv-hello").getByText("The review could not be started.")).toBeVisible();
+    await expect(page.locator(".rv-hello").getByRole("alert")).toHaveText("The review could not be started.");
+  });
+
+  test("a start the server refuses again is told again: the old refusal goes while the new attempt waits, and an identical one comes back", async ({ page }) => {
+    await login(page);
+    // refusals with no words in them: what the page has to go on when the status line is empty too, as over HTTP/2
+    await page.route("**/api/reviews", (route) =>
+      route.request().method() === "POST" ? route.fulfill({ status: 500, json: { detail: "" } }) : route.fallback());
+    const hello = page.locator(".rv-hello");
+    await page.getByLabel("Changelists (shelved or submitted)").fill("101");
+    await page.getByRole("button", { name: "Start review" }).click();
+    await expect(hello.getByRole("alert")).toHaveText("The review could not be started.");
+    let asked = () => {}, answer = () => {};                                 // the same refusal again, once the server has been asked
+    const waiting = new Promise<void>((r) => { asked = r; }), gate = new Promise<void>((r) => { answer = r; });
+    await page.route("**/api/reviews", async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      asked();
+      await gate;
+      await route.fulfill({ status: 500, json: { detail: "" } });
+    });
+    await page.getByRole("button", { name: "Start review" }).click();
+    await waiting;
+    await expect(hello.getByRole("alert"), "a new attempt clears the last refusal at once").toHaveCount(0);
+    answer();
+    await expect(hello.getByRole("alert"), "an identical refusal is announced anew").toHaveText("The review could not be started.");
+  });
+
+  test("a Health page the server will not give says so in an alert, inside the page's main landmark", async ({ page }) => {
+    await login(page);
+    await page.route("**/api/health", (route) => route.fulfill({ status: 500, json: { detail: "" } }));
+    await page.goto("/health");
+    await expect(page.getByRole("main").getByText("The health checks could not be loaded.")).toBeVisible();
+    await expect(page.getByRole("main").getByRole("alert")).toHaveText("The health checks could not be loaded.");
+  });
+
+  test("a list of shared sinks the server will not give leaves its card on the Health page, saying so in an alert", async ({ page }) => {
+    await login(page);
+    // a refusal with no words in it: what the page has to go on when the status line is empty too, as over HTTP/2
+    await page.route("**/api/sinks", (route) => route.fulfill({ status: 500, json: { detail: "" } }));
+    await page.goto("/health");
+    const card = page.locator("section.card", { has: page.getByRole("heading", { name: "Shared sinks" }) });
+    await expect(card, "the card and its heading stay").toBeVisible();
+    await expect(card.getByText("The shared sinks could not be loaded.")).toBeVisible();
+    await expect(card.getByRole("alert")).toHaveText("The shared sinks could not be loaded.");
+    await expect(page.getByRole("heading", { name: "Health" })).toBeVisible();      // the rest of the page is there
+  });
 });
 
 test.describe("phone", () => {

@@ -12,15 +12,18 @@ export default function SinkMark({ label, on = false, onDone }: { label: string;
   const [error, setError] = useState<string | null>(null);
   if (!me?.is_owner) return null;
   const fail = (what: string) => (e: unknown) => setError(errorText(e, what));     // `what`: said when the server says nothing
-  const act = () => (on ? api.unmarkSink(label) : api.markSink(label))
-    .then(() => { setDone(true); onDone?.(); }, fail(`The field could not be ${on ? "unmarked" : "marked"} as a sink.`));
+  const act = () => {
+    setError(null);                                // a new attempt clears the last failure, so a repeat is told again
+    return (on ? api.unmarkSink(label) : api.markSink(label))
+      .then(() => { setDone(true); onDone?.(); }, fail(`The field could not be ${on ? "unmarked" : "marked"} as a sink.`));
+  };
   const rerun = () => {
     if (!ws) return;
     setBusy(true);
     setError(null);
     api.rerun(ws.data.id).then(ws.data.loadDetail).catch(fail("The server did not accept the re-run.")).finally(() => setBusy(false));
   };
-  const warn = error && <span className="banner warn">{error}</span>;
+  const warn = error && <span className="banner warn" role="alert">{error}</span>;
   if (done)
     return (
       <span className="sink-mark">{on ? "Unmarked" : "Marked"} — re-run to apply

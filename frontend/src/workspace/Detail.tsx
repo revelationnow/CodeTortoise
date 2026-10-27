@@ -47,7 +47,7 @@ export default function Detail() {
     if (!nid || known) return;
     let live = true;
     api.neighbours(d.id, nid, 1).then((m) => { if (live) setAsked({ nid, name: m.node }); }, (e) => {
-      if (live) setAsked({ nid, name: null, error: e instanceof ApiError && e.status === 404 ? undefined : errorText(e, "The node could not be loaded.") });
+      if (live) setAsked({ nid, name: null, error: e instanceof ApiError && e.status === 404 ? undefined : errorText(e, "This function could not be loaded.") });
     });
     return () => { live = false; };
   }, [nid, known, d.id]);
@@ -102,7 +102,7 @@ export default function Detail() {
           <h2 className="ws-panel-title"><SeverityBadge severity={finding.severity} /> {tidy(finding.title)}</h2>} /></div>
       : <div className="banner warn">Finding {fid} isn't in this review. <Link to={ws.link(at({ kind: "index", tab: "findings" }))}>All findings</Link></div>;
     if (nid && !name && !node && !off) return <div className="bd-note">Finding this function…</div>;
-    if (nid && !name && !node && off?.error) return <div className="bd-note error">{off.error}</div>;
+    if (nid && !name && !node && off?.error) return <div className="bd-note error" role="alert">{off.error}</div>;
     if (nid && !name && !node)
       return <div className="banner warn">This function isn't in this review. <Link to={ws.link(at({ kind: "whole" }))}>Whole change</Link></div>;
     if (waiting) return <div className="bd-note">Fetching {label}'s code…</div>;

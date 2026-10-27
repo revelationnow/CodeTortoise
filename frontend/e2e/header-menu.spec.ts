@@ -74,6 +74,23 @@ test("a drifted workspace or a failed stage lights a dot on the menu and says wh
   await expect(button).toBeFocused();
 });
 
+test("a stage note with no message shows its name alone, with no stray colon after it", async ({ page }) => {
+  const base = await startReview(page);
+  // a stage that failed or degraded without a word to say (an empty message, or one of only spaces), and one with words; the rest are fine
+  const say: Record<string, { status: string; message: string }> = {
+    ingest: { status: "failed", message: "" }, swarm_read: { status: "degraded", message: "Swarm is down" }, diffmap: { status: "degraded", message: " \n " } };
+  await page.route(/\/api\/reviews\/\d+$/, async (route) => {
+    const res = await route.fetch(), j = await res.json();
+    j.stages = j.stages.map((s: { name: string }) => ({ ...s, ...(say[s.name] ?? { status: "ok", message: "" }) }));
+    await route.fulfill({ response: res, json: j });
+  });
+  await page.goto(base);
+  await (await reviewMenu(page)).getByRole("menuitem", { name: "Stage notes · 3" }).click();
+  const notes = page.getByRole("dialog", { name: "Stage notes" });
+  await expect(notes.locator(".banner")).toHaveText(["ingest", "swarm_read: Swarm is down", "diffmap"]);
+  await expect(notes.locator(".banner.error"), "a failed stage keeps its red edge").toHaveText(["ingest"]);
+});
+
 test("Tab out of the menu closes it and leaves focus where Tab took it; Shift+Tab back to ⋯ closes it too; Escape still returns to ⋯", async ({ page }) => {
   await startReview(page);
   const button = page.getByRole("button", { name: "Review menu" });
@@ -489,8 +506,30 @@ test.describe("the AI usage panel", () => {
     const usage = await openAiUsage(page);
     await usage.getByRole("button", { name: "Raise budget", exact: true }).click();
     await expect(usage.locator(".ai-err")).toHaveText("The budget could not be saved.");
+    await expect(usage.getByRole("alert"), "a screen reader is told of the refusal").toHaveText("The budget could not be saved.");
     await usage.getByRole("button", { name: "Set rounds", exact: true }).click();
     await expect(usage.locator(".ai-err")).toHaveText("The rounds could not be saved.");
+    await expect(usage.getByRole("alert")).toHaveText("The rounds could not be saved.");
+  });
+
+  test("a list of calls the server will not give says so in place of the table, not as an empty one; opened again it tries again", async ({ page }) => {
+    await startReview(page);
+    const calls = { refusing: true };
+    // a refusal with no words in it: what the page has to go on when the status line is empty too, as over HTTP/2
+    await page.route("**/api/reviews/*/ai/calls", (route) =>
+      calls.refusing ? route.fulfill({ status: 500, json: { detail: "" } }) : route.continue());
+    const usage = await openAiUsage(page), all = usage.locator("details"), summary = usage.getByText(/^All calls/);
+    await summary.click();
+    await expect(all.getByText("The AI calls could not be loaded.")).toBeVisible();
+    await expect(all.getByRole("alert"), "a screen reader is told of the refusal").toHaveText("The AI calls could not be loaded.");
+    await expect(all.locator(".ai-calls"), "an empty table would say there were no calls").toHaveCount(0);
+    await expect(all.getByText("Loading…"), "nor is it still loading").toHaveCount(0);
+    await summary.click();                                               // shut it…
+    await expect(all.getByRole("alert")).toBeHidden();
+    calls.refusing = false;
+    await summary.click();                                               // …and opened again, it tries again
+    await expect(all.locator(".ai-calls tbody tr").first()).toBeVisible();
+    await expect(all.getByRole("alert"), "a success clears the failure").toHaveCount(0);
   });
 
   test("J, K and F stay off the page's Flows tab while the panel has focus", async ({ page }) => {

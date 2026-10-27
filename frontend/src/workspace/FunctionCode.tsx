@@ -63,7 +63,7 @@ export default function FunctionCode({ node, board }: { node: BoardNode; board: 
           )}
         </div>
       ) : src && "status" in src && src.status === "error" ? (
-        <div className="bd-note error">{src.error} <button className="bd-ibtn" onClick={() => ws.sources.reload(node.path!)}>Retry</button></div>
+        <div className="bd-note error"><span role="alert">{src.error}</span> <button className="bd-ibtn" onClick={() => ws.sources.reload(node.path!)}>Retry</button></div>
       ) : <div className="bd-note">Fetching {node.path}…</div>}
       <div className="bd-fn-comments">
         <Comments reviewId={d.id} comments={d.comments} kind="function" anchor={{ key: node.key }} onChange={d.loadComments} compact />

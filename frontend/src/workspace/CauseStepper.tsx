@@ -14,6 +14,8 @@ import { bare, plainNames } from "./names";
 import { MARKED_FINE, shortcutsOn } from "./shortcuts";
 import useSaid from "./useSaid";
 
+const NOT_MARKED = "The server did not accept the mark.";       // said of a mark the server refuses without a word
+
 /** About seven lines around the place, from the after text of a changed file or the fetched text of another. */
 function PlaceCode({ k }: { k: Check | null }) {
   const ws = useWs();
@@ -51,10 +53,10 @@ export default function CauseStepper({ cause, at }: { cause: Cause; at: number }
   const go = (to: number) => ws.go({ ...ws.addr, open: { cause: cause.id, at: to } }, true);
   const left = openPlaces(cause, marks), done = doneCount(cause, marks);
   const ahead = nextOpenAt(cause, marks, i, 1), behind = nextOpenAt(cause, marks, i, -1);
-  const run = (act: () => Promise<void>): Promise<boolean> => {   // settles to whether the change landed (never rejects)
+  const run = (act: () => Promise<void>, failed: string): Promise<boolean> => {   // settles to whether the change landed (never rejects); `failed`: said when the server says nothing
     setBusy(true);
     setError(null);
-    return act().then(() => true).catch((e) => { setError(errorText(e, "The server did not accept the mark.")); return false; }).finally(() => setBusy(false));
+    return act().then(() => true).catch((e) => { setError(errorText(e, failed)); return false; }).finally(() => setBusy(false));
   };
   const reload = () => Promise.all([d.loadReading(), d.loadTicks().catch(() => {})]).then(() => {});
   const fineNext = () => run(async () => {
@@ -63,21 +65,21 @@ export default function CauseStepper({ cause, at }: { cause: Cause; at: number }
     const now: Record<string, Mark> = { ...marks, [key]: { key, user: "", at: "", source_line: "", changed: false } };
     const to = nextOpenAt(cause, now, i, 1);
     if (to !== null) go(to);
-  });
-  const reopen = () => run(async () => { await api.unmarkCheck(d.id, key); await reload(); });
-  const allFine = () => run(async () => { await api.markChecks(d.id, left); await reload(); });
+  }, NOT_MARKED);
+  const reopen = () => run(async () => { await api.unmarkCheck(d.id, key); await reload(); }, "The server did not reopen the check.");
+  const allFine = () => run(async () => { await api.markChecks(d.id, left); await reload(); }, NOT_MARKED);
   // the handler is read from a ref set in the render, so a key pressed before React's effects flush meets this render
   const onKey = useRef<(e: KeyboardEvent) => void>(() => {});
   onKey.current = (e) => {
-    const key = lowerKey(e);                                       // J, K and F with Caps Lock on arrive as capitals
-    if (key !== "j" && key !== "k" && key !== "f") return;         // any other key is not ours, and is no reason to read the switch from storage
+    const pressed = lowerKey(e);                                         // J, K and F with Caps Lock on arrive as capitals
+    if (pressed !== "j" && pressed !== "k" && pressed !== "f") return;   // any other key is not ours, and is no reason to read the switch from storage
     // while a mark is on its way J, K and F wait: its "next" is worked out from the place it was made at; they are a menu's
     // or a dialog's while one has focus; they do nothing while the reader has switched the single-key shortcuts off (read at each
     // press); and F acts once per press, as a held key's repeats would clear place after place
     if (busy || e.ctrlKey || e.metaKey || e.altKey || typing(e.target) || inPopup(e.target) || !shortcutsOn()) return;
-    if (key === "j" && ahead !== null) { e.preventDefault(); go(ahead); }
-    else if (key === "k" && behind !== null) { e.preventDefault(); go(behind); }
-    else if (key === "f" && !e.repeat && open) {
+    if (pressed === "j" && ahead !== null) { e.preventDefault(); go(ahead); }
+    else if (pressed === "k" && behind !== null) { e.preventDefault(); go(behind); }
+    else if (pressed === "f" && !e.repeat && open) {
       e.preventDefault();
       say(fineNext(), MARKED_FINE);
     }

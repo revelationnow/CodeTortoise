@@ -45,7 +45,7 @@ function MarkRead({ sid, order }: { sid: string; order: string[] }) {
     <span className="st-read">
       {read ? <>✓ Read · <button className="link" onClick={() => act(false)} disabled={busy}>Mark unread</button></>
         : <button onClick={() => act(true)} disabled={busy}>Mark as read</button>}
-      {error && <span className="banner warn">{error}</span>}
+      {error && <span className="banner warn" role="alert">{error}</span>}
     </span>
   );
 }
@@ -166,7 +166,7 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
   );
   const header = readingHeader(true) || oldHeader, graphHeader = readingHeader(false) || oldHeader;
   const frame = r ? "st-page" : "ws-text";                 // the header keeps its place while the story loads
-  if (error) return <div className="ws-page"><div className={frame}>{header}<div className="banner warn">{error}</div></div></div>;
+  if (error) return <div className="ws-page"><div className={frame}>{header}<div className="banner warn" role="alert">{error}</div></div></div>;
   if (shown === "graph" && !detail)
     return <div className="ws-page graph"><div className="ws-story-bar">{graphHeader}</div><p className="muted ws-page">Loading {st.id}…</p></div>;
   if (!detail) return <div className="ws-page"><div className={frame}>{header}<p className="muted">Loading {st.id}…</p></div></div>;

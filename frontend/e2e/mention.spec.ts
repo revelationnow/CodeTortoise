@@ -100,6 +100,56 @@ test.describe("with an AI", () => {
     await expect(explain, "focus that fell to the page goes back to the button").toBeFocused();
   });
 
+  test("a question the server refuses shows its error at once, beside the open box, which keeps the question to send again", async ({ page }) => {
+    const base = await startReview(page);
+    const rid = base.split("/")[2];
+    await page.goto(`${base}/s/S1?view=graph`);
+    const strip = page.getByRole("region", { name: "Flow" });
+    const box = strip.getByLabel("What should the AI explain?");
+    const ask = strip.locator(".ai-ask", { has: page.getByLabel("What should the AI explain?") });   // the Explain ▾ widget that holds the open box
+    // a refusal with no words in it: what the page has to go on when the status line is empty too, as over HTTP/2
+    await page.route(`**/api/reviews/${rid}/comments`, (route) =>
+      route.request().method() === "POST" ? route.fulfill({ status: 500, json: { detail: "" } }) : route.continue());
+    await explainItem(strip, "Ask a question…");
+    await box.fill("is the new writer safe?");
+    await strip.getByRole("button", { name: "Ask", exact: true }).click();
+    await expect(ask.getByRole("alert"), "told while the box is still open, beside it").toHaveText("The question could not be sent.");
+    await expect(box, "the box stays open").toBeVisible();
+    await expect(box, "…with the question in it, to send again").toHaveValue("is the new writer safe?");
+    await expect(strip.getByText("Asked: the answer comes in this item's thread.")).toHaveCount(0);
+    await page.unroute(`**/api/reviews/${rid}/comments`);                               // the server answers this time
+    await strip.getByRole("button", { name: "Ask", exact: true }).click();
+    await expect(strip.getByText("Asked: the answer comes in this item's thread.")).toBeVisible();   // landed: the box is shut
+    await expect(box).toHaveCount(0);
+    await expect(strip.getByRole("alert"), "the error went with the next try").toHaveCount(0);
+  });
+
+  test("a question and a comment the server refused stay with their flow: the next flow starts with fresh boxes", async ({ page }) => {
+    const base = await startReview(page);
+    const rid = base.split("/")[2];
+    await page.goto(`${base}/s/S1?view=graph`);
+    const strip = page.getByRole("region", { name: "Flow" });
+    const question = strip.getByLabel("What should the AI explain?"), draft = strip.getByPlaceholder("Leave a comment…");
+    // refusals with no words in them: what the page has to go on when the status line is empty too, as over HTTP/2
+    await page.route(`**/api/reviews/${rid}/comments`, (route) =>
+      route.request().method() === "POST" ? route.fulfill({ status: 500, json: { detail: "" } }) : route.continue());
+    await explainItem(strip, "Ask a question…");
+    await question.fill("is the new writer safe?");
+    await strip.getByRole("button", { name: "Ask", exact: true }).click();
+    await expect(strip.getByText("The question could not be sent.")).toBeVisible();
+    await strip.getByRole("button", { name: "+ comment" }).click();
+    await draft.fill("flush should retry");
+    await strip.getByRole("button", { name: "Comment", exact: true }).click();
+    await expect(strip.getByText("The comment could not be posted.")).toBeVisible();
+    await strip.getByRole("button", { name: "Next flow" }).click();
+    await expect(strip.locator(".ws-flow-pos")).toHaveText("flow 2 of 2");
+    await expect(strip.getByText("The question could not be sent."), "the question's failure stays with flow 1").toHaveCount(0);
+    await expect(question, "…and so does the question, which would have been sent about flow 2").toHaveCount(0);
+    await expect(strip.getByText("The comment could not be posted."), "…and the comment's failure").toHaveCount(0);
+    await strip.getByRole("button", { name: "+ comment" }).click();
+    await expect(draft, "…and the draft, which would have been posted on flow 2").toHaveValue("");
+  });
+
   test("when the review's budget is spent, tortoise says so and the owner can raise it from the reply", async ({ page }) => {
     await startReview(page);
     const usage = await openAiUsage(page);

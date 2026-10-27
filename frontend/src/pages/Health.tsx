@@ -6,14 +6,16 @@ export default function Health() {
   const [h, setH] = useState<HealthT | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sinks, setSinks] = useState<SinkRules | null>(null);
-  const loadSinks = () => api.sinks().then(setSinks).catch(() => setSinks(null));
+  const [sinksError, setSinksError] = useState<string | null>(null);       // the card says so; what it showed before stays
+  const loadSinks = () => api.sinks().then((s) => { setSinks(s); setSinksError(null); })
+    .catch((e) => setSinksError(errorText(e, "The shared sinks could not be loaded.")));
   const load = () => {
     loadSinks();
     return api.health().then(setH).catch((e) => setError(errorText(e, "The health checks could not be loaded.")));
   };
   useEffect(() => { load(); }, []);
 
-  if (error) return <main className="page error">{error}</main>;
+  if (error) return <main className="page error"><div role="alert">{error}</div></main>;
   if (!h) return <main className="page muted">Checking…</main>;
   return (
     <main className="page">
@@ -51,12 +53,17 @@ export default function Health() {
             <p className="small">Today: {h.ai.calls_today ?? 0} calls across reviews</p>
           </section>
         )}
-        {sinks && (
+        {(sinks || sinksError) && (
           <section className="card">
             <h2>Shared sinks</h2>
-            <p>{sinks.threshold > 0 ? `A field more than ${sinks.threshold} unchanged functions touch` : "No threshold (sink_threshold: 0)"}</p>
-            <p className="mono small">In tortoise.yaml: {sinks.patterns.length ? sinks.patterns.join(" ") : "none"}</p>
-            <p>Marked: {sinks.marked.length ? sinks.marked.map((m) => <span key={m}><code>{m}</code> <SinkMark label={m} on onDone={loadSinks} /> </span>) : "none"}</p>
+            {sinksError && <p className="error" role="alert">{sinksError}</p>}
+            {sinks && (
+              <>
+                <p>{sinks.threshold > 0 ? `A field more than ${sinks.threshold} unchanged functions touch` : "No threshold (sink_threshold: 0)"}</p>
+                <p className="mono small">In tortoise.yaml: {sinks.patterns.length ? sinks.patterns.join(" ") : "none"}</p>
+                <p>Marked: {sinks.marked.length ? sinks.marked.map((m) => <span key={m}><code>{m}</code> <SinkMark label={m} on onDone={loadSinks} /> </span>) : "none"}</p>
+              </>
+            )}
           </section>
         )}
         {Object.keys(h.p4_sources ?? {}).length > 0 && (

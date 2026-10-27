@@ -49,7 +49,7 @@ export default function ClusterPage({ cid }: { cid: string }) {
             ))}</p>
         </header>
       </div>
-      {error ? <div className="ws-page"><div className="banner warn">{error}</div></div>
+      {error ? <div className="ws-page"><div className="banner warn" role="alert">{error}</div></div>
         : !board ? <p className="muted ws-page">Loading {c.name}…</p>
         : <GraphView key={cid} board={board} prefKey={`${d.id}.${cid}`} flowIndex={pickFlow(board.flows, ws.addr.flow, open)}
                      onFlow={(i) => ws.go({ ...ws.addr, flow: i + 1 }, true)} homeName={name} storyOf={d.stories?.node_story}

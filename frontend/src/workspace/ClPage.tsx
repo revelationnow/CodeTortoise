@@ -16,7 +16,7 @@ import { Ticks } from "./NameText";
  * and findings drawn from it. */
 export default function ClPage({ cl }: { cl: number }) {
   const ws = useWs(), d = ws.data, me = useMe();
-  const [msg, setMsg] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ text: string; failed?: boolean } | null>(null);
   const c = d.detail!.cls.find((x) => x.cl === cl)!;
   const { title, body: rest } = descriptionParts(c.description ?? "");
   const files = d.about?.tree.flatMap((t) => t.files).filter((f) => f.cls.includes(cl)) ?? [];
@@ -33,7 +33,7 @@ export default function ClPage({ cl }: { cl: number }) {
   };
   const run = (act: () => Promise<unknown>, ok: string, failed: string) => {    // a new press clears the last answer; `failed`: said when the server says nothing
     setMsg(null);
-    act().then(() => { setMsg(ok); d.loadDetail(); }).catch((e) => setMsg(errorText(e, failed)));
+    act().then(() => { setMsg({ text: ok }); d.loadDetail(); }).catch((e) => setMsg({ text: errorText(e, failed), failed: true }));
   };
   return (
     <div className="ws-page"><div className="ws-text ws-finding">
@@ -44,7 +44,7 @@ export default function ClPage({ cl }: { cl: number }) {
       </header>
       <section aria-labelledby="ws-swarm" className="ws-swarm">
         <h3 id="ws-swarm">Swarm</h3>
-        {msg && <div className="banner">{msg}</div>}
+        {msg && <div className="banner" role={msg.failed ? "alert" : undefined}>{msg.text}</div>}
         {c.swarm ? (
           <p><a href={c.swarm.url} target="_blank" rel="noreferrer" title={`Open Swarm review ${c.swarm.id}`}>Review #{c.swarm.id}</a>{" "}
             <span className="ws-badge">{c.swarm.state_label ?? c.swarm.state}</span>

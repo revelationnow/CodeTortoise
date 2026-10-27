@@ -62,6 +62,7 @@ test.describe("desktop", () => {
       : r.continue()));
     await page.getByRole("button", { name: "Mark as read" }).click();
     await expect(page.locator(".st-read .banner")).toHaveText("ticks are down");
+    await expect(page.locator(".st-read").getByRole("alert"), "a screen reader is told of the refusal").toHaveText("ticks are down");
     await expect(page).toHaveURL(new RegExp(`${base}/s/${order[0]}$`));
     await expect(page.getByRole("button", { name: "Mark as read" })).toBeVisible();
     await expect(page.locator(".ws-head .ws-progress")).toBeVisible();

@@ -34,7 +34,7 @@ export default function Login({ onLogin }: { onLogin: () => Promise<unknown> }) 
         <p className="muted">Sign in with your Perforce account</p>
         <label>P4 user<input autoFocus value={user} onChange={(e) => setUser(e.target.value)} required /></label>
         <label>Password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
-        {error && <div className="error">{error}</div>}
+        {error && <div className="error" role="alert">{error}</div>}
         <button className="go" disabled={busy || !user.trim()}>{busy ? "Checking…" : "Sign in"}</button>
       </form>
     </main>
