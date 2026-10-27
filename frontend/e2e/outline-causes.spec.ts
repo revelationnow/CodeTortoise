@@ -233,6 +233,25 @@ test.describe("a cause of many places", () => {
     return () => release();
   }
 
+  test("with Caps Lock on, J, K and F step as they do with it off, and Ctrl, Meta and Alt still make them no shortcut", async ({ page }) => {
+    const panel = await openReaders(page);
+    const pos = panel.locator(".cs-pos"), done = panel.locator(".cs-donecount");
+    await expect(pos).toHaveText("1 / 5");
+    await page.keyboard.press("J");                                      // Caps Lock sends the capital letter, with Shift up
+    await expect(pos, "J stepped on").toHaveText("2 / 5");
+    await page.keyboard.press("K");
+    await expect(pos, "K stepped back").toHaveText("1 / 5");
+    for (const chord of ["Control+J", "Meta+J", "Alt+J", "Control+F", "Meta+F", "Alt+F"]) await page.keyboard.press(chord);
+    await page.waitForTimeout(300);                                      // a step or a mark that wrongly started would have landed by now
+    await expect(pos, "a chord with Ctrl, Meta or Alt stepped").toHaveText("1 / 5");
+    await expect(done, "a chord marked").toHaveText("0 done");
+    await page.keyboard.press("F");
+    await expect(pos, "F marked the place and stepped on").toHaveText("2 / 5");
+    await expect(done).toHaveText("1 done");
+    await page.keyboard.press("Shift+J");                                // and with Shift held, which gives the capital letter too
+    await expect(pos, "Shift+J stepped on").toHaveText("3 / 5");
+  });
+
   test("J and K wait while a Looks fine is on its way, so it cannot pull the reader back", async ({ page }) => {
     const release = await holdMarks(page, "hold");
     const panel = await openReaders(page);

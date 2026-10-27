@@ -10,3 +10,7 @@ export const typing = (t: EventTarget | null) =>
  * through, and a page behind it must not act on the reader's keys. */
 export const inPopup = (t: EventTarget | null) =>
   t instanceof Element && !!t.closest('[role="menu"],[role="dialog"],[role="listbox"]');
+
+/** The key a press is, in lower case. Caps Lock and Shift make J, K and F arrive as capitals, and the shortcuts are the same keys;
+ * Ctrl, Meta and Alt are for the caller to refuse. A press that carries no key (Chrome's autofill sends such events) is "". */
+export const lowerKey = (e: KeyboardEvent) => (e.key ?? "").toLowerCase();

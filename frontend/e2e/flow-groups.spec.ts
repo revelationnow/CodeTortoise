@@ -248,6 +248,30 @@ test.describe("the Flows tab", () => {
     expect(marks).toHaveLength(2);
   });
 
+  test("with Caps Lock on, J, K and F act as they do with it off, and Ctrl, Meta and Alt still make them no shortcut", async ({ page }) => {
+    const marks = watchMarks(page);
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const toggles = page.locator(".fl-toggle"), ticks = page.locator(".fl-tick");
+    await expect(toggles).toHaveCount(2);
+    await toggles.nth(0).focus();
+    await page.keyboard.press("J");                                       // Caps Lock sends the capital letter, with Shift up
+    await expect(toggles.nth(1), "J went on to row 2").toBeFocused();
+    await page.keyboard.press("K");
+    await expect(toggles.nth(0), "K went back to row 1").toBeFocused();
+    for (const chord of ["Control+J", "Meta+J", "Alt+J", "Control+F", "Meta+F", "Alt+F"]) await page.keyboard.press(chord);
+    await page.waitForTimeout(300);                                       // a step or a mark that wrongly started would have landed by now
+    await expect(toggles.nth(0), "a chord with Ctrl, Meta or Alt moved the focus").toBeFocused();
+    expect(marks, "a chord marked").toHaveLength(0);
+    await page.keyboard.press("F");                                       // marks row 1 and moves on to row 2
+    await expect(ticks.nth(0), "F marked row 1").toBeChecked();
+    await expect(toggles.nth(1), "F went on to row 2").toBeFocused();
+    await marksDone(page);
+    expect(marks).toHaveLength(1);
+    await page.keyboard.press("Shift+K");                                 // and with Shift held, which gives the capital letter too
+    await expect(toggles.nth(0), "Shift+K went back to row 1").toBeFocused();
+  });
+
   test("F says Marked fine in a hidden live region once its mark has landed, and says it again for the next row", async ({ page }) => {
     const base = await startReview(page, FOUR);
     await page.goto(`${base}/s/S1`);

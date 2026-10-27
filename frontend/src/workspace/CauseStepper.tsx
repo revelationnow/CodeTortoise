@@ -8,7 +8,7 @@ import { KIND_LABEL, markLine } from "../reading/checks";
 import { alsoAt, around, doneCount, nextOpenAt, openPlaces, placeOpen } from "../reading/causes";
 import type { Cause, Check, Mark } from "../reading/types";
 import { useWs } from "./context";
-import { inPopup, typing } from "./keys";
+import { inPopup, lowerKey, typing } from "./keys";
 import NameText, { Ticks } from "./NameText";
 import { bare, plainNames } from "./names";
 import { MARKED_FINE, shortcutsOn } from "./shortcuts";
@@ -69,14 +69,15 @@ export default function CauseStepper({ cause, at }: { cause: Cause; at: number }
   // the handler is read from a ref set in the render, so a key pressed before React's effects flush meets this render
   const onKey = useRef<(e: KeyboardEvent) => void>(() => {});
   onKey.current = (e) => {
-    if (e.key !== "j" && e.key !== "k" && e.key !== "f") return;   // any other key is not ours, and is no reason to read the switch from storage
+    const key = lowerKey(e);                                       // J, K and F with Caps Lock on arrive as capitals
+    if (key !== "j" && key !== "k" && key !== "f") return;         // any other key is not ours, and is no reason to read the switch from storage
     // while a mark is on its way J, K and F wait: its "next" is worked out from the place it was made at; they are a menu's
     // or a dialog's while one has focus; they do nothing while the reader has switched the single-key shortcuts off (read at each
     // press); and F acts once per press, as a held key's repeats would clear place after place
     if (busy || e.ctrlKey || e.metaKey || e.altKey || typing(e.target) || inPopup(e.target) || !shortcutsOn()) return;
-    if (e.key === "j" && ahead !== null) { e.preventDefault(); go(ahead); }
-    else if (e.key === "k" && behind !== null) { e.preventDefault(); go(behind); }
-    else if (e.key === "f" && !e.repeat && open) {
+    if (key === "j" && ahead !== null) { e.preventDefault(); go(ahead); }
+    else if (key === "k" && behind !== null) { e.preventDefault(); go(behind); }
+    else if (key === "f" && !e.repeat && open) {
       e.preventDefault();
       say(fineNext(), MARKED_FINE);
     }
