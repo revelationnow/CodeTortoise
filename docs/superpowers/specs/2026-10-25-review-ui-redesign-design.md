@@ -100,12 +100,16 @@ each shown only when it applies, in this order:
 
 - An **amber dot** (`--warn`) sits on ⋯ when drift lines exist or a stage **failed** (degraded stages alone do not
   light it). The button's accessible name then adds what needs attention, e.g. `Review menu (workspace drift)`.
-- Escape or a click outside closes the menu and the panels it opened; Escape returns focus to ⋯.
+- Escape or a click outside closes the menu and the panels it opened. The menu closes as soon as focus leaves it, so
+  Escape in the menu returns focus to ⋯. A panel closes on a press outside it, not when focus leaves it, so it stays open
+  when Tab takes focus out of it: Escape returns focus to ⋯ only while the panel holds focus, and once the reader has
+  moved on like that, Escape just closes the panel and leaves focus where the reader is.
 - The AI usage panel opens from the menu, from the near-limit pill, and from **Raise budget** in an Explain error
   (`ai.setUsageOpen(true)`); it renders under the header's right end whichever opened it. It takes focus when it opens;
-  Escape or Close returns focus to whatever opened it, where the browser focuses a clicked button (the ⋯ button, the AI
-  pill, or a Raise budget link; Safari and Firefox on macOS leave a clicked button unfocused, so there the opener it
-  records is `<body>`), or to ⋯ when that opener is gone.
+  Close, and Escape while the panel holds focus, return focus to whatever opened it, where the browser focuses a clicked
+  button (the ⋯ button, the AI pill, or a Raise budget link; Safari and Firefox on macOS leave a clicked button
+  unfocused, so there the opener it records is `<body>`), or to ⋯ when that opener is gone. When the reader has moved on
+  (Tab took focus out of the panel, which stays open), Escape just closes it.
 - `HowToRead` gains one line: "A faint violet line at the left of a paragraph marks text the AI wrote."
 
 ## 3. Headings
