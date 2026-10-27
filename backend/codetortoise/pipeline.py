@@ -496,7 +496,9 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
                     t.files, t.modules, t.files_source = cached["picks"].get(t.id, (t.files, t.modules, t.files_source))
                 r.whole, r.whole_source = cached["whole"], cached["whole_source"]
                 for k in r.connections:
-                    k.text = cached["connections"].get(f"{k.a}-{k.b}", k.text)
+                    said = cached["connections"].get(f"{k.a}-{k.b}", k.text)
+                    if said != k.text:         # the key was made from the rules' words, so words that differ are the model's
+                        k.fixed, k.text, k.text_source = k.text, said, "llm"
             else:
                 notes, by = write_threads(svc.strong, svc.ledger, rid, r, bs.stories, cls_text, weak=svc.llm, files=files)
                 if not notes:

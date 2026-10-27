@@ -133,6 +133,36 @@ test.describe("desktop", () => {
     await expect(secs.nth(1).locator(".ov-act")).toHaveText("All read ✓");
   });
 
+  test("a connection line the strong model reworded carries the AI edge on its words alone, not on the thread it names or the author note", async ({ page }) => {
+    // the AI fixtures' stub never rewords a connection, so the reading is served as if the strong model had
+    await patchReading(page, (r) => { for (const k of r.connections) k.text_source = "llm"; });
+    const base = await startReview(page, FOUR);
+    await page.goto(base);
+    const line = (n: number) => page.locator("section.ov-sec").nth(n).locator(".ov-links li");
+    await expect(line(1)).toHaveText("With Thread A: Written by AI. both run inside main");
+    await expect(line(2)).toHaveText("With Thread B: Written by AI. nothing besides arriving in CL 104 — ask the author");
+    for (const n of [1, 2]) {
+      const words = line(n).locator(".ai-text");
+      await expect(words).toHaveCount(1);
+      await expect(words).toHaveAttribute("title", "Written by AI");
+      await expect(words).not.toContainText(/With Thread|ask the author/);
+    }
+    await expect(line(1).locator(".ai-text")).toHaveText("Written by AI. both run inside main");
+    await expect(line(2).locator(".ai-text")).toHaveText("Written by AI. nothing besides arriving in CL 104");
+  });
+
+  test("the edge of a reworded connection runs beside every line when its words wrap", async ({ page }) => {
+    const long = "both start up from `main` once the driver is brought up and the logger is ready to take its first line, ".repeat(4);
+    await patchReading(page, (r) => { r.connections[0].text_source = "llm"; r.connections[0].text = long.trim(); });
+    const base = await startReview(page, FOUR);
+    await page.goto(base);
+    const words = page.locator("section.ov-sec").nth(1).locator(".ov-links li .ai-text");
+    await expect(words).toHaveCount(1);
+    const lineHeight = await words.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight) || el.getBoundingClientRect().height);
+    expect((await words.boundingBox())!.height, "the words wrap").toBeGreaterThan(lineHeight * 1.5);
+    expect(await words.evaluate((el) => el.getClientRects().length), "one box, so the edge is as tall as all its lines").toBe(1);
+  });
+
   test("a thread with more than four stories shows four, and the others in place", async ({ page }) => {
     await patchReading(page, (r) => { r.threads[0].stories = ["S2", "S1", "S3", "S5", "S4", "S9"]; });
     const base = await startReview(page, FOUR);

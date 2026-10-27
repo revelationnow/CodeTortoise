@@ -7,8 +7,8 @@ import { aiTitle } from "../lib/aiMarks";
 import { setShowSinks, showSinks, sinkLine } from "../lib/sinks";
 import { openCount } from "../reading/causes";
 import { letter } from "../reading/checks";
-import { cardText, foldTitles, overviewHeading, sectionConnections, startButton, testsLine, threadAction,
-  threadCounts } from "../reading/overview";
+import { cardText, foldTitles, overviewHeading, sectionConnections, startButton, testsLine, threadAction, threadCounts,
+  type SectionLink } from "../reading/overview";
 import type { Reading, SinkHit, Thread } from "../reading/types";
 import { useWs, type Ws } from "./context";
 import { short } from "./crumbs";
@@ -36,7 +36,7 @@ function Count({ n, word, sep = false }: { n: number | string; word: string; sep
  * click away; how it connects to the threads before it. `read` (the stories the reader has read) and `stories` (every
  * story by id) are worked out once by the overview for all its sections. */
 function ThreadSection({ t, i, r, links, read, stories }: {
-  t: Thread; i: number; r: Reading; links: { text: string; bundled: boolean }[];
+  t: Thread; i: number; r: Reading; links: SectionLink[];
   read: ReadonlySet<string>; stories: ReadonlyMap<string, Story>;
 }) {
   const ws = useWs();
@@ -84,7 +84,8 @@ function ThreadSection({ t, i, r, links, read, stories }: {
       {more > 0 && <button className="link ov-more" aria-expanded={all} onClick={() => setAll(!all)}>
         {all ? "Show fewer ▴" : `Show the other ${more === 1 ? "story" : `${more} stories`} ▸`}</button>}
       {links.length > 0 && <ul className="ov-links">{links.map((k) => (
-        <li key={k.text} className={k.bundled ? "bundled" : undefined}><Ticks text={k.text} /></li>
+        <li key={k.before + k.text} className={k.bundled ? "bundled" : undefined}>
+          {k.before}<AiText as="span" ai={k.ai}><Ticks text={k.text} /></AiText>{k.after}</li>
       ))}</ul>}
     </section>
   );

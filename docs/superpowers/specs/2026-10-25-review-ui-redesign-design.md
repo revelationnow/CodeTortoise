@@ -125,6 +125,7 @@ Every site, before and after. "Edge" is `AiText`, "name" is `AiName`.
 |---|---|---|
 | Overview thread name, thread intro (`Overview.tsx`) | `AI` chip before each | name; intro: edge |
 | Overview lead (`Overview.tsx`), old-review intent (`WholePage.tsx`) | `AI` chip | edge |
+| Overview connection lines (`Overview.tsx`) | no mark | the connection's words in edge when the strong model reworded them (`text_source === "llm"`); `With Thread A: ` and ` — ask the author` stay outside it |
 | Story title (`StoryPage.tsx`, both headers) | `AI` chip | name |
 | Story purpose or summary (`StoryPage.tsx`) | `AI` chip | edge |
 | Flow paragraph (`StoryTabs.tsx`) | `AI` chip per flow | edge (§7.3) |
@@ -137,6 +138,7 @@ Every site, before and after. "Edge" is `AiText`, "name" is `AiName`.
 | Finding not yet assessed (`FindingBody.tsx`) | `…; ✦ Explain asks the AI whether this one is a hazard.` | `…; Explain asks whether this one is a hazard.` |
 | Finding analysis (`FindingBody.tsx`) | `h3` `AI analysis`; `AI` chip on the explanation; `Checking for AI analysis…`; `AI analysis unavailable.` | `h3` `Analysis`; the explanation in edge; `Checking for an analysis…`; `No analysis: AI is not set up.` |
 | Finding hypotheses (`FindingBody.tsx`) | `AI` chip each | edge each |
+| Finding Verify steps (`FindingBody.tsx`) | no mark (the model writes them in the same call as the analysis; no rule does) | edge each |
 | Tortoise reply (`Comments.tsx`) | mascot, `tortoise`, `AI` chip | mascot and `tortoise` (name keeps its colour); body: edge, except a reply the app writes itself on an error (its `meta.error` is set: "I stopped…", "I couldn't answer…", budget spent), which is plain, with no edge |
 | @ menu (`Comments.tsx`) | logo, `@tortoise`, `AI` chip, its detail | logo, `@tortoise`, its detail; no chip |
 | File summary (`Explain.tsx`) | box with 3px edge, `AI` chip, `summary by <model>` | box in edge (§1.1), heading `Summary`, hover `Written by AI · <model>` |
@@ -189,7 +191,8 @@ Each thread is a `section` labelled `Thread A: <name>`:
   it has open checks, and `✓` when read. More than 4: `Show the other N stories ▸`, which shows the rest in place
   and becomes `Show fewer ▴` (not remembered).
 - **Connections**: every shown connection whose later thread (in thread order) is this one, one line each:
-  `With Thread A: <connection text>`, adding ` — ask the author` for a bundled one.
+  `With Thread A: <connection text>` (the text in edge when the strong model reworded it), adding ` — ask the author`
+  for a bundled one.
 
 Below 640px of the overview's own width (a container query on the overview, not on the window) the header wraps: the
 counts move under the name as `15 stories · 52 open · 0 read`, and the column label row is hidden. So a window just

@@ -522,6 +522,26 @@ def test_the_strong_model_names_the_threads_once_and_a_rerun_reuses_the_text(fx,
     assert svc.store.get_blob(rid, "reading")["threads"][0]["files"] == t1["files"]      # the cached pick
 
 
+def test_a_connection_the_strong_model_rewords_is_marked_and_a_rerun_from_the_cache_marks_it_too(fx, tmp_path):
+    def reworded(system, user):
+        out = _one_story_per_cl(system, user)
+        if "THREADS (id" in user and "THREAD DETAILS (id" not in user:
+            out["connections"] = [{"a": "T1", "b": "T2", "text": "both start from `main`"}]
+        return out
+    svc = make_services(fx, tmp_path)
+    llm = _strong(svc, reworded)
+    rid = svc.store.create_review("t", "owner", [101, 102, 103, 104])
+    run_review(rid, svc)
+
+    def conns():
+        return [(k["text"], k["text_source"], k["fixed"]) for k in svc.store.get_blob(rid, "reading")["connections"]]
+    assert conns() == [("both start from `main`", "llm", "both run inside `main`")]
+    asked = sum("THREADS (id" in p for p in llm.prompts)
+    run_review(rid, svc)
+    assert sum("THREADS (id" in p for p in llm.prompts) == asked == 1                  # the second run read the cache…
+    assert conns() == [("both start from `main`", "llm", "both run inside `main`")]     # …and still knows whose words they are
+
+
 def test_a_four_cl_review_reads_as_three_connected_threads(fx, tmp_path):
     """CLs 103–104 add a logger level across two CLs (one thread meeting the UART thread in `main`) and an engine
     change tied to the rest only by CL 104 (spec 2026-10-07-review-reading §13)."""

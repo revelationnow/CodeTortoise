@@ -112,7 +112,7 @@ export default function FindingBody({ fid, head, ids }: { fid: string; head: Rea
     </section>
     {f.verify_steps.length > 0 && (
       <section aria-labelledby={`${ids}-verify`}><h3 id={`${ids}-verify`}>Verify</h3>
-        <ol>{f.verify_steps.map((s, k) => <li key={k}><NameText text={s} /></li>)}</ol></section>
+        <ol>{f.verify_steps.map((s, k) => <AiText key={k} as="li"><NameText text={s} /></AiText>)}</ol></section>
     )}
     {f.hypotheses.length > 0 && (
       <section aria-labelledby={`${ids}-hyp`}><h3 id={`${ids}-hyp`}>Possible side effects</h3>

@@ -66,6 +66,8 @@ class Connection(BaseModel):
     b: str
     kind: ConnKind
     text: str
+    text_source: Literal["template", "llm"] = "template"   # "llm": the strong model reworded `text` (spec 2026-10-07 §9)
+    fixed: str = ""                   # the rules' wording, kept when the model reworded it: the rules-written lead uses it
     facts: list[str] = Field(default_factory=list)   # node ids, workspace-relative paths, targets, "CL n" or authors
     shown: bool = False
 
@@ -1154,15 +1156,15 @@ def _place_text(sid: str, order: list[str], strong: list[StoryLink]) -> str:
 
 def fixed_whole(threads: list[Thread], conns: list[Connection]) -> str:
     """The change as a whole without the strong model (§9): how its threads connect, the shown connections by thread
-    letter. The overview's heading already counts the threads and each thread's section names it, so the lead is "" for
-    one thread and when no connection is shown (threads no call or data link joins are separate: saying so adds
-    nothing)."""
+    letter, in the rules' words even where the model reworded a connection (`fixed`). The overview's heading already
+    counts the threads and each thread's section names it, so the lead is "" for one thread and when no connection is
+    shown (threads no call or data link joins are separate: saying so adds nothing)."""
     if not threads:
         return "No changed code to read."
     if len(threads) == 1:
         return ""
     letter = {t.id: chr(ord("A") + i) if i < 26 else t.id for i, t in enumerate(threads)}
-    parts = [f"{letter[k.a]} and {letter[k.b]}: {k.text}" for k in conns if k.shown]
+    parts = [f"{letter[k.a]} and {letter[k.b]}: {k.fixed or k.text}" for k in conns if k.shown]
     return ("; ".join(parts) + ".") if parts else ""
 
 

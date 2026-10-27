@@ -964,6 +964,20 @@ def test_the_fixed_lead_is_the_shown_connections_alone_because_the_heading_count
     assert fixed_whole(ts, [conns[1]]) == fixed_whole(ts, []) == ""              # no pair shown: nothing to add
 
 
+def test_the_fixed_lead_keeps_the_rules_words_when_the_strong_model_reworded_a_connection():
+    """The model's wording shows in its own section line, marked as its; the rules' lead is the rules' words alone."""
+    ts = _threads(["S1"], ["S2"])
+    k = _joined("T1", "T2", "both start up from `main`")
+    k.fixed, k.text_source = "both run inside `main`", "llm"
+    assert fixed_whole(ts, [k]) == "A and B: both run inside `main`."
+    r = Reading(whole="A and B: both start up from `main`.", threads=ts, connections=[k])     # stored before this was kept apart
+    assert with_marks(r, {}, [])["whole"] == "A and B: both run inside `main`."
+    assert with_marks(r, {}, [])["connections"][0] | {"facts": []} == {            # the browser gets the source beside the text
+        "a": "T1", "b": "T2", "kind": "caller", "text": "both start up from `main`", "facts": [], "shown": True,
+        "text_source": "llm", "fixed": "both run inside `main`"}
+    assert Connection(a="T1", b="T2", kind="caller", text="t").model_dump()["text_source"] == "template"   # a stored one has none
+
+
 def test_the_fixed_lead_is_empty_for_one_thread_and_still_says_so_for_none():
     assert fixed_whole(_threads(["S1"]), []) == ""                                # its section names it
     assert fixed_whole([], []) == "No changed code to read."

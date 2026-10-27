@@ -15,7 +15,11 @@ export interface Thread {
 }
 /** One step of Where to start: a thread and why to read it then. */
 export interface RouteStep { thread: string; reason: string; skim: boolean }
-export interface Connection { a: string; b: string; kind: ConnKind; text: string; facts: string[]; shown: boolean }
+export interface Connection {
+  a: string; b: string; kind: ConnKind; text: string; facts: string[]; shown: boolean;
+  /** "llm": the strong model reworded `text`; absent on a reading stored before it, which reads as the rules' own. */
+  text_source?: "template" | "llm";
+}
 export interface Check {
   /** kind|file|function|related changed function: no line numbers, so a mark survives a re-run. */
   key: string; kind: CheckKind; story: string | null; thread: string | null;

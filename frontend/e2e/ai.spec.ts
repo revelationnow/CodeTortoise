@@ -163,6 +163,11 @@ test.describe("with an AI", () => {
     await ai.getByRole("button", { name: "Explain", exact: true }).click();
     await expect(ai.getByRole("menuitem", { name: "Explain again" })).toBeVisible();
     await explainOutsideAiText(page);                                            // Explain sits after the analysis, not in it
+    // The Verify steps come from the same call: only the model writes them (no rule does), so each step is AI text too
+    const step = page.getByRole("region", { name: "Verify", exact: true }).locator("ol > li");
+    await expect(step).toHaveText("Written by AI. Check how logger_flush handles -2.");
+    await expect(step).toHaveClass(/\bai-text\b/);
+    await expect(step).toHaveAttribute("title", "Written by AI");
   });
 
   test("a hypothesis the AI proposes is AI text, with its hover", async ({ page }) => {
