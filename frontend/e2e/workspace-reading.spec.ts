@@ -109,6 +109,19 @@ test.describe("desktop", () => {
       refusing.on && route.request().method() !== "GET" ? route.fulfill({ status: 500, json: { detail: "" } }) : route.continue());
     return refusing;
   }
+  /** The server refuses the comments list (a reload) while `reloading.on`, with no words in it, and answers every write as usual:
+   * an action lands and the list after it does not come back. */
+  async function refuseReload(page: Page) {
+    const reloading = { on: true };
+    await page.route((u) => /\/api\/reviews\/\d+\/comments$/.test(u.pathname), (route) =>
+      reloading.on && route.request().method() === "GET" ? route.fulfill({ status: 500, json: { detail: "" } }) : route.continue());
+    return reloading;
+  }
+  /** What the server holds for the review now (a request of the page's own, which no route sees). */
+  async function stored(page: Page) {
+    const rid = page.url().match(/\/r\/(\d+)/)![1];
+    return (await (await page.request.get(`/api/reviews/${rid}/comments`)).json()) as { body: string; resolved: boolean; parent_id: number | null }[];
+  }
 
   test("a comment the server refuses to post says so beside the box and keeps the draft; sent again it posts and the alert goes", async ({ page }) => {
     const panel = await openCheckTalk(page);
@@ -184,6 +197,81 @@ test.describe("desktop", () => {
     refusing.on = false;
     await comment.getByRole("button", { name: "delete", exact: true }).click();
     await expect(thread).toHaveCount(0);
+  });
+
+  test("a comment that posted but whose list will not reload says so: the box empties and the post is not called a failure", async ({ page }) => {
+    const panel = await openCheckTalk(page);
+    const composer = panel.locator(".comments > .composer");
+    const box = composer.getByRole("textbox"), send = composer.getByRole("button", { name: "Comment" });
+    const reloading = await refuseReload(page);
+    await box.fill("flush should retry");
+    await send.click();
+    await expect(panel.getByRole("alert")).toHaveText("Done, but the comments could not be reloaded.");
+    await expect(box, "it went, so the draft goes").toHaveValue("");
+    await expect(panel.getByText("The comment could not be posted."), "…and the post is not called a failure").toHaveCount(0);
+    expect((await stored(page)).filter((c) => c.body === "flush should retry"), "it did land, once").toHaveLength(1);
+    reloading.on = false;                                                  // the next action to reload brings the list up to date
+    await box.fill("and log it");
+    await send.click();
+    await expect(panel.locator(".thread")).toHaveCount(2);
+    await expect(panel.getByRole("alert"), "a later success clears it").toHaveCount(0);
+  });
+
+  test("a reply, Reopen, edit and delete that landed whose list will not reload each say so, and not that they failed", async ({ page }) => {
+    const panel = await openCheckTalk(page);
+    await panel.getByPlaceholder("Leave a comment…").fill("flush should retry");
+    await panel.locator(".comments").getByRole("button", { name: "Comment" }).click();
+    const thread = panel.locator(".thread"), root = thread.locator(".comment").first();
+    await expect(root).toContainText("flush should retry");
+    const reloading = await refuseReload(page);
+    const aboutThread = thread.locator(":scope > [role=alert]"), done = "Done, but the comments could not be reloaded.";
+    const resolve = thread.getByRole("button", { name: "Resolve", exact: true }), reopen = thread.getByRole("button", { name: "Reopen", exact: true });
+
+    const reply = thread.getByPlaceholder("Reply…");                       // a reply
+    await reply.fill("and log it");
+    await thread.getByRole("button", { name: "Reply", exact: true }).click();
+    await expect(aboutThread).toHaveText(done);
+    await expect(reply, "the reply went, so its box empties").toHaveValue("");
+    await expect(panel.getByText("The reply could not be posted."), "…and the post is not called a failure").toHaveCount(0);
+    expect((await stored(page)).filter((c) => c.body === "and log it"), "it did land, once").toHaveLength(1);
+    reloading.on = false;                                                  // Resolve, with the list back: it shows the reply, and the alert goes
+    await resolve.click();
+    await expect(thread).toHaveClass(/\bresolved\b/);
+    await expect(thread.locator(".comment")).toHaveCount(2);
+    await expect(aboutThread).toHaveCount(0);
+
+    reloading.on = true;                                                   // Reopen
+    await reopen.click();
+    await expect(aboutThread).toHaveText(done);
+    await expect(panel.getByText("The thread could not be reopened."), "…and not that it failed").toHaveCount(0);
+    expect((await stored(page)).find((c) => c.parent_id === null)?.resolved, "it did land").toBe(false);
+    reloading.on = false;                                                  // the list is still the old one, so Reopen is still there: a repeat is harmless
+    await reopen.click();
+    await expect(thread).not.toHaveClass(/\bresolved\b/);
+    await expect(aboutThread).toHaveCount(0);
+
+    reloading.on = true;                                                   // an edit
+    await root.getByRole("button", { name: "edit", exact: true }).click();
+    const edit = root.getByRole("textbox");
+    await edit.fill("flush should retry twice");
+    await root.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(root.getByRole("alert")).toHaveText(done);
+    await expect(edit, "the edit closes, as on any success").toHaveCount(0);
+    await expect(panel.getByText("The edit could not be saved."), "…and does not say it failed").toHaveCount(0);
+    expect((await stored(page)).filter((c) => c.body === "flush should retry twice"), "it did land").toHaveLength(1);
+    reloading.on = false;                                                  // saved again with the list back
+    await root.getByRole("button", { name: "edit", exact: true }).click();
+    await edit.fill("flush should retry twice");
+    await root.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(root).toContainText("flush should retry twice");
+    await expect(root.getByRole("alert")).toHaveCount(0);
+
+    reloading.on = true;                                                   // a delete of the reply
+    const replied = thread.locator(".comment").filter({ hasText: "and log it" });
+    await replied.getByRole("button", { name: "delete", exact: true }).click();
+    await expect(replied.getByRole("alert")).toHaveText(done);
+    await expect(panel.getByText("The comment could not be deleted."), "…and not that it failed").toHaveCount(0);
+    expect((await stored(page)).filter((c) => c.body === "and log it"), "it did land").toHaveLength(0);
   });
 
   test("a resolved thread fades its own words but not its failures: a refused Reopen and a refused delete read at full strength", async ({ page }) => {

@@ -11,12 +11,15 @@ export function anchorMatches(c: Comment, kind: AnchorKind, anchor: Record<strin
   return c.anchor_kind === kind && Object.entries(anchor).every(([k, v]) => c.anchor[k] === v);
 }
 
+/** Fetches the comments again after an action; a promise that rejects says the list did not come back. */
+type Reload = () => void | Promise<unknown>;
+
 interface Props {
   reviewId: number;
   comments: Comment[];
   kind: AnchorKind;
   anchor: Record<string, unknown>;
-  onChange: () => void;
+  onChange: Reload;
   compact?: boolean;
   /** Which root comments belong here (default: same kind and anchor fields). */
   match?: (c: Comment) => boolean;
@@ -24,13 +27,18 @@ interface Props {
 }
 
 /** What a refused action says, under the thread or composer it came from: the server's own words, else the action's sentence.
- * The next action clears it, so a success after a failure leaves nothing behind. */
-function useFailure() {
+ * The next action clears it, so a success after a failure leaves nothing behind. An action the server took whose list then will not
+ * reload is not a refused one: it says it is done and the list is not, in the same place. */
+function useFailure(reload: Reload) {
   const [said, setSaid] = useState<string | null>(null);
-  /** Runs `act`; settles to whether it landed (never rejects). */
+  /** Runs `act`, the server call alone; settles to whether it landed (never rejects). When it did, the list reloads in the background:
+   * the draft does not wait for that, and that failing says nothing against `act`. */
   const run = (act: () => Promise<unknown>, failed: string): Promise<boolean> => {
     setSaid(null);
-    return act().then(() => true, (e) => { setSaid(errorText(e, failed)); return false; });
+    return act().then(() => {
+      Promise.resolve().then(reload).catch(() => setSaid("Done, but the comments could not be reloaded."));
+      return true;
+    }, (e) => { setSaid(errorText(e, failed)); return false; });
   };
   return { said, run, clear: () => setSaid(null) };
 }
@@ -41,11 +49,12 @@ function Failure({ said }: { said: string | null }) {
 }
 
 /** All threads for one anchor plus a composer. A comment, reply, Resolve, Reopen, delete or edit the server refuses says so beside
- * the thread or composer it came from, and a draft stays in its box. */
+ * the thread or composer it came from, and a draft stays in its box. One it took, whose list will not reload, says that instead,
+ * and the draft goes. */
 export default function Comments({ reviewId, comments, kind, anchor, onChange, compact, match, autoFocus }: Props) {
   const roots = comments.filter((c) => c.parent_id === null && (match ? match(c) : anchorMatches(c, kind, anchor)));
   const [open, setOpen] = useState(!compact);
-  const post = useFailure();
+  const post = useFailure(onChange);
   if (!open && roots.length === 0)                  // a thread that arrives later (an Ask…) shows without a click
     return <button className="link small" onClick={() => setOpen(true)}>+ comment</button>;
   return (
@@ -54,23 +63,23 @@ export default function Comments({ reviewId, comments, kind, anchor, onChange, c
         <Thread key={root.id} root={root} replies={comments.filter((c) => c.parent_id === root.id)}
                 reviewId={reviewId} onChange={onChange} />
       ))}
-      <Composer onSubmit={(body) => post.run(() => api.addComment(reviewId, body, kind, anchor).then(onChange), "The comment could not be posted.")}
+      <Composer onSubmit={(body) => post.run(() => api.addComment(reviewId, body, kind, anchor), "The comment could not be posted.")}
                 autoFocus={autoFocus} placeholder={roots.length ? "Start another thread…" : "Leave a comment…"} />
       <Failure said={post.said} />
     </div>
   );
 }
 
-function Thread({ root, replies, reviewId, onChange }: { root: Comment; replies: Comment[]; reviewId: number; onChange: () => void }) {
-  const act = useFailure();                          // a reply, Resolve or Reopen that was refused
+function Thread({ root, replies, reviewId, onChange }: { root: Comment; replies: Comment[]; reviewId: number; onChange: Reload }) {
+  const act = useFailure(onChange);                  // a reply, Resolve or Reopen that was refused
   return (
     <div className={`thread ${root.resolved ? "resolved" : ""}`}>
       {[root, ...replies].map((c) => <CommentView key={c.id} c={c} onChange={onChange} />)}
       <div className="thread-actions">
         <Composer small placeholder="Reply…"
-                  onSubmit={(body) => act.run(() => api.addComment(reviewId, body, root.anchor_kind, root.anchor, root.id).then(onChange),
+                  onSubmit={(body) => act.run(() => api.addComment(reviewId, body, root.anchor_kind, root.anchor, root.id),
                                               "The reply could not be posted.")} />
-        <button className="link small" onClick={() => act.run(() => api.patchComment(root.id, { resolved: !root.resolved }).then(onChange),
+        <button className="link small" onClick={() => act.run(() => api.patchComment(root.id, { resolved: !root.resolved }),
                                                                `The thread could not be ${root.resolved ? "reopened" : "resolved"}.`)}>
           {root.resolved ? "Reopen" : "Resolve"}
         </button>
@@ -80,10 +89,10 @@ function Thread({ root, replies, reviewId, onChange }: { root: Comment; replies:
   );
 }
 
-function CommentView({ c, onChange }: { c: Comment; onChange: () => void }) {
+function CommentView({ c, onChange }: { c: Comment; onChange: Reload }) {
   const me = useMe();
   const usage = useAi();
-  const act = useFailure();                          // a delete or an edit that was refused
+  const act = useFailure(onChange);                  // a delete or an edit that was refused
   const [editing, setEditing] = useState(false);
   const [body, setBody] = useState(c.body);
   const ai = c.author === TORTOISE;
@@ -97,14 +106,14 @@ function CommentView({ c, onChange }: { c: Comment; onChange: () => void }) {
         <span className="muted small">{c.created_at.replace("T", " ").slice(0, 16)}{c.edited_at ? " (edited)" : ""}</span>
         {mine && !editing && <button className="link small" onClick={() => setEditing(true)}>edit</button>}
         {(mine || me?.is_owner) && (
-          <button className="link small" onClick={() => act.run(() => api.deleteComment(c.id).then(onChange), "The comment could not be deleted.")}>delete</button>
+          <button className="link small" onClick={() => act.run(() => api.deleteComment(c.id), "The comment could not be deleted.")}>delete</button>
         )}
       </div>
       {editing ? (
         <div className="stack">
           <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={3} />
           <div>
-            <button onClick={() => act.run(() => api.patchComment(c.id, { body }).then(() => { setEditing(false); onChange(); }),
+            <button onClick={() => act.run(() => api.patchComment(c.id, { body }).then(() => setEditing(false)),
                                            "The edit could not be saved.")}>Save</button>
             <button className="link" onClick={() => { act.clear(); setEditing(false); }}>Cancel</button>
           </div>
