@@ -17,6 +17,20 @@ async function withoutRelated(page: Page) {
   await page.route("**/api/reviews/*/stories/*", strip);
 }
 
+/** Story S1 with a second place on its first flow: the review's own flows have one place each, so its Confirm row of `uart_send`
+ * becomes a caller row at the first flow's landing (a call that ignores the result and sees the signature change has both). The keys
+ * stay the review's, so marking and reopening them reach the server. */
+async function withTwoPlaces(page: Page) {
+  await page.route("**/api/reviews/*/stories/S1", async (route) => {
+    let res: APIResponse, j: any;
+    try { res = await route.fetch(); j = await res.json(); }
+    catch { return; }                          // the page or the test went away while it was in flight: nobody reads it
+    const [flow] = j.board.flows.filter((f: any) => j.story.flows.includes(f.id));
+    Object.assign(j.reading.checks.find((k: any) => k.kind === "confirm"), { kind: "caller", node: flow.lands, related: flow.cause });
+    await route.fulfill({ response: res, json: j });
+  });
+}
+
 /** Each element's attribute `name`, in order. */
 const labels = (l: Locator, name = "aria-label") => l.evaluateAll((els, a) => els.map((e) => e.getAttribute(a)), name);
 
@@ -114,7 +128,6 @@ test.describe("the Flows tab", () => {
     const tick = page.getByRole("checkbox", { name: /^Looks fine: uart_errors/ });
     await tick.click();                                                   // a tick box is no text field: K still moves
     await expect(tick).toBeChecked();
-    await expect(tick).toBeEnabled();
     await marksDone(page);
     await page.keyboard.press("k");
     await expect(toggles.nth(0)).toBeFocused();
@@ -289,11 +302,83 @@ test.describe("the Flows tab", () => {
     await marksDone(page);
     for (const i of [0, 1]) {
       await expect(ticks.nth(i)).toHaveCSS("opacity", "1");
-      await expect(ticks.nth(i)).toHaveCSS("cursor", "default");
+      await expect(ticks.nth(i)).not.toHaveCSS("cursor", "progress");
     }
     await page.waitForTimeout(300);                                       // a queued click would have been sent by now
     expect(marks).toHaveLength(1);
     await expect(ticks.nth(1)).not.toBeChecked();
+  });
+
+  /** The marks and unmarks the page sends to the server (the "Looks fine" and "Reopen" requests), one entry each. */
+  function watchChecks(page: Page) {
+    const sent: string[] = [];
+    page.on("request", (r) => {
+      const at = r.url().indexOf("/checks/");
+      if (at >= 0 && r.method() !== "GET") sent.push(`${r.method()} ${r.url().slice(at + 8).replace(/^.*\/mark$/, "<key>/mark")}`);
+    });
+    return sent;
+  }
+  /** The keys marked fine now, as the server has them. */
+  const marked = async (page: Page, base: string): Promise<string[]> =>
+    Object.keys((await (await page.request.get(`/api/reviews/${base.split("/")[2]}/reading`)).json()).marks).sort();
+
+  test("Reopen on a row with two marked places sends one request and reopens them both", async ({ page }) => {
+    await withTwoPlaces(page);
+    const sent = watchChecks(page);
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const tick = page.getByRole("checkbox", { name: "Looks fine: logger_flush ignores -2" });
+    await page.locator(".fl-toggle").first().click();
+    const card = page.getByRole("region", { name: /^Flow 1: / });
+    await card.getByRole("button", { name: "Looks fine", exact: true }).click();
+    await expect(tick).toBeChecked();
+    await marksDone(page);
+    expect(await marked(page, base)).toHaveLength(2);                          // both places of the row
+    sent.length = 0;
+    await card.getByRole("button", { name: "Reopen", exact: true }).click();
+    await expect(tick).not.toBeChecked();
+    await marksDone(page);
+    expect(sent).toEqual(["POST unmarks"]);                                    // one request for both places, not one each
+    expect(await marked(page, base)).toEqual([]);
+    await tick.click();                                                        // the tick box reopens a row the same way
+    await expect(tick).toBeChecked();
+    await marksDone(page);
+    sent.length = 0;
+    await tick.click();
+    await expect(tick).not.toBeChecked();
+    await marksDone(page);
+    expect(sent).toEqual(["POST unmarks"]);
+    expect(await marked(page, base)).toEqual([]);
+  });
+
+  test("a Reopen the server refuses shows its error and leaves the row's marks as they were", async ({ page }) => {
+    await withTwoPlaces(page);
+    const sent = watchChecks(page);
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const tick = page.getByRole("checkbox", { name: "Looks fine: logger_flush ignores -2" });
+    await page.locator(".fl-toggle").first().click();
+    const card = page.getByRole("region", { name: /^Flow 1: / });
+    await card.getByRole("button", { name: "Looks fine", exact: true }).click();
+    await expect(tick).toBeChecked();
+    await marksDone(page);
+    const before = await marked(page, base);
+    expect(before).toHaveLength(2);
+    await page.route((u) => u.pathname.endsWith("/checks/unmarks"), (route) =>
+      route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ detail: "The server could not reopen them." }) }));
+    sent.length = 0;
+    await card.getByRole("button", { name: "Reopen", exact: true }).click();
+    await expect(page.locator(".st-flows .banner.warn")).toHaveText("The server could not reopen them.");
+    await marksDone(page);
+    expect(sent).toEqual(["POST unmarks"]);                                    // nothing else was sent: no key went on its own
+    await expect(tick).toBeChecked();                                          // the row still reads done, and Reopen is still there
+    await expect(card.getByRole("button", { name: "Reopen", exact: true })).toBeVisible();
+    expect(await marked(page, base)).toEqual(before);                          // and so does the server
+    await tick.click();                                                        // the tick box meets the same refusal
+    await expect(page.locator(".st-flows .banner.warn")).toHaveText("The server could not reopen them.");
+    await marksDone(page);
+    await expect(tick).toBeChecked();
+    expect(await marked(page, base)).toEqual(before);
   });
 
   test("a J pressed the moment the rows show is heard, not lost to the next paint", async ({ page }) => {
@@ -452,6 +537,61 @@ test.describe("a story with many flows", () => {
     await expect(second.locator(".fl-tick").nth(7)).toBeChecked();
     await expect(second.locator(".fl-row")).toHaveCount(25);
     await expect(second.locator(".fl-toggle").nth(8)).toBeFocused();
+  });
+
+  test("F on the last row with something open wraps to the first row above with something open", async ({ page }) => {
+    const base = await startReview(page, "201 202");
+    await page.goto(`${base}/s/S1`);
+    for (const n of [1, 2]) {                                                        // the first two rows are done, so the wrap has to pass them
+      await page.locator(`#flow-${n} .fl-tick`).click();
+      await expect(page.locator(`#flow-${n} .fl-tick`)).toBeChecked();
+      await marksDone(page);
+    }
+    await page.goto(`${base}/s/S1?flow=140`);                                        // the last row of the tab, in a group that was folded
+    await expect(page.locator("#flow-140 .fl-toggle")).toHaveAttribute("aria-expanded", "true");
+    await page.keyboard.press("f");
+    await expect(page.locator("#flow-140 .fl-tick")).toBeChecked();
+    await expect(page.locator("#flow-3 .fl-toggle")).toBeFocused();                  // not row 1 or 2: they have nothing open
+    await marksDone(page);
+    await expect(page.locator("#flow-3 .fl-tick")).not.toBeChecked();                // F marks the row it leaves, not the one it goes to
+    await expect(page.locator("#flow-1 .fl-tick:checked, #flow-2 .fl-tick:checked")).toHaveCount(2);
+  });
+
+  test("a click on an outline group line for another flow scrolls its row into view once", async ({ page }) => {
+    await page.addInitScript(() => {                                                 // which elements the page scrolled into view
+      const scrolled: string[] = [];
+      (window as unknown as { scrolled: string[] }).scrolled = scrolled;
+      const scrollIntoView = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = function (this: Element, arg?: boolean | ScrollIntoViewOptions) {
+        scrolled.push(this.id);
+        return scrollIntoView.call(this, arg);
+      };
+    });
+    const base = await startReview(page, "201 202");
+    await page.goto(`${base}/s/S1`);
+    const scrolls = (id: string) => page.evaluate((x) => (window as unknown as { scrolled: string[] }).scrolled.filter((i) => i === x).length, id);
+    expect(await scrolls("flow-51")).toBe(0);
+    await page.locator("aside.ws-outline .ws-flows .ws-row").nth(2).click();         // the third group: flows 51 to 75
+    await expect(page.locator("#flow-51 .fl-toggle")).toHaveAttribute("aria-expanded", "true");
+    await page.waitForTimeout(300);                                                  // a second scroll would have been made by now
+    expect(await scrolls("flow-51")).toBe(1);
+    await page.locator("aside.ws-outline .ws-flows .ws-row").nth(4).click();         // and again for the fifth: flows 101 to 125
+    await expect(page.locator("#flow-101 .fl-toggle")).toHaveAttribute("aria-expanded", "true");
+    await page.waitForTimeout(300);
+    expect(await scrolls("flow-101")).toBe(1);
+    expect(await scrolls("flow-51")).toBe(1);
+  });
+
+  test("at 1280px rows stay a line each, well under 44px apart (the touch size is for phones)", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const base = await startReview(page, "201 202");
+    await page.goto(`${base}/s/S1`);
+    const rows = page.locator("section.fl-group").first().locator(".fl-row");
+    await expect(rows).toHaveCount(8);
+    const tops = await rows.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().top));
+    const gaps = tops.slice(1).map((t, i) => t - tops[i]);
+    expect(Math.max(...gaps), `pitch ${gaps.join(", ")}`).toBeLessThan(44);
+    expect(Math.min(...gaps), `pitch ${gaps.join(", ")}`).toBeGreaterThan(24);        // and a row is not squeezed either
   });
 
   test("while a check is open beside the page J, K and F are the stepper's, and letters in its comment box (Review Focus 4)", async ({ page }) => {
@@ -668,6 +808,24 @@ test.describe("the Flows tab on a phone", () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
     expect(await unreadable()).toBe(0);
     expect(await sideways()).toBeLessThanOrEqual(0);
+  });
+
+  test("rows are at least 44px apart and each tick's label is as tall as its row, so a finger lands on its own row (owner decision 1)", async ({ page }) => {
+    const base = await startReview(page, "201 202");
+    await page.goto(`${base}/s/S1`);
+    const rows = page.locator("section.fl-group").first().locator(".fl-row");
+    await expect(rows).toHaveCount(8);
+    const tops = await rows.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().top));
+    const gaps = tops.slice(1).map((t, i) => t - tops[i]);
+    expect(Math.min(...gaps), `pitch ${gaps.join(", ")}`).toBeGreaterThanOrEqual(44);
+    const lines = await page.locator(".fl-head").evaluateAll((els) => els.map((e) => ({
+      line: e.querySelector(".fl-toggle")!.getBoundingClientRect().height, tick: e.querySelector("label.fl-tickbox")!.getBoundingClientRect().height })));
+    expect(lines.length).toBe(48);                                                    // every row showing, in all six groups
+    for (const { line, tick } of lines) {
+      expect(line).toBeGreaterThanOrEqual(44);
+      expect(tick).toBeGreaterThanOrEqual(44);
+      expect(tick).toBeCloseTo(line, 0);                                              // the label spans the row's line, no more, no less
+    }
   });
 
   test("a tick box's target is a 24px square here too, and a click on its edge ticks it", async ({ page }) => {

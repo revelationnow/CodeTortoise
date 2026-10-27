@@ -747,6 +747,33 @@ def test_all_look_fine_marks_every_place_of_a_cause_in_one_request_or_none(env):
     assert set(bob.get(f"/api/reviews/{rid}/ticks").json()["checks"]) >= set(keys)
 
 
+def test_reopen_unmarks_every_place_in_one_request_or_none(env):
+    svc, app, _ = env
+    owner, rid = _review(app)
+    bob = login(app, "bob")
+    keys = [k["key"] for k in owner.get(f"/api/reviews/{rid}/reading").json()["checks"]][:3]
+
+    def marked() -> set[str]:
+        return set(owner.get(f"/api/reviews/{rid}/reading").json()["marks"])
+
+    def unmark(who, to_rid, ks):
+        return who.post(f"/api/reviews/{to_rid}/checks/unmarks", json={"keys": ks})
+
+    owner.post(f"/api/reviews/{rid}/checks/marks", json={"keys": keys})
+    assert marked() == set(keys)
+    assert unmark(TestClient(app), rid, keys).status_code == 401
+    refused = unmark(bob, rid, [keys[0], keys[1], "nope"])
+    assert refused.status_code == 404 and refused.json()["detail"] == "That check no longer exists after the re-run."
+    assert marked() == set(keys)                                          # one key unknown: none is cleared
+    assert unmark(bob, rid, [keys[0], keys[1], keys[0]]).json() == {"ok": True}
+    assert marked() == {keys[2]}                                          # anyone may reopen; a key given twice is no trouble
+    assert unmark(bob, rid, [keys[0]]).status_code == 200                # a place already open is no error
+    assert unmark(bob, rid, []).json() == {"ok": True}
+    assert unmark(bob, rid + 1, keys).status_code == 404                  # no such review
+    assert marked() == {keys[2]}
+    assert set(owner.get(f"/api/reviews/{rid}/ticks").json()["checks"]) >= set(keys)    # what the owner has read stays read
+
+
 def test_all_look_fine_reads_the_reading_once_and_marks_a_repeated_key_once(env, monkeypatch):
     from codetortoise.reading import Reading
     svc, app, _ = env

@@ -308,6 +308,16 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
             raise HTTPException(404, NO_CHECK)
         return {"marked": store.set_marks(rid, user, [(key, by_key[key].source_line) for key in keys])}
 
+    @app.post("/api/reviews/{rid}/checks/unmarks")
+    def unmark_checks(rid: int, body: KeysIn, _: str = Depends(user_of)):
+        """Reopen several places at once, as a Flows row's Reopen does: every key or none."""
+        review_or_404(rid)
+        by_key = checks_or_404(rid)
+        if any(key not in by_key for key in body.keys):
+            raise HTTPException(404, NO_CHECK)
+        store.clear_marks(rid, body.keys)
+        return {"ok": True}
+
     @app.post("/api/reviews/{rid}/checks/{key:path}/mark")
     def mark_check(rid: int, key: str, user: str = Depends(user_of)):
         review_or_404(rid)

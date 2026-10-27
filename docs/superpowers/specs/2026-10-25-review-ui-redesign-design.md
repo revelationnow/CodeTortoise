@@ -266,7 +266,8 @@ position in the story's list, as `flow=N` addresses and the Graph tab number it.
     places are marked (unmarks them), and **Next flow ›** (closes it and opens the next row).
 - **The tick box** is checked when every place of the flow is marked and unchanged; clicking it marks all its open
   places, or unmarks all when checked. Accessible name: `Looks fine: <sentence>`.
-- **Folding**: a group with more than 8 rows shows 8 and `Show N more`; a link to a hidden row unfolds its group.
+- **Folding**: a group with more than 8 rows shows 8 and `Show N more`; a link to a hidden row unfolds its group. The end
+  line (§7.7) folds the same way.
 - **Keys**, on the Flows tab, when no cause is open in the side panel and focus is not in a text field: **J** next
   row, **K** previous row (focus moves and the row scrolls into view), **Enter** opens or closes the focused row,
   **F** marks the focused row's open places fine and moves to the next row with open places. While a cause is open in
@@ -308,7 +309,8 @@ group's first flow (§7.3 Address).
 ### 7.7 End of the tab
 
 - `Also in this story:` followed by the chips of the causes §7.4 left for the end line (e.g. "7 functions no test
-  calls"); absent when there are none.
+  calls"); absent when there are none. The end line folds like a group: its first 8 chips, then `Show N more`, which
+  shows the rest.
 - "What it means for the rest" as today, its text in edge.
 - No flows: "No flows in this story." as today.
 

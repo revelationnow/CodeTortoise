@@ -117,6 +117,8 @@ export const api = {
   unmarkCheck: (id: number, key: string) => call("DELETE", `/api/reviews/${id}/checks/${encodeURIComponent(key)}/mark`),
   /** All look fine: every place of a cause at once (spec 2026-10-16 §4.3). */
   markChecks: (id: number, keys: string[]) => call<{ marked: Mark[] }>("POST", `/api/reviews/${id}/checks/marks`, { keys }),
+  /** Reopen several places at once, every key or none (a Flows row's Reopen). */
+  unmarkChecks: (id: number, keys: string[]) => call("POST", `/api/reviews/${id}/checks/unmarks`, { keys }),
   /** The signed-in reader's own ticks (spec 2026-10-07-review-reading-phase2 §6). */
   ticks: (id: number) => call<ReadTicks>("GET", `/api/reviews/${id}/ticks`),
   tick: (id: number, kind: "story" | "check", key: string, on: boolean) =>

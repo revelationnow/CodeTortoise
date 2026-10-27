@@ -444,6 +444,33 @@ test.describe("a story's tabs", () => {
     await expect(page.getByRole("region", { name: "Also in this story" })).toHaveCount(0);
   });
 
+  test("a kind hidden or shown in the outline's Checks takes its tick boxes and chips off the open Flows tab, or brings them back", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const outline = page.locator("aside.ws-outline"), ticks = page.locator(".fl-tick"), chips = page.locator(".fl-group .st-chip");
+    const lines = page.locator(".fl-group .fl-line");
+    await expect(ticks).toHaveCount(2);
+    await expect(chips).toHaveCount(2);
+    await outline.getByRole("button", { name: "Checks" }).click();
+    const hide = outline.locator("details.ws-hidden");
+    await hide.locator("summary").click();
+    await hide.getByLabel("Unchanged reader").uncheck();                       // the second flow's place and its cause
+    await expect(ticks).toHaveCount(1);
+    await expect(chips).toHaveCount(1);
+    await expect(lines).toHaveText(["called by logger_flush · 1 flow · 1 open", "read by uart_errors · 1 flow"]);
+    await hide.getByLabel("Result handled the old way").uncheck();             // the first flow's
+    await expect(ticks).toHaveCount(0);
+    await expect(chips).toHaveCount(0);
+    await expect(lines).toHaveText(["called by logger_flush · 1 flow", "read by uart_errors · 1 flow"]);
+    await hide.getByLabel("Result handled the old way").check();
+    await expect(ticks).toHaveCount(1);
+    await expect(chips).toHaveCount(1);
+    await hide.getByLabel("Unchanged reader").check();
+    await expect(ticks).toHaveCount(2);
+    await expect(chips).toHaveCount(2);
+    await expect(lines).toHaveText(["called by logger_flush · 1 flow · 1 open", "read by uart_errors · 1 flow · 1 open"]);
+  });
+
   test("a story stored before causes shows no chips", async ({ page }) => {
     await withoutCauses(page);
     const base = await startReview(page, FOUR);
@@ -496,7 +523,8 @@ test.describe("a story's tabs", () => {
     await page.goto(`${base}/s/S3`);
     const region = page.getByRole("region", { name: "Checks in this story" });
     await expect(region.locator(".st-chip")).toHaveCount(1);
-    await expect(page.getByRole("region", { name: /^Flow \d+:/ })).toHaveCount(0);
+    await expect(page.getByRole("navigation", { name: "Story sections" }).getByRole("link", { name: /^Flows/ })).toHaveCount(0);
+    await expect(page.locator(".fl-group, .fl-row")).toHaveCount(0);
   });
 });
 

@@ -118,6 +118,21 @@ def test_check_marks_are_per_review_shared_and_pruned_to_the_keys_found_again(st
     assert store.list_marks(rid) == {} and store.list_marks(rid + 1) == {}
 
 
+def test_clear_marks_reopens_every_key_in_one_transaction_or_none(store):
+    import sqlite3
+    rid, other = store.create_review("t", "a", [1]), store.create_review("t", "a", [2])
+    for key in ("caller|a.c|f|g", "result|a.c|f|g", "reader|b.c|r|w"):
+        store.set_mark(rid, key, "ana", "x")
+    store.set_mark(other, "caller|a.c|f|g", "ana", "x")
+    store.clear_marks(rid, ["caller|a.c|f|g", "result|a.c|f|g", "never|marked|k|k"])       # a key never marked is no error
+    assert list(store.list_marks(rid)) == ["reader|b.c|r|w"] and list(store.list_marks(other)) == ["caller|a.c|f|g"]
+    store.clear_marks(rid, [])
+    assert list(store.list_marks(rid)) == ["reader|b.c|r|w"]
+    with pytest.raises(sqlite3.Error):                                    # the second key cannot be bound: the first stays marked
+        store.clear_marks(rid, ["reader|b.c|r|w", {"not": "a key"}])
+    assert list(store.list_marks(rid)) == ["reader|b.c|r|w"]
+
+
 
 def test_read_ticks_belong_to_one_reader_and_a_run_clears_them_all(store):
     rid = store.create_review("t", "a", [1])
