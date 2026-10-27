@@ -12,12 +12,11 @@ import { INDEX_TABS, type Place } from "./address";
 import { useWs } from "./context";
 import { INDEX_LABEL, short } from "./crumbs";
 import NameText, { Ticks } from "./NameText";
-import { plainNames } from "./names";
+import { bare, plainNames } from "./names";
 import { barPin, loadThread, openThread, pinnedSpace, saveThread } from "./outline";
 import Strip, { FoldButton } from "./Strip";
 
 const scrollKey = (rid: number) => `ct.ws.${rid}.railScroll`;
-const bare = (s: string) => s.replaceAll("`", "");
 
 type Props = { onPick: () => void; hidden?: boolean };
 

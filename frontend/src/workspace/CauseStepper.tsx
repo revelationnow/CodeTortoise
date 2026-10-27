@@ -10,9 +10,7 @@ import type { Cause, Check, Mark } from "../reading/types";
 import { useWs } from "./context";
 import { inPopup, typing } from "./keys";
 import NameText, { Ticks } from "./NameText";
-import { plainNames } from "./names";
-
-const bare = (s: string) => s.replaceAll("`", "");
+import { bare, plainNames } from "./names";
 
 /** About seven lines around the place, from the after text of a changed file or the fetched text of another. */
 function PlaceCode({ k }: { k: Check | null }) {

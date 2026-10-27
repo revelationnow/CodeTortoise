@@ -3,9 +3,7 @@ import { causeOpen, firstOpenAt } from "../reading/causes";
 import type { Cause } from "../reading/types";
 import { useWs } from "./context";
 import { Ticks } from "./NameText";
-import { plainNames } from "./names";
-
-const bare = (s: string) => s.replaceAll("`", "");
+import { bare, plainNames } from "./names";
 
 /** Check chips (spec 2026-10-16-outline-and-causes §2.3): one per shown cause, done ones muted with ✓; a chip opens the
  * stepper at the cause's first open place. A Flows group's, a flow's without places, the Flows tab's end line and a

@@ -12,8 +12,8 @@ import Chips from "./Chips";
 import { useWs } from "./context";
 import { inPopup, typing } from "./keys";
 import NameText, { Ticks } from "./NameText";
+import { bare } from "./names";
 
-const bare = (s: string) => s.replaceAll("`", "");
 const ALSO = "also";                                                           // the end line's key in `more`; a group's is "kind:node"
 
 /** The Flows tab (spec 2026-10-25-review-ui-redesign §7): the story's flows in groups by what changed, a line each;

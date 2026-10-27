@@ -277,9 +277,11 @@ position in the story's list, as `flow=N` addresses and the Graph tab number it.
 
 A pure function sorts the story's shown causes (hidden kinds left out) between the groups and the end line (§7.7):
 
-- `reader`: the field group whose field label equals the `field` of its places' checks;
+- `reader`: the field group whose field label equals the `field` of its places' checks; when two field groups carry the
+  same label, the one one of whose rows lands where one of the cause's checks is, else the first;
 - `caller`, `result`, `target`, `unanalysed`: the function group whose function is its places' checks' `related`
-  (§8); on a reading without `related`, the group holding the first flow in the cause's `flows`;
+  (§8); on a reading without `related`, the first function group among the groups holding the cause's `flows`, taking the
+  flows in order, else the end line;
 - `hazard`, `confirm`: the first group holding a flow whose `findings` include the cause's `finding`;
 - anything else, and a cause no group takes: the end line.
 
