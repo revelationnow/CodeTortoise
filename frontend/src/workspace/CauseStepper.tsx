@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../api";
+import { api, errorText } from "../api";
 import { isChange, useEnsureSource } from "../board/useSources";
 import Comments from "../components/Comments";
 import SinkMark from "../components/SinkMark";
@@ -54,7 +54,7 @@ export default function CauseStepper({ cause, at }: { cause: Cause; at: number }
   const run = (act: () => Promise<void>): Promise<boolean> => {   // settles to whether the change landed (never rejects)
     setBusy(true);
     setError(null);
-    return act().then(() => true).catch((e) => { setError(String(e.message ?? e)); return false; }).finally(() => setBusy(false));
+    return act().then(() => true).catch((e) => { setError(errorText(e, "The server did not accept the mark.")); return false; }).finally(() => setBusy(false));
   };
   const reload = () => Promise.all([d.loadReading(), d.loadTicks().catch(() => {})]).then(() => {});
   const fineNext = () => run(async () => {

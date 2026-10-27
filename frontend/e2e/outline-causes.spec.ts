@@ -218,13 +218,15 @@ test.describe("a cause of many places", () => {
     await expectNamed(page);
   });
 
-  /** Hold each Looks fine (one place's mark) until `release` runs, or fail it at once. */
-  async function holdMarks(page: Page, how: "hold" | "fail") {
+  /** Hold each Looks fine (one place's mark) until `release` runs, or fail it at once: with a reason ("fail"), or with none ("mute", what the
+   * page has to go on when the status line is empty too, as over HTTP/2). */
+  async function holdMarks(page: Page, how: "hold" | "fail" | "mute") {
     let release = () => {};
     const held = new Promise<void>((done) => { release = done; });
     await page.route((u) => u.pathname.endsWith("/mark"), async (route) => {
       if (route.request().method() !== "POST") return route.continue();
       if (how === "fail") return route.fulfill({ status: 500, json: { detail: "the store is busy" } });
+      if (how === "mute") return route.fulfill({ status: 500, json: { detail: "" } });
       await held;
       await route.continue();
     });
@@ -365,6 +367,16 @@ test.describe("a cause of many places", () => {
     });
     await link.click();
     await expect(page.getByRole("complementary", { name: `Check: ${READERS}` }).locator(".cs-pos")).toHaveText("2 / 5");
+  });
+
+  test("a Looks fine the server refuses without a word still tells the reader, in an alert", async ({ page }) => {
+    await holdMarks(page, "mute");
+    const panel = await openReaders(page);
+    await expect(panel.locator(".cs-pos")).toHaveText("1 / 5");
+    await page.keyboard.press("f");
+    await expect(panel.locator(".banner.warn")).toHaveText("The server did not accept the mark.");
+    await expect(panel.getByRole("alert"), "a screen reader is told of the refusal").toHaveText("The server did not accept the mark.");
+    await expect(panel.locator(".cs-pos")).toHaveText("1 / 5");
   });
 
   test("a failed Looks fine's banner goes when the reader steps to another place", async ({ page }) => {

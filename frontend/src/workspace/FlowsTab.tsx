@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigationType } from "react-router-dom";
-import { api } from "../api";
+import { api, errorText } from "../api";
 import type { BoardFlow, StoryDetail } from "../board/types";
 import AiText from "../components/AiText";
 import { shown } from "../reading/causes";
@@ -44,7 +44,7 @@ export default function FlowsTab({ detail, sr, flows }: { detail: StoryDetail; s
     setBusy(true);
     setError(null);
     return act().then(() => Promise.all([d.loadReading(), d.loadTicks().catch(() => {})])).then(() => true)
-      .catch((e) => { setError(String(e.message ?? e)); return false; }).finally(() => setBusy(false));
+      .catch((e) => { setError(errorText(e, "The server did not accept the mark.")); return false; }).finally(() => setBusy(false));
   };
   const fine = (keys: string[]) => run(() => api.markChecks(d.id, keys));
   const reopen = (keys: string[]) => run(() => api.unmarkChecks(d.id, keys));  // all of them or none, so a refusal leaves the row as it was

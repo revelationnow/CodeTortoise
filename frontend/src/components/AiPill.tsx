@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type AiCall } from "../api";
 import { useAi } from "../lib/ai";
 import { nearLimit } from "../lib/aiState";
+import { holdsFocus } from "../lib/focus";
 import { hasRequests, requestLogHref } from "./requestLog";
 
 /** The review header's AI pill, shown only near the review's budget (spec 2026-10-25-review-ui-redesign §2.1); it
@@ -19,7 +20,8 @@ export default function AiPill() {
 /** The AI usage panel (spec 2026-10-03 §6): this review's and the viewer's calls; the owner raises the budget. It sits
  * under the header's right end at `top`, whoever opened it (spec 2026-10-25-review-ui-redesign §2.2), scrolling inside
  * itself rather than running past 16px above the window's bottom. Opening takes focus (so the page's J, K and F stay off
- * the page behind it); Escape or Close hands focus back to what had it then: ⋯ or the pill (or ⋯, if that has left). */
+ * the page behind it); Escape or Close hands focus back to what had it then: ⋯ or the pill (or ⋯, if that has left). Escape
+ * does so only while the panel holds focus: from elsewhere in the page it only closes the panel. */
 export function Usage({ onClose, top }: { onClose: () => void; top: number }) {
   const ai = useAi()!;
   const v = ai.view!;
@@ -38,7 +40,7 @@ export function Usage({ onClose, top }: { onClose: () => void; top: number }) {
     (opener.current?.isConnected ? opener.current : document.querySelector<HTMLElement>(".rm-btn"))?.focus();
   }, [onClose]);
   useEffect(() => {                           // Escape or a press outside closes it; the pill toggles it itself
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && back();
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") { if (holdsFocus(box.current)) back(); else onClose(); } };
     const away = (e: PointerEvent) => {
       const t = e.target as Element;
       if (!box.current?.contains(t) && !t.closest?.(".ai-pill")) onClose();

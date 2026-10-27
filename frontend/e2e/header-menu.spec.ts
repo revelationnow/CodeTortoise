@@ -1,4 +1,4 @@
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type JSHandle, type Locator, type Page, test } from "@playwright/test";
 import { AI, commentOnReturn, openAiUsage, openFold, railReady, reviewMenu, startReview } from "./helpers";
 
 /** The header's one row and its ⋯ menu (spec 2026-10-25-review-ui-redesign §2). */
@@ -10,6 +10,20 @@ async function openThread(page: Page, base: string): Promise<Locator> {
   await page.goto(`${base}?open=${encodeURIComponent("file://fixture/driver/uart.c")}`);
   return (await commentOnReturn(page)).thread;
 }
+
+/** Tabs on from inside `panel` until focus is on a control outside it, and returns that control: a panel closes on a press outside,
+ * not when focus leaves it, so a reader can be in the page with it still open. */
+async function tabOut(page: Page, panel: Locator): Promise<JSHandle<Element>> {
+  for (let i = 0; i < 30; i++) {
+    await page.keyboard.press("Tab");
+    if (await panel.evaluate((el) => !!document.activeElement && document.activeElement !== document.body && !el.contains(document.activeElement)))
+      return page.evaluateHandle(() => document.activeElement!);
+  }
+  throw new Error("Tab did not take focus out of the panel");
+}
+
+/** Whether `control` still has focus. */
+const hasFocus = (control: JSHandle<Element>) => control.evaluate((el) => el === document.activeElement);
 
 test("the header keeps one quiet row; the rest is in the review menu, which the keyboard walks", async ({ page }) => {
   await startReview(page);
@@ -78,6 +92,43 @@ test("Tab out of the menu closes it and leaves focus where Tab took it; Shift+Ta
   await page.keyboard.press("Escape");
   await expect(menu).toHaveCount(0);
   await expect(button).toBeFocused();
+});
+
+/** The panels the menu opens (spec 2026-10-25-review-ui-redesign §2.2): the menu item, and the dialog it opens. */
+const PANELS = [
+  { item: /^Workspace drift · 1$/, panel: "Workspace drift" },
+  { item: /^Stage notes · \d+$/, panel: "Stage notes" },
+  { item: /^How to read this page$/, panel: "How to read this page" },
+] as const;
+
+for (const { item, panel } of PANELS) {
+  test(`${panel}, opened from the menu, takes focus; Escape closes it and gives focus back to ⋯`, async ({ page }) => {
+    const base = await startReview(page);
+    await page.route("**/api/reviews/*/board", async (route) => {           // the demo has no drift: serve one
+      const res = await route.fetch(), j = await res.json();
+      j.about.drift = [{ text: "//fixture/driver/uart.c (base #3, workspace #2)", kind: "behind", severity: "warn" }];
+      await route.fulfill({ response: res, json: j });
+    });
+    await page.goto(base);
+    await (await reviewMenu(page)).getByRole("menuitem", { name: item }).click();
+    const dialog = page.getByRole("dialog", { name: panel });
+    await expect(dialog, "opening moves focus into the panel").toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^Review menu/ }), "Escape returns focus to ⋯").toBeFocused();
+  });
+}
+
+test("Escape pressed once Tab has taken focus out of a panel the menu opened closes it and leaves focus where it is", async ({ page }) => {
+  await startReview(page);
+  await (await reviewMenu(page)).getByRole("menuitem", { name: /^Stage notes/ }).click();
+  const notes = page.getByRole("dialog", { name: "Stage notes" });
+  await expect(notes).toBeFocused();
+  const there = await tabOut(page, notes);
+  await page.keyboard.press("Escape");
+  await expect(notes).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Review menu/ }), "Escape pulled focus back to ⋯").not.toBeFocused();
+  expect(await hasFocus(there), "focus stayed where Tab put it").toBe(true);
 });
 
 test("Single-key shortcuts is a checkbox item after the help, on at first; a pick turns it off and returns to ⋯, the menu reopens showing it off, and a reload keeps it", async ({ page }) => {
@@ -216,6 +267,8 @@ test("a re-run that fails late shows its panel but takes focus only from ⋯ or 
   };
   await rerunWhile(() => box.focus());                                     // the reader has gone on to write…
   await expect(box, "…and keeps focus; the panel shows all the same").toBeFocused();
+  await expect(failed.getByRole("alert"), "…and its message is an alert, which a screen reader hears though focus did not move")
+    .toHaveText("The runner is not accepting reviews");
   await page.keyboard.press("Escape");                                     // which closes the panel, as ever
   await expect(failed).toHaveCount(0);
   await rerunWhile(() => page.locator(".ov3 h2").first().click());         // …or has pressed the page's text, which leaves focus on the body
@@ -398,6 +451,17 @@ test.describe("the AI usage panel", () => {
     await usage.getByRole("button", { name: "Close" }).click();
     await expect(usage).toHaveCount(0);
     await expect(pill(page), "Close returns focus to the pill").toBeFocused();
+  });
+
+  test("Escape pressed once Tab has taken focus out of the panel closes it and leaves focus where it is", async ({ page }) => {
+    await startReview(page);
+    const usage = await openAiUsage(page);
+    await expect(usage).toBeFocused();
+    const there = await tabOut(page, usage);
+    await page.keyboard.press("Escape");
+    await expect(usage).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^Review menu/ }), "Escape pulled focus back to ⋯").not.toBeFocused();
+    expect(await hasFocus(there), "focus stayed where Tab put it").toBe(true);
   });
 
   test("when the budget is raised so far that the pill goes, Escape hands focus to ⋯ instead of to nothing", async ({ page }) => {

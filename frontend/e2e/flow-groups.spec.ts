@@ -352,6 +352,21 @@ test.describe("the Flows tab", () => {
     await expect(ticks.nth(1)).not.toBeChecked();
   });
 
+  test("a mark the server refuses without a word still tells the reader, in an alert", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const toggles = page.locator(".fl-toggle"), ticks = page.locator(".fl-tick");
+    await expect(toggles).toHaveCount(2);
+    // a refusal with no words in it: what the page has to go on when the status line is empty too, as over HTTP/2
+    await page.route((u) => u.pathname.endsWith("/checks/marks"), (route) => route.fulfill({ status: 500, json: { detail: "" } }));
+    await toggles.nth(0).focus();
+    await page.keyboard.press("f");
+    await expect(page.locator(".st-flows .banner.warn")).toHaveText("The server did not accept the mark.");
+    await expect(page.locator(".st-flows").getByRole("alert"), "a screen reader is told of the refusal").toHaveText("The server did not accept the mark.");
+    await marksDone(page);
+    await expect(ticks.nth(0)).not.toBeChecked();
+  });
+
   test("with storage blocked the shortcuts are on, the switch shows it and keeps nothing, and nothing throws (Review Focus 1)", async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));

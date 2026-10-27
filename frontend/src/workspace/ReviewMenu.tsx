@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { api } from "../api";
+import { api, errorText } from "../api";
 import { useMe } from "../App";
 import { driftSummary } from "../board/drift";
 import { useAi } from "../lib/ai";
+import { holdsFocus } from "../lib/focus";
 import { useMenu } from "../lib/useMenu";
 import { useWs } from "./context";
 import HowToRead from "./HowToRead";
@@ -15,8 +16,8 @@ const FRESH = "Ask the strong model for new stories instead of reusing the ones 
  * shortcuts switch and the owner's re-runs, with an amber dot when the workspace drifted or a stage failed. The switch is a
  * checkbox item kept in this browser (`shortcuts.ts`): a pick flips it, closes the menu and gives focus back to ⋯. The menu
  * and its panels are fixed under the header's right end (`under()`), since the header itself scrolls; a re-run the server
- * refuses is told in a panel of its own, which takes focus only from ⋯ or the page (the answer may come when the reader
- * is writing a comment). */
+ * refuses is told in a panel of its own, whose message is an alert and which takes focus only from ⋯ or the page (the answer
+ * may come when the reader is writing a comment). Escape gives focus back to ⋯ only while the panel holds it. */
 export default function ReviewMenu({ under }: { under: () => number }) {
   const ws = useWs(), d = ws.data, me = useMe(), ai = useAi();
   const [open, setOpen] = useState(false);
@@ -36,12 +37,17 @@ export default function ReviewMenu({ under }: { under: () => number }) {
     owner: !!me?.is_owner, ready: d.ready, strong: !!v?.strong };
   const items = menuItems(state), why = menuAttention(state);
   const at = { top, maxHeight: `calc(100vh - ${top + 16}px)` };   // the menu or a panel scrolls inside itself rather than run past 16px above the window's bottom
-  useEffect(() => {                           // a panel takes focus; Escape (back to ⋯) or a press outside closes it
+  useEffect(() => {                           // an open panel takes focus, follows the header when the window resizes, and closes on Escape or a press outside
     if (!panel) return;
-    const at = document.activeElement;       // one that opens late (a failed re-run) leaves focus where the reader has gone on to
-    if (!at || at === document.body || at === button.current) box.current?.querySelector<HTMLElement>('[role="dialog"]')?.focus();
+    const focused = document.activeElement;  // one that opens late (a failed re-run) leaves focus where the reader has gone on to
+    if (!focused || focused === document.body || focused === button.current) box.current?.querySelector<HTMLElement>('[role="dialog"]')?.focus();
     const place = () => setTop(under());
-    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") { setPanel(null); button.current?.focus(); } };
+    const esc = (e: KeyboardEvent) => {      // back to ⋯ only from inside the panel: a reader who has gone on keeps focus where it is
+      if (e.key !== "Escape") return;
+      const held = holdsFocus(box.current);
+      setPanel(null);
+      if (held) button.current?.focus();
+    };
     const away = (e: PointerEvent) => {
       const t = e.target as Node;
       if (!box.current?.contains(t) && !button.current?.contains(t)) setPanel(null);
@@ -60,7 +66,7 @@ export default function ReviewMenu({ under }: { under: () => number }) {
     if (id === "keys") { setShortcutsOn(!keysOn); setKeysOn(shortcutsOn()); }   // shows what the keys will do, which blocked storage keeps on
     else if (id === "ai") ai?.setUsageOpen(true);
     else api.rerun(d.id, id === "fresh").then(d.loadDetail).catch((e) => {
-      setFailed(String((e as Error).message ?? e) || "The server did not accept the re-run.");   // an error can carry no words: HTTP/2 has no status text
+      setFailed(errorText(e, "The server did not accept the re-run."));
       setPanel("rerun");
     });
   };
@@ -102,7 +108,7 @@ export default function ReviewMenu({ under }: { under: () => number }) {
         {panel === "rerun" && (
           <div className="rm-panel" role="dialog" aria-label="Re-run failed" tabIndex={-1} style={at}>
             <h2>Re-run failed</h2>
-            <div className="banner error">{failed}</div>
+            <div className="banner error" role="alert">{failed}</div>
           </div>
         )}
         {panel === "help" && <HowToRead top={top} />}

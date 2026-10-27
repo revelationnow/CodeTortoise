@@ -79,6 +79,13 @@ export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
 
+/** What to tell the reader of a call that failed: the error's own words, or `fallback` when it has none. A refusal can come
+ * without any: an `ApiError`'s message is the response's `detail`, else its status text, and over HTTP/2 there is no status text. */
+export function errorText(e: unknown, fallback: string): string {
+  const said = typeof e === "string" ? e : (e as { message?: unknown } | null | undefined)?.message;
+  return (typeof said === "string" && said.trim()) || fallback;
+}
+
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method,
