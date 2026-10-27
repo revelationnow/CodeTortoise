@@ -24,12 +24,14 @@ interface Props {
  * the item has a result — and Ask a question…; one AI call, shown to everyone. An item the strong model wrote allows
  * only Ask… (two-tier stories §8). A refusal or failure, and the sent note, show beside it. Ask a question… (or Ask…)
  * opens the question box with focus in it; picked again, or Escape in the box, shuts it with focus back on the button, and
- * so does a question sent, unless the reader has moved focus out of the box to something else meanwhile: they keep it. */
+ * so does a question sent, unless the reader has moved focus out of the box to something else meanwhile: they keep it. A
+ * question that could not be sent says so at once, beside the box that stays open and keeps it to be sent again. */
 export default function Explain({ kind, target, has, label = "Explain", ask, askOnly = false }: Props) {
   const ai = useAi();
   const [asking, setAsking] = useState(false);
   const [question, setQuestion] = useState("");
-  const [sent, setSent] = useState<string | null>(null);
+  const [sent, setSent] = useState<string | null>(null);          // the note for a question that went; it shows once the box is shut
+  const [notSent, setNotSent] = useState<string | null>(null);      // why the last question did not go; it shows at once, beside the box
   const [open, setOpen] = useState(false);
   const { button, menu } = useMenu<HTMLSpanElement>(open, () => setOpen(false));
   const box = useRef<HTMLSpanElement>(null);
@@ -40,6 +42,7 @@ export default function Explain({ kind, target, has, label = "Explain", ask, ask
     const q = question.trim();
     if (!q || !ask) return;
     setSent(null);
+    setNotSent(null);
     api.addComment(ai.reviewId, `@tortoise ${q}`, ask.kind, ask.anchor)
       .then(() => {
         setQuestion("");
@@ -51,7 +54,7 @@ export default function Explain({ kind, target, has, label = "Explain", ask, ask
         setSent("Asked: the answer comes in this item's thread.");
         ask.onAsked();
       })
-      .catch((x) => setSent(errorText(x, "The question could not be sent.")));
+      .catch((x) => setNotSent(errorText(x, "The question could not be sent.")));
   };
   const job = jobFor(ai.view, kind, target);
   const running = job?.status === "running";
@@ -97,6 +100,7 @@ export default function Explain({ kind, target, has, label = "Explain", ask, ask
         </span>
       )}
       {sent && !asking && <span className="muted small" role="status">{sent}</span>}
+      {notSent && <span className="ai-err" role="alert">{notSent}</span>}
       {failed && !running && (
         <span className="ai-err" role="alert">
           {failed.error}
