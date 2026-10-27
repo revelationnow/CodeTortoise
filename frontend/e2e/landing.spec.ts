@@ -96,6 +96,30 @@ test.describe("desktop", () => {
     await expect(page.locator(".rv-hello").getByRole("alert")).toHaveText("The review could not be started.");
   });
 
+  test("a start the server refuses again is told again: the old refusal goes while the new attempt waits, and an identical one comes back", async ({ page }) => {
+    await login(page);
+    // refusals with no words in them: what the page has to go on when the status line is empty too, as over HTTP/2
+    await page.route("**/api/reviews", (route) =>
+      route.request().method() === "POST" ? route.fulfill({ status: 500, json: { detail: "" } }) : route.fallback());
+    const hello = page.locator(".rv-hello");
+    await page.getByLabel("Changelists (shelved or submitted)").fill("101");
+    await page.getByRole("button", { name: "Start review" }).click();
+    await expect(hello.getByRole("alert")).toHaveText("The review could not be started.");
+    let asked = () => {}, answer = () => {};                                 // the same refusal again, once the server has been asked
+    const waiting = new Promise<void>((r) => { asked = r; }), gate = new Promise<void>((r) => { answer = r; });
+    await page.route("**/api/reviews", async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      asked();
+      await gate;
+      await route.fulfill({ status: 500, json: { detail: "" } });
+    });
+    await page.getByRole("button", { name: "Start review" }).click();
+    await waiting;
+    await expect(hello.getByRole("alert"), "a new attempt clears the last refusal at once").toHaveCount(0);
+    answer();
+    await expect(hello.getByRole("alert"), "an identical refusal is announced anew").toHaveText("The review could not be started.");
+  });
+
   test("a Health page the server will not give says so in an alert, inside the page's main landmark", async ({ page }) => {
     await login(page);
     await page.route("**/api/health", (route) => route.fulfill({ status: 500, json: { detail: "" } }));

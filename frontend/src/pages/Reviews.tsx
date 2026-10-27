@@ -98,6 +98,7 @@ function StartReview() {
   async function submit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
+    setError(null);                                // a new attempt clears the last refusal, so a repeat is told again
     try {
       const r = await api.createReview(cls, title.trim() || undefined);
       navigate(`/r/${r.id}`);

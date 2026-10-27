@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { login, openFold, openIndex, SINKS, startReview } from "./helpers";
+import { hold, login, openFold, openIndex, SINKS, startReview } from "./helpers";
 
 const READER = "uart_errors reads Uart::errors";
 
@@ -82,6 +82,26 @@ test.describe("shared sinks", () => {
       await expect(row).toContainText("a run is already in progress");
       await expect(row.getByRole("alert"), "a screen reader is told of the refusal").toHaveText("a run is already in progress");
       await expect(row.getByRole("button", { name: "Re-run" })).toBeEnabled();
+    } finally {
+      await page.request.delete(`/api/sinks/${encodeURIComponent("Uart::errors")}`);
+    }
+  });
+
+  test("a mark the server refuses says so; pressed again, the old failure is gone while it waits, and a success leaves none beside it", async ({ page }) => {
+    const row = await openReader(page);
+    try {
+      // a refusal with no words in it: what the page has to go on when the status line is empty too, as over HTTP/2
+      await page.route("**/api/sinks/*", (r) => r.fulfill({ status: 500, json: { detail: "" } }));
+      const treat = row.getByRole("button", { name: "Treat Uart::errors as a sink" });
+      await treat.click();
+      await expect(row.getByRole("alert")).toHaveText("The field could not be marked as a sink.");
+      const waiting = await hold(page, "**/api/sinks/*");                    // the server takes it this time, but not yet
+      await treat.click();
+      await waiting.held;
+      await expect(row.getByRole("alert"), "a new attempt clears the last failure at once").toHaveCount(0);
+      waiting.release();
+      await expect(row).toContainText("Marked — re-run to apply");
+      await expect(row.getByRole("alert"), "a success leaves no old failure beside it").toHaveCount(0);
     } finally {
       await page.request.delete(`/api/sinks/${encodeURIComponent("Uart::errors")}`);
     }
