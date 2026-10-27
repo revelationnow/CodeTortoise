@@ -206,12 +206,31 @@ test.describe("desktop", () => {
     await expect(page.locator(".ws-detail .banner")).toContainText("This function isn't in this review.");
   });
 
+  test("a file's text the server will not give, without a word, says so in an alert, in the function's code and in the whole file", async ({ page }) => {
+    const base = await startReview(page);
+    const rid = base.split("/")[2];
+    const names = await page.evaluate(async (b) => (await fetch(`/api/reviews/${b.split("/")[2]}/names`)).json(), base);
+    const send = Object.entries(names as Record<string, { label: string }>).find(([, n]) => n.label === "uart_send")![0];
+    // a refusal with no words in it: what the page has to go on when the status line is empty too, as over HTTP/2
+    await page.route((u) => u.pathname === `/api/reviews/${rid}/file`, (route) => route.fulfill({ status: 500, json: { detail: "" } }));
+    await page.goto(`${base}?open=${send}`);
+    const panel = page.getByRole("complementary", { name: "Code: uart_send" });
+    await expect(panel.getByText("The file could not be loaded."), "the function's code").toBeVisible();
+    await expect(panel.getByRole("alert"), "the function's code").toHaveText("The file could not be loaded.");
+    await panel.getByRole("button", { name: "Full file" }).click();
+    await expect(panel.getByText("The file could not be loaded."), "the whole file's diff").toBeVisible();
+    await expect(panel.getByRole("alert"), "the whole file's diff").toHaveText("The file could not be loaded.");
+    await expect(panel.getByRole("button", { name: "Retry" })).toBeVisible();
+    await expect(panel.getByRole("alert").getByRole("button"), "Retry is no part of what is announced").toHaveCount(0);
+  });
+
   test("a node the server refuses to name, without a word, still says that the function could not be loaded", async ({ page }) => {
     const base = await startReview(page);
     // a refusal with no words in it: what the page has to go on when the status line is empty too, as over HTTP/2
     await page.route("**/api/reviews/*/nodes/N99999/neighbours**", (route) => route.fulfill({ status: 500, json: { detail: "" } }));
     await page.goto(`${base}?open=N99999`);
     await expect(page.locator(".ws-detail .bd-note.error")).toHaveText("This function could not be loaded.");
+    await expect(page.locator(".ws-detail").getByRole("alert"), "a screen reader is told of the refusal").toHaveText("This function could not be loaded.");
     await expect(page.locator(".ws-detail .banner"), "a refusal is no 'not in this review'").toHaveCount(0);
   });
 });
@@ -276,6 +295,7 @@ test.describe("neighbours", () => {
     });
     await page.goto(`${base}?open=N1&tab=neighbours`);
     await expect(page.locator(".ws-detail .bd-note.error")).toContainText("the graph is busy");
+    await expect(page.locator(".ws-detail").getByRole("alert"), "a screen reader is told of the refusal").toContainText("the graph is busy");
     await page.getByRole("button", { name: "Retry" }).click();
     const callers = page.getByRole("region", { name: "Callers" });
     await expect(callers.getByRole("listitem")).toHaveCount(20);
@@ -311,6 +331,21 @@ test.describe("neighbours: tiles and the call tree", () => {
       return r.fulfill({ json: { node: g.node, callers: side(g.callers), callees: side(g.callees) } });
     });
   }
+
+  test("a branch of the call tree the server will not list says so in an alert and offers Retry", async ({ page }) => {
+    const base = await startReview(page), rid = base.split("/")[2];
+    await serve(page, rid, []);
+    // a refusal with no words in it: what the page has to go on when the status line is empty too, as over HTTP/2
+    await page.route(`**/api/reviews/${rid}/nodes/N4/neighbours**`, (r) => r.fulfill({ status: 500, json: { detail: "" } }));
+    await page.goto(`${base}?open=N1&tab=neighbours`);
+    await page.getByRole("button", { name: "Tree" }).click();
+    const down = page.getByRole("tree", { name: "Calls" });
+    await down.getByRole("button", { name: "Show leaf_callee's callees" }).click();
+    await expect(down.getByText("The callers and callees could not be loaded.")).toBeVisible();
+    await expect(down.getByRole("alert"), "a screen reader is told of the refusal").toHaveText("The callers and callees could not be loaded.");
+    await expect(down.getByRole("button", { name: "Retry" })).toBeVisible();
+    await expect(down.getByRole("alert").getByRole("button"), "Retry is no part of what is announced").toHaveCount(0);
+  });
 
   test("tiles stack callers, the function and callees; a long name wraps inside its tile", async ({ page }) => {
     const base = await startReview(page);

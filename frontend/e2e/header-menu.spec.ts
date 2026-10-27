@@ -506,8 +506,10 @@ test.describe("the AI usage panel", () => {
     const usage = await openAiUsage(page);
     await usage.getByRole("button", { name: "Raise budget", exact: true }).click();
     await expect(usage.locator(".ai-err")).toHaveText("The budget could not be saved.");
+    await expect(usage.getByRole("alert"), "a screen reader is told of the refusal").toHaveText("The budget could not be saved.");
     await usage.getByRole("button", { name: "Set rounds", exact: true }).click();
     await expect(usage.locator(".ai-err")).toHaveText("The rounds could not be saved.");
+    await expect(usage.getByRole("alert")).toHaveText("The rounds could not be saved.");
   });
 
   test("J, K and F stay off the page's Flows tab while the panel has focus", async ({ page }) => {

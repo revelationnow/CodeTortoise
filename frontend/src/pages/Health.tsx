@@ -13,7 +13,7 @@ export default function Health() {
   };
   useEffect(() => { load(); }, []);
 
-  if (error) return <main className="page error">{error}</main>;
+  if (error) return <main className="page error"><div role="alert">{error}</div></main>;
   if (!h) return <main className="page muted">Checking…</main>;
   return (
     <main className="page">

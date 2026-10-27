@@ -62,7 +62,7 @@ export default function Reviews() {
             </button>
           ))}
         </div>
-        {error && <p className="error">{error}</p>}
+        {error && <p className="error" role="alert">{error}</p>}
         {!rows && !error && <p className="muted">Loading…</p>}
         {rows && rows.length === 0 && <p className="muted rv-empty">No reviews yet{me?.is_owner ? " — start one on the left." : "."}</p>}
         <div className="rv-list">
@@ -117,7 +117,7 @@ function StartReview() {
       </label>
       <div className="hint">{cls.length ? `Will analyse: ${cls.join(", ")}` : "Enter one or more CL numbers."}</div>
       <label>Title (optional)<input value={title} onChange={(e) => setTitle(e.target.value)} /></label>
-      {error && <div className="err">{error}</div>}
+      {error && <div className="err" role="alert">{error}</div>}
       <button className="go" disabled={!cls.length || busy}>{busy ? "Starting…" : "Start review"}</button>
       <div className="hint">The board opens on its own when the analysis finishes.</div>
     </form>

@@ -110,7 +110,7 @@ export default function FileDiff({ path, line, anns, cl: firstCl = null, wide }:
                   onComments={d.loadComments} focus={line} windowed cl={cl} runs={runs} tags={tags} onTag={setCl}
                   onExpand={(run, how) => setShown((s) => [...s, expandRange(run, how)])} />
       ) : src && "status" in src && src.status === "error" ? (
-        <div className="bd-note error">{src.error} <button className="bd-ibtn" onClick={() => ws.sources.reload(path)}>Retry</button></div>
+        <div className="bd-note error"><span role="alert">{src.error}</span> <button className="bd-ibtn" onClick={() => ws.sources.reload(path)}>Retry</button></div>
       ) : <div className="bd-note">Fetching {path}…</div>}
     </div>
   );

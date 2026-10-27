@@ -27,7 +27,7 @@ export default function Neighbours({ nid }: { nid: string }) {
       .catch((e) => { if (live) setError(errorText(e, "The callers and callees could not be loaded.")); });
     return () => { live = false; };
   }, [d.id, nid, more, tick]);
-  if (error) return <div className="bd-note error">{error} <button className="bd-ibtn" onClick={() => setTick((t) => t + 1)}>Retry</button></div>;
+  if (error) return <div className="bd-note error"><span role="alert">{error}</span> <button className="bd-ibtn" onClick={() => setTick((t) => t + 1)}>Retry</button></div>;
   if (!model) return <div className="bd-note">Finding callers and callees…</div>;
   const row = (n: Neighbour) => {
     const where = n.path ? fileName(n.path) : null;
@@ -119,7 +119,7 @@ function CallTree({ rid, root }: { rid: number; root: Model }) {
   const kids = (dir: Dir, id: string, path: string[]) => {
     const g = got(id);
     if (!g || g.status === "loading") return <p className="muted small ws-tree-note">Finding {dir}…</p>;
-    if (g.status === "error") return <p className="bd-note error ws-tree-note">{g.error} <button className="bd-ibtn" onClick={() => fetchOne(id)}>Retry</button></p>;
+    if (g.status === "error") return <p className="bd-note error ws-tree-note"><span role="alert">{g.error}</span> <button className="bd-ibtn" onClick={() => fetchOne(id)}>Retry</button></p>;
     const side = g.model[dir], all = Math.min(side.total, MAX);
     if (!side.items.length) return <p className="muted small ws-tree-note">None.</p>;
     return (

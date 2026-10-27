@@ -102,7 +102,7 @@ export default function Detail() {
           <h2 className="ws-panel-title"><SeverityBadge severity={finding.severity} /> {tidy(finding.title)}</h2>} /></div>
       : <div className="banner warn">Finding {fid} isn't in this review. <Link to={ws.link(at({ kind: "index", tab: "findings" }))}>All findings</Link></div>;
     if (nid && !name && !node && !off) return <div className="bd-note">Finding this function…</div>;
-    if (nid && !name && !node && off?.error) return <div className="bd-note error">{off.error}</div>;
+    if (nid && !name && !node && off?.error) return <div className="bd-note error" role="alert">{off.error}</div>;
     if (nid && !name && !node)
       return <div className="banner warn">This function isn't in this review. <Link to={ws.link(at({ kind: "whole" }))}>Whole change</Link></div>;
     if (waiting) return <div className="bd-note">Fetching {label}'s code…</div>;

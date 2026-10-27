@@ -20,7 +20,7 @@ export default function SinkMark({ label, on = false, onDone }: { label: string;
     setError(null);
     api.rerun(ws.data.id).then(ws.data.loadDetail).catch(fail("The server did not accept the re-run.")).finally(() => setBusy(false));
   };
-  const warn = error && <span className="banner warn">{error}</span>;
+  const warn = error && <span className="banner warn" role="alert">{error}</span>;
   if (done)
     return (
       <span className="sink-mark">{on ? "Unmarked" : "Marked"} — re-run to apply

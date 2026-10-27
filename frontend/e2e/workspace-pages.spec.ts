@@ -192,9 +192,11 @@ test.describe("desktop", () => {
     const swarm = page.getByRole("region", { name: "Swarm" });
     await swarm.getByRole("button", { name: "Refresh" }).click();
     await expect(swarm.locator(".banner")).toContainText("Swarm did not answer");
+    await expect(swarm.getByRole("alert"), "a screen reader is told of the refusal").toHaveText("Swarm did not answer");
     await swarm.getByRole("button", { name: "Refresh" }).click();
     expect(await swarm.getByText("Swarm did not answer").count()).toBe(0);
     await expect(swarm.locator(".banner")).toHaveText("Swarm state refreshed");
+    await expect(swarm.getByRole("alert"), "what went well is no alert").toHaveCount(0);
   });
 
   test("a changelist's description is Markdown: rendered on its page, plain text in the rail and its heading", async ({ page }) => {

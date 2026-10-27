@@ -133,7 +133,7 @@ export default function Workspace() {
   const anchored = r && hash && addr.place.kind === "whole" && !addr.place.view ? indexFor(hash) : null;
   const level = addr.open ? "detail" : addr.place.kind === "whole" && !addr.place.view && !page ? "rail" : "item";
 
-  if (data.error) return <main className="page error">{data.error}</main>;
+  if (data.error) return <main className="page error"><div role="alert">{data.error}</div></main>;
   if (!d || old) return <main className="page muted">Loading…</main>;
   if (anchored) return <Navigate replace to={href(root, at(anchored))} />;
   return (

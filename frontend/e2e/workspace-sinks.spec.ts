@@ -80,6 +80,7 @@ test.describe("shared sinks", () => {
                                                       body: JSON.stringify({ detail: "a run is already in progress" }) }));
       await row.getByRole("button", { name: "Re-run" }).click();
       await expect(row).toContainText("a run is already in progress");
+      await expect(row.getByRole("alert"), "a screen reader is told of the refusal").toHaveText("a run is already in progress");
       await expect(row.getByRole("button", { name: "Re-run" })).toBeEnabled();
     } finally {
       await page.request.delete(`/api/sinks/${encodeURIComponent("Uart::errors")}`);

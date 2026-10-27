@@ -81,7 +81,7 @@ export function Usage({ onClose, top }: { onClose: () => void; top: number }) {
           <button disabled={!(Number(rounds) >= 1 && Number(rounds) <= 50)}>Set rounds</button>
         </form>
       )}
-      {error && <span className="ai-err">{error}</span>}
+      {error && <span className="ai-err" role="alert">{error}</span>}
       <details onToggle={(e) => {
         if ((e.currentTarget as HTMLDetailsElement).open) api.aiCalls(ai.reviewId).then(setCalls).catch(() => setCalls([]));
       }}>
