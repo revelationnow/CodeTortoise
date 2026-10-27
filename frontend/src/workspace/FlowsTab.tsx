@@ -81,7 +81,7 @@ export default function FlowsTab({ detail, sr, flows }: { detail: StoryDetail; s
   return (
     <div className="st-flows" aria-busy={busy}>
       <div className="vh" aria-live="polite">{said}</div>
-      {error && <div className="banner warn">{error}</div>}
+      {error && <div className="banner warn" role="alert">{error}</div>}
       {groups.map((g) => {
         const title = groupTitle(g, label), rows = unfolded(g) ? g.rows : g.rows.slice(0, FOLD_AT);
         return (

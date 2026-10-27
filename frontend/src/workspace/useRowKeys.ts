@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useWs } from "./context";
 import { inPopup, typing } from "./keys";
 import { MARKED_FINE, shortcutsOn } from "./shortcuts";
+import useSaid from "./useSaid";
 
 /** Puts focus on row `n`'s toggle, the button that opens it. */
 const focusRow = (n: number) => document.querySelector<HTMLElement>(`#flow-${n} .fl-toggle`)?.focus();
@@ -9,14 +10,15 @@ const focusRow = (n: number) => document.querySelector<HTMLElement>(`#flow-${n} 
 /** The Flows tab's row keys and where focus goes (spec 2026-10-25-review-ui-redesign §7.3). `cur` is the row J, K and F act on: the
  * last with focus in it, or clicked (`setCur`). `move(n)` puts focus on row n once its group has unfolded; `focusRow(n)` is for a
  * button that hands its focus back to its row. `order`: the rows as they read, group by group; `leftAt(n)`: the keys of row n's places
- * still open; `fine(keys)`: marks them, and settles to whether the mark landed. Enter is the focused row's own button. `said` is the
- * words for the tab's live region, which the tab renders: F puts `Marked fine` there once its mark has landed. */
+ * still open; `fine(keys)`: marks them, and settles to whether the mark landed (and never rejects). Enter is the focused row's own
+ * button. `said` is the words for the tab's live region, which the tab renders: F puts `Marked fine` there once its mark has landed
+ * (`useSaid`). */
 export default function useRowKeys({ order, busy, leftAt, fine }: {
   order: number[]; busy: boolean; leftAt: (n: number) => string[]; fine: (keys: string[]) => Promise<boolean>;
 }) {
   const ws = useWs();
   const [cur, setCur] = useState<number | null>(ws.addr.flow);
-  const [said, setSaid] = useState("");
+  const { said, say } = useSaid();
   const focusTo = useRef<number | null>(null);
   const move = (to: number | undefined) => {
     if (to === undefined) return;
@@ -31,6 +33,7 @@ export default function useRowKeys({ order, busy, leftAt, fine }: {
   // switched the single-key shortcuts off (read at each press). F acts once per press: a held key's repeats would mark row after row.
   const onKey = useRef<(e: KeyboardEvent) => void>(() => {});
   onKey.current = (e) => {
+    if (e.key !== "j" && e.key !== "k" && e.key !== "f") return;               // any other key is not ours, and is no reason to read the switch from storage
     const stepper = !!ws.addr.open && "cause" in ws.addr.open;
     if (busy || stepper || e.ctrlKey || e.metaKey || e.altKey || typing(e.target) || inPopup(e.target) || !order.length || !shortcutsOn()) return;
     const at = cur === null ? -1 : order.indexOf(cur);
@@ -39,10 +42,7 @@ export default function useRowKeys({ order, busy, leftAt, fine }: {
     else if (e.key === "f" && !e.repeat && cur !== null && at >= 0) {
       e.preventDefault();
       const left = leftAt(cur), next = [...order.slice(at + 1), ...order.slice(0, at)].find((n) => leftAt(n).length > 0);
-      if (left.length) {
-        setSaid("");                                                         // emptied first, so the same words are announced again
-        fine(left).then((landed) => { if (landed) setSaid(MARKED_FINE); });
-      }
+      if (left.length) say(fine(left), MARKED_FINE);
       move(next ?? cur);                                                     // none left: stay on this row, not on a button its mark takes away
     }
   };

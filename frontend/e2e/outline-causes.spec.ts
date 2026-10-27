@@ -325,9 +325,30 @@ test.describe("a cause of many places", () => {
     await holdMarks(page, "fail");                                       // from here the server refuses every mark
     await page.keyboard.press("f");
     await expect(panel.locator(".banner.warn")).toContainText("the store is busy");
+    await expect(panel.getByRole("alert"), "a screen reader is told of the refusal").toContainText("the store is busy");
     await page.waitForTimeout(300);                                      // words that wrongly came after the refusal would be here by now
     await expect(said, "the old words are gone, and none came for a mark that did not land").toHaveText("");
     await expect(pos).toHaveText("3 / 5");
+  });
+
+  test("what F said clears itself five seconds later, and the next F's words get five seconds of their own", async ({ page }) => {
+    await page.clock.install();
+    const panel = await openReaders(page);
+    const said = panel.locator('[aria-live="polite"]'), pos = panel.locator(".cs-pos");
+    await expect(pos).toHaveText("1 / 5");
+    await page.clock.pauseAt(new Date(Date.now() + 1000));                // from here on only the test moves time
+    await page.keyboard.press("f");
+    await expect(pos).toHaveText("2 / 5");
+    await expect(said).toHaveText("Marked fine");
+    await page.clock.runFor(3000);
+    await expect(said, "3 s on, still there").toHaveText("Marked fine");
+    await page.keyboard.press("f");                                       // the same words again, and the first F's timer must not cut them short
+    await expect(pos).toHaveText("3 / 5");
+    await expect(said).toHaveText("Marked fine");
+    await page.clock.runFor(3000);                                        // 6 s after the first F, 3 s after the second
+    await expect(said, "the first F's five seconds are over; the second's are not").toHaveText("Marked fine");
+    await page.clock.runFor(2100);
+    await expect(said, "five seconds after the second").toHaveText("");
   });
 
   test("a J pressed the moment the stepper shows is heard, not lost to the next paint", async ({ page }) => {

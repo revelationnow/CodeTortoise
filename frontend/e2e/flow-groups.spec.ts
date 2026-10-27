@@ -269,6 +269,57 @@ test.describe("the Flows tab", () => {
     expect(await log(), "emptied between the two, so a screen reader hears it twice").toEqual(["Marked fine", "", "Marked fine"]);
   });
 
+  test("what F said clears itself five seconds later, and the next F's words get five seconds of their own", async ({ page }) => {
+    await page.clock.install();
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const toggles = page.locator(".fl-toggle"), said = page.locator('.st-flows [aria-live="polite"]');
+    await expect(toggles).toHaveCount(2);
+    await page.clock.pauseAt(new Date(Date.now() + 1000));                // from here on only the test moves time
+    await toggles.nth(0).focus();
+    await page.keyboard.press("f");
+    await expect(said).toHaveText("Marked fine");
+    await marksDone(page);
+    await page.clock.runFor(3000);
+    await expect(said, "3 s on, still there").toHaveText("Marked fine");
+    await page.keyboard.press("f");                                       // row 2: the same words again, and the first F's timer must not cut them short
+    await expect(said).toHaveText("Marked fine");
+    await marksDone(page);
+    await page.clock.runFor(3000);                                        // 6 s after the first F, 3 s after the second
+    await expect(said, "the first F's five seconds are over; the second's are not").toHaveText("Marked fine");
+    await page.clock.runFor(2100);
+    await expect(said, "five seconds after the second").toHaveText("");
+  });
+
+  test("a letter that is not J, K or F never reads the stored shortcuts switch, on the tab or in the stepper", async ({ page }) => {
+    await page.addInitScript(() => {                                      // counts each read of the switch
+      const w = window as unknown as { reads: number }, get = Storage.prototype.getItem;
+      w.reads = 0;
+      Storage.prototype.getItem = function (this: Storage, key: string) { if (key === "ct.ws.shortcuts") w.reads++; return get.call(this, key); };
+    });
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const toggles = page.locator(".fl-toggle");
+    await expect(toggles).toHaveCount(2);
+    const reads = () => page.evaluate(() => (window as unknown as { reads: number }).reads);
+    const quiet = async (where: string) => {
+      const before = await reads();
+      for (const key of ["x", "z", "1", "ArrowDown"]) await page.keyboard.press(key);
+      expect(await reads(), `${where}: keys that are no shortcut left the switch unread`).toBe(before);
+    };
+    await toggles.nth(0).focus();
+    await quiet("on the tab");
+    let before = await reads();
+    await page.keyboard.press("j");
+    expect(await reads(), "J on the tab looks at the switch").toBeGreaterThan(before);
+    await page.getByRole("link", { name: "Open check: logger_flush ignores the result of uart_send, which can now return -2" }).click();
+    await expect(page.getByRole("complementary", { name: /^Check: / }).locator(".cs-pos")).toHaveText("1 / 1");
+    await quiet("in the stepper");
+    before = await reads();
+    await page.keyboard.press("j");
+    expect(await reads(), "J in the stepper looks at the switch").toBeGreaterThan(before);
+  });
+
   test("F on a row with nothing left open says nothing, and a mark the server refuses says nothing either", async ({ page }) => {
     const base = await startReview(page, FOUR);
     await page.goto(`${base}/s/S1`);
@@ -294,6 +345,7 @@ test.describe("the Flows tab", () => {
     await toggles.nth(1).focus();
     await page.keyboard.press("f");
     await expect(page.locator(".st-flows .banner.warn")).toHaveText("The server could not mark them.");
+    await expect(page.locator(".st-flows").getByRole("alert"), "a screen reader is told of the refusal").toHaveText("The server could not mark them.");
     await marksDone(page);
     await page.waitForTimeout(300);                                       // words that wrongly came after the refusal would be here by now
     await expect(said, "the old words are gone, and none came for a mark that did not land").toHaveText("");
