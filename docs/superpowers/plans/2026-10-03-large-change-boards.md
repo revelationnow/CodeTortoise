@@ -3394,7 +3394,7 @@ def test_import_into_a_throwaway_p4d_with_catch_up_and_a_shelve(project, tmp_pat
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `cd backend && PATH="${LAB:-/media/anoop/ssd_1/Work/tortoise-lab}/bin:$PATH" uv run pytest tests/test_lab_import.py -q`
+Run: `cd backend && PATH="${LAB:-$(git rev-parse --show-toplevel)/../tortoise-lab}/bin:$PATH" uv run pytest tests/test_lab_import.py -q`
 Expected: FAIL — `2 failed` (`can't open file '…/lab/p4-import.py': [Errno 2] No such file or directory`)
 
 - [ ] **Step 3: Implement**
@@ -3829,7 +3829,7 @@ chmod +x lab/p4-import.py
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `cd backend && PATH="${LAB:-/media/anoop/ssd_1/Work/tortoise-lab}/bin:$PATH" uv run pytest tests/test_lab_import.py -q`
+Run: `cd backend && PATH="${LAB:-$(git rev-parse --show-toplevel)/../tortoise-lab}/bin:$PATH" uv run pytest tests/test_lab_import.py -q`
 Expected: `2 passed`
 
 - [ ] **Step 5: Run the whole suite**
@@ -3850,5 +3850,5 @@ git commit -m "feat(lab): import a git project's large commits into Perforce as 
 
 - [ ] Run everything: `cd backend && uv run ruff check codetortoise tests && uv run pytest -q` (expected `372 passed, 1 skipped`), and
   `cd frontend && npx vitest run && npx tsc --noEmit && npm run build && npx playwright test` (expected `Tests  91 passed (91)` and `43 passed`).
-- [ ] With the lab binaries on PATH, the import test runs too: `cd backend && PATH="${LAB:-/media/anoop/ssd_1/Work/tortoise-lab}/bin:$PATH" uv run pytest tests/test_lab_import.py -q` (expected `2 passed`).
+- [ ] With the lab binaries on PATH, the import test runs too: `cd backend && PATH="${LAB:-$(git rev-parse --show-toplevel)/../tortoise-lab}/bin:$PATH" uv run pytest tests/test_lab_import.py -q` (expected `2 passed`).
 - [ ] At size, by hand (lab README, "Large changes: libgit2-big"): import libgit2-big, build it, review the #6896 changelist and open the review page. Expected: an overview of 8 clusters, every board at most 30 nodes, "+N callers" and Reset working on a cluster board.

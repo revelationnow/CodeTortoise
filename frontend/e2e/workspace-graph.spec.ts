@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, flowStripHolds, startReview } from "./helpers";
+import { commentOnReturn, expectNamed, expectNoNodeIds, flowStripHolds, startReview } from "./helpers";
 
 /** Graphs in the workspace (spec 2026-10-04-review-workspace §3.2, §3.6): a node click opens its code and a second
  * click closes it; "+N callers" opens Neighbours; the flow strip keeps its controls in place and never overflows. */
@@ -190,7 +190,7 @@ test.describe("phone", () => {
     await expect(send).toBeVisible();
     await page.waitForTimeout(500);
     const cdp = await page.context().newCDPSession(page);
-    const touch = (type: string, pts: [number, number][]) =>
+    const touch = (type: "touchStart" | "touchMove" | "touchEnd", pts: [number, number][]) =>
       cdp.send("Input.dispatchTouchEvent", { type, touchPoints: pts.map(([x, y], id) => ({ x, y, id })) });
     const centre = async () => { const b = (await send.boundingBox())!; return [b.x + b.width / 2, b.y + b.height / 2, b.width] as const; };
 
@@ -264,5 +264,54 @@ test.describe("by keyboard", () => {
     await page.keyboard.press("ArrowUp");
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/flow=2/);
+  });
+
+  test("the flow menu is a menu button: it opens on the flow shown, arrows wrap, Home and End jump, Escape, Tab or a press outside close it", async ({ page }) => {
+    const base = await startReview(page);
+    await page.goto(`${base}?view=graph&flow=2`);                            // the whole change: three flows, the second shown
+    const every = page.getByRole("button", { name: "Every flow" });
+    const menu = page.getByRole("menu", { name: "Every flow" });
+    const items = menu.getByRole("menuitemradio");
+    const open = async () => { await every.click(); await expect(items).toHaveCount(3); };
+    await open();
+    await expect(items.nth(1)).toHaveAttribute("aria-checked", "true");
+    await expect(items.nth(1), "opening focuses the flow shown").toBeFocused();
+    for (const [key, to] of [["ArrowDown", 2], ["ArrowDown", 0], ["ArrowUp", 2], ["Home", 0], ["End", 2], ["End", 2], ["Home", 0], ["Home", 0]] as const) {
+      await page.keyboard.press(key);                                        // the wraps, and Home and End stay put when already there
+      await expect(items.nth(to), `${key} moves focus to item ${to + 1}`).toBeFocused();
+    }
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+    await expect(every).toBeFocused();
+    await expect(every).toHaveAttribute("aria-expanded", "false");
+    await open();
+    await page.locator(".ws-flow-title").click();                            // a press outside
+    await expect(menu).toHaveCount(0);
+    await expect(every).toHaveAttribute("aria-expanded", "false");
+    await open();
+    await page.keyboard.press("Tab");                                        // Tab leaves the menu: it closes and focus stays where Tab took it
+    await expect(menu).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Hide the flow's text" })).toBeFocused();
+    await open();
+    await page.keyboard.press("Shift+Tab");                                  // back to ▾ closes it too
+    await expect(menu).toHaveCount(0);
+    await expect(every).toBeFocused();
+    await open();
+    await page.keyboard.press("ArrowDown");                                  // a pick shows that flow, closes the menu and refocuses ▾
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/flow=3/);
+    await expect(menu).toHaveCount(0);
+    await expect(every).toBeFocused();
+  });
+
+  test("a press inside a code comment thread, which keeps its presses to itself, still closes the flow menu", async ({ page }) => {
+    const base = await startReview(page);
+    await page.goto(`${base}/s/S1?view=graph&open=${encodeURIComponent("file://fixture/driver/uart.c")}`);
+    const { thread } = await commentOnReturn(page);
+    await page.getByRole("button", { name: "Every flow" }).click();
+    const menu = page.getByRole("menu", { name: "Every flow" });
+    await expect(menu).toBeVisible();
+    await thread.click({ position: { x: 4, y: 6 } });                        // its padding: nothing there takes focus
+    await expect(menu).toHaveCount(0);
   });
 });

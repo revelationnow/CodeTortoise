@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { byEntry, clCounts, clRewrites, codeOrder, flowLabel, flowPart, foldPath, gapText, readOrder, rewriteText, stepIn, storyNeighbours, storyTabs, threadCrumb, whereByCl, whereTree } from "./story";
+import { byEntry, clCounts, clRewrites, codeOrder, flowPart, foldPath, gapText, readOrder, rewriteText, stepIn, storyNeighbours, storyTabs, threadCrumb, whereByCl, whereTree } from "./story";
 import type { CallPath, ContractRow, Reading, Rewrite, WhereFile } from "./types";
 
 const fn = (node: string, label: string, cl: number | null, extra = {}) => ({ node, label, add: 2, rem: 1, cl, line: 3, ...extra });
@@ -94,13 +94,6 @@ describe("CLs as a sequence (spec 2026-10-07-review-reading-phase2 §5.3, §5.4)
     const all = [rw(103, 101, "send", 5), rw(105, 103, "init", 1), rw(104, 102, "x", 2)];
     expect(clRewrites(all, 103)).toEqual({ rewrites: [all[0]], rewrittenBy: [all[1]] });
     expect(clRewrites(undefined, 103)).toEqual({ rewrites: [], rewrittenBy: [] });
-  });
-});
-
-describe("flowLabel", () => {
-  it("names each step of the flow's path", () => {
-    const names: Record<string, string> = { N1: "main", N2: "logger_flush" };
-    expect(flowLabel({ path: ["N1", "N2", "N3"] }, (n) => names[n])).toBe("main → logger_flush → a function");
   });
 });
 

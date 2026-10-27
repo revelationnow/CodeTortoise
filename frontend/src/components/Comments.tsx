@@ -86,7 +86,8 @@ function CommentView({ c, onChange }: { c: Comment; onChange: () => void }) {
       ) : meta?.pending ? (
         <div className="comment-body muted">thinking…{meta.round ? ` (round ${meta.round} of ${meta.of})` : ""}</div>
       ) : (
-        <AiText as="div" ai={ai} className="comment-body">{c.body}</AiText>
+        // "I stopped…", "I couldn't answer…": the app wrote those, so they are not marked as the AI's words
+        <AiText as="div" ai={ai && !meta?.error} className="comment-body">{c.body}</AiText>
       )}
       {ai && meta && meta.read.length > 0 && <div className="ai-read muted small">read: {meta.read.join(", ")}</div>}
       {ai && me?.is_owner && usage && /review has used its/.test(meta?.error ?? "") && (

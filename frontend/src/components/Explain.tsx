@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { type AiKind, type AnchorKind, api } from "../api";
+import { useRef, useState } from "react";
+import { type AiKind, type AnchorKind, api, errorText } from "../api";
 import { useAi } from "../lib/ai";
 import { aiAvailability, callTitle, jobFor } from "../lib/aiState";
 import { useMenu } from "../lib/useMenu";
@@ -13,7 +13,8 @@ interface Props {
   /** The item already has an AI result: asking again replaces it, after a confirmation. */
   has: boolean;
   label?: string;
-  /** Where a question typed into Ask… goes: an @tortoise thread on this item (spec: explain with a question). */
+  /** Where a question goes when asked from the menu's Ask a question… item (or the Ask… button): an @tortoise thread on
+   * this item (spec: explain with a question). */
   ask?: { kind: AnchorKind; anchor: Record<string, unknown>; onAsked: () => void };
   /** Only Ask…: the item's text is the strong model's and tier 2 never rewrites it (two-tier stories §8). */
   askOnly?: boolean;
@@ -22,7 +23,8 @@ interface Props {
 /** Explain ▾ (spec 2026-10-25-review-ui-redesign §4.1): a small menu of Explain — or the caller's label, "again" once
  * the item has a result — and Ask a question…; one AI call, shown to everyone. An item the strong model wrote allows
  * only Ask… (two-tier stories §8). A refusal or failure, and the sent note, show beside it. Ask a question… (or Ask…)
- * opens the question box with focus in it; picked again, or Escape in the box, shuts it with focus back on the button. */
+ * opens the question box with focus in it; picked again, or Escape in the box, shuts it with focus back on the button, and
+ * so does a question sent, unless the reader has moved focus out of the box to something else meanwhile: they keep it. */
 export default function Explain({ kind, target, has, label = "Explain", ask, askOnly = false }: Props) {
   const ai = useAi();
   const [asking, setAsking] = useState(false);
@@ -30,15 +32,26 @@ export default function Explain({ kind, target, has, label = "Explain", ask, ask
   const [sent, setSent] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const { button, menu } = useMenu<HTMLSpanElement>(open, () => setOpen(false));
+  const box = useRef<HTMLSpanElement>(null);
   if (!ai?.view?.llm) return null;
   const can = aiAvailability(ai.view);
+  const shut = () => { setAsking(false); button.current?.focus(); };
   const send = () => {
     const q = question.trim();
     if (!q || !ask) return;
     setSent(null);
     api.addComment(ai.reviewId, `@tortoise ${q}`, ask.kind, ask.anchor)
-      .then(() => { setQuestion(""); setAsking(false); setSent("Asked: the answer comes in this item's thread."); ask.onAsked(); })
-      .catch((x) => setSent(String(x.message ?? x)));
+      .then(() => {
+        setQuestion("");
+        // The answer may land long after the question left. Focus still in the box being shut, or nowhere, goes back to the
+        // button; a reader who has moved on keeps their place (focusing the button would scroll the page away from it).
+        const at = document.activeElement;
+        if (!at || at === document.body || box.current?.contains(at)) shut();
+        else setAsking(false);
+        setSent("Asked: the answer comes in this item's thread.");
+        ask.onAsked();
+      })
+      .catch((x) => setSent(errorText(x, "The question could not be sent.")));
   };
   const job = jobFor(ai.view, kind, target);
   const running = job?.status === "running";
@@ -52,8 +65,7 @@ export default function Explain({ kind, target, has, label = "Explain", ask, ask
     button.current?.focus();
     if (!has || window.confirm(`Replace the current ${what}? It costs 1 AI call.`)) ai.explain(kind, target);
   };
-  const shut = () => { setAsking(false); button.current?.focus(); };
-  // title="": nothing here is the AI's text, though it may sit inside it (AiText's "Written by AI" hover stops here)
+  // title="": nothing here is the AI's text; an empty title keeps the hover of whatever surrounds these controls off them
   return (
     <span className="ai-ask" title="" onClick={(e) => e.stopPropagation()}>
       {askOnly ? ask && (
@@ -73,7 +85,7 @@ export default function Explain({ kind, target, has, label = "Explain", ask, ask
         </span>
       )}
       {ask && asking && (
-        <span className="ai-askq">
+        <span className="ai-askq" ref={box}>
           <textarea aria-label="What should the AI explain?" rows={2} value={question} autoFocus
                     placeholder="What should it explain? @tortoise answers in a thread here."
                     onChange={(e) => setQuestion(e.target.value)}

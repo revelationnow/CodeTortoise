@@ -14,10 +14,10 @@
 
 - Work in worktree `.worktrees/intro` on branch `intro`. Never commit to `main`.
 - Commit with `git -c user.email=2929430+revelationnow@users.noreply.github.com commit`; end every message with the line `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Do not push.
-- pytest, from `backend/`: `env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest -q -p no:cacheprovider --color=no <files>`
-- ruff, from `backend/`: `/media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/ruff check --output-format concise codetortoise tests`
+- pytest, from `backend/`: `env PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest -q -p no:cacheprovider --color=no <files>`
+- ruff, from `backend/`: `../../../backend/.venv/bin/ruff check --output-format concise codetortoise tests`
 - vitest, from `frontend/`: `npx vitest run <files>`; typecheck: `npx tsc -b --noEmit` (or `npm run build`, which also typechecks).
-- e2e, from `frontend/`: `npm run build` first (the server serves `frontend/dist`), then `TMPDIR=$CLAUDE_JOB_DIR/tmp/pw TORTOISE_CMD="env PYTHONPATH=/media/anoop/ssd_1/Work/CodeTortoise/.worktrees/intro/backend /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m codetortoise.cli" npx playwright test <specs>`. Known flakes (pass on `--last-failed`): startReview 60 s timeouts, `workspace-detail.spec.ts:134`.
+- e2e, from `frontend/`: `npm run build` first (the server serves `frontend/dist`), then `TMPDIR=$CLAUDE_JOB_DIR/tmp/pw TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../../../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test <specs>`. Known flakes (pass on `--last-failed`): startReview 60 s timeouts, `workspace-detail.spec.ts:134`.
 - Never use `uv`, bare `git stash`, `git clean -fdx`, or `pkill -f`. Use `$CLAUDE_JOB_DIR/tmp` for temporary files. Never print `TORTOISE_LLM_KEY` or `TORTOISE_STRONG_KEY`.
 - Limits, verbatim from the spec: key files at most **8**, key modules at most **4**, files listed to the threads call at most **40** per thread then "+N more"; the intro's whole **4–6** sentences, a thread intro **3–5** sentences, a route reason **1** sentence; open checks in the intro prompt at most **6**; the fixed intro names at most **3** directories and **3** check kinds, then "and N more".
 - The intro prompt's thread header is `THREAD DETAILS (id | name | purpose | CLs | open checks):`. It must never contain the text `THREADS (id`, which the test and fake-model dispatchers match for the threads call.
@@ -177,7 +177,7 @@ def test_a_reading_stored_before_the_introduction_loads_with_its_defaults():
 
 - [ ] **Step 2: Run them to verify they fail**
 
-Run (from `backend/`): `env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest -q -p no:cacheprovider --color=no tests/test_reading.py`
+Run (from `backend/`): `env PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest -q -p no:cacheprovider --color=no tests/test_reading.py`
 Expected: collection error `ImportError: cannot import name 'RouteStep' from 'codetortoise.reading'`.
 
 - [ ] **Step 3: Implement**
@@ -334,12 +334,12 @@ Note: `fixed_route`'s test sets `open_checks` by hand while `checks` holds the r
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest -q -p no:cacheprovider --color=no tests/test_reading.py`
+Run: `env PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest -q -p no:cacheprovider --color=no tests/test_reading.py`
 Expected: all pass.
 
 - [ ] **Step 5: Run the whole backend suite and ruff**
 
-Run: `env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest -q -p no:cacheprovider --color=no > $CLAUDE_JOB_DIR/tmp/t1.log 2>&1; tail -5 $CLAUDE_JOB_DIR/tmp/t1.log` and the ruff command.
+Run: `env PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest -q -p no:cacheprovider --color=no > $CLAUDE_JOB_DIR/tmp/t1.log 2>&1; tail -5 $CLAUDE_JOB_DIR/tmp/t1.log` and the ruff command.
 Expected: all pass (the version bump only changes cache keys), ruff clean.
 
 - [ ] **Step 6: Commit**
@@ -467,7 +467,7 @@ and after the re-run's last line add:
 
 - [ ] **Step 2: Run them to verify they fail**
 
-Run: `env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest -q -p no:cacheprovider --color=no tests/test_llm_threads.py tests/test_pipeline.py -k "pick or files or names_the_threads_once"`
+Run: `env PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest -q -p no:cacheprovider --color=no tests/test_llm_threads.py tests/test_pipeline.py -k "pick or files or names_the_threads_once"`
 Expected: FAIL — `TypeError: write_threads() got an unexpected keyword argument 'files'`, and the pipeline test fails on `files_source == "llm"`.
 
 - [ ] **Step 3: Implement the threads call**
@@ -647,7 +647,7 @@ def threads(user: str) -> dict:
 
 - [ ] **Step 6: Run the tests to verify they pass**
 
-Run: `env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest -q -p no:cacheprovider --color=no tests/test_llm_threads.py tests/test_pipeline.py`
+Run: `env PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest -q -p no:cacheprovider --color=no tests/test_llm_threads.py tests/test_pipeline.py`
 Expected: all pass.
 
 - [ ] **Step 7: Whole backend suite and ruff**
@@ -835,7 +835,7 @@ def test_the_scripted_intro_answer_passes_every_check():
 
 - [ ] **Step 2: Run them to verify they fail**
 
-Run: `env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest -q -p no:cacheprovider --color=no tests/test_llm_intro.py`
+Run: `env PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest -q -p no:cacheprovider --color=no tests/test_llm_intro.py`
 Expected: collection error `ModuleNotFoundError: No module named 'codetortoise.llm.intro'`.
 
 - [ ] **Step 3: Implement**
@@ -981,7 +981,7 @@ def write_intro(strong: LlmClient, ledger: Ledger | None, rid: int | None, readi
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest -q -p no:cacheprovider --color=no tests/test_llm_intro.py tests/test_llm_threads.py tests/test_ledger.py`
+Run: `env PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest -q -p no:cacheprovider --color=no tests/test_llm_intro.py tests/test_llm_threads.py tests/test_ledger.py`
 Expected: all pass.
 
 - [ ] **Step 5: Whole backend suite and ruff**
@@ -1076,7 +1076,7 @@ If `store.get_blob` returns something other than `None` for a missing blob (chec
 
 - [ ] **Step 2: Run them to verify they fail**
 
-Run: `env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest -q -p no:cacheprovider --color=no tests/test_pipeline.py -k "introduc or names_the_threads_once"`
+Run: `env PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest -q -p no:cacheprovider --color=no tests/test_pipeline.py -k "introduc or names_the_threads_once"`
 Expected: FAIL — the strong-model tests find no `THREAD DETAILS` prompt (`asked() == 0`) and the message lacks "; introduction by big"; the no-strong-model test passes already (Task 1 made the rules text) — that is expected: it pins the rules path through the pipeline.
 
 - [ ] **Step 3: Implement**
@@ -1144,7 +1144,7 @@ def answer(system: str, user: str) -> dict:
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest -q -p no:cacheprovider --color=no tests/test_pipeline.py tests/test_web.py tests/test_stories_check.py`
+Run: `env PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest -q -p no:cacheprovider --color=no tests/test_pipeline.py tests/test_web.py tests/test_stories_check.py`
 Expected: all pass.
 
 - [ ] **Step 6: Whole backend suite and ruff**
@@ -1488,7 +1488,7 @@ In `frontend/e2e/workspace-tier1.spec.ts`, inside the describe, add:
 - [ ] **Step 2: Build and run the e2e specs**
 
 Run (from `frontend/`): `npm run build > $CLAUDE_JOB_DIR/tmp/t6b.log 2>&1; tail -3 $CLAUDE_JOB_DIR/tmp/t6b.log`, then
-`TMPDIR=$CLAUDE_JOB_DIR/tmp/pw TORTOISE_CMD="env PYTHONPATH=/media/anoop/ssd_1/Work/CodeTortoise/.worktrees/intro/backend /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m codetortoise.cli" npx playwright test e2e/workspace-reading.spec.ts e2e/workspace-tier1.spec.ts > $CLAUDE_JOB_DIR/tmp/t6.log 2>&1; tail -20 $CLAUDE_JOB_DIR/tmp/t6.log`
+`TMPDIR=$CLAUDE_JOB_DIR/tmp/pw TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../../../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test e2e/workspace-reading.spec.ts e2e/workspace-tier1.spec.ts > $CLAUDE_JOB_DIR/tmp/t6.log 2>&1; tail -20 $CLAUDE_JOB_DIR/tmp/t6.log`
 Expected: all pass (a startReview timeout passes on `--last-failed`).
 
 - [ ] **Step 3: The whole e2e suite**

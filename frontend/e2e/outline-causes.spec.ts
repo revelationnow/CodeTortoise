@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { barNames, expectNamed, expectNoNodeIds, hold, reviewMenu, startReview, storyLink } from "./helpers";
+import { barNames, expectNamed, expectNoNodeIds, hold, LARGE, recordSaid, reviewMenu, setShortcuts, sideways, startReview, storyLink, STRONG } from "./helpers";
 
 /** The outline and checks by cause (spec 2026-10-16-outline-and-causes): fixture CLs 101–104 make three threads; with
  * Confirm hidden their causes are a caller, a result and a reader in thread A and an ask in thread C. */
@@ -117,6 +117,20 @@ test.describe("desktop", () => {
     await expectNamed(page);
   });
 
+  test("the outline's group lines recount what is open when a flow is marked fine, and when it is reopened", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const groups = page.locator("aside.ws-outline .ws-flows .ws-row"), tick = page.getByRole("checkbox", { name: "Looks fine: logger_flush ignores -2" });
+    await expect(groups).toHaveCount(2);
+    await expect(groups.first()).toHaveAttribute("aria-label", "Go to uart_send · 1 flow, 1 open");
+    await tick.click();                                                              // its one place is marked fine…
+    await expect(groups.first()).toHaveAttribute("aria-label", "Go to uart_send · 1 flow");
+    await expect(groups.nth(1)).toHaveAttribute("aria-label", "Go to Uart::errors · 1 flow, 1 open");   // …the other group is as it was
+    await expect(page.locator(".st-flows")).toHaveAttribute("aria-busy", "false");   // a click while a mark is on its way is ignored
+    await tick.click();                                                              // unticking reopens it
+    await expect(groups.first()).toHaveAttribute("aria-label", "Go to uart_send · 1 flow, 1 open");
+  });
+
   test("the outline's Checks: causes by thread and story, Confirm hidden until shown, both remembered", async ({ page }) => {
     await startReview(page, FOUR);
     const outline = page.locator("aside.ws-outline");
@@ -161,7 +175,7 @@ test.describe("desktop", () => {
 const READERS = "5 places read UartDev::errors, which uart_a1 now writes";
 
 test.describe("a cause of many places", () => {
-  test.use({ baseURL: "http://127.0.0.1:8796", viewport: { width: 1440, height: 900 } });
+  test.use({ baseURL: LARGE, viewport: { width: 1440, height: 900 } });
 
   async function openReaders(page: Page) {
     await startReview(page, "201 202");
@@ -204,18 +218,39 @@ test.describe("a cause of many places", () => {
     await expectNamed(page);
   });
 
-  /** Hold each Looks fine (one place's mark) until `release` runs, or fail it at once. */
-  async function holdMarks(page: Page, how: "hold" | "fail") {
+  /** Hold each Looks fine (one place's mark) until `release` runs, or fail it at once: with a reason ("fail"), or with none ("mute", what the
+   * page has to go on when the status line is empty too, as over HTTP/2). */
+  async function holdMarks(page: Page, how: "hold" | "fail" | "mute") {
     let release = () => {};
     const held = new Promise<void>((done) => { release = done; });
     await page.route((u) => u.pathname.endsWith("/mark"), async (route) => {
       if (route.request().method() !== "POST") return route.continue();
       if (how === "fail") return route.fulfill({ status: 500, json: { detail: "the store is busy" } });
+      if (how === "mute") return route.fulfill({ status: 500, json: { detail: "" } });
       await held;
       await route.continue();
     });
     return () => release();
   }
+
+  test("with Caps Lock on, J, K and F step as they do with it off, and Ctrl, Meta and Alt still make them no shortcut", async ({ page }) => {
+    const panel = await openReaders(page);
+    const pos = panel.locator(".cs-pos"), done = panel.locator(".cs-donecount");
+    await expect(pos).toHaveText("1 / 5");
+    await page.keyboard.press("J");                                      // Caps Lock sends the capital letter, with Shift up
+    await expect(pos, "J stepped on").toHaveText("2 / 5");
+    await page.keyboard.press("K");
+    await expect(pos, "K stepped back").toHaveText("1 / 5");
+    for (const chord of ["Control+J", "Meta+J", "Alt+J", "Control+F", "Meta+F", "Alt+F"]) await page.keyboard.press(chord);
+    await page.waitForTimeout(300);                                      // a step or a mark that wrongly started would have landed by now
+    await expect(pos, "a chord with Ctrl, Meta or Alt stepped").toHaveText("1 / 5");
+    await expect(done, "a chord marked").toHaveText("0 done");
+    await page.keyboard.press("F");
+    await expect(pos, "F marked the place and stepped on").toHaveText("2 / 5");
+    await expect(done).toHaveText("1 done");
+    await page.keyboard.press("Shift+J");                                // and with Shift held, which gives the capital letter too
+    await expect(pos, "Shift+J stepped on").toHaveText("3 / 5");
+  });
 
   test("J and K wait while a Looks fine is on its way, so it cannot pull the reader back", async ({ page }) => {
     const release = await holdMarks(page, "hold");
@@ -265,6 +300,78 @@ test.describe("a cause of many places", () => {
     await expect(panel.locator(".cs-donecount")).toHaveText("0 done");
   });
 
+  test("with Single-key shortcuts off, J, K and F do nothing in the stepper, its buttons still act, and switched on again the keys step", async ({ page }) => {
+    const panel = await openReaders(page);
+    const pos = panel.locator(".cs-pos"), done = panel.locator(".cs-donecount");
+    await expect(pos).toHaveText("1 / 5");
+    await setShortcuts(page, false);
+    for (const key of ["j", "k", "f"]) {                                 // from 1 / 5 they would step to 2, wrap back to 5, and clear place 1
+      await page.keyboard.press(key);
+      await page.waitForTimeout(300);                                    // a step or a mark that wrongly started would have landed by now
+      await expect(pos, `${key} stepped`).toHaveText("1 / 5");
+      await expect(done, `${key} marked`).toHaveText("0 done");
+    }
+    await panel.getByRole("button", { name: "Skip ›" }).focus();
+    await page.keyboard.press("Enter");                                  // the buttons are the reader's own
+    await expect(pos).toHaveText("2 / 5");
+    await panel.getByRole("button", { name: "Looks fine & next" }).focus();
+    await page.keyboard.press("Space");
+    await expect(pos).toHaveText("3 / 5");
+    await expect(done).toHaveText("1 done");
+    await setShortcuts(page, true);
+    await page.keyboard.press("k");                                      // back over the done place 2 to place 1
+    await expect(pos).toHaveText("1 / 5");
+    await page.keyboard.press("j");
+    await expect(pos).toHaveText("3 / 5");
+    await page.keyboard.press("f");
+    await expect(pos).toHaveText("4 / 5");
+    await expect(done).toHaveText("2 done");
+  });
+
+  test("F says Marked fine in a hidden live region once its mark has landed, and says it again for the next place; a mark that fails says nothing", async ({ page }) => {
+    const panel = await openReaders(page);
+    const said = panel.locator('[aria-live="polite"]'), pos = panel.locator(".cs-pos");
+    await expect(pos).toHaveText("1 / 5");
+    await expect(said, "a polite live region that is there before F, and empty").toHaveText("");
+    await expect(said, "for screen readers only").toHaveClass("vh");
+    expect((await said.boundingBox())!.width).toBeLessThanOrEqual(1);
+    const log = await recordSaid(said);
+    await page.keyboard.press("f");
+    await expect(pos).toHaveText("2 / 5");
+    await expect(said).toHaveText("Marked fine");
+    await page.keyboard.press("f");
+    await expect(pos).toHaveText("3 / 5");
+    await expect(said).toHaveText("Marked fine");
+    expect(await log(), "emptied between the two, so a screen reader hears it twice").toEqual(["Marked fine", "", "Marked fine"]);
+    await holdMarks(page, "fail");                                       // from here the server refuses every mark
+    await page.keyboard.press("f");
+    await expect(panel.locator(".banner.warn")).toContainText("the store is busy");
+    await expect(panel.getByRole("alert"), "a screen reader is told of the refusal").toContainText("the store is busy");
+    await page.waitForTimeout(300);                                      // words that wrongly came after the refusal would be here by now
+    await expect(said, "the old words are gone, and none came for a mark that did not land").toHaveText("");
+    await expect(pos).toHaveText("3 / 5");
+  });
+
+  test("what F said clears itself five seconds later, and the next F's words get five seconds of their own", async ({ page }) => {
+    await page.clock.install();
+    const panel = await openReaders(page);
+    const said = panel.locator('[aria-live="polite"]'), pos = panel.locator(".cs-pos");
+    await expect(pos).toHaveText("1 / 5");
+    await page.clock.pauseAt(new Date(Date.now() + 1000));                // from here on only the test moves time
+    await page.keyboard.press("f");
+    await expect(pos).toHaveText("2 / 5");
+    await expect(said).toHaveText("Marked fine");
+    await page.clock.runFor(3000);
+    await expect(said, "3 s on, still there").toHaveText("Marked fine");
+    await page.keyboard.press("f");                                       // the same words again, and the first F's timer must not cut them short
+    await expect(pos).toHaveText("3 / 5");
+    await expect(said).toHaveText("Marked fine");
+    await page.clock.runFor(3000);                                        // 6 s after the first F, 3 s after the second
+    await expect(said, "the first F's five seconds are over; the second's are not").toHaveText("Marked fine");
+    await page.clock.runFor(2100);
+    await expect(said, "five seconds after the second").toHaveText("");
+  });
+
   test("a J pressed the moment the stepper shows is heard, not lost to the next paint", async ({ page }) => {
     await startReview(page, "201 202");
     const outline = page.locator("aside.ws-outline");
@@ -279,6 +386,16 @@ test.describe("a cause of many places", () => {
     });
     await link.click();
     await expect(page.getByRole("complementary", { name: `Check: ${READERS}` }).locator(".cs-pos")).toHaveText("2 / 5");
+  });
+
+  test("a Looks fine the server refuses without a word still tells the reader, in an alert", async ({ page }) => {
+    await holdMarks(page, "mute");
+    const panel = await openReaders(page);
+    await expect(panel.locator(".cs-pos")).toHaveText("1 / 5");
+    await page.keyboard.press("f");
+    await expect(panel.locator(".banner.warn")).toHaveText("The server did not accept the mark.");
+    await expect(panel.getByRole("alert"), "a screen reader is told of the refusal").toHaveText("The server did not accept the mark.");
+    await expect(panel.locator(".cs-pos")).toHaveText("1 / 5");
   });
 
   test("a failed Looks fine's banner goes when the reader steps to another place", async ({ page }) => {
@@ -356,6 +473,7 @@ test.describe("the top bar", () => {
     await expect(dialog).toContainText("J next, K back, F looks fine & next");
     await expect(dialog).toContainText("the story you are on shows its flow groups.");
     await expect(dialog).toContainText("On Flows: J next row, K back, Enter opens it, F looks fine & next.");
+    await expect(dialog).toContainText("Single-key shortcuts switches J, K and F off, here and in a check");
     await expect(dialog).toContainText("A faint violet line at the left of a paragraph marks text the AI wrote.");
     for (const w of [1440, 600]) {
       await page.setViewportSize({ width: w, height: 900 });
@@ -430,6 +548,33 @@ test.describe("a story's tabs", () => {
     await expect(page.getByRole("region", { name: "Also in this story" })).toHaveCount(0);
   });
 
+  test("a kind hidden or shown in the outline's Checks takes its tick boxes and chips off the open Flows tab, or brings them back", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const outline = page.locator("aside.ws-outline"), ticks = page.locator(".fl-tick"), chips = page.locator(".fl-group .st-chip");
+    const lines = page.locator(".fl-group .fl-line");
+    await expect(ticks).toHaveCount(2);
+    await expect(chips).toHaveCount(2);
+    await outline.getByRole("button", { name: "Checks" }).click();
+    const hide = outline.locator("details.ws-hidden");
+    await hide.locator("summary").click();
+    await hide.getByLabel("Unchanged reader").uncheck();                       // the second flow's place and its cause
+    await expect(ticks).toHaveCount(1);
+    await expect(chips).toHaveCount(1);
+    await expect(lines).toHaveText(["called by logger_flush · 1 flow · 1 open", "read by uart_errors · 1 flow"]);
+    await hide.getByLabel("Result handled the old way").uncheck();             // the first flow's
+    await expect(ticks).toHaveCount(0);
+    await expect(chips).toHaveCount(0);
+    await expect(lines).toHaveText(["called by logger_flush · 1 flow", "read by uart_errors · 1 flow"]);
+    await hide.getByLabel("Result handled the old way").check();
+    await expect(ticks).toHaveCount(1);
+    await expect(chips).toHaveCount(1);
+    await hide.getByLabel("Unchanged reader").check();
+    await expect(ticks).toHaveCount(2);
+    await expect(chips).toHaveCount(2);
+    await expect(lines).toHaveText(["called by logger_flush · 1 flow · 1 open", "read by uart_errors · 1 flow · 1 open"]);
+  });
+
   test("a story stored before causes shows no chips", async ({ page }) => {
     await withoutCauses(page);
     const base = await startReview(page, FOUR);
@@ -482,7 +627,8 @@ test.describe("a story's tabs", () => {
     await page.goto(`${base}/s/S3`);
     const region = page.getByRole("region", { name: "Checks in this story" });
     await expect(region.locator(".st-chip")).toHaveCount(1);
-    await expect(page.getByRole("region", { name: /^Flow \d+:/ })).toHaveCount(0);
+    await expect(page.getByRole("navigation", { name: "Story sections" }).getByRole("link", { name: /^Flows/ })).toHaveCount(0);
+    await expect(page.locator(".fl-group, .fl-row")).toHaveCount(0);
   });
 });
 
@@ -569,7 +715,7 @@ test.describe("phone", () => {
     await outline.getByRole("link", { name: /^Open check: logger_flush ignores the result/ }).click();
     const sheet = page.getByRole("complementary", { name: /^Check: logger_flush ignores the result/ });
     await expect(sheet.getByRole("region", { name: "The place" })).toBeVisible();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    expect(await sideways(page)).toBeLessThanOrEqual(0);
     await sheet.getByRole("button", { name: "Looks fine & next" }).click();
     await expect(sheet.locator(".cs-done")).toHaveText("Its place is done");
     await sheet.getByRole("link", { name: "Close the check" }).click();
@@ -578,7 +724,7 @@ test.describe("phone", () => {
 });
 
 test.describe("names, never node ids", () => {
-  test.use({ baseURL: "http://127.0.0.1:8795", viewport: { width: 1440, height: 900 } });
+  test.use({ baseURL: STRONG, viewport: { width: 1440, height: 900 } });
 
   test("a hazard whose AI reason cites nodes reads their names in the outline, the chips and the stepper", async ({ page }) => {
     const base = await startReview(page);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Names } from "../api";
-import { nameParts, plainNames } from "./names";
+import { bare, nameParts, plainNames } from "./names";
 
 const names: Names = {
   N9: { label: "uart_send", kind: "function", path: "//fixture/driver/uart.c", line: 11, story: "S1" },
@@ -37,5 +37,13 @@ describe("plainNames", () => {
   it("names node ids and keeps backticks for the caller to render", () => {
     const names = { N9: { label: "uart_send", kind: "function", path: null, line: null, story: null } };
     expect(plainNames("`N9` drops F2 data N7", names)).toBe("`uart_send` drops F2 data a function");
+  });
+});
+
+describe("bare", () => {
+  it("takes the backticks out of a line, for a title or an accessible name", () => {
+    expect(bare("`uart_send` returns new values")).toBe("uart_send returns new values");
+    expect(bare("`a` and `b`, but not ``")).toBe("a and b, but not ");
+    expect(bare("no code in this one")).toBe("no code in this one");
   });
 });

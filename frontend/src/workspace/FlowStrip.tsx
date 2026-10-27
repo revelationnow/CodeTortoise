@@ -1,9 +1,10 @@
-import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useState } from "react";
 import { Link } from "react-router-dom";
 import type { Board } from "../board/types";
 import Comments from "../components/Comments";
 import AiText from "../components/AiText";
 import Explain from "../components/Explain";
+import { useMenu } from "../lib/useMenu";
 import { useWs } from "./context";
 import { wrap } from "./flows";
 import NameText from "./NameText";
@@ -26,23 +27,9 @@ interface Props {
  * width left, a ▾ menu of every flow; below it the flow's text, collapsible. Its controls never move between flows. */
 export default function FlowStrip({ board, flows, index, onFlow, steps, hideWhat, note }: Props) {
   const ws = useWs();
-  const [menu, setMenu] = useState(false);
+  const [open, setOpen] = useState(false);
   const [shut, setShut] = useState(false);
-  const box = useRef<HTMLSpanElement>(null), toggle = useRef<HTMLButtonElement>(null);
-  useEffect(() => {                                       // open: focus the flow shown; a press outside closes it
-    if (!menu) return;
-    box.current?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus();
-    const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setMenu(false); };
-    document.addEventListener("pointerdown", away);
-    return () => document.removeEventListener("pointerdown", away);
-  }, [menu]);
-  const keys = (e: KeyboardEvent) => {
-    const items = [...(box.current?.querySelectorAll<HTMLElement>('[role="menuitemradio"]') ?? [])];
-    const at = items.indexOf(document.activeElement as HTMLElement);
-    const to = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 }[e.key];
-    if (e.key === "Escape") { e.preventDefault(); setMenu(false); toggle.current?.focus(); }
-    else if (to !== undefined && items.length) { e.preventDefault(); items[wrap(to, 0, items.length)].focus(); }
-  };
+  const { button, menu } = useMenu<HTMLUListElement>(open, () => setOpen(false));   // opens on the flow shown
   const flow = flows[index];
   if (!flow) return null;
   const byId = new Map(board.nodes.map((n) => [n.id, n]));
@@ -59,13 +46,13 @@ export default function FlowStrip({ board, flows, index, onFlow, steps, hideWhat
                 onClick={() => onFlow(wrap(index, 1, n))}>›</button>
         <span className={`bd-tag ${flow.tag}`}>{flow.tag}</span>
         <b className="ws-flow-title" title={flow.title}>{flow.title}</b>
-        <span className="ws-flow-menu" ref={box} onKeyDown={menu ? keys : undefined}>
-          <button ref={toggle} className="bd-ibtn" aria-label="Every flow" title="Every flow" aria-haspopup="menu" aria-expanded={menu}
-                  onClick={() => setMenu(!menu)}>▾</button>
-          {menu && (
-            <ul role="menu" aria-label="Every flow">{flows.map((f, i) => (
+        <span className="ws-flow-menu">
+          <button ref={button} className="bd-ibtn" aria-label="Every flow" title="Every flow" aria-haspopup="menu" aria-expanded={open}
+                  onClick={() => setOpen(!open)}>▾</button>
+          {open && (
+            <ul role="menu" aria-label="Every flow" ref={menu}>{flows.map((f, i) => (
               <li key={f.id} role="none"><button role="menuitemradio" aria-checked={i === index} tabIndex={-1}
-                onClick={() => { setMenu(false); toggle.current?.focus(); onFlow(i); }}><span className="muted">{i + 1}</span> {f.title}</button></li>
+                onClick={() => { setOpen(false); button.current?.focus(); onFlow(i); }}><span className="muted">{i + 1}</span> {f.title}</button></li>
             ))}</ul>
           )}
         </span>
@@ -75,8 +62,10 @@ export default function FlowStrip({ board, flows, index, onFlow, steps, hideWhat
       {!shut && note && <div className="ws-flow-text"><p className="muted">{note}</p></div>}
       {!shut && !note && (
         <div className="ws-flow-text">
-          {!hideWhat && <AiText ai={flow.what_source === "llm"}><NameText text={flow.what} />{" "}
-            <Explain kind="flow" target={flow.id} has={flow.what_source === "llm"} ask={{ kind: "flow", anchor: { id: flow.id }, onAsked: ws.data.loadComments }} /></AiText>}
+          {!hideWhat && <>
+            <AiText ai={flow.what_source === "llm"}><NameText text={flow.what} /></AiText>
+            <Explain kind="flow" target={flow.id} has={flow.what_source === "llm"} ask={{ kind: "flow", anchor: { id: flow.id }, onAsked: ws.data.loadComments }} />
+          </>}
           {steps && (
             <p className="ws-flow-steps">{flow.path.map((id, i) => {
               const node = byId.get(id);

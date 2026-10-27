@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../api";
+import { api, errorText } from "../api";
 import { isChange, useEnsureSource } from "../board/useSources";
 import Comments from "../components/Comments";
 import SinkMark from "../components/SinkMark";
@@ -8,11 +8,11 @@ import { KIND_LABEL, markLine } from "../reading/checks";
 import { alsoAt, around, doneCount, nextOpenAt, openPlaces, placeOpen } from "../reading/causes";
 import type { Cause, Check, Mark } from "../reading/types";
 import { useWs } from "./context";
-import { inPopup, typing } from "./keys";
+import { inPopup, lowerKey, typing } from "./keys";
 import NameText, { Ticks } from "./NameText";
-import { plainNames } from "./names";
-
-const bare = (s: string) => s.replaceAll("`", "");
+import { bare, plainNames } from "./names";
+import { MARKED_FINE, shortcutsOn } from "./shortcuts";
+import useSaid from "./useSaid";
 
 /** About seven lines around the place, from the after text of a changed file or the fetched text of another. */
 function PlaceCode({ k }: { k: Check | null }) {
@@ -41,6 +41,7 @@ export default function CauseStepper({ cause, at }: { cause: Cause; at: number }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [talk, setTalk] = useState(false);
+  const { said, say } = useSaid();                        // the live region's words: F puts `Marked fine` there once its mark has landed
   const { ticks, tick } = d;
   useEffect(() => {                                       // a new place: its comment box closed, no banner, its tick set
     setTalk(false);
@@ -50,10 +51,10 @@ export default function CauseStepper({ cause, at }: { cause: Cause; at: number }
   const go = (to: number) => ws.go({ ...ws.addr, open: { cause: cause.id, at: to } }, true);
   const left = openPlaces(cause, marks), done = doneCount(cause, marks);
   const ahead = nextOpenAt(cause, marks, i, 1), behind = nextOpenAt(cause, marks, i, -1);
-  const run = (act: () => Promise<void>) => {
+  const run = (act: () => Promise<void>): Promise<boolean> => {   // settles to whether the change landed (never rejects)
     setBusy(true);
     setError(null);
-    act().catch((e) => setError(String(e.message ?? e))).finally(() => setBusy(false));
+    return act().then(() => true).catch((e) => { setError(errorText(e, "The server did not accept the mark.")); return false; }).finally(() => setBusy(false));
   };
   const reload = () => Promise.all([d.loadReading(), d.loadTicks().catch(() => {})]).then(() => {});
   const fineNext = () => run(async () => {
@@ -68,12 +69,18 @@ export default function CauseStepper({ cause, at }: { cause: Cause; at: number }
   // the handler is read from a ref set in the render, so a key pressed before React's effects flush meets this render
   const onKey = useRef<(e: KeyboardEvent) => void>(() => {});
   onKey.current = (e) => {
+    const key = lowerKey(e);                                       // J, K and F with Caps Lock on arrive as capitals
+    if (key !== "j" && key !== "k" && key !== "f") return;         // any other key is not ours, and is no reason to read the switch from storage
     // while a mark is on its way J, K and F wait: its "next" is worked out from the place it was made at; they are a menu's
-    // or a dialog's while one has focus; and F acts once per press, as a held key's repeats would clear place after place
-    if (busy || e.ctrlKey || e.metaKey || e.altKey || typing(e.target) || inPopup(e.target)) return;
-    if (e.key === "j" && ahead !== null) { e.preventDefault(); go(ahead); }
-    else if (e.key === "k" && behind !== null) { e.preventDefault(); go(behind); }
-    else if (e.key === "f" && !e.repeat && open) { e.preventDefault(); fineNext(); }
+    // or a dialog's while one has focus; they do nothing while the reader has switched the single-key shortcuts off (read at each
+    // press); and F acts once per press, as a held key's repeats would clear place after place
+    if (busy || e.ctrlKey || e.metaKey || e.altKey || typing(e.target) || inPopup(e.target) || !shortcutsOn()) return;
+    if (key === "j" && ahead !== null) { e.preventDefault(); go(ahead); }
+    else if (key === "k" && behind !== null) { e.preventDefault(); go(behind); }
+    else if (key === "f" && !e.repeat && open) {
+      e.preventDefault();
+      say(fineNext(), MARKED_FINE);
+    }
   };
   useLayoutEffect(() => {                                 // heard from the commit that shows the stepper, not from the next paint
     const on = (e: KeyboardEvent) => onKey.current(e);
@@ -86,6 +93,7 @@ export default function CauseStepper({ cause, at }: { cause: Cause; at: number }
   const talks = d.comments.filter((c) => c.parent_id === null && c.anchor_kind === "check" && c.anchor.key === key).length;
   return (
     <div className="cs">
+      <div className="vh" aria-live="polite">{said}</div>
       <div className="cs-head">
         <p className="cs-line"><span className={`ck-tag ${cause.kind}`}>{KIND_LABEL[cause.kind]}</span> <NameText text={cause.text} /></p>
         <div className="cs-nav">
@@ -129,7 +137,7 @@ export default function CauseStepper({ cause, at }: { cause: Cause; at: number }
         {k?.kind === "reader" && k.field && <SinkMark label={k.field} />}
       </div>
       {!left.length && <p className="cs-done">{n === 1 ? "Its place is done" : `All ${n} places done`}</p>}
-      {error && <div className="banner warn">{error}</div>}
+      {error && <div className="banner warn" role="alert">{error}</div>}
       {talk && <Comments reviewId={d.id} comments={d.comments} kind="check" anchor={{ key }} onChange={d.loadComments} autoFocus />}
     </div>
   );

@@ -1,7 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
-import { login, openFold, openIndex, startReview } from "./helpers";
+import { login, openFold, openIndex, SINKS, startReview } from "./helpers";
 
-const SINKS = "http://127.0.0.1:8794";
 const READER = "uart_errors reads Uart::errors";
 
 /** Open the reader's check from the outline's Checks; returns the stepper's sink mark. */

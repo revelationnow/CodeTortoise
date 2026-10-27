@@ -1,7 +1,32 @@
-import { expect, test } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, openIndex, startReview } from "./helpers";
+import { expect, type Page, test } from "@playwright/test";
+import { expectNamed, expectNoNodeIds, LARGE, noReading, openIndex, startReview, STRONG } from "./helpers";
 
 /** Finding, CL and cluster pages (spec 2026-10-04-review-workspace §3.3–§3.5). */
+
+/** How far each element matching `selector` sits below the sibling before it, in px (one with no sibling before it has no gap). */
+const gapsAbove = (page: Page, selector: string) => page.locator(selector).evaluateAll((els) =>
+  els.flatMap((el) => {
+    const before = el.previousElementSibling;
+    return before ? [Math.round((el.getBoundingClientRect().top - before.getBoundingClientRect().bottom) * 10) / 10] : [];
+  }));
+
+/** What `selector`'s `at`th match looks like as a heading (spec 2026-10-25-review-ui-redesign §1.3): its case, spacing, weight and
+ * size, whether its colour is `--ink`, and its margins. */
+const headingLook = (page: Page, selector: string, at = 0) => page.locator(selector).nth(at).evaluate((el) => {
+  const cs = getComputedStyle(el), ink = document.createElement("span");
+  ink.style.color = "var(--ink)";
+  document.body.append(ink);
+  const isInk = cs.color === getComputedStyle(ink).color;
+  ink.remove();
+  return { textTransform: cs.textTransform, letterSpacing: cs.letterSpacing, weight: cs.fontWeight, size: cs.fontSize, ink: isInk,
+           above: cs.marginTop, below: cs.marginBottom };
+});
+
+/** The §1.3 style: sentence case, `--ink`, weight 650, `size` (16px for an `h2`, 15px for an `h3`, an `h4` and the rail's section
+ * button `.ws-sec-t`); a heading in a page's flow also has 20px above and 6px below, which one in a row, a band or a rail
+ * (`.rv-head h2`, `.ov-band h3`, `.ws-sec-t`) does not. */
+const title = (size: "16px" | "15px", inFlow = false) =>
+  ({ textTransform: "none", letterSpacing: "normal", weight: "650", size, ink: true, ...(inFlow && { above: "20px", below: "6px" }) });
 
 test.describe("desktop", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
@@ -36,19 +61,77 @@ test.describe("desktop", () => {
   });
 
   test("section headings are dark sentence-case titles, not grey capitals", async ({ page }) => {
-    const base = await startReview(page);
-    const look = (selector: string) => page.locator(selector).first().evaluate((el) => {
-      const cs = getComputedStyle(el);
-      return [cs.textTransform, cs.letterSpacing, cs.fontWeight, cs.fontSize, cs.color === getComputedStyle(document.body).color];
-    });
-    await expect(page.locator(".ws-whole h2").first()).toBeVisible();
-    expect(await look(".ws-whole h2")).toEqual(["none", "normal", "650", "16px", true]);
+    const base = await startReview(page), rid = base.split("/")[2];
+    // each heading measured on a page that shows it; a failing one is named, and the rest still run
+    const see = async (selector: string, want: Record<string, unknown>, { at = 0, as = selector } = {}) => {
+      await expect(page.locator(selector).nth(at)).toBeVisible();
+      expect.soft(await headingLook(page, selector, at), as).toMatchObject(want);
+    };
+    await see(".ws-whole h2", title("16px"));
     await page.goto(`${base}/f/F4?details=1`);
-    await expect(page.locator(".ws-finding h3").first()).toBeVisible();
-    expect(await look(".ws-finding h3")).toEqual(["none", "normal", "650", "15px", true]);
+    await see(".ws-finding h3", title("15px", true));
+    const names = await (await page.request.get(`/api/reviews/${rid}/names`)).json() as Record<string, { label: string }>;
+    const send = Object.entries(names).find(([, n]) => n.label === "uart_send")![0];
+    await page.goto(`${base}?open=${send}&tab=neighbours`);
+    await see(".ws-nb-col h3", title("15px", true));
+    await page.getByRole("button", { name: "Tree" }).click();
+    await see(".ws-tree-sec h3", title("15px", true));
     await page.goto("/");
-    await expect(page.locator(".rv-head h2")).toBeVisible();
-    expect(await look(".rv-head h2")).toEqual(["none", "normal", "650", "16px", true]);
+    await see(".rv-head h2", title("16px"));
+    // a review whose reading has not come keeps the old rail and pages, which carry three more of the headings
+    await noReading(page, rid);
+    const story = await (await page.request.get(`/api/reviews/${rid}/stories/S1`)).json();
+    await page.route(`**/api/reviews/${rid}/stories/S1`, (r) => r.fulfill({ json: { ...story, reading: null } }));
+    await page.goto(base);
+    await see(".ws-whole h2", title("16px", true), { at: 1, as: ".ws-whole h2, below another section" });
+    await see(".ws-sec-t", title("15px"));
+    await page.goto(`${base}/s/S1`);
+    await see(".ws-steps h3", title("15px", true));
+  });
+
+  test("a fold's arrow is decoration: it carries an empty text alternative, so screen readers skip it", async ({ page }) => {
+    await startReview(page);
+    const fold = page.getByRole("region", { name: "Build impact", exact: true }), summary = fold.locator("summary");
+    await expect(summary).toBeVisible();
+    const arrow = () => summary.evaluate((el) => getComputedStyle(el, "::after").content);      // the arrow is the summary's ::after
+    expect(await arrow()).toBe('"▸" / ""');
+    expect(await fold.ariaSnapshot()).not.toContain("▸");                                       // the accessibility tree holds no text for it
+    await summary.click();
+    await expect(fold.locator("details")).toHaveAttribute("open", "");
+    expect(await arrow()).toBe('"▾" / ""');
+    expect(await fold.ariaSnapshot()).not.toContain("▾");
+  });
+
+  test("a fold's arrow has a plain declaration before its alt-text one, for browsers that drop the alt-text one whole", async ({ page }) => {
+    await page.goto("/login");                                                 // the stylesheet is the bundle's, on every page
+    // the browser keeps only the declaration it understands, so this reads the stylesheets as they were shipped (minified)
+    const sheets = await page.evaluate(() => Promise.all([...document.styleSheets].map((s) => (s.href ? fetch(s.href).then((r) => r.text()) : ""))));
+    const css = sheets.join("\n");
+    expect(css, "closed: ▸").toMatch(/content:\s*"▸"\s*;\s*content:\s*"▸"\s*\/\s*""/);
+    expect(css, "open: ▾").toMatch(/content:\s*"▾"\s*;\s*content:\s*"▾"\s*\/\s*""/);
+  });
+
+  test("a page's sections keep a gap: the Files index's directories, the old whole-change page's summary box", async ({ page }) => {
+    const base = await startReview(page), rid = base.split("/")[2];
+    await page.goto(`${base}/i/files`);
+    await expect(page.locator(".ix-dir").nth(1)).toBeVisible();                       // two directories or more: there is a gap to measure
+    const dirs = await gapsAbove(page, ".ix-dir + .ix-dir");
+    expect(dirs.length).toBeGreaterThanOrEqual(1);
+    expect.soft(Math.min(...dirs), "the Files index's directories").toBeGreaterThanOrEqual(20);
+    // a review whose reading has not come keeps the old page: a section, the stories' summary box, then the map
+    await noReading(page, rid);
+    await page.goto(base);
+    await expect(page.locator(".ws-whole > .ws-summary")).toBeVisible();
+    const blocks = await gapsAbove(page, ".ws-whole > :is(section, .ws-summary)");
+    expect(blocks.length).toBeGreaterThanOrEqual(4);
+    expect.soft(Math.min(...blocks), "the old whole-change page's sections and summary box").toBeGreaterThanOrEqual(20);
+  });
+
+  test("the overview keeps its own spacing: its folds are rows 6px apart, not the 20px of a page's sections", async ({ page }) => {
+    await startReview(page);
+    const fold = "section:has(> details.ov-fold)";
+    await expect(page.locator(`.ov3 > ${fold}`)).toHaveCount(3);                       // Build impact, Coverage, Discussion
+    expect(await gapsAbove(page, `.ov3 > ${fold} + ${fold}`)).toEqual([6, 6]);
   });
 
   test("a header's reach reads as words: counts with their nouns, its layers as a list", async ({ page }) => {
@@ -151,5 +234,28 @@ test.describe("desktop", () => {
     await expect(page.getByRole("complementary", { name: "Code: regs.c" }).getByLabel("Changelist")).toHaveValue("102");
     await expectNoNodeIds(page);
     await expectNamed(page);
+  });
+});
+
+test.describe("stories formed by a strong model", () => {
+  test.use({ baseURL: STRONG, viewport: { width: 1440, height: 900 } });         // e2e/serve-strong.sh
+
+  test("the global h4 is a dark sentence-case title: a story's \"Also worth checking\" has no rule of its own", async ({ page }) => {
+    const base = await startReview(page);
+    await page.goto(`${base}/s/S1`);
+    await page.getByRole("navigation", { name: "Story sections" }).getByRole("link", { name: /^Talk/ }).click();
+    await expect(page.getByRole("region", { name: "Questions and comments" }).locator(".st-suggested h4")).toHaveText("Also worth checking");
+    expect(await headingLook(page, ".st-suggested h4")).toMatchObject(title("15px", true));
+  });
+});
+
+test.describe("a large change", () => {
+  test.use({ baseURL: LARGE, viewport: { width: 1440, height: 900 } });         // e2e/serve-large.sh
+
+  test("a layer band's heading on the map is a dark sentence-case title", async ({ page }) => {
+    const base = await startReview(page, "201 202");
+    await page.goto(`${base}/i/map`);
+    await expect(page.locator(".ov-band h3").first()).toBeVisible();
+    expect(await headingLook(page, ".ov-band h3")).toMatchObject(title("15px"));
   });
 });

@@ -1,5 +1,5 @@
 import { devices, expect, test } from "@playwright/test";
-import { login, startReview, storyLink } from "./helpers";
+import { login, sideways, startReview, storyLink } from "./helpers";
 
 // a second name for the e2e server that is not loopback (spec §14.5); 127.0.0.1 itself is unaffected
 test.use({ launchOptions: { args: ["--host-resolver-rules=MAP ct-lan.test 127.0.0.1"] } });
@@ -33,7 +33,8 @@ test.describe("on a network host name", () => {
       const bar = (await page.locator(".ws-phonebar").boundingBox())!;
       expect(bar.y).toBeGreaterThanOrEqual(0);                                             // the back bar stays on screen
       expect(bar.y + bar.height).toBeLessThanOrEqual(page.viewportSize()!.height);
-      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+      await expect(page.getByRole("navigation", { name: "Story sections" })).toBeVisible();   // the story has loaded: its page is what scrolls
+      expect(await sideways(page)).toBeLessThanOrEqual(0);
     });
   });
 });

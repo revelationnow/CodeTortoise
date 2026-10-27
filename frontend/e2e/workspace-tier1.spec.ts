@@ -1,7 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { expectNamed, login, openAiUsage, reviewMenu, startReview, storyLink } from "./helpers";
-
-const STRONG = "http://127.0.0.1:8795";  // e2e/serve-strong.sh: stories and risk review by the fake strong model, targets hal and fw
+import { expectNamed, login, openAiUsage, reviewMenu, startReview, storyLink, STRONG } from "./helpers";
 
 test.describe("stories formed by a strong model", () => {
   test.use({ baseURL: STRONG });
@@ -29,15 +27,42 @@ test.describe("stories formed by a strong model", () => {
     const talk = page.getByRole("region", { name: "Questions and comments" });
     await expect(talk).toContainText("Does any caller retry a send after -2?");
     await expect(talk.locator(".st-suggested")).toContainText("Check that logger_flush handles the new -2.");
+    const questions = talk.locator("ul.st-questions > li");                            // each question is AI text, as the li it replaces…
+    await expect(questions).toHaveClass([/\bai-text\b/]);
+    await expect(questions).toHaveAttribute("title", "Written by AI · fake-strong");   // …and names the strong model that asked it
+    const suggested = talk.locator(".st-suggested > .ai-text");                        // the suggested checks are one AI text, its list inside
+    await expect(suggested.locator("> ul > li")).toHaveText(["Check that logger_flush handles the new -2."]);
+    await expect(suggested).toHaveAttribute("title", "Written by AI · fake-strong");
     await expect(page.getByRole("region", { name: "Why these belong together" })).toHaveCount(0);   // folded into the tiles
     await expectNamed(page);
   });
 
+  test("a story's own purpose, where its account has not come, names the strong model that wrote it", async ({ page }) => {
+    const base = await startReview(page);
+    let served = false;
+    await page.route(`**/api/reviews/${base.split("/")[2]}/stories/S1`, async (route) => {   // no account: the story's own purpose shows
+      try {
+        const real = await (await route.fetch()).json();
+        real.reading.account = [];
+        await route.fulfill({ json: real });
+        served = true;
+      } catch (e) { if (!page.isClosed()) throw e; }       // only a page that went away while it was held is no news: a broken endpoint is told
+    });
+    await page.goto(`${base}/s/S1`);
+    await expect.poll(() => served, { message: "the story is served without its account" }).toBe(true);   // the list shows the purpose before the stub answers: wait, or it is still running as the page closes
+    const purpose = page.locator(".st-summary .ai-text");
+    await expect(purpose).toContainText("uart_send now counts transmit errors, so its callers see a new error value.");
+    await expect(purpose).toHaveAttribute("title", "Written by AI · fake-strong");
+  });
+
   test("the overview's introduction is the strong model's, its AI parts edged", async ({ page }) => {
     await startReview(page);
-    const intro = page.locator("section.ov-sec").first().locator(".ov-purpose");
+    const section = page.locator("section.ov-sec").first(), intro = section.locator(".ov-purpose");
     await expect(intro.first()).toHaveClass(/\bai-text\b/);
     await expect(intro).toContainText("This thread changes the UART driver.");
+    const whole = await section.locator(".ov-intro").getAttribute("title");              // the intro may be cut short: its hover carries all of it
+    expect(whole).toContain("This thread changes the UART driver.");
+    await expect(intro).toHaveAttribute("title", `Written by AI\n${whole}`);
     await expect(page.locator(".ov3 .ws-lead")).toContainText("The main risk is a caller that misses a new result.");
   });
 

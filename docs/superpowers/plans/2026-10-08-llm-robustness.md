@@ -18,10 +18,10 @@ its tries (strong, strong fresh, weak), each a separate ledger call. `Ledger.cal
 
 ## Global Constraints
 
-- Work in the worktree `/media/anoop/ssd_1/Work/CodeTortoise/.worktrees/llm-robust` on branch `llm-robust`.
+- Work in the worktree `.worktrees/llm-robust` on branch `llm-robust`.
 - Python: run from `backend/` with
-  `env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest …` and lint with
-  `/media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/ruff check codetortoise tests`. Never `uv`.
+  `env PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest …` and lint with
+  `../../../backend/.venv/bin/ruff check codetortoise tests`. Never `uv`.
 - Commit with `git -c user.email=2929430+revelationnow@users.noreply.github.com commit` and end every message with
   `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - Headers are never recorded: the `Authorization` and `x-api-key` values never reach a record (spec §4.4).
@@ -33,7 +33,7 @@ its tries (strong, strong fresh, weak), each a separate ledger call. `Ledger.cal
 - Note wording follows spec §6: `<prefix>: <failure>; <failure>; <outcome>`; a strong try is labelled with its
   model, a fresh try with `fresh try`, a weak try with its model.
 - e2e: `npm run build` first; run Playwright with `TMPDIR=$CLAUDE_JOB_DIR/tmp/pw` and
-  `TORTOISE_CMD="env PYTHONPATH=<worktree>/backend /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m codetortoise.cli"`.
+  `TORTOISE_CMD="env PYTHONPATH=<worktree>/backend $(cd ../../../backend && pwd)/.venv/bin/python -m codetortoise.cli"`.
   The first full run often has one `startReview` 60 s timeout; it passes on `--last-failed`.
 
 ## Review Focus
@@ -195,7 +195,7 @@ def test_the_output_token_cap_defaults_to_32768_and_reaches_both_clients():
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest tests/test_llm_client.py tests/test_config.py -q`
+Run: `env PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest tests/test_llm_client.py tests/test_config.py -q`
 Expected: FAIL — `ImportError: cannot import name 'LlmTruncated'` (collection error for test_llm_client.py) and
 `max_output_tokens_cap` missing in test_config.py.
 
@@ -408,7 +408,7 @@ In `README.md`, replace line 181 with:
 
 - [ ] **Step 7: Run the tests to verify they pass**
 
-Run: `env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest tests/test_llm_client.py tests/test_config.py tests/test_ledger.py -q`
+Run: `env PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest tests/test_llm_client.py tests/test_config.py tests/test_ledger.py -q`
 Expected: all pass.
 
 - [ ] **Step 8: Commit**
@@ -517,7 +517,7 @@ def test_a_view_shares_the_log_and_keeps_a_raised_limit_for_the_rest_of_its_try(
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest tests/test_llm_client.py -q -k "recorded or view"`
+Run: `env PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest tests/test_llm_client.py -q -k "recorded or view"`
 Expected: FAIL — `AttributeError: 'LlmClient' object has no attribute 'start_log'`.
 
 - [ ] **Step 3: Implement the records**
@@ -614,7 +614,7 @@ In `backend/tests/scripted_llm.py`, inside `class ScriptedLlm`:
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest tests/test_llm_client.py tests/test_ledger.py -q`
+Run: `env PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest tests/test_llm_client.py tests/test_ledger.py -q`
 Expected: all pass.
 
 - [ ] **Step 6: Commit**
@@ -764,7 +764,7 @@ def test_the_request_log_keeps_every_request_for_14_days_unless_told_otherwise()
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest tests/test_ledger.py tests/test_config.py -q`
+Run: `env PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest tests/test_ledger.py tests/test_config.py -q`
 Expected: FAIL — `ImportError: cannot import name 'request_log'` and the config test's missing field.
 
 - [ ] **Step 3: Config fields**
@@ -968,7 +968,7 @@ After the `max_output_tokens_cap` line added in Task 1:
 
 - [ ] **Step 9: Run the tests to verify they pass**
 
-Run: `env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest tests/test_ledger.py tests/test_config.py tests/test_store.py tests/test_ondemand.py -q`
+Run: `env PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest tests/test_ledger.py tests/test_config.py tests/test_store.py tests/test_ondemand.py -q`
 Expected: all pass.
 
 - [ ] **Step 10: Commit**
@@ -1120,7 +1120,7 @@ def test_failures_and_notes_are_worded_for_people():
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest tests/test_tiers.py -q`
+Run: `env PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest tests/test_tiers.py -q`
 Expected: FAIL — `ModuleNotFoundError: No module named 'codetortoise.llm.tiers'`.
 
 - [ ] **Step 3: Create `backend/codetortoise/llm/tiers.py`**
@@ -1209,7 +1209,7 @@ def try_tiers(ledger: Ledger | None, rid: int | None, purpose: str, target: str,
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest tests/test_tiers.py -q`
+Run: `env PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest tests/test_tiers.py -q`
 Expected: 10 passed.
 
 - [ ] **Step 5: Commit**
@@ -1327,7 +1327,7 @@ def test_a_review_run_prunes_requests_older_than_the_retention(fx, tmp_path):
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest tests/test_tier1_stories.py tests/test_tier1_review.py tests/test_llm_threads.py tests/test_pipeline.py -q -k "weak or every_model or prunes"`
+Run: `env PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest tests/test_tier1_stories.py tests/test_tier1_review.py tests/test_llm_threads.py tests/test_pipeline.py -q -k "weak or every_model or prunes"`
 Expected: FAIL — `TypeError: form_stories() got an unexpected keyword argument 'weak'` (and likewise for the others;
 the prune test fails on the row still being there).
 
@@ -1520,11 +1520,11 @@ The fresh try and the labelled failures change these exact expectations:
 
 - [ ] **Step 8: Run the stage tests and the full backend suite**
 
-Run: `env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest -q -x -p no:cacheprovider > $CLAUDE_JOB_DIR/tmp/pytest.log 2>&1; tail -5 $CLAUDE_JOB_DIR/tmp/pytest.log`
+Run: `env PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest -q -x -p no:cacheprovider > $CLAUDE_JOB_DIR/tmp/pytest.log 2>&1; tail -5 $CLAUDE_JOB_DIR/tmp/pytest.log`
 Expected: all pass (about 670), 1 skipped. Any other test asserting an old note or prompt count fails here: update it
 only to the wording §6 of the spec gives, and say which in the commit message.
 
-Run: `/media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/ruff check codetortoise tests`
+Run: `../../../backend/.venv/bin/ruff check codetortoise tests`
 Expected: `All checks passed!`
 
 - [ ] **Step 9: Commit**
@@ -1620,7 +1620,7 @@ def test_the_request_log_downloads_as_a_zip_and_the_calls_say_how_many_requests_
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest tests/test_cli.py tests/test_web.py -q -k "llm_log or request_log"`
+Run: `env PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest tests/test_cli.py tests/test_web.py -q -k "llm_log or request_log"`
 Expected: FAIL — argparse `invalid choice: 'llm-log'` (SystemExit 2) and the zip route's 404.
 
 - [ ] **Step 3: CLI**
@@ -1686,7 +1686,7 @@ After the `ai_calls` route:
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest tests/test_cli.py tests/test_web.py tests/test_ondemand.py -q`
+Run: `env PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest tests/test_cli.py tests/test_web.py tests/test_ondemand.py -q`
 Expected: all pass.
 
 - [ ] **Step 6: Commit**
@@ -1838,7 +1838,7 @@ Add to `frontend/e2e/workspace-tier1.spec.ts`, inside the describe block:
 - [ ] **Step 7: Build and run the e2e suite**
 
 Run (from `frontend/`):
-`npm run build && mkdir -p $CLAUDE_JOB_DIR/tmp/pw && TMPDIR=$CLAUDE_JOB_DIR/tmp/pw TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m codetortoise.cli" npx playwright test > $CLAUDE_JOB_DIR/tmp/e2e.log 2>&1; tail -15 $CLAUDE_JOB_DIR/tmp/e2e.log`
+`npm run build && mkdir -p $CLAUDE_JOB_DIR/tmp/pw && TMPDIR=$CLAUDE_JOB_DIR/tmp/pw TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../../../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test > $CLAUDE_JOB_DIR/tmp/e2e.log 2>&1; tail -15 $CLAUDE_JOB_DIR/tmp/e2e.log`
 Expected: all pass (116). If one `startReview` 60 s timeout fails, run again with `--last-failed`; it passes.
 
 - [ ] **Step 8: Commit**

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../api";
+import { api, errorText } from "../api";
 import { useMe } from "../App";
 import { SeverityBadge } from "../components/Badges";
 import Markdown from "../components/Markdown";
@@ -31,9 +31,9 @@ export default function ClPage({ cl }: { cl: number }) {
     return <><Link className="mono" to={ws.link(ws.opened({ file: r.file, line: r.line, all: true }))} title={label} aria-label={label}>{name}</Link>
       {" "}({r.lines} line{r.lines === 1 ? "" : "s"})</>;
   };
-  const run = (act: () => Promise<unknown>, ok: string) => {           // a new press clears the last answer
+  const run = (act: () => Promise<unknown>, ok: string, failed: string) => {    // a new press clears the last answer; `failed`: said when the server says nothing
     setMsg(null);
-    act().then(() => { setMsg(ok); d.loadDetail(); }).catch((e) => setMsg(String(e.message ?? e)));
+    act().then(() => { setMsg(ok); d.loadDetail(); }).catch((e) => setMsg(errorText(e, failed)));
   };
   return (
     <div className="ws-page"><div className="ws-text ws-finding">
@@ -53,12 +53,13 @@ export default function ClPage({ cl }: { cl: number }) {
         ) : <p className="muted">No Swarm review.</p>}
         {me?.is_owner && (
           <p className="ws-tools">
-            <button onClick={() => run(() => api.swarmRefresh(d.id, cl), "Swarm state refreshed")}>Refresh</button>
-            {!c.swarm && c.status === "pending" && <button onClick={() => run(() => api.swarmCreate(d.id, cl), "Swarm review created")}>Create review</button>}
+            <button onClick={() => run(() => api.swarmRefresh(d.id, cl), "Swarm state refreshed", "The Swarm state could not be refreshed.")}>Refresh</button>
+            {!c.swarm && c.status === "pending" && <button onClick={() => run(() => api.swarmCreate(d.id, cl), "Swarm review created",
+                                                                               "The Swarm review could not be created.")}>Create review</button>}
             {c.swarm && <button onClick={() => run(() => api.swarmPost(d.id, cl).catch((e) => {
               if (e.status === 409 && window.confirm("A summary was already posted. Post again?")) return api.swarmPost(d.id, cl, true);
               throw e;
-            }), "Summary link posted to Swarm")}>Post summary link</button>}
+            }), "Summary link posted to Swarm", "The summary link could not be posted to Swarm.")}>Post summary link</button>}
           </p>
         )}
       </section>

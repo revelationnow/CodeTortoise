@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ApiError } from "../api";
+import { errorText } from "../api";
 import type { StoryDetail } from "../board/types";
 import Comments from "../components/Comments";
 import Explain from "../components/Explain";
@@ -18,6 +18,7 @@ import { pickFlow } from "./flows";
 import FlowStrip from "./FlowStrip";
 import GraphView from "./graph/GraphView";
 import NameText, { Ticks } from "./NameText";
+import { bare } from "./names";
 import { MechanicalStory, TestsStory } from "./StoryBodies";
 import { StoryChecks, StoryWhy } from "./StoryPlan";
 import StorySteps from "./StorySteps";
@@ -38,7 +39,7 @@ function MarkRead({ sid, order }: { sid: string; order: string[] }) {
       const next = nextUnread(order, new Set([...d.ticks!.stories, sid]), sid);
       if (next) ws.go(ws.item({ kind: "story", sid: next, view: "steps" }));
       else navigate(ws.link(addressAt({ kind: "whole" })), { state: { page: true } });
-    }).catch((e) => setError(String(e.message ?? e))).finally(() => setBusy(false));
+    }).catch((e) => setError(errorText(e, `The story could not be marked as ${on ? "read" : "unread"}.`))).finally(() => setBusy(false));
   };
   return (
     <span className="st-read">
@@ -61,7 +62,7 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
   useEffect(() => {
     let live = true;
     story(sid).then((x) => { if (live) { setHeld({ sid, detail: x }); setError(null); } })
-      .catch((e) => { if (live) setError(e instanceof ApiError && e.status === 404 ? e.message : String(e.message ?? e)); });
+      .catch((e) => { if (live) setError(errorText(e, "The story could not be loaded.")); });
     return () => { live = false; };
   }, [story, sid]);
   const detail = held?.sid === sid ? held.detail : null;
@@ -72,7 +73,9 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
   const hasGraph = (st.kind === "behaviour" || st.kind === "other" || st.kind === "unsorted") && (!detail || !!detail.graph);
   const targets = reviewTargets(ss).length > 1 ? st.targets ?? [] : [];      // chips only when the review spans targets
   const shown = hasGraph ? view : "steps";
-  const flows = detail ? detail.board.flows.filter((f) => st.flows.includes(f.id)) : [];
+  // the same array until the story changes: the Flows tab's memos are keyed on it, and this page renders for every hover on an
+  // outline row and every mark
+  const flows = useMemo(() => (detail ? detail.board.flows.filter((f) => st.flows.includes(f.id)) : []), [detail, st.flows]);
   const open = ws.addr.open && "node" in ws.addr.open ? ws.addr.open.node : null;
   const index = pickFlow(flows, ws.addr.flow, open);
   const onFlow = (i: number) => ws.go({ ...ws.addr, flow: i + 1 }, true);
@@ -128,13 +131,13 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
   const nb = r ? storyNeighbours(r, sid) : { after: null, feeds: null };
   const titleOf = (id: string) => ss.stories.find((s) => s.id === id)?.title ?? id;
   const storyLink = (id: string) => (
-    <Link className="st-nb" to={ws.link(ws.item({ kind: "story", sid: id, view: "steps" }))} title={titleOf(id).replaceAll("`", "")}
+    <Link className="st-nb" to={ws.link(ws.item({ kind: "story", sid: id, view: "steps" }))} title={bare(titleOf(id))}
           aria-label={`Go to story ${id}: ${short(titleOf(id))}`}><Ticks text={titleOf(id)} /></Link>
   );
   const purpose = sr?.account?.find((p) => p.kind === "purpose");
   const explain = st.kind !== "mechanical" && <Explain kind="story" target={st.id} has={st.text_source === "llm"} askOnly={st.source === "tier1"}
                                                      ask={{ kind: "story", anchor: { id: st.id }, onAsked: d.loadComments }} />;
-  // the Graph tab leaves out the summary (the AI purpose, its place) for the graph's sake; ✦ Explain moves to the tools
+  // the Graph tab leaves out the summary (the AI purpose, its place) for the graph's sake; Explain ▾ moves to the tools
   const readingHeader = (summary: boolean) => r && (
     <header className="ws-story-head st-head">
       <h2>{hazards > 0 && <span className="ct-headline hazard">{hazards} hazard{hazards === 1 ? "" : "s"}</span>}

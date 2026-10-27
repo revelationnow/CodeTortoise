@@ -28,3 +28,17 @@ export function barPin(i: number, open: number, n: number): { top: number } | { 
   if (open < 0) return null;
   return i <= open ? { top: i * BAR } : { bottom: (n - 1 - i) * BAR };
 }
+
+/** What the pinned bars take of the scroll box while the thread at `open` is open (of n bars): the stacked height of those
+ * pinned at the top and of those pinned at the bottom, read off `barPin`. Rows keep that much clear when focus scrolls them into
+ * view, so none comes to rest under a bar (WCAG 2.2, 2.4.11): the open thread's rows clear of both edges; the rows that follow
+ * the bars (the Tests group, the Index) clear of `top` only, for the bars pinned at the bottom come before them in the flow. */
+export function pinnedSpace(open: number, n: number): { top: number; bottom: number } {
+  let top = 0, bottom = 0;
+  for (let i = 0; i < n; i++) {
+    const pin = barPin(i, open, n);
+    if (pin && "top" in pin) top = Math.max(top, pin.top + BAR);
+    else if (pin) bottom = Math.max(bottom, pin.bottom + BAR);
+  }
+  return { top, bottom };
+}

@@ -4,13 +4,14 @@ import { aiTitle } from "../lib/aiMarks";
 type Block = "p" | "li" | "div" | "span";
 
 /** AI-written text (spec 2026-10-25-review-ui-redesign §1.1): a faint edge at its left, who wrote it on hover, and
- * "Written by AI." for screen readers; it renders as the element it replaces. `ai={false}` renders the plain element,
- * so a caller passes its own source test. */
-export default function AiText({ as: Tag = "p", ai = true, by, className, children, ...rest }:
+ * "Written by AI." for screen readers; it renders as the element it replaces. `title` replaces the hover where the text
+ * may be cut short and the hover has to carry the whole of it (as on `AiName`); `title={undefined}` keeps the hover.
+ * `ai={false}` renders the plain element, so a caller passes its own source test. */
+export default function AiText({ as: Tag = "p", ai = true, by, title, className, children, ...rest }:
   { as?: Block; ai?: boolean; by?: string | null; children: ReactNode } & HTMLAttributes<HTMLElement>) {
-  if (!ai) return <Tag className={className} {...rest}>{children}</Tag>;
+  if (!ai) return <Tag className={className} {...rest} title={title}>{children}</Tag>;
   return (
-    <Tag className={className ? `ai-text ${className}` : "ai-text"} title={aiTitle(by)} {...rest}>
+    <Tag className={className ? `ai-text ${className}` : "ai-text"} {...rest} title={title ?? aiTitle(by)}>
       <span className="vh">Written by AI. </span>{children}
     </Tag>
   );

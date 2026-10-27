@@ -1,10 +1,10 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { Story, StoryDetail } from "../board/types";
 import { keys, load, loadWidth, save } from "../board/prefs";
 import Resizer from "../board/Resizer";
 import { CHECK_ORDER, KIND_LABEL, letter, placeOf } from "../reading/checks";
-import { causeGroups, causeOpen, doneCount, firstOpenAt, hiddenLabel, shown } from "../reading/causes";
+import { causeGroups, causeOpen, doneCount, firstOpenAt, hiddenLabel, openCount, shown } from "../reading/causes";
 import { threadRead } from "../reading/plan";
 import { flowGroups, flowsWord, groupShort, openFlows, placesOf } from "../reading/flowGroups";
 import type { Cause, Check, CheckKind, Reading } from "../reading/types";
@@ -12,12 +12,11 @@ import { INDEX_TABS, type Place } from "./address";
 import { useWs } from "./context";
 import { INDEX_LABEL, short } from "./crumbs";
 import NameText, { Ticks } from "./NameText";
-import { plainNames } from "./names";
-import { barPin, loadThread, openThread, saveThread } from "./outline";
+import { bare, plainNames } from "./names";
+import { barPin, loadThread, openThread, pinnedSpace, saveThread } from "./outline";
 import Strip, { FoldButton } from "./Strip";
 
 const scrollKey = (rid: number) => `ct.ws.${rid}.railScroll`;
-const bare = (s: string) => s.replaceAll("`", "");
 
 type Props = { onPick: () => void; hidden?: boolean };
 
@@ -78,8 +77,7 @@ export function useStoryThread(rid: number, r: Reading | null | undefined, sid: 
 function StoriesView({ r, onPick }: { r: Reading; onPick: () => void }) {
   const ws = useWs(), d = ws.data, ss = d.stories;
   const byId = new Map((ss?.stories ?? []).map((st) => [st.id, st]));
-  const list = shown(r.causes ?? [], ws.hidden);
-  const open = (pick: (c: Cause) => boolean) => list.filter((c) => pick(c) && causeOpen(c, r.marks)).length;
+  const open = (pick: (c: Cause) => boolean) => openCount((r.causes ?? []).filter(pick), ws.hidden, r.marks);
   const read = d.ticks ? new Set(d.ticks.stories) : null;
   const here = ws.addr.place.kind === "story" ? ws.addr.place.sid : null;
   const tests = (ss?.stories ?? []).filter((st) => st.kind === "tests");
@@ -92,6 +90,8 @@ function StoriesView({ r, onPick }: { r: Reading; onPick: () => void }) {
   }, [here, holding]);
   const on = chosen && chosen.here === here ? chosen.id : openThread(r.threads, here, last);
   const at = r.threads.findIndex((t) => t.id === on);
+  const space = pinnedSpace(at, r.threads.length);          // what the pinned bars take: the rows keep clear of it when focus scrolls them
+  const pinned = { ["--pin-top" as string]: `${space.top}px`, ["--pin-bottom" as string]: `${space.bottom}px` };
   const toggle = (id: string) => {
     const next = on === id ? null : id;
     setChosen({ here, id: next });
@@ -140,16 +140,16 @@ function StoriesView({ r, onPick }: { r: Reading; onPick: () => void }) {
               <span className="ws-bar-caret" aria-hidden>{isOn ? "▾" : "▸"}</span>
             </button>
           </h3>
-          {isOn && <ul className="ws-bar-list">{t.stories.map((sid, k) => {
+          {isOn && <ul className="ws-bar-list" style={pinned}>{t.stories.map((sid, k) => {
             const st = byId.get(sid);
             return st ? story(st, r.reasons[sid], k + 1) : null;
           })}</ul>}
         </Fragment>
       );
     })}
-    {tests.length > 0 && <div className="ws-group"><h3>Tests</h3><ul>{tests.map((st) => story(st))}</ul></div>}
+    {tests.length > 0 && <div className="ws-group" style={pinned}><h3>Tests</h3><ul>{tests.map((st) => story(st))}</ul></div>}
     {!r.threads.length && !tests.length && <p className="muted small ws-pad">No changed functions.</p>}
-    <details className="ws-index">
+    <details className="ws-index" style={pinned}>
       <summary>Index</summary>
       <ul>{INDEX_TABS.map((t) => (
         <li key={t}><Link to={ws.link(ws.item({ kind: "index", tab: t }))} className="ws-row ws-index-row"
@@ -162,9 +162,11 @@ function StoriesView({ r, onPick }: { r: Reading; onPick: () => void }) {
 
 /** The current story's flow groups (spec 2026-10-25-review-ui-redesign §7.6), one line each with how many flows and
  * how many still open; a line opens the story's Flows tab at the group's first flow, and that row, though the address
- * already names it: the link is then to where the reader is, so it says so in its navigation state for the tab to hear. */
+ * already names it: the link is then to where the reader is, so it says so in its navigation state for the tab to hear.
+ * The groups and the places behind their open counts are worked out again only when the story, its checks, the names or
+ * the hidden kinds change, not on every context change (an outline row's hover is one). */
 function StoryFlows({ sid, onPick }: { sid: string; onPick: () => void }) {
-  const ws = useWs(), d = ws.data, storyOf = d.story;
+  const ws = useWs(), d = ws.data, storyOf = d.story, { names } = d, { hidden } = ws;
   const [held, setHeld] = useState<{ sid: string; detail: StoryDetail } | null>(null);
   useEffect(() => {
     let live = true;
@@ -172,15 +174,19 @@ function StoryFlows({ sid, onPick }: { sid: string; onPick: () => void }) {
     return () => { live = false; };
   }, [sid, storyOf]);
   const det = held?.sid === sid ? held.detail : null;
-  if (!det) return null;
-  const flows = det.board.flows.filter((f) => det.story.flows.includes(f.id));
-  if (!flows.length) return null;
-  const labels = new Map(det.board.nodes.map((n) => [n.id, n.label]));
-  const label = (n: string) => labels.get(n) ?? d.names[n]?.label ?? "a function";
-  const places = placesOf(flows, det.reading?.checks ?? [], ws.hidden, label), marks = d.reading?.marks ?? {};
+  const lines = useMemo(() => {
+    if (!det) return null;
+    const flows = det.board.flows.filter((f) => det.story.flows.includes(f.id));
+    if (!flows.length) return null;
+    const labels = new Map(det.board.nodes.map((n) => [n.id, n.label]));
+    const label = (n: string) => labels.get(n) ?? names[n]?.label ?? "a function";
+    return { label, groups: flowGroups(flows), places: placesOf(flows, det.reading?.checks ?? [], hidden, label) };
+  }, [det, names, hidden]);
+  if (!lines) return null;
+  const { label, groups, places } = lines, marks = d.reading?.marks ?? {};
   const place: Place = { kind: "story", sid, view: "steps" };
   return (
-    <ol className="ws-flows">{flowGroups(flows).map((g) => {
+    <ol className="ws-flows">{groups.map((g) => {
       const what = groupShort(g, label), open = openFlows(g, places, marks);
       const count = flowsWord(g.rows.length), name = `${bare(what)} · ${count}`;
       return (

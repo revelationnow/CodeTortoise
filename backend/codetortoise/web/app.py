@@ -298,15 +298,28 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
             raise HTTPException(404, NO_CHECK)
         return k
 
+    def known_checks_or_404(rid: int, keys: list[str]) -> dict[str, Check]:
+        """The reading's checks by key, once every key given is one of them: else 404 NO_CHECK, before anything is changed."""
+        by_key = checks_or_404(rid)
+        if any(key not in by_key for key in keys):
+            raise HTTPException(404, NO_CHECK)
+        return by_key
+
     @app.post("/api/reviews/{rid}/checks/marks")
     def mark_checks(rid: int, body: KeysIn, user: str = Depends(user_of)):
         """All look fine (spec 2026-10-16 §4.3): every key or none."""
         review_or_404(rid)
-        by_key = checks_or_404(rid)
         keys = list(dict.fromkeys(body.keys))                # a key given twice is marked once
-        if any(key not in by_key for key in keys):
-            raise HTTPException(404, NO_CHECK)
+        by_key = known_checks_or_404(rid, keys)
         return {"marked": store.set_marks(rid, user, [(key, by_key[key].source_line) for key in keys])}
+
+    @app.post("/api/reviews/{rid}/checks/unmarks")
+    def unmark_checks(rid: int, body: KeysIn, _: str = Depends(user_of)):
+        """Reopen several places at once, as a Flows row's Reopen does: every key or none."""
+        review_or_404(rid)
+        known_checks_or_404(rid, body.keys)
+        store.clear_marks(rid, body.keys)
+        return {"ok": True}
 
     @app.post("/api/reviews/{rid}/checks/{key:path}/mark")
     def mark_check(rid: int, key: str, user: str = Depends(user_of)):

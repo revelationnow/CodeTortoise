@@ -15,7 +15,9 @@ export interface FlowGroup { key: string; kind: GroupKind; node: string; rows: F
 /** A group shows this many rows before `Show N more` (§7.3). */
 export const FOLD_AT = 8;
 const CONTRACT_KINDS: readonly CheckKind[] = ["caller", "result", "target", "unanalysed"];
-const code = (s: string) => `\`${s}\``;
+/** A name in code style. `Ticks` pairs backticks by position, so one inside the name becomes a quote, or it would flip code and
+ * text for the rest of the line. */
+const code = (s: string) => `\`${s.replaceAll("`", "'")}\``;
 export const flowsWord = (n: number) => `${n} flow${n === 1 ? "" : "s"}`;
 
 /** The changed function a flow comes from: its `cause` (every flow of a story with a reading names it); a contract
@@ -108,9 +110,22 @@ export function flowPlaces(f: BoardFlow, checks: Check[], hidden: ReadonlySet<Ch
     && (f.tag === "state" ? k.kind === "reader" && (name === null || k.field === name) : CONTRACT_KINDS.includes(k.kind)));
 }
 
-/** Every flow's places, by flow id. */
+/** Every flow's places, by flow id. The shown checks are indexed once by the change that raised them and by their node, so a
+ * flow looks at the few raised at its landing (`flowPlaces` then applies its kind and field rules), not at every check. */
 export function placesOf(flows: BoardFlow[], checks: Check[], hidden: ReadonlySet<CheckKind>, label: Label): Map<string, Check[]> {
-  return new Map(flows.map((f) => [f.id, flowPlaces(f, checks, hidden, label)]));
+  const raised = new Map<string, Map<string, Check[]>>();
+  for (const k of checks) {
+    if (hidden.has(k.kind) || !k.related || !k.node) continue;
+    let at = raised.get(k.related);
+    if (!at) raised.set(k.related, at = new Map());
+    const here = at.get(k.node);
+    if (here) here.push(k);
+    else at.set(k.node, [k]);
+  }
+  return new Map(flows.map((f) => {
+    const here = f.cause ? raised.get(f.cause)?.get(f.lands) : undefined;
+    return [f.id, flowPlaces(f, here ?? [], hidden, label)];
+  }));
 }
 
 /** The keys of a flow's places still open. */
@@ -123,22 +138,28 @@ export function openFlows(g: FlowGroup, places: Map<string, Check[]>, marks: Rec
   return g.rows.filter((r) => openKeys(places.get(r.flow.id) ?? [], marks).length > 0).length;
 }
 
-/** The story's shown causes between its groups and the end line (§7.4), each keeping its order: a reader with its
- * field's group, a caller's kinds with their function's (on a reading stored before `related`, with the group holding
- * the cause's first flow), a hazard or confirm with the group of its finding's flow; the rest at the end. */
+/** The story's shown causes between its groups and the end line (§7.4), each keeping its order: a reader with the group of its
+ * field (of two fields named alike, the one its checks land at), a caller's kinds with their function's (on a reading stored
+ * before `related`, with the first function group among the groups holding the cause's flows, else at the end), a hazard or
+ * confirm with the group of its finding's flow; the rest at the end. */
 export function groupCauses(groups: FlowGroup[], causes: Cause[], checks: Check[], label: Label): { byGroup: Map<string, Cause[]>; rest: Cause[] } {
   const byKey = new Map(checks.map((k) => [k.key, k]));
   const holding = (id: string) => groups.find((g) => g.rows.some((r) => r.flow.id === id));
+  const functionOf = (ids: string[]) => {                                                   // the first flow, in order, a function group holds
+    for (const id of ids) { const g = holding(id); if (g?.kind === "function") return g; }
+    return undefined;
+  };
   const byGroup = new Map<string, Cause[]>(), rest: Cause[] = [];
   for (const c of causes) {
     const ks = c.places.flatMap((p) => byKey.get(p) ?? []), finding = c.finding;
     let g: FlowGroup | undefined;
     if (c.kind === "reader") {
-      const fields = new Set(ks.map((k) => k.field));
-      g = groups.find((x) => x.kind === "field" && fields.has(label(x.node)));
+      const fields = new Set(ks.map((k) => k.field)), at = new Set(ks.map((k) => k.node));
+      const named = groups.filter((x) => x.kind === "field" && fields.has(label(x.node)));     // two fields may share a label
+      g = named.find((x) => x.rows.some((r) => at.has(r.flow.lands))) ?? named[0];
     } else if (CONTRACT_KINDS.includes(c.kind)) {
       const related = ks.find((k) => k.related)?.related;
-      g = related ? groups.find((x) => x.kind === "function" && x.node === related) : c.flows.length ? holding(c.flows[0]) : undefined;
+      g = related ? groups.find((x) => x.kind === "function" && x.node === related) : functionOf(c.flows);
     } else if ((c.kind === "hazard" || c.kind === "confirm") && finding) {
       g = groups.find((x) => x.rows.some((r) => r.flow.findings.includes(finding)));
     }

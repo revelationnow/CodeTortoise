@@ -66,6 +66,8 @@ class Connection(BaseModel):
     b: str
     kind: ConnKind
     text: str
+    text_source: Literal["template", "llm"] = "template"   # "llm": the strong model reworded `text` (spec 2026-10-07 §9)
+    fixed: str = ""                   # the rules' wording, kept when the model reworded it: the rules-written lead uses it
     facts: list[str] = Field(default_factory=list)   # node ids, workspace-relative paths, targets, "CL n" or authors
     shown: bool = False
 
@@ -135,7 +137,9 @@ class Check(BaseModel):
     cites: list[str] = Field(default_factory=list)
     cause: str | None = None          # its cause's id (spec 2026-10-16-outline-and-causes §4.1); none on a cleared row
     related: str | None = None        # the changed function that raised it (node id): ties a flow to its places
-                                      # (spec 2026-10-25-review-ui-redesign §8); none on a reading stored before it
+                                      # (spec 2026-10-25-review-ui-redesign §8); none on a reading stored before it, and
+                                      # on a row with no changed function behind it (a header target, an ask row, a
+                                      # finding without a function)
     cause_subject: str = Field(default="", exclude=True)       # what makes two rows of its kind one cause
     field: str | None = None          # a reader row's field label (the owner may mark it a shared sink)
 
@@ -1151,14 +1155,17 @@ def _place_text(sid: str, order: list[str], strong: list[StoryLink]) -> str:
 
 
 def fixed_whole(threads: list[Thread], conns: list[Connection]) -> str:
-    """The change as a whole without the strong model (§9): the threads and their strongest shown connections."""
+    """The change as a whole without the strong model (§9): how its threads connect, the shown connections by thread
+    letter, in the rules' words even where the model reworded a connection (`fixed`). The overview's heading already
+    counts the threads and each thread's section names it, so the lead is "" for one thread and when no connection is
+    shown (threads no call or data link joins are separate: saying so adds nothing)."""
     if not threads:
         return "No changed code to read."
     if len(threads) == 1:
-        return f"One thread: {threads[0].name}."
+        return ""
     letter = {t.id: chr(ord("A") + i) if i < 26 else t.id for i, t in enumerate(threads)}
-    parts = [f"{letter[k.a]} and {letter[k.b]}: {k.text}" for k in conns if k.shown]
-    return f"{len(threads)} threads" + (": " + "; ".join(parts) if parts else "") + "."
+    parts = [f"{letter[k.a]} and {letter[k.b]}: {k.fixed or k.text}" for k in conns if k.shown]
+    return ("; ".join(parts) + ".") if parts else ""
 
 
 def thread_files(threads: list[Thread], per: dict[str, StoryReading]) -> dict[str, list[tuple[str, int]]]:
@@ -1196,17 +1203,18 @@ def _some(xs: list[str], cap: int) -> str:
 
 
 def fixed_intro(t: Thread, checks: list[Check], titles: dict[str, str]) -> str:
-    """A thread's introduction without the strong model (§3.2): its stories and where they are, what is open, and the
-    story it starts with."""
+    """A thread's introduction without the strong model (§3.2): its stories and where they are, the kinds of check
+    open, and the story it starts with. The kinds come without a count, which the overview's Open column carries, and
+    without Confirm, which that column hides."""
     n = len(t.stories)
     where = f" in {_some([f'`{m}`' for m in t.modules], SHOWN_DIRS)}" if t.modules else ""
     across = f" across {_cls(t.cls)}" if t.cls else ""
     out = [f"{n} stor{'y' if n == 1 else 'ies'}{where}{across}."]
-    mine = [k for k in checks if k.thread == t.id]
-    if mine:
-        kinds = [KIND_LABEL[kd] for kd in CHECK_ORDER if any(k.kind == kd for k in mine)]
+    mine = {k.kind for k in checks if k.thread == t.id}
+    kinds = [KIND_LABEL[kd] for kd in CHECK_ORDER if kd in mine and kd != "confirm"]
+    if kinds:
         more = f" and {len(kinds) - SHOWN_KINDS} more" if len(kinds) > SHOWN_KINDS else ""
-        out.append(f"{len(mine)} check{'' if len(mine) == 1 else 's'} open: {', '.join(kinds[:SHOWN_KINDS])}{more}.")
+        out.append(f"Checks open: {', '.join(kinds[:SHOWN_KINDS])}{more}.")
     else:
         out.append("Nothing is open.")
     if t.stories:
@@ -1388,13 +1396,16 @@ def _marked(lines: dict[str, str], marks: dict[str, dict]) -> dict[str, dict]:
 
 def with_marks(r: Reading, marks: dict[str, dict], findings: list[Finding], ss: StorySet | None = None) -> dict:
     """The reading as viewers see it (§7.4): its marks, and the headline and threads' open counts without the marked
-    checks; with the stories `ss`, also the fixed intros and route (spec 2026-10-09-review-introduction §3.2). The story
-    links stay out: the browser does not use them."""
+    checks; the rules-written lead rebuilt, so a review stored with an older one reads like a new one; with the stories
+    `ss`, also the fixed intros and route (spec 2026-10-09-review-introduction §3.2). The story links stay out: the
+    browser does not use them."""
     view = _marked({k.key: k.source_line for k in r.checks + r.cleared}, marks)
     marked = {key for key, m in view.items() if not m["changed"]}
     out = r.model_dump(exclude={"links"})
     out["marks"] = view
     out["headline"] = headline(r.checks, marked, findings).model_dump()
+    if r.whole_source == "template":                   # the rules' lead is rebuilt; the strong model's stays as written
+        out["whole"] = fixed_whole(r.threads, r.connections)
     for t in out["threads"]:
         t["open_checks"] = sum(1 for k in r.checks if k.thread == t["id"] and k.key not in marked)
     if ss is not None:

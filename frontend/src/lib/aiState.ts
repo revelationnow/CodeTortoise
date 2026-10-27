@@ -9,7 +9,7 @@ export function aiAvailability(v: AiView | null): { ok: boolean; detail: string 
     + `${v.budget - v.used} left on this review, ${v.me_limit - v.me_today} left for you today` };
 }
 
-/** The cost on a ✦ button's hover. */
+/** The cost on the hover of an Explain ▾ menu's Explain (or Summarise) item. */
 export const callTitle = (v: AiView): string => `1 AI call · ${Math.max(0, v.budget - v.used)} left on this review`;
 
 /** The header's AI pill shows only near the review's limit (spec 2026-10-25-review-ui-redesign §2.1). */

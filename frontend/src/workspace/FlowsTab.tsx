@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigationType } from "react-router-dom";
-import { api } from "../api";
+import { api, errorText } from "../api";
 import type { BoardFlow, StoryDetail } from "../board/types";
 import AiText from "../components/AiText";
 import { shown } from "../reading/causes";
@@ -10,10 +10,10 @@ import { flowPart } from "../reading/story";
 import type { StoryReading } from "../reading/types";
 import Chips from "./Chips";
 import { useWs } from "./context";
-import { inPopup, typing } from "./keys";
 import NameText, { Ticks } from "./NameText";
+import { bare } from "./names";
+import useRowKeys from "./useRowKeys";
 
-const bare = (s: string) => s.replaceAll("`", "");
 const ALSO = "also";                                                           // the end line's key in `more`; a group's is "kind:node"
 
 /** The Flows tab (spec 2026-10-25-review-ui-redesign §7): the story's flows in groups by what changed, a line each;
@@ -22,50 +22,45 @@ const ALSO = "also";                                                           /
  * step through the rows (§7.3). */
 export default function FlowsTab({ detail, sr, flows }: { detail: StoryDetail; sr: StoryReading; flows: BoardFlow[] }) {
   const ws = useWs(), d = ws.data, lit = ws.addr.flow, marks = d.reading?.marks ?? {};
-  const names = new Map(detail.board.nodes.map((n) => [n.id, n.label]));
-  const label = (n: string) => names.get(n) ?? d.names[n]?.label ?? "a function";
-  const groups = flowGroups(flows), places = placesOf(flows, sr.checks, ws.hidden, label);
-  const causes = shown(sr.causes ?? [], ws.hidden), { byGroup, rest } = groupCauses(groups, causes, sr.checks, label);
+  // What the rows are made of is worked out again only when its inputs change, not on a J or a K, which change this tab's own state.
+  const { nodes } = detail.board, reviewNames = d.names;
+  const label = useMemo(() => {
+    const names = new Map(nodes.map((n) => [n.id, n.label]));
+    return (n: string) => names.get(n) ?? reviewNames[n]?.label ?? "a function";
+  }, [nodes, reviewNames]);
+  const groups = useMemo(() => flowGroups(flows), [flows]);
+  const places = useMemo(() => placesOf(flows, sr.checks, ws.hidden, label), [flows, sr.checks, ws.hidden, label]);
+  const causes = useMemo(() => shown(sr.causes ?? [], ws.hidden), [sr.causes, ws.hidden]);
+  const { byGroup, rest } = useMemo(() => groupCauses(groups, causes, sr.checks, label), [groups, causes, sr.checks, label]);
+  const order = useMemo(() => groups.flatMap((g) => g.rows.map((r) => r.n)), [groups]);   // the rows as they read, group by group
   const parts = sr.account ?? [], effects = parts.find((p) => p.kind === "effects");
   const [open, setOpen] = useState<number | null>(lit);
   const [more, setMore] = useState<ReadonlySet<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [cur, setCur] = useState<number | null>(lit);                         // the row J, K and F act on: the last with focus in it, or clicked
-  // An address that names a row opens it and brings it into view. An outline group line names its first row even when the address
+  // settles to whether the change landed (never rejects): F says "Marked fine" only for a mark that did
+  const run = (act: () => Promise<unknown>): Promise<boolean> => {
+    if (busy) return Promise.resolve(false);                                   // one mark at a time; the tick boxes stay enabled, so they keep their focus
+    setBusy(true);
+    setError(null);
+    return act().then(() => Promise.all([d.loadReading(), d.loadTicks().catch(() => {})])).then(() => true)
+      .catch((e) => { setError(errorText(e, "The server did not accept the mark.")); return false; }).finally(() => setBusy(false));
+  };
+  const fine = (keys: string[]) => run(() => api.markChecks(d.id, keys));
+  const reopen = (keys: string[]) => run(() => api.unmarkChecks(d.id, keys));  // all of them or none, so a refusal leaves the row as it was
+  const leftAt = (n: number) => openKeys(places.get(flows[n - 1]?.id ?? "") ?? [], marks);
+  const { cur, setCur, move, focusRow, said } = useRowKeys({ order, busy, leftAt, fine });
+  // An address that names a row opens it and brings it into view, once. An outline group line names its first row even when the address
   // already holds it: `lit` then stays as it was, so the line says in its navigation state (`showFlow`) that it was clicked. Back and
   // Forward land on an entry that still carries that state and are no click; any other step that keeps the flow carries none.
   const loc = useLocation(), nav = useNavigationType();
   const show = (n: number) => { setOpen(n); setCur(n); document.getElementById(`flow-${n}`)?.scrollIntoView({ block: "start" }); };
-  useEffect(() => { if (lit) show(lit); }, [lit]);                             // eslint-disable-line react-hooks/exhaustive-deps
+  const named = useRef<number | null | undefined>(undefined);                  // the row the address named when last looked at
   useEffect(() => {
-    if (lit && nav !== "POP" && (loc.state as { showFlow?: boolean } | null)?.showFlow) show(lit);
-  }, [loc.key]);                                                               // eslint-disable-line react-hooks/exhaustive-deps
-  const order = groups.flatMap((g) => g.rows.map((r) => r.n));                  // the rows as they read, group by group
-  const run = (act: () => Promise<unknown>) => {
-    if (busy) return;                                                          // one mark at a time; the tick boxes stay enabled, so they keep their focus
-    setBusy(true);
-    setError(null);
-    act().then(() => Promise.all([d.loadReading(), d.loadTicks().catch(() => {})]))
-      .catch((e) => setError(String(e.message ?? e))).finally(() => setBusy(false));
-  };
-  const fine = (keys: string[]) => run(() => api.markChecks(d.id, keys));
-  const reopen = (keys: string[]) => run(async () => { for (const k of keys) await api.unmarkCheck(d.id, k); });
-  // J, K and F (§7.3), read from a ref set in the render as the stepper's are: they wait while a mark is on its way, stay
-  // the stepper's while a cause is open beside the page and are a menu's or a dialog's while one has focus. F acts once per
-  // press: a held key's repeats would mark row after row. Enter is the focused row's own button.
-  const byN = new Map(flows.map((f, i) => [i + 1, f]));
-  const leftAt = (n: number) => openKeys(places.get(byN.get(n)?.id ?? "") ?? [], marks);
-  const focusRow = (n: number) => document.querySelector<HTMLElement>(`#flow-${n} .fl-toggle`)?.focus();
-  const focusTo = useRef<number | null>(null);
-  const move = (to: number | undefined) => {
-    if (to === undefined) return;
-    if (to === cur) focusRow(to);
-    else { focusTo.current = to; setCur(to); }                               // focused once its group has unfolded
-  };
-  useEffect(() => {
-    if (cur !== null && focusTo.current === cur) { focusTo.current = null; focusRow(cur); }
-  }, [cur]);                                                                   // eslint-disable-line react-hooks/exhaustive-deps
+    const changed = lit !== named.current, clicked = nav !== "POP" && !!(loc.state as { showFlow?: boolean } | null)?.showFlow;
+    named.current = lit;
+    if (lit && (changed || clicked)) show(lit);                                // a click that also moves the address is one scroll, not two
+  }, [lit, loc.key]);                                                          // eslint-disable-line react-hooks/exhaustive-deps
   // The buttons a click disables, replaces or removes (Looks fine, Reopen, Next flow ›, Show N more) hand their focus to a
   // row's toggle, so the keyboard is never left on the page. Next flow › opens the next row; on the last it closes its own.
   const nextFlow = (n: number) => {
@@ -73,25 +68,6 @@ export default function FlowsTab({ detail, sr, flows }: { detail: StoryDetail; s
     setOpen(to ?? null);
     move(to ?? n);
   };
-  const onKey = useRef<(e: KeyboardEvent) => void>(() => {});
-  onKey.current = (e) => {
-    const stepper = !!ws.addr.open && "cause" in ws.addr.open;
-    if (busy || stepper || e.ctrlKey || e.metaKey || e.altKey || typing(e.target) || inPopup(e.target) || !order.length) return;
-    const at = cur === null ? -1 : order.indexOf(cur);
-    if (e.key === "j") { e.preventDefault(); move(order[at + 1]); }
-    else if (e.key === "k") { e.preventDefault(); move(order[Math.max(at, 1) - 1]); }
-    else if (e.key === "f" && !e.repeat && cur !== null && at >= 0) {
-      e.preventDefault();
-      const left = leftAt(cur), next = [...order.slice(at + 1), ...order.slice(0, at)].find((n) => leftAt(n).length > 0);
-      if (left.length) fine(left);
-      move(next ?? cur);                                                     // none left: stay on this row, not on a button its mark takes away
-    }
-  };
-  useLayoutEffect(() => {                                                      // heard from the commit that shows the rows, not from the next paint
-    const on = (e: KeyboardEvent) => onKey.current(e);
-    window.addEventListener("keydown", on);
-    return () => window.removeEventListener("keydown", on);
-  }, []);
   // only a hidden row an address, Next flow › or a key opens or reaches unfolds its group, and a group once unfolded stays so
   const unfolded = (g: FlowGroup) => g.rows.length <= FOLD_AT || more.has(g.key)
     || g.rows.slice(FOLD_AT).some((r) => r.n === lit || r.n === open || r.n === cur);
@@ -104,7 +80,8 @@ export default function FlowsTab({ detail, sr, flows }: { detail: StoryDetail; s
   }, [more]);
   return (
     <div className="st-flows" aria-busy={busy}>
-      {error && <div className="banner warn">{error}</div>}
+      <div className="vh" aria-live="polite">{said}</div>
+      {error && <div className="banner warn" role="alert">{error}</div>}
       {groups.map((g) => {
         const title = groupTitle(g, label), rows = unfolded(g) ? g.rows : g.rows.slice(0, FOLD_AT);
         return (

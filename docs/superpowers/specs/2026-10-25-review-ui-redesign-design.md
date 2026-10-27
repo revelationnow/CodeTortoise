@@ -94,14 +94,22 @@ each shown only when it applies, in this order:
 | `Stage notes · N` | a stage failed or degraded | opens the notes (today's `<details>` banners) |
 | `AI calls used · X of Y` | AI is configured | opens the AI usage panel (today's pill popover) |
 | `How to read this page` | the review has a reading | opens today's `HowToRead` help |
+| `Single-key shortcuts` | the review has a reading | a checkbox item, on at first: J, K and F act on the Flows tab and in a check's stepper only while it is on (WCAG 2.1.4); kept in this browser; a pick flips it, closes the menu and returns focus to ⋯ |
 | `Re-run` | the viewer is the owner and the review is ready | as today's button |
 | `Re-run stories, fresh` | as Re-run, and a strong model is configured | as today's button, same `title` |
 
 - An **amber dot** (`--warn`) sits on ⋯ when drift lines exist or a stage **failed** (degraded stages alone do not
   light it). The button's accessible name then adds what needs attention, e.g. `Review menu (workspace drift)`.
-- Escape or a click outside closes the menu and the panels it opened; Escape returns focus to ⋯.
+- Escape or a click outside closes the menu and the panels it opened. The menu closes as soon as focus leaves it, so
+  Escape in the menu returns focus to ⋯. A panel closes on a press outside it, not when focus leaves it, so it stays open
+  when Tab takes focus out of it: Escape returns focus to ⋯ only while the panel holds focus, and once the reader has
+  moved on like that, Escape just closes the panel and leaves focus where the reader is.
 - The AI usage panel opens from the menu, from the near-limit pill, and from **Raise budget** in an Explain error
-  (`ai.setUsageOpen(true)`); it renders under the header's right end whichever opened it.
+  (`ai.setUsageOpen(true)`); it renders under the header's right end whichever opened it. It takes focus when it opens;
+  Close, and Escape while the panel holds focus, return focus to whatever opened it, where the browser focuses a clicked
+  button (the ⋯ button, the AI pill, or a Raise budget link; Safari and Firefox on macOS leave a clicked button
+  unfocused, so there the opener it records is `<body>`), or to ⋯ when that opener is gone. When the reader has moved on
+  (Tab took focus out of the panel, which stays open), Escape just closes it.
 - `HowToRead` gains one line: "A faint violet line at the left of a paragraph marks text the AI wrote."
 
 ## 3. Headings
@@ -123,6 +131,7 @@ Every site, before and after. "Edge" is `AiText`, "name" is `AiName`.
 |---|---|---|
 | Overview thread name, thread intro (`Overview.tsx`) | `AI` chip before each | name; intro: edge |
 | Overview lead (`Overview.tsx`), old-review intent (`WholePage.tsx`) | `AI` chip | edge |
+| Overview connection lines (`Overview.tsx`) | no mark | the connection's words in edge when the strong model reworded them (`text_source === "llm"`); `With Thread A: ` and ` — ask the author` stay outside it |
 | Story title (`StoryPage.tsx`, both headers) | `AI` chip | name |
 | Story purpose or summary (`StoryPage.tsx`) | `AI` chip | edge |
 | Flow paragraph (`StoryTabs.tsx`) | `AI` chip per flow | edge (§7.3) |
@@ -135,7 +144,8 @@ Every site, before and after. "Edge" is `AiText`, "name" is `AiName`.
 | Finding not yet assessed (`FindingBody.tsx`) | `…; ✦ Explain asks the AI whether this one is a hazard.` | `…; Explain asks whether this one is a hazard.` |
 | Finding analysis (`FindingBody.tsx`) | `h3` `AI analysis`; `AI` chip on the explanation; `Checking for AI analysis…`; `AI analysis unavailable.` | `h3` `Analysis`; the explanation in edge; `Checking for an analysis…`; `No analysis: AI is not set up.` |
 | Finding hypotheses (`FindingBody.tsx`) | `AI` chip each | edge each |
-| Tortoise reply (`Comments.tsx`) | mascot, `tortoise`, `AI` chip | mascot and `tortoise` (name keeps its colour); body: edge |
+| Finding Verify steps (`FindingBody.tsx`) | no mark (the model writes them in the same call as the analysis; no rule does) | edge each |
+| Tortoise reply (`Comments.tsx`) | mascot, `tortoise`, `AI` chip | mascot and `tortoise` (name keeps its colour); body: edge, except a reply the app writes itself on an error (its `meta.error` is set: "I stopped…", "I couldn't answer…", budget spent), which is plain, with no edge |
 | @ menu (`Comments.tsx`) | logo, `@tortoise`, `AI` chip, its detail | logo, `@tortoise`, its detail; no chip |
 | File summary (`Explain.tsx`) | box with 3px edge, `AI` chip, `summary by <model>` | box in edge (§1.1), heading `Summary`, hover `Written by AI · <model>` |
 | ✦ Explain and Ask… (`Explain.tsx`, every caller) | a pill button and a link | one `Explain ▾` menu (§4.1) |
@@ -162,7 +172,9 @@ When the item allows only Ask (`askOnly`), the button is `Ask…` and opens the 
 ### 5.1 Top
 
 - An `h2` counting the threads: `5 threads`, `1 thread`; with no threads, `The change`.
-- The reading's `whole` (in edge when `whole_source === "llm"`).
+- The reading's `whole` (in edge when `whole_source === "llm"`). The rules write it as "" for one thread and when no
+  connection is shown (the heading counts the threads, each section names its own, and threads no call or data link
+  joins are separate: saying so adds nothing); the overview then draws no lead paragraph.
 - The start button: before any story is read, `Start with Thread A ›` naming the thread of the first unread story in
   reading order (`Start here ›` when that story is in no thread); once one is read, `Continue ›`; all read: "You've
   read every story." as today.
@@ -187,10 +199,13 @@ Each thread is a `section` labelled `Thread A: <name>`:
   it has open checks, and `✓` when read. More than 4: `Show the other N stories ▸`, which shows the rest in place
   and becomes `Show fewer ▴` (not remembered).
 - **Connections**: every shown connection whose later thread (in thread order) is this one, one line each:
-  `With Thread A: <connection text>`, adding ` — ask the author` for a bundled one.
+  `With Thread A: <connection text>` (the text in edge when the strong model reworded it), adding ` — ask the author`
+  for a bundled one.
 
-Below 640px wide the header wraps: the counts move under the name as `15 stories · 52 open · 0 read`, and the
-column label row is hidden.
+Below 640px of the overview's own width (a container query on the overview, not on the window) the header wraps: the
+counts move under the name as `15 stories · 52 open · 0 read`, and the column label row is hidden. So a window just
+over 640px wide gets the wrapped header, because the page's margins leave the overview itself narrower than 640px
+there; so does a wider window with a panel open beside the overview, or the outline dragged wide.
 
 ### 5.3 After the threads
 
@@ -216,6 +231,10 @@ column label row is hidden.
 - **Pinned bars**: bars before the open thread are `position: sticky` at the top of the outline's scroll area
   (`top: i × 36px`), bars after it at the bottom (`bottom: j × 36px`, counting from the last), so every thread stays
   one click away however long the open list is.
+- **Narrow outline**: below 240px of its width (as the reader dragged it) a bar hides the `Thread A` word and keeps the
+  letter tile, so the name keeps room; its title and accessible name still say `Thread A: …`.
+- **Focus never rests under a pinned bar** (WCAG 2.2, 2.4.11): the open thread's rows keep a scroll margin of the height
+  of the bars pinned above and below it; the Tests rows and the Index, of the bars pinned above them.
 - Tests and the Index stay at the end; the Checks view is unchanged apart from §3. On a phone the outline is the same
   inside its drawer.
 
@@ -262,20 +281,26 @@ position in the story's list, as `flow=N` addresses and the Graph tab number it.
     places are marked (unmarks them), and **Next flow ›** (closes it and opens the next row).
 - **The tick box** is checked when every place of the flow is marked and unchanged; clicking it marks all its open
   places, or unmarks all when checked. Accessible name: `Looks fine: <sentence>`.
-- **Folding**: a group with more than 8 rows shows 8 and `Show N more`; a link to a hidden row unfolds its group.
+- **Folding**: a group with more than 8 rows shows 8 and `Show N more`; a link to a hidden row unfolds its group. The end
+  line (§7.7) folds the same way.
 - **Keys**, on the Flows tab, when no cause is open in the side panel and focus is not in a text field: **J** next
   row, **K** previous row (focus moves and the row scrolls into view), **Enter** opens or closes the focused row,
-  **F** marks the focused row's open places fine and moves to the next row with open places. While a cause is open in
-  the side panel, J, K and F stay the stepper's, as today. `HowToRead` lists these keys.
+  **F** marks the focused row's open places fine and moves to the next row with open places, and says `Marked fine` in a
+  polite live region once the mark has landed (a mark the server refuses shows the tab's alert instead and says nothing).
+  While a cause is open in the side panel, J, K and F stay the stepper's, as today, with the same announcement. The ⋯
+  menu's `Single-key shortcuts` switch (§2.2; on at first, kept in this browser) turns J, K and F off, here and in the
+  stepper; Enter and Space still act on the focused row. `HowToRead` lists these keys.
 - **Address**: `flow=N` opens row N, unfolds its group and scrolls it into view (today it lights a card).
 
 ### 7.4 A group's causes
 
 A pure function sorts the story's shown causes (hidden kinds left out) between the groups and the end line (§7.7):
 
-- `reader`: the field group whose field label equals the `field` of its places' checks;
+- `reader`: the field group whose field label equals the `field` of its places' checks; when two field groups carry the
+  same label, the one of whose rows lands where one of the cause's checks is, else the first;
 - `caller`, `result`, `target`, `unanalysed`: the function group whose function is its places' checks' `related`
-  (§8); on a reading without `related`, the group holding the first flow in the cause's `flows`;
+  (§8); on a reading without `related`, the first function group among the groups holding the cause's `flows`, taking the
+  flows in order, else the end line;
 - `hazard`, `confirm`: the first group holding a flow whose `findings` include the cause's `finding`;
 - anything else, and a cause no group takes: the end line.
 
@@ -302,7 +327,8 @@ group's first flow (§7.3 Address).
 ### 7.7 End of the tab
 
 - `Also in this story:` followed by the chips of the causes §7.4 left for the end line (e.g. "7 functions no test
-  calls"); absent when there are none.
+  calls"); absent when there are none. The end line folds like a group: its first 8 chips, then `Show N more`, which
+  shows the rest.
 - "What it means for the rest" as today, its text in edge.
 - No flows: "No flows in this story." as today.
 

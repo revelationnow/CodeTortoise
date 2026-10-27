@@ -1,6 +1,6 @@
 /** The overview's rules (spec 2026-10-25-review-ui-redesign §5): its heading and start button, each thread section's
  * counts, action and connections, the Tests row, the thread intro and the folded rows after the threads. */
-import { causeOpen, shown } from "./causes";
+import { openCount } from "./causes";
 import { letter } from "./checks";
 import type { Cause, CheckKind, Connection, Mark, Reading, TestsRow, Thread } from "./types";
 
@@ -52,21 +52,26 @@ export function threadCounts(t: Thread, causes: Cause[] | null | undefined, hidd
                              marks: Record<string, Mark>, read: ReadonlySet<string>): { stories: number; open: number | null; read: number } {
   return {
     stories: t.stories.length,
-    open: causes ? shown(causes, hidden).filter((c) => c.thread === t.id && causeOpen(c, marks)).length : null,
+    open: causes ? openCount(causes.filter((c) => c.thread === t.id), hidden, marks) : null,
     read: t.stories.filter((s) => read.has(s)).length,
   };
 }
 
+/** One line of how the threads connect: the connection's `text` between what the app adds around it (`before` names the
+ * earlier thread, `after` says a bundled pair is the author's to explain). `ai`: the strong model reworded the text, and only
+ * the text is its words. */
+export interface SectionLink { before: string; text: string; after: string; ai: boolean; bundled: boolean }
+
 /** How the threads connect (§5.2): each shown connection under the later of its threads, as "With Thread A: …". */
-export function sectionConnections(threads: Thread[], conns: Connection[]): Map<string, { text: string; bundled: boolean }[]> {
+export function sectionConnections(threads: Thread[], conns: Connection[]): Map<string, SectionLink[]> {
   const at = new Map(threads.map((t, i) => [t.id, i]));
-  const out = new Map<string, { text: string; bundled: boolean }[]>();
+  const out = new Map<string, SectionLink[]>();
   for (const k of conns) {
     const a = at.get(k.a), b = at.get(k.b);
     if (!k.shown || a === undefined || b === undefined || a === b) continue;
-    const early = Math.min(a, b), late = threads[Math.max(a, b)].id;
-    const row = { text: `With Thread ${letter(early, threads[early].id)}: ${k.text}${k.kind === "bundled" ? " — ask the author" : ""}`,
-                  bundled: k.kind === "bundled" };
+    const early = Math.min(a, b), late = threads[Math.max(a, b)].id, bundled = k.kind === "bundled";
+    const row = { before: `With Thread ${letter(early, threads[early].id)}: `, text: k.text, after: bundled ? " — ask the author" : "",
+                  ai: k.text_source === "llm", bundled };
     out.set(late, [...(out.get(late) ?? []), row]);
   }
   return out;

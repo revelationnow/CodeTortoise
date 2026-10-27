@@ -28,10 +28,10 @@
 - No node id (`N<digits>`) is ever shown: names go through `NameText`/`Ticks`/`plainNames`.
 - Commit with `git -c user.email=2929430+revelationnow@users.noreply.github.com commit`; every message ends with:
   `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` and `Claude-Session: https://claude.ai/code/session_01M17gxTwmjM6Qhg9xMppJuH`. Never push.
-- Backend tests: from `backend/`, `env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest -q -p no:cacheprovider tests`; lint `/media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/ruff check codetortoise tests`. Never use `uv`.
+- Backend tests: from `backend/`, `env PYTHONPATH=$PWD .venv/bin/python -m pytest -q -p no:cacheprovider tests`; lint `.venv/bin/ruff check codetortoise tests`. Never use `uv`.
 - Frontend checks: from `frontend/`, `npx vitest run` and `npx tsc --noEmit`. `npm run build` (= `tsc --noEmit && vite build`) writes the bundle the e2e servers serve: rebuild before every e2e run.
 - e2e, from `frontend/` (create `.pwtmp` first, delete it when done; Chromium crashes when `/tmp` is full):
-  `mkdir -p /media/anoop/ssd_1/Work/CodeTortoise/.pwtmp && TMPDIR=/media/anoop/ssd_1/Work/CodeTortoise/.pwtmp TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m codetortoise.cli" npx playwright test <specs>`
+  `mkdir -p $(git rev-parse --show-toplevel)/.pwtmp && TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test <specs>`
   Below, `E2E <specs>` stands for that command. Kill stray servers by PID, never `pkill -f`; never touch the lab server or anything on 192.168.1.135.
 
 ## Review Focus
@@ -2461,7 +2461,7 @@ Claude-Session: https://claude.ai/code/session_01M17gxTwmjM6Qhg9xMppJuH"
 
 - [ ] **Step 11: Phase 1 gate — the whole suite**
 
-Run: `cd backend && env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest -q -p no:cacheprovider tests && cd ../frontend && npx vitest run && npm run build && E2E 2>&1 | tail -40; rm -rf /media/anoop/ssd_1/Work/CodeTortoise/.pwtmp`
+Run: `cd backend && env PYTHONPATH=$PWD .venv/bin/python -m pytest -q -p no:cacheprovider tests && cd ../frontend && npx vitest run && npm run build && E2E 2>&1 | tail -40; rm -rf $(git rev-parse --show-toplevel)/.pwtmp`
 Expected: pytest, vitest and every e2e spec PASS. A failure in a spec this phase did not touch is investigated (superpowers:systematic-debugging), not skipped.
 
 - [ ] **Step 12: Phase 1 screenshots for the owner**
@@ -2472,7 +2472,7 @@ Create the scratch spec `frontend/e2e/zz-shots.spec.ts` (never committed):
 import { test } from "@playwright/test";
 import { startReview } from "./helpers";
 
-const OUT = "/media/anoop/ssd_1/Work/CodeTortoise/.superpowers/screens/phase-1";
+const OUT = "../.superpowers/screens/phase-1";
 
 test.describe("desktop", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
@@ -2514,7 +2514,7 @@ test.describe("phone", () => {
 });
 ```
 
-Run: `cd frontend && E2E e2e/zz-shots.spec.ts; rm e2e/zz-shots.spec.ts; rm -rf /media/anoop/ssd_1/Work/CodeTortoise/.pwtmp; ls /media/anoop/ssd_1/Work/CodeTortoise/.superpowers/screens/phase-1 && git status --short`
+Run: `cd frontend && E2E e2e/zz-shots.spec.ts; rm e2e/zz-shots.spec.ts; rm -rf $(git rev-parse --show-toplevel)/.pwtmp; ls ../.superpowers/screens/phase-1 && git status --short`
 Expected: six PNGs listed; `git status` shows no file this step made. Send the PNGs to the owner (SendUserFile, when the session has it) with one line: "Phase 1: chips gone, faint AI edge, dark headings, one header row with ⋯."
 
 ## Phase 2 — overview and outline (spec §5–§6)
@@ -4150,7 +4150,7 @@ Claude-Session: https://claude.ai/code/session_01M17gxTwmjM6Qhg9xMppJuH"
 
 - [ ] **Step 11: Phase 2 gate — the whole suite**
 
-Run: `cd backend && env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest -q -p no:cacheprovider tests && cd ../frontend && npx vitest run && npm run build && E2E 2>&1 | tail -40; rm -rf /media/anoop/ssd_1/Work/CodeTortoise/.pwtmp`
+Run: `cd backend && env PYTHONPATH=$PWD .venv/bin/python -m pytest -q -p no:cacheprovider tests && cd ../frontend && npx vitest run && npm run build && E2E 2>&1 | tail -40; rm -rf $(git rev-parse --show-toplevel)/.pwtmp`
 Expected: pytest, vitest and every e2e spec PASS. A failure in a spec this phase did not touch is investigated (superpowers:systematic-debugging), not skipped.
 
 - [ ] **Step 12: Phase 2 screenshots for the owner**
@@ -4161,7 +4161,7 @@ Create the scratch spec `frontend/e2e/zz-shots.spec.ts` (never committed):
 import { test } from "@playwright/test";
 import { startReview } from "./helpers";
 
-const OUT = "/media/anoop/ssd_1/Work/CodeTortoise/.superpowers/screens/phase-2";
+const OUT = "../.superpowers/screens/phase-2";
 
 test.describe("desktop", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
@@ -4200,7 +4200,7 @@ test.describe("phone", () => {
 });
 ```
 
-Run: `cd frontend && E2E e2e/zz-shots.spec.ts; rm e2e/zz-shots.spec.ts; rm -rf /media/anoop/ssd_1/Work/CodeTortoise/.pwtmp; ls /media/anoop/ssd_1/Work/CodeTortoise/.superpowers/screens/phase-2 && git status --short`
+Run: `cd frontend && E2E e2e/zz-shots.spec.ts; rm e2e/zz-shots.spec.ts; rm -rf $(git rev-parse --show-toplevel)/.pwtmp; ls ../.superpowers/screens/phase-2 && git status --short`
 Expected: four PNGs listed; `git status` shows no file this step made. Send the PNGs to the owner (SendUserFile, when the session has it) with one line: "Phase 2: a section per thread with counts in columns; the outline opens one thread, the other bars pinned."
 
 ## Phase 3 — the Flows tab and its data change (spec §7–§8)
@@ -4267,7 +4267,7 @@ def test_checks_name_the_changed_function_that_raised_them_and_a_reading_stored_
 
 - [ ] **Step 2: Run them to watch them fail**
 
-Run: `cd backend && env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_reading.py tests/test_web.py -k "two_kinds_at_one_place or records_the_subject or name_the_changed_function"`
+Run: `cd backend && env PYTHONPATH=$PWD .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_reading.py tests/test_web.py -k "two_kinds_at_one_place or records_the_subject or name_the_changed_function"`
 Expected: FAIL — `AttributeError: 'Check' object has no attribute 'related'` (test_reading, twice) and `KeyError: 'related'` (test_web).
 
 - [ ] **Step 3: Rename the field and send it**
@@ -4324,7 +4324,7 @@ Then confirm none is left: `grep -rn "cause_fn" backend/codetortoise backend/tes
 
 - [ ] **Step 4: Run the backend suite and the linter**
 
-Run: `cd backend && env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest -q -p no:cacheprovider tests && /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/ruff check codetortoise tests`
+Run: `cd backend && env PYTHONPATH=$PWD .venv/bin/python -m pytest -q -p no:cacheprovider tests && .venv/bin/ruff check codetortoise tests`
 Expected: PASS, and `All checks passed!`.
 
 - [ ] **Step 5: Give the frontend type the field**
@@ -5225,7 +5225,7 @@ with
 
 - [ ] **Step 7: Build and run the specs to watch them pass**
 
-Run: `cd frontend && npx tsc --noEmit && npx vitest run && npm run build && E2E e2e/flow-groups.spec.ts e2e/workspace-reading.spec.ts e2e/outline-causes.spec.ts e2e/workspace-tier1.spec.ts e2e/workspace-story.spec.ts e2e/ai.spec.ts e2e/long-text.spec.ts e2e/workspace-panels.spec.ts; rm -rf /media/anoop/ssd_1/Work/CodeTortoise/.pwtmp`
+Run: `cd frontend && npx tsc --noEmit && npx vitest run && npm run build && E2E e2e/flow-groups.spec.ts e2e/workspace-reading.spec.ts e2e/outline-causes.spec.ts e2e/workspace-tier1.spec.ts e2e/workspace-story.spec.ts e2e/ai.spec.ts e2e/long-text.spec.ts e2e/workspace-panels.spec.ts; rm -rf $(git rev-parse --show-toplevel)/.pwtmp`
 Expected: PASS. (`long-text.spec` confirms long names in rows end in an ellipsis with their hover; `workspace-panels.spec` opens checks from a story.)
 
 - [ ] **Step 8: Commit**
@@ -5499,7 +5499,7 @@ with
 
 - [ ] **Step 6: Build and run the specs to watch them pass**
 
-Run: `cd frontend && npx tsc --noEmit && npm run build && E2E e2e/flow-groups.spec.ts e2e/outline-causes.spec.ts e2e/header-menu.spec.ts e2e/workspace-panels.spec.ts; rm -rf /media/anoop/ssd_1/Work/CodeTortoise/.pwtmp`
+Run: `cd frontend && npx tsc --noEmit && npm run build && E2E e2e/flow-groups.spec.ts e2e/outline-causes.spec.ts e2e/header-menu.spec.ts e2e/workspace-panels.spec.ts; rm -rf $(git rev-parse --show-toplevel)/.pwtmp`
 Expected: PASS — including outline-causes' `"the stepper shows the change above each place; J, K and F step…"`, which now uses the shared `typing`.
 
 - [ ] **Step 7: Commit**
@@ -5677,7 +5677,7 @@ with
 
 - [ ] **Step 4: Build and run the specs to watch them pass**
 
-Run: `cd frontend && npx tsc --noEmit && npm run build && E2E e2e/flow-groups.spec.ts e2e/outline-causes.spec.ts e2e/thread-sections.spec.ts e2e/long-text.spec.ts e2e/workspace-reading.spec.ts; rm -rf /media/anoop/ssd_1/Work/CodeTortoise/.pwtmp`
+Run: `cd frontend && npx tsc --noEmit && npm run build && E2E e2e/flow-groups.spec.ts e2e/outline-causes.spec.ts e2e/thread-sections.spec.ts e2e/long-text.spec.ts e2e/workspace-reading.spec.ts; rm -rf $(git rev-parse --show-toplevel)/.pwtmp`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -5692,7 +5692,7 @@ Claude-Session: https://claude.ai/code/session_01M17gxTwmjM6Qhg9xMppJuH"
 
 - [ ] **Step 6: Phase 3 gate — the whole suite**
 
-Run: `cd backend && env PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest -q -p no:cacheprovider tests && /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/ruff check codetortoise tests && cd ../frontend && npx vitest run && npm run build && E2E 2>&1 | tail -40; rm -rf /media/anoop/ssd_1/Work/CodeTortoise/.pwtmp`
+Run: `cd backend && env PYTHONPATH=$PWD .venv/bin/python -m pytest -q -p no:cacheprovider tests && .venv/bin/ruff check codetortoise tests && cd ../frontend && npx vitest run && npm run build && E2E 2>&1 | tail -40; rm -rf $(git rev-parse --show-toplevel)/.pwtmp`
 Expected: pytest, ruff, vitest and every e2e spec PASS. A failure in a spec this phase did not touch is investigated (superpowers:systematic-debugging), not skipped.
 
 - [ ] **Step 7: Phase 3 screenshots for the owner**
@@ -5703,7 +5703,7 @@ Create the scratch spec `frontend/e2e/zz-shots.spec.ts` (never committed):
 import { test } from "@playwright/test";
 import { startReview } from "./helpers";
 
-const OUT = "/media/anoop/ssd_1/Work/CodeTortoise/.superpowers/screens/phase-3";
+const OUT = "../.superpowers/screens/phase-3";
 
 test.describe("desktop", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
@@ -5742,5 +5742,5 @@ test.describe("phone", () => {
 });
 ```
 
-Run: `cd frontend && E2E e2e/zz-shots.spec.ts; rm e2e/zz-shots.spec.ts; rm -rf /media/anoop/ssd_1/Work/CodeTortoise/.pwtmp; ls /media/anoop/ssd_1/Work/CodeTortoise/.superpowers/screens/phase-3 && git status --short`
+Run: `cd frontend && E2E e2e/zz-shots.spec.ts; rm e2e/zz-shots.spec.ts; rm -rf $(git rev-parse --show-toplevel)/.pwtmp; ls ../.superpowers/screens/phase-3 && git status --short`
 Expected: four PNGs listed; `git status` shows no file this step made. Send the PNGs to the owner (SendUserFile, when the session has it) with one line: "Phase 3: a story's flows in groups by what changed, one line each, opening in place with a tick box; the outline lists the groups."

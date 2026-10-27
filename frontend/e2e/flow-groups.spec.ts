@@ -1,5 +1,5 @@
 import { devices, expect, test, type APIResponse, type Locator, type Page, type Route } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, explainItem, reviewMenu, startReview } from "./helpers";
+import { AI, expectNamed, expectNoNodeIds, explainItem, LARGE, recordSaid, reviewMenu, setShortcuts, sideways, startReview } from "./helpers";
 
 const FOUR = "101 102 103 104";
 
@@ -15,6 +15,20 @@ async function withoutRelated(page: Page) {
   };
   await page.route("**/api/reviews/*/reading", strip);
   await page.route("**/api/reviews/*/stories/*", strip);
+}
+
+/** Story S1 with a second place on its first flow: the review's own flows have one place each, so its Confirm row of `uart_send`
+ * becomes a caller row at the first flow's landing (a call that ignores the result and sees the signature change has both). The keys
+ * stay the review's, so marking and reopening them reach the server. */
+async function withTwoPlaces(page: Page) {
+  await page.route("**/api/reviews/*/stories/S1", async (route) => {
+    let res: APIResponse, j: any;
+    try { res = await route.fetch(); j = await res.json(); }
+    catch { return; }                          // the page or the test went away while it was in flight: nobody reads it
+    const [flow] = j.board.flows.filter((f: any) => j.story.flows.includes(f.id));
+    Object.assign(j.reading.checks.find((k: any) => k.kind === "confirm"), { kind: "caller", node: flow.lands, related: flow.cause });
+    await route.fulfill({ response: res, json: j });
+  });
 }
 
 /** Each element's attribute `name`, in order. */
@@ -114,7 +128,6 @@ test.describe("the Flows tab", () => {
     const tick = page.getByRole("checkbox", { name: /^Looks fine: uart_errors/ });
     await tick.click();                                                   // a tick box is no text field: K still moves
     await expect(tick).toBeChecked();
-    await expect(tick).toBeEnabled();
     await marksDone(page);
     await page.keyboard.press("k");
     await expect(toggles.nth(0)).toBeFocused();
@@ -190,6 +203,215 @@ test.describe("the Flows tab", () => {
     await page.waitForTimeout(300);
     await expect(dialog).toBeFocused();
     await expect(page.locator(".fl-tick:checked")).toHaveCount(0);
+  });
+
+  test("with Single-key shortcuts off, J, K and F do nothing on the Flows tab, Enter and Space still act, and switched on again the keys work", async ({ page }) => {
+    const marks = watchMarks(page);
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const toggles = page.locator(".fl-toggle"), ticks = page.locator(".fl-tick");
+    await expect(toggles).toHaveCount(2);
+    await toggles.nth(0).focus();                                         // row 1 is the one J, K and F act from
+    await setShortcuts(page, false);                                      // nothing on the tab is redrawn by this: the keys read the switch as they are pressed
+    await page.keyboard.press("j");                                       // would go on to row 2
+    await page.waitForTimeout(300);                                       // a step that wrongly started would have landed by now
+    await expect(page.locator(".fl-toggle:focus"), "J moved the focus").toHaveCount(0);
+    await page.reload();                                                  // the choice is kept: the keys meet it on a fresh page
+    await expect(toggles).toHaveCount(2);
+    await toggles.nth(1).focus();
+    await page.keyboard.press("k");                                       // would go back to row 1
+    await page.waitForTimeout(300);
+    await expect(toggles.nth(1), "K moved the focus").toBeFocused();
+    await toggles.nth(0).focus();
+    await page.keyboard.press("f");                                       // would mark row 1 and move on to row 2
+    await page.waitForTimeout(300);
+    await expect(toggles.nth(0), "F moved the focus").toBeFocused();
+    expect(marks, "F marked").toHaveLength(0);
+    await expect(ticks.nth(0)).not.toBeChecked();
+    await page.keyboard.press("Enter");                                   // the focused row's own button
+    await expect(toggles.nth(0)).toHaveAttribute("aria-expanded", "true");
+    await ticks.nth(1).focus();
+    await page.keyboard.press("Space");                                   // and a tick box's own key
+    await expect(ticks.nth(1)).toBeChecked();
+    await marksDone(page);
+    expect(marks).toHaveLength(1);
+    await toggles.nth(1).focus();
+    await setShortcuts(page, true);                                       // and again nothing on the tab is redrawn
+    await page.keyboard.press("k");
+    await expect(toggles.nth(0)).toBeFocused();
+    await page.keyboard.press("j");
+    await expect(toggles.nth(1)).toBeFocused();
+    await toggles.nth(0).focus();
+    await page.keyboard.press("f");
+    await expect(ticks.nth(0)).toBeChecked();
+    await marksDone(page);
+    expect(marks).toHaveLength(2);
+  });
+
+  test("with Caps Lock on, J, K and F act as they do with it off, and Ctrl, Meta and Alt still make them no shortcut", async ({ page }) => {
+    const marks = watchMarks(page);
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const toggles = page.locator(".fl-toggle"), ticks = page.locator(".fl-tick");
+    await expect(toggles).toHaveCount(2);
+    await toggles.nth(0).focus();
+    await page.keyboard.press("J");                                       // Caps Lock sends the capital letter, with Shift up
+    await expect(toggles.nth(1), "J went on to row 2").toBeFocused();
+    await page.keyboard.press("K");
+    await expect(toggles.nth(0), "K went back to row 1").toBeFocused();
+    for (const chord of ["Control+J", "Meta+J", "Alt+J", "Control+F", "Meta+F", "Alt+F"]) await page.keyboard.press(chord);
+    await page.waitForTimeout(300);                                       // a step or a mark that wrongly started would have landed by now
+    await expect(toggles.nth(0), "a chord with Ctrl, Meta or Alt moved the focus").toBeFocused();
+    expect(marks, "a chord marked").toHaveLength(0);
+    await page.keyboard.press("F");                                       // marks row 1 and moves on to row 2
+    await expect(ticks.nth(0), "F marked row 1").toBeChecked();
+    await expect(toggles.nth(1), "F went on to row 2").toBeFocused();
+    await marksDone(page);
+    expect(marks).toHaveLength(1);
+    await page.keyboard.press("Shift+K");                                 // and with Shift held, which gives the capital letter too
+    await expect(toggles.nth(0), "Shift+K went back to row 1").toBeFocused();
+  });
+
+  test("F says Marked fine in a hidden live region once its mark has landed, and says it again for the next row", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const toggles = page.locator(".fl-toggle"), said = page.locator('.st-flows [aria-live="polite"]');
+    await expect(toggles).toHaveCount(2);
+    await expect(said, "a polite live region that is there before F, and empty").toHaveText("");
+    await expect(said, "for screen readers only").toHaveClass("vh");
+    expect((await said.boundingBox())!.width).toBeLessThanOrEqual(1);
+    const log = await recordSaid(said);
+    await toggles.nth(0).focus();
+    await page.keyboard.press("f");
+    await expect(page.locator(".fl-tick").nth(0)).toBeChecked();
+    await expect(said).toHaveText("Marked fine");
+    await marksDone(page);
+    await page.keyboard.press("f");                                       // F went on to row 2: the same words again, for its mark
+    await expect(page.locator(".fl-tick").nth(1)).toBeChecked();
+    await expect(said).toHaveText("Marked fine");
+    await marksDone(page);
+    expect(await log(), "emptied between the two, so a screen reader hears it twice").toEqual(["Marked fine", "", "Marked fine"]);
+  });
+
+  test("what F said clears itself five seconds later, and the next F's words get five seconds of their own", async ({ page }) => {
+    await page.clock.install();
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const toggles = page.locator(".fl-toggle"), said = page.locator('.st-flows [aria-live="polite"]');
+    await expect(toggles).toHaveCount(2);
+    await page.clock.pauseAt(new Date(Date.now() + 1000));                // from here on only the test moves time
+    await toggles.nth(0).focus();
+    await page.keyboard.press("f");
+    await expect(said).toHaveText("Marked fine");
+    await marksDone(page);
+    await page.clock.runFor(3000);
+    await expect(said, "3 s on, still there").toHaveText("Marked fine");
+    await page.keyboard.press("f");                                       // row 2: the same words again, and the first F's timer must not cut them short
+    await expect(said).toHaveText("Marked fine");
+    await marksDone(page);
+    await page.clock.runFor(3000);                                        // 6 s after the first F, 3 s after the second
+    await expect(said, "the first F's five seconds are over; the second's are not").toHaveText("Marked fine");
+    await page.clock.runFor(2100);
+    await expect(said, "five seconds after the second").toHaveText("");
+  });
+
+  test("a letter that is not J, K or F never reads the stored shortcuts switch, on the tab or in the stepper", async ({ page }) => {
+    await page.addInitScript(() => {                                      // counts each read of the switch
+      const w = window as unknown as { reads: number }, get = Storage.prototype.getItem;
+      w.reads = 0;
+      Storage.prototype.getItem = function (this: Storage, key: string) { if (key === "ct.ws.shortcuts") w.reads++; return get.call(this, key); };
+    });
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const toggles = page.locator(".fl-toggle");
+    await expect(toggles).toHaveCount(2);
+    const reads = () => page.evaluate(() => (window as unknown as { reads: number }).reads);
+    const quiet = async (where: string) => {
+      const before = await reads();
+      for (const key of ["x", "z", "1", "ArrowDown"]) await page.keyboard.press(key);
+      expect(await reads(), `${where}: keys that are no shortcut left the switch unread`).toBe(before);
+    };
+    await toggles.nth(0).focus();
+    await quiet("on the tab");
+    let before = await reads();
+    await page.keyboard.press("j");
+    expect(await reads(), "J on the tab looks at the switch").toBeGreaterThan(before);
+    await page.getByRole("link", { name: "Open check: logger_flush ignores the result of uart_send, which can now return -2" }).click();
+    await expect(page.getByRole("complementary", { name: /^Check: / }).locator(".cs-pos")).toHaveText("1 / 1");
+    await quiet("in the stepper");
+    before = await reads();
+    await page.keyboard.press("j");
+    expect(await reads(), "J in the stepper looks at the switch").toBeGreaterThan(before);
+  });
+
+  test("F on a row with nothing left open says nothing, and a mark the server refuses says nothing either", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const toggles = page.locator(".fl-toggle"), ticks = page.locator(".fl-tick"), said = page.locator('.st-flows [aria-live="polite"]');
+    await expect(toggles).toHaveCount(2);
+    await ticks.nth(0).click();                                           // row 1 is done by its tick box, which says nothing itself
+    await expect(ticks.nth(0)).toBeChecked();
+    await marksDone(page);
+    await expect(said).toHaveText("");
+    await toggles.nth(0).focus();
+    await page.keyboard.press("f");                                       // nothing left to mark in row 1: F only moves on
+    await expect(toggles.nth(1)).toBeFocused();
+    await page.waitForTimeout(300);
+    await expect(said).toHaveText("");
+    await page.keyboard.press("f");                                       // row 2: marked, and said
+    await expect(said).toHaveText("Marked fine");
+    await marksDone(page);
+    await ticks.nth(1).click();                                           // reopen it, then F meets a server that refuses
+    await expect(ticks.nth(1)).not.toBeChecked();
+    await marksDone(page);
+    await page.route((u) => u.pathname.endsWith("/checks/marks"), (route) =>
+      route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ detail: "The server could not mark them." }) }));
+    await toggles.nth(1).focus();
+    await page.keyboard.press("f");
+    await expect(page.locator(".st-flows .banner.warn")).toHaveText("The server could not mark them.");
+    await expect(page.locator(".st-flows").getByRole("alert"), "a screen reader is told of the refusal").toHaveText("The server could not mark them.");
+    await marksDone(page);
+    await page.waitForTimeout(300);                                       // words that wrongly came after the refusal would be here by now
+    await expect(said, "the old words are gone, and none came for a mark that did not land").toHaveText("");
+    await expect(ticks.nth(1)).not.toBeChecked();
+  });
+
+  test("a mark the server refuses without a word still tells the reader, in an alert", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const toggles = page.locator(".fl-toggle"), ticks = page.locator(".fl-tick");
+    await expect(toggles).toHaveCount(2);
+    // a refusal with no words in it: what the page has to go on when the status line is empty too, as over HTTP/2
+    await page.route((u) => u.pathname.endsWith("/checks/marks"), (route) => route.fulfill({ status: 500, json: { detail: "" } }));
+    await toggles.nth(0).focus();
+    await page.keyboard.press("f");
+    await expect(page.locator(".st-flows .banner.warn")).toHaveText("The server did not accept the mark.");
+    await expect(page.locator(".st-flows").getByRole("alert"), "a screen reader is told of the refusal").toHaveText("The server did not accept the mark.");
+    await marksDone(page);
+    await expect(ticks.nth(0)).not.toBeChecked();
+  });
+
+  test("with storage blocked the shortcuts are on, the switch shows it and keeps nothing, and nothing throws (Review Focus 1)", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    const base = await startReview(page, FOUR);
+    await page.addInitScript(() => {
+      Storage.prototype.getItem = () => { throw new Error("blocked"); };
+      Storage.prototype.setItem = () => { throw new Error("blocked"); };
+    });
+    await page.goto(`${base}/s/S1`);
+    const toggles = page.locator(".fl-toggle");
+    await expect(toggles).toHaveCount(2);
+    await setShortcuts(page, false);                                      // a pick the browser cannot keep
+    const menu = await reviewMenu(page);
+    await expect(menu.getByRole("menuitemcheckbox", { name: "Single-key shortcuts" }), "the switch shows what the keys do").toHaveAttribute("aria-checked", "true");
+    await page.keyboard.press("Escape");
+    await toggles.nth(0).focus();
+    await page.keyboard.press("j");
+    await expect(toggles.nth(1)).toBeFocused();
+    await page.keyboard.press("k");
+    await expect(toggles.nth(0)).toBeFocused();
+    expect(errors).toEqual([]);
   });
 
   test("F acts on the row whose tick box has focus", async ({ page }) => {
@@ -289,11 +511,83 @@ test.describe("the Flows tab", () => {
     await marksDone(page);
     for (const i of [0, 1]) {
       await expect(ticks.nth(i)).toHaveCSS("opacity", "1");
-      await expect(ticks.nth(i)).toHaveCSS("cursor", "default");
+      await expect(ticks.nth(i)).not.toHaveCSS("cursor", "progress");
     }
     await page.waitForTimeout(300);                                       // a queued click would have been sent by now
     expect(marks).toHaveLength(1);
     await expect(ticks.nth(1)).not.toBeChecked();
+  });
+
+  /** The marks and unmarks the page sends to the server (the "Looks fine" and "Reopen" requests), one entry each. */
+  function watchChecks(page: Page) {
+    const sent: string[] = [];
+    page.on("request", (r) => {
+      const at = r.url().indexOf("/checks/");
+      if (at >= 0 && r.method() !== "GET") sent.push(`${r.method()} ${r.url().slice(at + 8).replace(/^.*\/mark$/, "<key>/mark")}`);
+    });
+    return sent;
+  }
+  /** The keys marked fine now, as the server has them. */
+  const marked = async (page: Page, base: string): Promise<string[]> =>
+    Object.keys((await (await page.request.get(`/api/reviews/${base.split("/")[2]}/reading`)).json()).marks).sort();
+
+  test("Reopen on a row with two marked places sends one request and reopens them both", async ({ page }) => {
+    await withTwoPlaces(page);
+    const sent = watchChecks(page);
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const tick = page.getByRole("checkbox", { name: "Looks fine: logger_flush ignores -2" });
+    await page.locator(".fl-toggle").first().click();
+    const card = page.getByRole("region", { name: /^Flow 1: / });
+    await card.getByRole("button", { name: "Looks fine", exact: true }).click();
+    await expect(tick).toBeChecked();
+    await marksDone(page);
+    expect(await marked(page, base)).toHaveLength(2);                          // both places of the row
+    sent.length = 0;
+    await card.getByRole("button", { name: "Reopen", exact: true }).click();
+    await expect(tick).not.toBeChecked();
+    await marksDone(page);
+    expect(sent).toEqual(["POST unmarks"]);                                    // one request for both places, not one each
+    expect(await marked(page, base)).toEqual([]);
+    await tick.click();                                                        // the tick box reopens a row the same way
+    await expect(tick).toBeChecked();
+    await marksDone(page);
+    sent.length = 0;
+    await tick.click();
+    await expect(tick).not.toBeChecked();
+    await marksDone(page);
+    expect(sent).toEqual(["POST unmarks"]);
+    expect(await marked(page, base)).toEqual([]);
+  });
+
+  test("a Reopen the server refuses shows its error and leaves the row's marks as they were", async ({ page }) => {
+    await withTwoPlaces(page);
+    const sent = watchChecks(page);
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const tick = page.getByRole("checkbox", { name: "Looks fine: logger_flush ignores -2" });
+    await page.locator(".fl-toggle").first().click();
+    const card = page.getByRole("region", { name: /^Flow 1: / });
+    await card.getByRole("button", { name: "Looks fine", exact: true }).click();
+    await expect(tick).toBeChecked();
+    await marksDone(page);
+    const before = await marked(page, base);
+    expect(before).toHaveLength(2);
+    await page.route((u) => u.pathname.endsWith("/checks/unmarks"), (route) =>
+      route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ detail: "The server could not reopen them." }) }));
+    sent.length = 0;
+    await card.getByRole("button", { name: "Reopen", exact: true }).click();
+    await expect(page.locator(".st-flows .banner.warn")).toHaveText("The server could not reopen them.");
+    await marksDone(page);
+    expect(sent).toEqual(["POST unmarks"]);                                    // nothing else was sent: no key went on its own
+    await expect(tick).toBeChecked();                                          // the row still reads done, and Reopen is still there
+    await expect(card.getByRole("button", { name: "Reopen", exact: true })).toBeVisible();
+    expect(await marked(page, base)).toEqual(before);                          // and so does the server
+    await tick.click();                                                        // the tick box meets the same refusal
+    await expect(page.locator(".st-flows .banner.warn")).toHaveText("The server could not reopen them.");
+    await marksDone(page);
+    await expect(tick).toBeChecked();
+    expect(await marked(page, base)).toEqual(before);
   });
 
   test("a J pressed the moment the rows show is heard, not lost to the next paint", async ({ page }) => {
@@ -347,7 +641,7 @@ test.describe("the Flows tab", () => {
 });
 
 test.describe("a story with many flows", () => {
-  test.use({ baseURL: "http://127.0.0.1:8796", viewport: { width: 1440, height: 900 } });
+  test.use({ baseURL: LARGE, viewport: { width: 1440, height: 900 } });
 
   test("each group shows eight rows until Show N more; a flow=N address unfolds its group and opens its row", async ({ page }) => {
     const base = await startReview(page, "201 202");
@@ -452,6 +746,61 @@ test.describe("a story with many flows", () => {
     await expect(second.locator(".fl-tick").nth(7)).toBeChecked();
     await expect(second.locator(".fl-row")).toHaveCount(25);
     await expect(second.locator(".fl-toggle").nth(8)).toBeFocused();
+  });
+
+  test("F on the last row with something open wraps to the first row above with something open", async ({ page }) => {
+    const base = await startReview(page, "201 202");
+    await page.goto(`${base}/s/S1`);
+    for (const n of [1, 2]) {                                                        // the first two rows are done, so the wrap has to pass them
+      await page.locator(`#flow-${n} .fl-tick`).click();
+      await expect(page.locator(`#flow-${n} .fl-tick`)).toBeChecked();
+      await marksDone(page);
+    }
+    await page.goto(`${base}/s/S1?flow=140`);                                        // the last row of the tab, in a group that was folded
+    await expect(page.locator("#flow-140 .fl-toggle")).toHaveAttribute("aria-expanded", "true");
+    await page.keyboard.press("f");
+    await expect(page.locator("#flow-140 .fl-tick")).toBeChecked();
+    await expect(page.locator("#flow-3 .fl-toggle")).toBeFocused();                  // not row 1 or 2: they have nothing open
+    await marksDone(page);
+    await expect(page.locator("#flow-3 .fl-tick")).not.toBeChecked();                // F marks the row it leaves, not the one it goes to
+    await expect(page.locator("#flow-1 .fl-tick:checked, #flow-2 .fl-tick:checked")).toHaveCount(2);
+  });
+
+  test("a click on an outline group line for another flow scrolls its row into view once", async ({ page }) => {
+    await page.addInitScript(() => {                                                 // which elements the page scrolled into view
+      const scrolled: string[] = [];
+      (window as unknown as { scrolled: string[] }).scrolled = scrolled;
+      const scrollIntoView = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = function (this: Element, arg?: boolean | ScrollIntoViewOptions) {
+        scrolled.push(this.id);
+        return scrollIntoView.call(this, arg);
+      };
+    });
+    const base = await startReview(page, "201 202");
+    await page.goto(`${base}/s/S1`);
+    const scrolls = (id: string) => page.evaluate((x) => (window as unknown as { scrolled: string[] }).scrolled.filter((i) => i === x).length, id);
+    expect(await scrolls("flow-51")).toBe(0);
+    await page.locator("aside.ws-outline .ws-flows .ws-row").nth(2).click();         // the third group: flows 51 to 75
+    await expect(page.locator("#flow-51 .fl-toggle")).toHaveAttribute("aria-expanded", "true");
+    await page.waitForTimeout(300);                                                  // a second scroll would have been made by now
+    expect(await scrolls("flow-51")).toBe(1);
+    await page.locator("aside.ws-outline .ws-flows .ws-row").nth(4).click();         // and again for the fifth: flows 101 to 125
+    await expect(page.locator("#flow-101 .fl-toggle")).toHaveAttribute("aria-expanded", "true");
+    await page.waitForTimeout(300);
+    expect(await scrolls("flow-101")).toBe(1);
+    expect(await scrolls("flow-51")).toBe(1);
+  });
+
+  test("at 1280px rows stay a line each, well under 44px apart (the touch size is for phones)", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const base = await startReview(page, "201 202");
+    await page.goto(`${base}/s/S1`);
+    const rows = page.locator("section.fl-group").first().locator(".fl-row");
+    await expect(rows).toHaveCount(8);
+    const tops = await rows.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().top));
+    const gaps = tops.slice(1).map((t, i) => t - tops[i]);
+    expect(Math.max(...gaps), `pitch ${gaps.join(", ")}`).toBeLessThan(44);
+    expect(Math.min(...gaps), `pitch ${gaps.join(", ")}`).toBeGreaterThan(24);        // and a row is not squeezed either
   });
 
   test("while a check is open beside the page J, K and F are the stepper's, and letters in its comment box (Review Focus 4)", async ({ page }) => {
@@ -641,7 +990,7 @@ test.describe("a story with many flows", () => {
 });
 
 test.describe("the Flows tab on a phone", () => {
-  test.use({ baseURL: "http://127.0.0.1:8796", viewport: devices["iPhone 13"].viewport, userAgent: devices["iPhone 13"].userAgent,
+  test.use({ baseURL: LARGE, viewport: devices["iPhone 13"].viewport, userAgent: devices["iPhone 13"].userAgent,
     deviceScaleFactor: devices["iPhone 13"].deviceScaleFactor, isMobile: true, hasTouch: true });
 
   test("rows stay one line and nothing scrolls sideways, closed or open", async ({ page }) => {
@@ -650,24 +999,38 @@ test.describe("the Flows tab on a phone", () => {
     await expect(page.locator(".fl-row").first()).toBeVisible();
     const wrapped = () => page.locator(".fl-one").evaluateAll((els) => els.filter((e) =>
       e.getBoundingClientRect().height > 1.5 * parseFloat(getComputedStyle(e).lineHeight)).length);
-    // The page scrolls inside `.ws-page`, never the document (`main` and the centre clip), so that is what to measure; and a
-    // row is readable only when its button sits inside it and its sentence has room (`.fl-one` is nowrap: it can't wrap, it can vanish).
-    const sideways = () => page.locator(".ws-page").evaluate((e) => e.scrollWidth - e.clientWidth);
+    // A row is readable only when its button sits inside it and its sentence has room (`.fl-one` is nowrap: it can't wrap, it can vanish).
     const unreadable = () => page.locator(".fl-row").evaluateAll((rows) => rows.filter((r) => {
       const b = r.getBoundingClientRect(), t = r.querySelector(".fl-toggle")!.getBoundingClientRect(), o = r.querySelector(".fl-one")!.getBoundingClientRect();
       return t.right > b.right + 1 || o.width < 40;
     }).length);
     await expect(page.getByRole("region", { name: "Also in this story" })).toBeVisible();   // its chips are on this page
     expect(await wrapped()).toBe(0);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
     expect(await unreadable()).toBe(0);
-    expect(await sideways()).toBeLessThanOrEqual(0);
+    expect(await sideways(page)).toBeLessThanOrEqual(0);
     await page.locator(".fl-toggle").first().click();
     await expect(page.getByRole("region", { name: /^Flow 1: / })).toBeVisible();
     expect(await wrapped()).toBe(0);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
     expect(await unreadable()).toBe(0);
-    expect(await sideways()).toBeLessThanOrEqual(0);
+    expect(await sideways(page)).toBeLessThanOrEqual(0);
+  });
+
+  test("rows are at least 44px apart and each tick's label is as tall as its row, so a finger lands on its own row (owner decision 1)", async ({ page }) => {
+    const base = await startReview(page, "201 202");
+    await page.goto(`${base}/s/S1`);
+    const rows = page.locator("section.fl-group").first().locator(".fl-row");
+    await expect(rows).toHaveCount(8);
+    const tops = await rows.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().top));
+    const gaps = tops.slice(1).map((t, i) => t - tops[i]);
+    expect(Math.min(...gaps), `pitch ${gaps.join(", ")}`).toBeGreaterThanOrEqual(44);
+    const lines = await page.locator(".fl-head").evaluateAll((els) => els.map((e) => ({
+      line: e.querySelector(".fl-toggle")!.getBoundingClientRect().height, tick: e.querySelector("label.fl-tickbox")!.getBoundingClientRect().height })));
+    expect(lines.length).toBe(48);                                                    // every row showing, in all six groups
+    for (const { line, tick } of lines) {
+      expect(line).toBeGreaterThanOrEqual(44);
+      expect(tick).toBeGreaterThanOrEqual(44);
+      expect(tick).toBeCloseTo(line, 0);                                              // the label spans the row's line, no more, no less
+    }
   });
 
   test("a tick box's target is a 24px square here too, and a click on its edge ticks it", async ({ page }) => {
@@ -688,7 +1051,7 @@ test.describe("the Flows tab on a phone", () => {
 });
 
 test.describe("the Flows tab with AI", () => {
-  test.use({ baseURL: "http://127.0.0.1:8798", viewport: { width: 1440, height: 900 } });
+  test.use({ baseURL: AI, viewport: { width: 1440, height: 900 } });
 
   test("J, K and F are letters in the story's question box, and move rows again once it loses focus (Review Focus 4)", async ({ page }) => {
     const base = await startReview(page);

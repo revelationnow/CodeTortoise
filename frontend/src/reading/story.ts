@@ -99,11 +99,6 @@ export function codeOrder(where: WhereFile[], rows: ContractRow[]): WhereFn[] {
   return [...fns.filter((f) => first.has(f.node)), ...fns.filter((f) => !first.has(f.node))];
 }
 
-/** A flow's one line, its path's names: "main → logger_flush → uart_send" (spec 2026-10-16-outline-and-causes §1.2). */
-export function flowLabel(f: { path: string[] }, label: (id: string) => string | undefined): string {
-  return f.path.map((n) => label(n) ?? "a function").join(" → ");
-}
-
 /** A story page's tabs (spec 2026-10-16-outline-and-causes §2.2). */
 export type TabSec = "flows" | "changes" | "contracts" | "where" | "paths" | "code" | "graph" | "talk";
 export interface TabSpec { sec: TabSec; label: string; count: number | null }

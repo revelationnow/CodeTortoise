@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, type ChangedFile, type FileChange } from "../api";
+import { api, type ChangedFile, errorText, type FileChange } from "../api";
 import type { SourceText } from "./types";
 
 export type SourceState =
@@ -31,7 +31,7 @@ export function useSources(reviewId: number, files: ChangedFile[] | undefined) {
     setFetched((m) => ({ ...m, [path]: { status: "loading" } }));
     (changed.current.has(path) ? api.file(reviewId, path)
       : api.source(reviewId, path).then((file): SourceState => ({ status: "ok", file })))
-      .then(put, (e) => put({ status: "error", error: String(e.message ?? e) }))
+      .then(put, (e) => put({ status: "error", error: errorText(e, "The file could not be loaded.") }))
       .finally(() => { if (mine === list.current) inflight.current.delete(path); });
   }, [reviewId]);
 

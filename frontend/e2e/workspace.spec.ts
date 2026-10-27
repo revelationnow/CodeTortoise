@@ -1,5 +1,5 @@
 import { devices, expect, test } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, openIndex, startReview, storyLink } from "./helpers";
+import { expectNamed, expectNoNodeIds, LARGE, openIndex, sideways, startReview, storyLink } from "./helpers";
 
 /** The workspace shell (spec 2026-10-04-review-workspace §2): rail, breadcrumb, addresses, phone levels. */
 
@@ -35,7 +35,7 @@ test.describe("desktop", () => {
     const ov = page.locator(".ov3");
     await expect(ov.locator("h2")).toHaveText(["1 thread", "Build impact · up to 4 files rebuild", "Coverage · 2 notes",
                                                "Discussion · no comments yet"]);
-    await expect(ov.locator(".ws-lead")).toHaveText("One thread: hal_write in hal.");
+    await expect(ov.locator(".ws-lead")).toHaveCount(0);                      // the heading says it; no empty paragraph stands in its place
     await expect(ov.locator("section.ov-sec")).toHaveCount(1);
     await expect(ov.locator(".ov-links")).toHaveCount(0);                    // one thread connects to nothing
     const r = await (await page.request.get(`/api/reviews/${base.split("/")[2]}/reading`)).json() as { causes: { kind: string }[] };
@@ -148,7 +148,7 @@ test.describe("phone", () => {
     await bar.getByRole("link", { name: "Back to Thread A" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}$`));
     await expect(page.locator(".ws-rail")).toBeVisible();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    expect(await sideways(page)).toBeLessThanOrEqual(0);
   });
 
   test("#map opens the Index at its map, not the rail", async ({ page }) => {
@@ -161,7 +161,7 @@ test.describe("phone", () => {
 });
 
 test.describe("a large change", () => {
-  test.use({ baseURL: "http://127.0.0.1:8796", viewport: { width: 1440, height: 900 } });
+  test.use({ baseURL: LARGE, viewport: { width: 1440, height: 900 } });
 
   test("the Index maps the change's parts; a part opens its page", async ({ page }) => {
     const base = await startReview(page, "201 202");
@@ -196,7 +196,7 @@ test.describe("a large change", () => {
 });
 
 test.describe("a large change on a phone", () => {
-  test.use({ baseURL: "http://127.0.0.1:8796", viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  test.use({ baseURL: LARGE, viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
   test("the map stacks the parts; a part opens with its place among them", async ({ page }) => {
     await startReview(page, "201 202");
@@ -210,6 +210,6 @@ test.describe("a large change on a phone", () => {
     await expect(page.locator(".bd-node").first()).toBeVisible();
     await expect(page.getByRole("link", { name: /^Next part:/ })).toBeVisible();
     await expect(page.getByRole("link", { name: /^Back to Map/ })).toBeVisible();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    expect(await sideways(page)).toBeLessThanOrEqual(0);
   });
 });

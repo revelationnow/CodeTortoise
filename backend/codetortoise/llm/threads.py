@@ -163,7 +163,8 @@ def write_threads(strong: LlmClient, ledger: Ledger | None, rid: int | None, rea
         if new is None:
             continue
         if new and _keeps(k.text, k.facts, new) and _styled(new, "explanation"):
-            k.text = new
+            if new != k.text:               # words the rules wrote are not the model's: no mark, nothing to keep
+                k.fixed, k.text, k.text_source = k.text, new, "llm"
         else:
             bad_conns += 1
     if not (bad_threads or bad_picks or bad_whole or bad_conns):

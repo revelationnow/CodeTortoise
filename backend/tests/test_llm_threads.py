@@ -43,6 +43,8 @@ def test_a_checked_answer_names_the_threads_writes_the_whole_and_rewords_connect
         ("UART init", "Init programs the baud rate.", "llm"), ("Engine step", "The engine takes a new step.", "llm")]
     assert r.whole.startswith("The change makes UART") and r.whole_source == "llm"
     assert [k.text for k in r.connections] == ["both run from `main` at start-up", "only bundled together in CL 12"]
+    assert [(k.text_source, k.fixed) for k in r.connections] == [               # the model's words, and the rules' kept beside them
+        ("llm", "both run inside `main`"), ("llm", "nothing besides arriving in CL 12")]
     prompt = llm.prompts[0]
     assert "CL 11 (a hint from its author, not the source of truth): Make send unsigned" in prompt
     assert "T1 | 2 open checks | CL 11 | S1 Send gains a length type: Sends bytes" in prompt
@@ -63,7 +65,24 @@ def test_answers_citing_unknown_ids_too_long_names_or_dropping_a_connections_fac
                                                            ("`step` in cpp", "template")]
     assert (r.whole, r.whole_source) == ("3 threads.", "template")
     assert [k.text for k in r.connections] == ["both run inside `main`", "nothing besides arriving in CL 12"]
+    assert [(k.text_source, k.fixed) for k in r.connections] == [("template", ""), ("template", "")]     # still the rules' own
     assert notes == ["thread text: 3 thread(s), the whole and 2 connection(s) failed the checks; their fixed text stays"]
+
+
+def test_each_connection_is_marked_by_its_own_rewording_and_words_it_repeats_are_the_rules_own():
+    r, ss = _reading()
+    answer = {**GOOD, "connections": [
+        {"a": "T1", "b": "T2", "text": "both start up from `main`"},             # kept: reworded
+        {"a": "T2", "b": "T3", "text": "nothing besides arriving in CL 12"}]}    # kept: as the rules wrote it
+    notes, _ = write_threads(ScriptedLlm(lambda s, u: answer), None, None, r, ss, {})
+    assert notes == [] and [k.text for k in r.connections] == ["both start up from `main`", "nothing besides arriving in CL 12"]
+    assert [(k.text_source, k.fixed) for k in r.connections] == [("llm", "both run inside `main`"), ("template", "")]
+    r, ss = _reading()
+    answer = {**GOOD, "connections": [{"a": "T1", "b": "T2", "text": "both start up from `main`"},
+                                      {"a": "T2", "b": "T3", "text": "they belong together"}]}     # drops CL 12: refused
+    notes, _ = write_threads(ScriptedLlm(lambda s, u: answer), None, None, r, ss, {})
+    assert notes == ["thread text: 1 connection(s) failed the checks; their fixed text stays"]
+    assert [(k.text_source, k.fixed) for k in r.connections] == [("llm", "both run inside `main`"), ("template", "")]
 
 
 def test_a_failed_or_refused_call_keeps_every_fixed_text_and_says_why():

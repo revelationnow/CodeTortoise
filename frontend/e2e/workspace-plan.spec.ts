@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { login, startReview, storyLink } from "./helpers";
+import { login, sideways, startReview, storyLink } from "./helpers";
 
 /** The reading plan (spec 2026-10-07-review-reading-phase2 §6): each reader's own ticks on stories and checks. */
 const FOUR = "101 102 103 104";
@@ -125,7 +125,8 @@ test.describe("phone", () => {
     await expect(page.locator(".ws-head .ws-progress")).toBeHidden();
     await page.getByRole("button", { name: "Mark as read" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}/s/${order[1]}$`));
-    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    await expect(page.getByRole("navigation", { name: "Story sections" })).toBeVisible();   // the next story has loaded: its page is what scrolls
+    expect(await sideways(page)).toBeLessThanOrEqual(0);
     await page.goto(base);
     await page.getByRole("link", { name: "Go to the overview" }).click();
     await expect(page.locator("section.ov-sec .ov-n").filter({ hasText: /^, 1 read$/ })).toHaveCount(1);   // its thread counts it

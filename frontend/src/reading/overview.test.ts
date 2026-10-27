@@ -37,6 +37,12 @@ describe("the overview's heading and start button (spec 2026-10-25-review-ui-red
     expect(startButton(r, new Set(["S2", "S1", "S3", "S9"]))).toBeNull();
     expect(startButton({ order: [], threads: [] }, new Set())).toBeNull();
   });
+
+  it("still says Start while the only stories read are ones the reading no longer has", () => {
+    // ticks outlive a re-run: a story gone from the order is no reason to say Continue
+    expect(startButton(r, new Set(["S77"]))).toEqual({ sid: "S2", label: "Start with Thread A ›" });
+    expect(startButton(r, new Set(["S77", "S3"]))).toEqual({ sid: "S2", label: "Continue ›" });
+  });
 });
 
 describe("a thread section's action and counts (§5.2)", () => {
@@ -65,6 +71,10 @@ describe("a thread section's action and counts (§5.2)", () => {
     expect(threadCounts(t, null, new Set(), {}, new Set())).toEqual({ stories: 3, open: null, read: 0 });
     expect(threadCounts(t, undefined, new Set(), {}, new Set())).toEqual({ stories: 3, open: null, read: 0 });
   });
+
+  it("counts none open, not an unknown count, on a reading whose causes are an empty list", () => {
+    expect(threadCounts(t, [], new Set(), {}, new Set())).toEqual({ stories: 3, open: 0, read: 0 });
+  });
 });
 
 describe("how the threads connect, under the later thread (§5.2)", () => {
@@ -75,9 +85,33 @@ describe("how the threads connect, under the later thread (§5.2)", () => {
                                         conn("T3", "T1", "vocabulary", true, "both use `hal_write`"),
                                         conn("T1", "T9", "caller", true, "a thread the reading no longer has")]);
     expect([...rows.entries()]).toEqual([
-      ["T2", [{ text: "With Thread A: both run inside `main`", bundled: false }]],
-      ["T4", [{ text: "With Thread B: nothing besides arriving in CL 104 — ask the author", bundled: true }]],
-      ["T3", [{ text: "With Thread A: both use `hal_write`", bundled: false }]],
+      ["T2", [{ before: "With Thread A: ", text: "both run inside `main`", after: "", ai: false, bundled: false }]],
+      ["T4", [{ before: "With Thread B: ", text: "nothing besides arriving in CL 104", after: " — ask the author", ai: false, bundled: true }]],
+      ["T3", [{ before: "With Thread A: ", text: "both use `hal_write`", after: "", ai: false, bundled: false }]],
+    ]);
+  });
+
+  it("keeps every connection under one thread, in the order given", () => {
+    const rows = sectionConnections(T, [conn("T4", "T2", "bundled", true, "nothing besides arriving in CL 104"),
+                                        conn("T1", "T3", "caller", true, "both run inside `main`"),
+                                        conn("T4", "T3", "vocabulary", true, "both use `hal_write`")]);
+    expect([...rows.entries()]).toEqual([
+      ["T4", [{ before: "With Thread B: ", text: "nothing besides arriving in CL 104", after: " — ask the author", ai: false, bundled: true },
+              { before: "With Thread C: ", text: "both use `hal_write`", after: "", ai: false, bundled: false }]],
+      ["T3", [{ before: "With Thread A: ", text: "both run inside `main`", after: "", ai: false, bundled: false }]],
+    ]);
+  });
+
+  it("marks the words of a connection the strong model reworded, and only its own words: not the thread prefix or the author note", () => {
+    const rows = sectionConnections(T, [{ ...conn("T1", "T2", "caller", true, "both start up from `main`"), text_source: "llm" },
+                                        { ...conn("T2", "T3", "bundled", true, "only together in CL 104"), text_source: "llm" },
+                                        { ...conn("T1", "T4", "caller", true, "both run inside `main`"), text_source: "template" },
+                                        conn("T3", "T4", "vocabulary", true, "both use `hal_write`")]);   // a reading stored before the source has none
+    expect([...rows.values()].flat().map((r) => [r.before, r.text, r.after, r.ai])).toEqual([
+      ["With Thread A: ", "both start up from `main`", "", true],
+      ["With Thread B: ", "only together in CL 104", " — ask the author", true],
+      ["With Thread A: ", "both run inside `main`", "", false],
+      ["With Thread C: ", "both use `hal_write`", "", false],
     ]);
   });
 

@@ -276,6 +276,11 @@ class Store:
     def clear_mark(self, rid: int, key: str) -> None:
         self._exec("DELETE FROM check_marks WHERE review_id=? AND key=?", (rid, key))
 
+    def clear_marks(self, rid: int, keys: list[str]) -> None:
+        """Reopen each of `keys` (a flow's places, together), in one transaction: all of them or none."""
+        with self._lock, self._db:
+            self._db.executemany("DELETE FROM check_marks WHERE review_id=? AND key=?", [(rid, key) for key in keys])
+
     def list_marks(self, rid: int) -> dict[str, dict]:
         return {r["key"]: r for r in self._all("SELECT key, user, at, source_line FROM check_marks WHERE review_id=? "
                                                "ORDER BY key", (rid,))}

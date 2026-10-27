@@ -28,6 +28,9 @@ export function nameParts(text: string, names: Names, findings: Iterable<string>
   return text.split("`").flatMap((seg, i) => ids(seg, names, known, i % 2 ? (code) => ({ code }) : (t) => ({ text: t })));
 }
 
+/** A line without its backticks: for a `title` or an accessible name, where code style cannot show. */
+export const bare = (s: string) => s.replaceAll("`", "");
+
 /** Text with node ids as their names and backticks kept: for a link's text (no links inside links), a `title` or a
  * panel tab's label (spec 2026-10-16 §4.7). */
 export function plainNames(text: string, names: Names): string {

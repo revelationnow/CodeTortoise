@@ -6,7 +6,7 @@
 
 **Architecture:** The facts stage (`facts/aliasflow.py`) gives every field a stable id (`field_id`) and a line-free label (`record_name`) instead of libclang's offset-bearing USR; everything downstream keys on `field:<id>` and needs no change. The shared-sink count (`sinks.py`) and the "Unchanged reader" checks (`reading.py`) ignore edges whose confidence is `heuristic`; the reading's Coverage gains one line per written field naming how many functions use its name only.
 
-**Tech Stack:** Python 3, libclang (clang.cindex), pydantic v2, pytest. Run Python as `/media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python` with `PYTHONPATH=$PWD` from `.worktrees/union-fields/backend` (never `uv`).
+**Tech Stack:** Python 3, libclang (clang.cindex), pydantic v2, pytest. Run Python as `../../../backend/.venv/bin/python` with `PYTHONPATH=$PWD` from `.worktrees/union-fields/backend` (never `uv`).
 
 **Spec:** `docs/superpowers/specs/2026-10-10-union-fields-design.md`
 
@@ -141,7 +141,7 @@ def test_a_header_shift_above_a_union_leaves_its_untouched_fields_alone(tmp_path
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cd .worktrees/union-fields/backend && PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_aliasflow.py tests/test_detectors.py -k "header or nameless" 2>&1 | tail -15`
+Run: `cd .worktrees/union-fields/backend && PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_aliasflow.py tests/test_detectors.py -k "header or nameless" 2>&1 | tail -15`
 Expected: 3 failed — the id test on the first set comparison (ids carry `@a.h`-style offsets that differ), the nameless test on `c:local.c@<n>@F@h@S@local.c@<n>@FI@s != c:local.c@S~s,t@FI@s`, the detector test on `moved` listing `get`/`set` edges as added and removed.
 
 - [ ] **Step 3: Implement `_holder`, `record_id`, `field_id` and the new `record_name`**
@@ -258,12 +258,12 @@ Run `grep -n "get_usr()" backend/codetortoise/facts/aliasflow.py` and confirm no
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_aliasflow.py tests/test_detectors.py tests/test_clang_extractor.py 2>&1 | tail -3`
+Run: `PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_aliasflow.py tests/test_detectors.py tests/test_clang_extractor.py 2>&1 | tail -3`
 Expected: all pass (the existing `test_anonymous_records_are_named_by_typedef_member_or_place` still holds: `outer.frame`, `outer.frame.inner`, `u.half`, and `count` keeps its place label).
 
 - [ ] **Step 6: Run the backend suite and ruff**
 
-Run: `PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest -q -p no:cacheprovider 2>&1 | tail -2 && /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/ruff check codetortoise tests`
+Run: `PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest -q -p no:cacheprovider 2>&1 | tail -2 && ../../../backend/.venv/bin/ruff check codetortoise tests`
 Expected: all pass; `All checks passed!`. A fixture expectation that quotes an old offset-bearing USR or an `anonymous struct (…)` label for an array/pointer/anonymous-member field is updated to the new id/label and noted in the commit message.
 
 - [ ] **Step 7: Commit**
@@ -314,7 +314,7 @@ def test_name_matches_never_count_toward_a_sink():
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_sinks.py 2>&1 | tail -5`
+Run: `PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_sinks.py 2>&1 | tail -5`
 Expected: FAIL in `test_name_matches_never_count_toward_a_sink` — the first assert gets a threshold sink with `users=41`.
 
 - [ ] **Step 3: Implement**
@@ -340,12 +340,12 @@ In `docs/superpowers/specs/2026-10-09-shared-sinks-design.md` §3.1, change the 
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_sinks.py tests/test_impact.py tests/test_detectors.py tests/test_reading.py 2>&1 | tail -3`
+Run: `PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_sinks.py tests/test_impact.py tests/test_detectors.py tests/test_reading.py 2>&1 | tail -3`
 Expected: all pass.
 
 - [ ] **Step 5: Run the backend suite and ruff, then commit**
 
-Run: `PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest -q -p no:cacheprovider 2>&1 | tail -2 && /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/ruff check codetortoise tests`
+Run: `PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest -q -p no:cacheprovider 2>&1 | tail -2 && ../../../backend/.venv/bin/ruff check codetortoise tests`
 Expected: all pass; `All checks passed!`.
 
 ```bash
@@ -408,7 +408,7 @@ def test_a_shared_sinks_name_matches_add_no_coverage_line():
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_reading.py -k "name_only or name_matches" 2>&1 | tail -8`
+Run: `PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_reading.py -k "name_only or name_matches" 2>&1 | tail -8`
 Expected: FAIL in the first test — `open_` also holds reader checks for `peek` and `poke`. (The sink test may already pass; it pins that the new line respects sinks.)
 
 - [ ] **Step 3: Implement**
@@ -451,16 +451,16 @@ Check that `_n(2, 'function')` gives `2 functions` and `_n(1, 'function')` gives
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_reading.py 2>&1 | tail -3`
+Run: `PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_reading.py 2>&1 | tail -3`
 Expected: all pass, including `test_coverage_names_parse_problems_caps_files_outside_compile_databases_drift_and_missing_tests` unchanged (its fixture has no heuristic edges).
 
 - [ ] **Step 5: Run the backend suite, ruff and the e2e reading specs, then commit**
 
-Run: `PYTHONPATH=$PWD /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest -q -p no:cacheprovider 2>&1 | tail -2 && /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/ruff check codetortoise tests`
+Run: `PYTHONPATH=$PWD ../../../backend/.venv/bin/python -m pytest -q -p no:cacheprovider 2>&1 | tail -2 && ../../../backend/.venv/bin/ruff check codetortoise tests`
 Expected: all pass; `All checks passed!`.
 
 Then from `.worktrees/union-fields/frontend` (node_modules symlinked; build first):
-`npm run build >/dev/null && TMPDIR=/media/anoop/ssd_1/Work/CodeTortoise/.pwtmp TORTOISE_CMD="env PYTHONPATH=/media/anoop/ssd_1/Work/CodeTortoise/.worktrees/union-fields/backend /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m codetortoise.cli" npx playwright test --reporter=line 2>&1 | tail -3`
+`npm run build >/dev/null && TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../../../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test --reporter=line 2>&1 | tail -3`
 Expected: all pass (the fixture's check counts may change only where a check came from a name match; update such an expectation and say so in the commit message).
 
 ```bash

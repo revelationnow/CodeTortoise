@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { startReview } from "./helpers";
+import { LARGE, startReview } from "./helpers";
 
 /** Addresses from before the workspace still land (spec 2026-10-04-review-workspace §2.3). */
 
@@ -34,7 +34,7 @@ test.describe("desktop", () => {
 });
 
 test.describe("a large change", () => {
-  test.use({ baseURL: "http://127.0.0.1:8796", viewport: { width: 1440, height: 900 } });
+  test.use({ baseURL: LARGE, viewport: { width: 1440, height: 900 } });
 
   test("a cited node outside every story opens the part holding it; one inside a story opens that story", async ({ page }) => {
     const base = await startReview(page, "201 202");

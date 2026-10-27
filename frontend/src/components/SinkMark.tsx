@@ -1,5 +1,5 @@
 import { useContext, useState } from "react";
-import { api } from "../api";
+import { api, errorText } from "../api";
 import { useMe } from "../App";
 import { WsContext } from "../workspace/context";
 
@@ -11,14 +11,14 @@ export default function SinkMark({ label, on = false, onDone }: { label: string;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   if (!me?.is_owner) return null;
-  const fail = (e: unknown) => setError(String((e as Error).message ?? e));
+  const fail = (what: string) => (e: unknown) => setError(errorText(e, what));     // `what`: said when the server says nothing
   const act = () => (on ? api.unmarkSink(label) : api.markSink(label))
-    .then(() => { setDone(true); onDone?.(); }, fail);
+    .then(() => { setDone(true); onDone?.(); }, fail(`The field could not be ${on ? "unmarked" : "marked"} as a sink.`));
   const rerun = () => {
     if (!ws) return;
     setBusy(true);
     setError(null);
-    api.rerun(ws.data.id).then(ws.data.loadDetail).catch(fail).finally(() => setBusy(false));
+    api.rerun(ws.data.id).then(ws.data.loadDetail).catch(fail("The server did not accept the re-run.")).finally(() => setBusy(false));
   };
   const warn = error && <span className="banner warn">{error}</span>;
   if (done)

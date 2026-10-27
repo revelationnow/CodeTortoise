@@ -1,9 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { api, ApiError, type AiJob, type AiKind, type AiView } from "../api";
+import { api, ApiError, type AiJob, type AiKind, type AiView, errorText } from "../api";
 import { finished } from "./aiState";
 import { pollLoop } from "./poll";
 
-/** The review's AI state for every ✦ button, the @ menu, tortoise replies and the AI pill (spec 2026-10-03 §6). */
+/** The review's AI state for every Explain ▾ menu, the @ menu, tortoise replies and the AI pill (spec 2026-10-03 §6). */
 export interface Ai {
   reviewId: number;
   view: AiView | null;
@@ -49,7 +49,7 @@ export function useAiState(reviewId: number, enabled: boolean, people: string[],
     try {
       await api.explain(reviewId, kind, target);
     } catch (e) {
-      const error = e instanceof Error ? e.message : String(e);
+      const error = errorText(e, "The AI call could not be started.");
       setAsked((a) => ({ ...a, [key]: { error, refused: e instanceof ApiError && e.status === 429 } }));
     }
     await refresh();

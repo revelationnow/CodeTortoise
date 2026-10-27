@@ -457,6 +457,50 @@ def test_the_reading_endpoint_serves_threads_checks_and_marks_and_the_story_its_
     assert {k["kind"] for k in s1["reading"]["checks"]} >= {"result", "reader"}
 
 
+def test_a_reading_stored_with_the_old_intro_is_served_with_the_new_one_and_the_strong_models_stays(env):
+    svc, app, _ = env
+    owner, rid = _review(app)
+    old = svc.store.get_blob(rid, "reading")
+    t = old["threads"][0]
+    assert t["intro_source"] == "template"
+    t["intro"] = ("2 stories in `driver/` and `hal/` across CL 101 and CL 102. 5 checks open: Confirm, Caller not updated, "
+                  "Result handled the old way and 1 more. Starts with “a story”.")
+    svc.store.put_blob(rid, "reading", old)
+    intro = owner.get(f"/api/reviews/{rid}/reading").json()["threads"][0]["intro"]
+    assert intro == ("2 stories in `driver/` and `hal/` across CL 101 and CL 102. Checks open: Caller not updated, "
+                     "Result handled the old way, Unchanged reader. Starts with “`hal_write`'s signature changed; `uart_init` "
+                     "calls it”.")
+    t["intro"], t["intro_source"] = "Mine. 5 checks open.", "llm"
+    svc.store.put_blob(rid, "reading", old)
+    assert owner.get(f"/api/reviews/{rid}/reading").json()["threads"][0]["intro"] == "Mine. 5 checks open."
+
+
+def test_a_reading_stored_with_the_old_lead_is_served_without_the_thread_count_and_the_strong_models_stays(env):
+    svc, app, _ = env
+    owner = login(app, "owner")
+    rid = owner.post("/api/reviews", json={"cls": [101, 102, 103, 104]}).json()["id"]
+    lead = "A and B: both run inside `main`; B and C: nothing besides arriving in CL 104."
+    assert owner.get(f"/api/reviews/{rid}/reading").json()["whole"] == lead
+    old = svc.store.get_blob(rid, "reading")
+    old["whole"] = "3 threads: " + lead                                           # stored when the lead repeated the heading
+    svc.store.put_blob(rid, "reading", old)
+    assert owner.get(f"/api/reviews/{rid}/reading").json()["whole"] == lead
+    old["whole"], old["whole_source"] = "The change reworks the UART driver.", "llm"
+    svc.store.put_blob(rid, "reading", old)
+    assert owner.get(f"/api/reviews/{rid}/reading").json()["whole"] == "The change reworks the UART driver."
+
+
+def test_the_lead_of_a_review_of_one_thread_is_empty_however_it_was_stored(env):
+    svc, app, _ = env
+    owner, rid = _review(app)
+    r = owner.get(f"/api/reviews/{rid}/reading").json()
+    assert len(r["threads"]) == 1 and r["whole"] == "" and r["whole_source"] == "template"
+    old = svc.store.get_blob(rid, "reading")
+    old["whole"] = "One thread: `hal_write` in hal."
+    svc.store.put_blob(rid, "reading", old)
+    assert owner.get(f"/api/reviews/{rid}/reading").json()["whole"] == ""
+
+
 def test_any_viewer_marks_a_check_and_a_rerun_keeps_drops_or_reopens_it(env):
     from urllib.parse import quote
     svc, app, _ = env
@@ -473,7 +517,8 @@ def test_any_viewer_marks_a_check_and_a_rerun_keeps_drops_or_reopens_it(env):
     assert r["marks"][caller["key"]]["user"] == "bob" and not r["marks"][caller["key"]]["changed"]
     t1 = r["threads"][0]
     assert t1["open_checks"] == len(checks) - 2
-    assert f"{len(checks) - 2} checks open" in t1["intro"] and r["route"][0]["reason"].startswith(f"{len(checks) - 2} ")
+    assert " Checks open: Result handled the old way. Starts with " in t1["intro"]       # not the marked kinds, nor Confirm
+    assert r["route"][0]["reason"].startswith(f"{len(checks) - 2} ")
     svc.store.set_mark(rid, reader["key"], "bob", "an older line")             # the line changed since it was marked
     svc.store.set_mark(rid, "caller|gone.c|f|g", "bob", "x")                   # a check the re-run will not find
     owner.post(f"/api/reviews/{rid}/rerun")
@@ -661,6 +706,32 @@ def test_checks_name_the_changed_function_that_raised_them_and_a_reading_stored_
     assert r.status_code == 200 and all(k["related"] is None for k in r.json()["checks"])
 
 
+def test_a_story_stored_before_checks_named_their_change_is_served_whole_and_its_checks_read_as_stored_before(env):
+    svc, app, _ = env
+    owner, rid = _review(app)
+    for sid in ("S1", "S2"):
+        old = svc.store.get_blob(rid, f"story_reading:{sid}")      # served as stored, so a missing `related` stays missing
+        assert old["checks"] and any(k["related"] for k in old["checks"])   # a row that has one to lose
+        for k in old["checks"]:
+            del k["related"]
+        svc.store.put_blob(rid, f"story_reading:{sid}", old)
+        r = owner.get(f"/api/reviews/{rid}/stories/{sid}")
+        assert r.status_code == 200
+        reading = r.json()["reading"]
+        assert [k["key"] for k in reading["checks"]] == [k["key"] for k in old["checks"]]
+        assert all(k.get("related") is None for k in reading["checks"])      # absent or null: the browser reads both alike
+
+
+def test_a_fresh_reading_sends_related_null_on_a_row_with_no_changed_function_behind_it(env):
+    svc, app, _ = env
+    owner = login(app, "owner")
+    rid = owner.post("/api/reviews", json={"cls": [101, 102, 103, 104]}).json()["id"]    # CL 104 joins the rest by its bundle
+    checks = owner.get(f"/api/reviews/{rid}/reading").json()["checks"]
+    (ask,) = [k for k in checks if k["kind"] == "ask"]
+    assert "related" in ask and ask["related"] is None
+    assert all(k["related"] for k in checks if k["kind"] != "ask")           # every other row names the function that raised it
+
+
 def test_all_look_fine_marks_every_place_of_a_cause_in_one_request_or_none(env):
     svc, app, _ = env
     owner, rid = _review(app)
@@ -674,6 +745,33 @@ def test_all_look_fine_marks_every_place_of_a_cause_in_one_request_or_none(env):
     assert [m["user"] for m in out["marked"]] == ["bob", "bob"]
     assert set(owner.get(f"/api/reviews/{rid}/reading").json()["marks"]) == set(keys)
     assert set(bob.get(f"/api/reviews/{rid}/ticks").json()["checks"]) >= set(keys)
+
+
+def test_reopen_unmarks_every_place_in_one_request_or_none(env):
+    svc, app, _ = env
+    owner, rid = _review(app)
+    bob = login(app, "bob")
+    keys = [k["key"] for k in owner.get(f"/api/reviews/{rid}/reading").json()["checks"]][:3]
+
+    def marked() -> set[str]:
+        return set(owner.get(f"/api/reviews/{rid}/reading").json()["marks"])
+
+    def unmark(who, to_rid, ks):
+        return who.post(f"/api/reviews/{to_rid}/checks/unmarks", json={"keys": ks})
+
+    owner.post(f"/api/reviews/{rid}/checks/marks", json={"keys": keys})
+    assert marked() == set(keys)
+    assert unmark(TestClient(app), rid, keys).status_code == 401
+    refused = unmark(bob, rid, [keys[0], keys[1], "nope"])
+    assert refused.status_code == 404 and refused.json()["detail"] == "That check no longer exists after the re-run."
+    assert marked() == set(keys)                                          # one key unknown: none is cleared
+    assert unmark(bob, rid, [keys[0], keys[1], keys[0]]).json() == {"ok": True}
+    assert marked() == {keys[2]}                                          # anyone may reopen; a key given twice is no trouble
+    assert unmark(bob, rid, [keys[0]]).status_code == 200                # a place already open is no error
+    assert unmark(bob, rid, []).json() == {"ok": True}
+    assert unmark(bob, rid + 1, keys).status_code == 404                  # no such review
+    assert marked() == {keys[2]}
+    assert set(owner.get(f"/api/reviews/{rid}/ticks").json()["checks"]) >= set(keys)    # what the owner has read stays read
 
 
 def test_all_look_fine_reads_the_reading_once_and_marks_a_repeated_key_once(env, monkeypatch):

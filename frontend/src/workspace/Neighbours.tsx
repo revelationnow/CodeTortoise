@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type Neighbour, type Neighbours as Model } from "../api";
+import { api, errorText, type Neighbour, type Neighbours as Model } from "../api";
 import { keys, load, save } from "../board/prefs";
 import FoldButton from "../components/FoldButton";
 import { useWs } from "./context";
@@ -24,7 +24,7 @@ export default function Neighbours({ nid }: { nid: string }) {
     let live = true;
     setError(null);
     api.neighbours(d.id, nid, LIMIT, more).then((m) => { if (live) setModel(m); })
-      .catch((e) => { if (live) setError(String(e.message ?? e)); });
+      .catch((e) => { if (live) setError(errorText(e, "The callers and callees could not be loaded.")); });
     return () => { live = false; };
   }, [d.id, nid, more, tick]);
   if (error) return <div className="bd-note error">{error} <button className="bd-ibtn" onClick={() => setTick((t) => t + 1)}>Retry</button></div>;
@@ -106,7 +106,8 @@ function CallTree({ rid, root }: { rid: number; root: Model }) {
     if (!Object.keys(more).length) fetched.set(k, { status: "loading" });
     redraw((t) => t + 1);
     api.neighbours(rid, id, LIMIT, more).then((m) => fetched.set(k, { status: "ok", model: m }))
-      .catch((e) => fetched.set(k, { status: "error", error: String(e.message ?? e) })).finally(() => redraw((t) => t + 1));
+      .catch((e) => fetched.set(k, { status: "error", error: errorText(e, "The callers and callees could not be loaded.") }))
+      .finally(() => redraw((t) => t + 1));
   };
   const toggle = (key: string, id: string) => {
     const next = new Set(open);

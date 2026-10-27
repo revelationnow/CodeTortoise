@@ -4,6 +4,7 @@ import type { Story } from "../board/types";
 import { descriptionParts, plainTitle } from "../lib/markdown";
 import { tidy } from "../lib/tidy";
 import { href, type Place } from "./address";
+import { bare } from "./names";
 
 /** `title` is the whole text when `label` is cut short, for hovering. */
 export interface Crumb { label: string; to: string | null; handle?: string; title?: string }
@@ -22,7 +23,7 @@ export const INDEX_LABEL = { cls: "CLs", files: "Files", findings: "Findings", m
 
 /** `text` without backticks, cut at a word to fit `n` characters with its ellipsis. */
 export function short(text: string, n = 46): string {
-  const t = text.replace(/`/g, "").trim();
+  const t = bare(text).trim();
   if (t.length <= n) return t;
   const cut = t.slice(0, n).lastIndexOf(" ");
   return `${t.slice(0, cut > 0 ? cut : n - 1)}…`;
@@ -31,7 +32,7 @@ export function short(text: string, n = 46): string {
 /** A crumb's label cut to fit, carrying the whole text when it was cut. */
 function named(text: string): { label: string; title?: string } {
   const label = short(text);
-  return label.endsWith("…") ? { label, title: text.replace(/`/g, "").trim() } : { label };
+  return label.endsWith("…") ? { label, title: bare(text).trim() } : { label };
 }
 
 const missing = (): Crumb => ({ label: "Not found", to: null });
