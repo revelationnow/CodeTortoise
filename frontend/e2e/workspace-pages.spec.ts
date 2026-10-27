@@ -103,6 +103,15 @@ test.describe("desktop", () => {
     expect(await fold.ariaSnapshot()).not.toContain("▾");
   });
 
+  test("a fold's arrow has a plain declaration before its alt-text one, for browsers that drop the alt-text one whole", async ({ page }) => {
+    await page.goto("/login");                                                 // the stylesheet is the bundle's, on every page
+    // the browser keeps only the declaration it understands, so this reads the stylesheets as they were shipped (minified)
+    const sheets = await page.evaluate(() => Promise.all([...document.styleSheets].map((s) => (s.href ? fetch(s.href).then((r) => r.text()) : ""))));
+    const css = sheets.join("\n");
+    expect(css, "closed: ▸").toMatch(/content:\s*"▸"\s*;\s*content:\s*"▸"\s*\/\s*""/);
+    expect(css, "open: ▾").toMatch(/content:\s*"▾"\s*;\s*content:\s*"▾"\s*\/\s*""/);
+  });
+
   test("a page's sections keep a gap: the Files index's directories, the old whole-change page's summary box", async ({ page }) => {
     const base = await startReview(page), rid = base.split("/")[2];
     await page.goto(`${base}/i/files`);

@@ -658,6 +658,7 @@ a.ws-chip { text-decoration: none; }
 
 /* the outline (spec 2026-10-16-outline-and-causes §1.2) */
 .ws-outline-switch { display: flex; margin: 8px 14px 4px; }
+.ws-rail > .ws-fold + .ws-outline-switch { margin-right: 44px; }   /* beside the fold button (28px wide, 8px from the edge), not under it */
 .ws-outline-switch .bd-ibtn { flex: 1; }
 .ws-one { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ws-pad { padding: 4px 14px; }
@@ -734,10 +735,10 @@ a.ws-chip { text-decoration: none; }
   border: 2px solid var(--surface); }
 .rm-menu { position: fixed; right: 16px; z-index: 60; min-width: 250px; margin: 0; padding: 4px 0; list-style: none; overflow-y: auto;
   background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 18px rgb(0 0 0 / .14); }
-.rm-menu [role="menuitem"], .rm-menu [role="menuitemcheckbox"] { display: flex; align-items: center; gap: 8px; width: 100%; border: 0;
+/* the items are menuitem and menuitemcheckbox: one look for both */
+.rm-menu [role^="menuitem"] { display: flex; align-items: center; gap: 8px; width: 100%; border: 0;
   border-radius: 0; background: none; padding: 6px 14px; text-align: left; white-space: nowrap; }
-.rm-menu [role="menuitem"]:hover, .rm-menu [role="menuitem"]:focus-visible,
-.rm-menu [role="menuitemcheckbox"]:hover, .rm-menu [role="menuitemcheckbox"]:focus-visible { background: var(--gap-bg); }
+.rm-menu [role^="menuitem"]:hover, .rm-menu [role^="menuitem"]:focus-visible { background: var(--gap-bg); }
 .rm-amber { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
 /* a checkbox item's ✓ sits at the right with its room kept when off, so the label does not move as it is switched */
 .rm-check { flex: none; margin-left: auto; min-width: 1em; padding-left: 8px; text-align: right; font-weight: 600; }
@@ -844,13 +845,14 @@ a.ws-chip { text-decoration: none; }
 .ov3 .ov-links li.bundled { color: var(--accent); }
 .ov3 .ov-links .ai-text { display: inline-block; }   /* the model's wording of a connection: its edge runs beside every line when it wraps */
 /* Build impact, Coverage and Discussion folded (§5.3): the summary is the heading; its arrow is decoration (the empty text
-   alternative after "/" keeps screen readers from reading it) */
+   alternative after "/" keeps screen readers from reading it; a browser without it drops that declaration whole, so the plain
+   one comes first and keeps the arrow) */
 .ov3 .ov-fold { border-top: 1px solid var(--line); }
 .ov3 .ov-fold[open] { padding-bottom: 10px; }
 .ov3 .ov-fold > summary { display: flex; align-items: center; gap: 8px; padding: 10px 0; cursor: pointer; list-style: none; }
 .ov3 .ov-fold > summary::-webkit-details-marker { display: none; }
-.ov3 .ov-fold > summary::after { content: "▸" / ""; margin-left: auto; color: var(--muted); }
-.ov3 .ov-fold[open] > summary::after { content: "▾" / ""; }
+.ov3 .ov-fold > summary::after { content: "▸"; content: "▸" / ""; margin-left: auto; color: var(--muted); }
+.ov3 .ov-fold[open] > summary::after { content: "▾"; content: "▾" / ""; }
 .ov3 .ov-fold > summary h2 { margin: 0; }
 /* the header wraps under 640px of the overview's own width: the counts go under the name, with their words */
 @container (max-width: 640px) {

@@ -127,6 +127,40 @@ test("Single-key shortcuts is a checkbox item after the help, on at first; a pic
   await expect(item(menu), "the menu shows what is stored each time it opens").toHaveAttribute("aria-checked", "false");
 });
 
+test("the review menu's items look alike, plain or checkbox: a full-width row, tinted under the pointer and on the keyboard's focus only", async ({ page }) => {
+  await startReview(page);
+  const menu = await reviewMenu(page), items = menu.locator('[role="menuitem"],[role="menuitemcheckbox"]');
+  await expect(items).toHaveCount(4);                                       // Stage notes, How to read this page, Single-key shortcuts (the checkbox), Re-run
+  const clear = "rgba(0, 0, 0, 0)", tint = await page.evaluate(() => {      // --gap-bg as the browser resolves it
+    const probe = document.createElement("div");
+    probe.style.background = "var(--gap-bg)";
+    document.body.append(probe);
+    const c = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return c;
+  });
+  expect(tint, "the tint is a colour").not.toBe(clear);
+  for (let i = 0; i < 4; i++) {
+    const item = items.nth(i);
+    expect(await item.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { display: s.display, align: s.alignItems, gap: s.columnGap, border: s.borderTopWidth, radius: s.borderTopLeftRadius,
+               padding: `${s.paddingTop} ${s.paddingRight} ${s.paddingBottom} ${s.paddingLeft}`, text: s.textAlign, wrap: s.whiteSpace,
+               fills: Math.abs(el.getBoundingClientRect().width - el.parentElement!.getBoundingClientRect().width) < 1 };
+    }), `item ${i}`).toEqual({ display: "flex", align: "center", gap: "8px", border: "0px", radius: "0px", padding: "6px 14px 6px 14px",
+                               text: "left", wrap: "nowrap", fills: true });
+    await item.hover();
+    await expect(item, `item ${i} under the pointer`).toHaveCSS("background-color", tint);
+  }
+  await page.mouse.move(2, 2);                                              // off the menu: only the focus tints now
+  for (let i = 1; i < 4; i++) {
+    await page.keyboard.press("ArrowDown");
+    await expect(items.nth(i)).toBeFocused();
+    await expect(items.nth(i), `item ${i} with the keyboard's focus`).toHaveCSS("background-color", tint);
+    await expect(items.nth(i - 1), `item ${i - 1} once the focus has left it`).toHaveCSS("background-color", clear);
+  }
+});
+
 test("a press inside a code comment thread, which keeps its presses to itself, still closes the menu", async ({ page }) => {
   const thread = await openThread(page, await startReview(page));
   const menu = await reviewMenu(page);

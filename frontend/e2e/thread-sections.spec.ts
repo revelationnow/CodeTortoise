@@ -287,6 +287,28 @@ test.describe("desktop", () => {
     expect(await spill()).toBeLessThanOrEqual(0.5);
   });
 
+  test("the outline's fold button sits beside the Stories | Checks switch, not on it, from the default width down to the narrowest", async ({ page }) => {
+    await startReview(page);
+    const rail = page.locator("aside.ws-outline"), fold = rail.locator(":scope > .ws-fold"), seg = rail.locator(".ws-outline-switch");
+    await expect(seg).toBeVisible();
+    const apart = async (width: number) => {
+      await expect.poll(async () => (await rail.boundingBox())!.width).toBe(width);
+      const [r, f, s] = await Promise.all([rail, fold, seg].map(async (l) => (await l.boundingBox())!));
+      const within = (b: typeof r) => b.x >= r.x && b.y >= r.y && b.x + b.width <= r.x + r.width && b.y + b.height <= r.y + r.height;
+      const meet = f.x < s.x + s.width && s.x < f.x + f.width && f.y < s.y + s.height && s.y < f.y + f.height;
+      expect(meet, `${width}px: the fold button (x ${f.x}–${f.x + f.width}) is clear of the switch (x ${s.x}–${s.x + s.width})`).toBe(false);
+      expect(within(f), `${width}px: the fold button is inside the rail`).toBe(true);
+      expect(within(s), `${width}px: the switch is inside the rail`).toBe(true);
+      expect(await seg.locator("button").evaluateAll((bs) => bs.map((b) => b.scrollWidth <= b.clientWidth)), `${width}px: both labels fit`)
+        .toEqual([true, true]);
+    };
+    await apart(280);                                                               // the default
+    await page.evaluate(() => localStorage.setItem("ct.ws.railW", "200"));          // dragged to its narrowest
+    await page.reload();
+    await expect(seg).toBeVisible();
+    await apart(200);
+  });
+
   test("keyboard focus never hides under a pinned bar: Tab and Shift+Tab through the whole outline of a short window, the Tests rows and the Index too", async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
