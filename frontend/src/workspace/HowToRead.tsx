@@ -4,7 +4,7 @@
 export default function HowToRead({ top }: { top: number }) {
   return (
     <div className="ws-help-pop rm-panel" role="dialog" aria-label="How to read this page" tabIndex={-1}
-         style={{ top, maxHeight: `calc(100vh - ${top + 16}px)` }}>
+         style={{ top, maxHeight: `calc(100dvh - ${top + 16}px)` }}>
       <h2>How to read this page</h2>
       <ul>
         <li><b>The outline</b> on the left lists the change's threads — stories joined by calls or shared data, lettered

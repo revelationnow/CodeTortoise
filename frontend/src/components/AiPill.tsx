@@ -52,7 +52,7 @@ export function Usage({ onClose, top }: { onClose: () => void; top: number }) {
   const counts = (m: Record<string, number>) => Object.entries(m).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k, n]) => `${k} ${n}`).join(" · ") || "none";
   return (
     <div className="ai-usage" role="dialog" aria-label="AI usage" tabIndex={-1} ref={box}
-         style={{ top, maxHeight: `min(70vh, calc(100vh - ${top + 16}px))` }}>
+         style={{ top, maxHeight: `min(70vh, calc(100dvh - ${top + 16}px))` }}>
       <div className="row"><b>AI calls</b><span className="sp" /><button className="link small" onClick={back}>Close</button></div>
       <p>This review: <b>{v.used}</b> of {v.budget}. You today: <b>{v.me_today}</b> of {v.me_limit}.</p>
       {v.strong && v.tier1 && <p>Strong model ({v.strong}): <b>{v.tier1.used}</b> of {v.tier1.budget} calls for stories and

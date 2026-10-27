@@ -320,6 +320,10 @@ test.describe("a tablet", () => {
 /** A panel under the header ends inside the window, and scrolled to its end it shows the end of what it holds there. */
 async function fitsTheWindow(panel: Locator, what: string) {
   await expect(panel).toBeVisible();
+  // dvh is the visible window, which a phone's browser bars shrink; vh is the window with them away. Headless Chromium has no bars to tell
+  // the two apart, so the measures below cannot show the difference: the unit is read from the style instead.
+  expect(await panel.evaluate((el) => (el as HTMLElement).style.maxHeight), `the ${what} panel's height follows the visible window`)
+    .toContain("dvh");
   const m = await panel.evaluate((el) => {
     el.scrollTop = el.scrollHeight;
     return { bottom: el.getBoundingClientRect().bottom, last: el.lastElementChild!.getBoundingClientRect().bottom,

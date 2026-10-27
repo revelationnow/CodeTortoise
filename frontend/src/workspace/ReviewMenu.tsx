@@ -36,7 +36,7 @@ export default function ReviewMenu({ under }: { under: () => number }) {
     ai: v?.llm ? { used: v.used, budget: v.budget } : null, reading: !!d.reading, keys: keysOn,
     owner: !!me?.is_owner, ready: d.ready, strong: !!v?.strong };
   const items = menuItems(state), why = menuAttention(state);
-  const at = { top, maxHeight: `calc(100vh - ${top + 16}px)` };   // the menu or a panel scrolls inside itself rather than run past 16px above the window's bottom
+  const at = { top, maxHeight: `calc(100dvh - ${top + 16}px)` };   // the menu or a panel scrolls inside itself rather than run past 16px above the window's bottom; dvh is the window a phone's browser bars leave
   useEffect(() => {                           // an open panel takes focus, follows the header when the window resizes, and closes on Escape or a press outside
     if (!panel) return;
     const focused = document.activeElement;  // one that opens late (a failed re-run) leaves focus where the reader has gone on to
