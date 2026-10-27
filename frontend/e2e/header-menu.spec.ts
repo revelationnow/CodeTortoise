@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { openAiUsage, railReady, reviewMenu, startReview } from "./helpers";
+import { openAiUsage, openFold, railReady, reviewMenu, startReview } from "./helpers";
 
 const AI = "http://127.0.0.1:8798";      // e2e/serve-ai.sh: CodeTortoise with the fake model in e2e/fake_llm.py
 
@@ -152,9 +152,47 @@ test("a re-run that fails says so in a panel under the header, and nothing throw
   const failed = page.getByRole("dialog", { name: "Re-run failed" });
   await expect(failed).toContainText("The runner is not accepting reviews");
   expect(thrown, "the rejected request is handled, not thrown").toEqual([]);
+  await expect(failed, "with focus on ⋯, the panel takes it").toBeFocused();
   await page.keyboard.press("Escape");
   await expect(failed).toHaveCount(0);
   await expect(page.getByRole("button", { name: /^Review menu/ })).toBeFocused();
+});
+
+test("a re-run the server refuses without saying why still says something", async ({ page }) => {
+  await startReview(page);
+  // an error with no words in it: what the page has to go on when the status line is empty too, as over HTTP/2
+  await page.route("**/api/reviews/*/rerun*", (route) => route.fulfill({ status: 500, json: { detail: "" } }));
+  await (await reviewMenu(page)).getByRole("menuitem", { name: "Re-run", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Re-run failed" }).locator(".banner.error")).toHaveText("The server did not accept the re-run.");
+});
+
+test("a re-run that fails late shows its panel but takes focus only from ⋯ or the page, not from where the reader has gone", async ({ page }) => {
+  const base = await startReview(page);
+  await page.goto(base);                                                   // the overview: its Discussion has a comment box
+  const box = (await openFold(page, "Discussion")).getByPlaceholder("Leave a comment…");
+  const failed = page.getByRole("dialog", { name: "Re-run failed" });
+  /** Asks for a re-run whose refusal is held back, runs `meanwhile`, then lets the refusal in. */
+  const rerunWhile = async (meanwhile: () => Promise<unknown>) => {
+    let release = () => {}, entered = () => {};
+    const gate = new Promise<void>((r) => { release = r; }), held = new Promise<void>((r) => { entered = r; });
+    await page.route("**/api/reviews/*/rerun*", async (route) => {
+      entered();
+      await gate;
+      await route.fulfill({ status: 500, json: { detail: "The runner is not accepting reviews" } });
+    });
+    await (await reviewMenu(page)).getByRole("menuitem", { name: "Re-run", exact: true }).click();
+    await held;
+    await meanwhile();
+    release();
+    await expect(failed).toContainText("The runner is not accepting reviews");
+    await page.waitForTimeout(300);                                        // focus wrongly taken would have been taken by now
+  };
+  await rerunWhile(() => box.focus());                                     // the reader has gone on to write…
+  await expect(box, "…and keeps focus; the panel shows all the same").toBeFocused();
+  await page.keyboard.press("Escape");                                     // which closes the panel, as ever
+  await expect(failed).toHaveCount(0);
+  await rerunWhile(() => page.locator(".ov3 h2").first().click());         // …or has pressed the page's text, which leaves focus on the body
+  await expect(failed, "focus that fell to the page goes to the panel").toBeFocused();
 });
 
 test("the menu hangs 16px in from the screen's edge even when the header ends short of it, as with a wide scrollbar", async ({ page }) => {

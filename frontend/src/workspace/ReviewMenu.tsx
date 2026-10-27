@@ -15,7 +15,8 @@ const FRESH = "Ask the strong model for new stories instead of reusing the ones 
  * shortcuts switch and the owner's re-runs, with an amber dot when the workspace drifted or a stage failed. The switch is a
  * checkbox item kept in this browser (`shortcuts.ts`): a pick flips it, closes the menu and gives focus back to ⋯. The menu
  * and its panels are fixed under the header's right end (`under()`), since the header itself scrolls; a re-run the server
- * refuses is told in a panel of its own. */
+ * refuses is told in a panel of its own, which takes focus only from ⋯ or the page (the answer may come when the reader
+ * is writing a comment). */
 export default function ReviewMenu({ under }: { under: () => number }) {
   const ws = useWs(), d = ws.data, me = useMe(), ai = useAi();
   const [open, setOpen] = useState(false);
@@ -37,7 +38,8 @@ export default function ReviewMenu({ under }: { under: () => number }) {
   const at = { top, maxHeight: `calc(100vh - ${top + 16}px)` };   // the menu or a panel scrolls inside itself rather than run past 16px above the window's bottom
   useEffect(() => {                           // a panel takes focus; Escape (back to ⋯) or a press outside closes it
     if (!panel) return;
-    box.current?.querySelector<HTMLElement>('[role="dialog"]')?.focus();
+    const at = document.activeElement;       // one that opens late (a failed re-run) leaves focus where the reader has gone on to
+    if (!at || at === document.body || at === button.current) box.current?.querySelector<HTMLElement>('[role="dialog"]')?.focus();
     const place = () => setTop(under());
     const esc = (e: KeyboardEvent) => { if (e.key === "Escape") { setPanel(null); button.current?.focus(); } };
     const away = (e: PointerEvent) => {
@@ -57,7 +59,10 @@ export default function ReviewMenu({ under }: { under: () => number }) {
     button.current?.focus();
     if (id === "keys") { setShortcutsOn(!keysOn); setKeysOn(shortcutsOn()); }   // shows what the keys will do, which blocked storage keeps on
     else if (id === "ai") ai?.setUsageOpen(true);
-    else api.rerun(d.id, id === "fresh").then(d.loadDetail).catch((e) => { setFailed(String((e as Error).message ?? e)); setPanel("rerun"); });
+    else api.rerun(d.id, id === "fresh").then(d.loadDetail).catch((e) => {
+      setFailed(String((e as Error).message ?? e) || "The server did not accept the re-run.");   // an error can carry no words: HTTP/2 has no status text
+      setPanel("rerun");
+    });
   };
   return (
     <div className="rm">
