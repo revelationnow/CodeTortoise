@@ -165,6 +165,13 @@ test.describe("desktop", () => {
     await comment.getByRole("button", { name: "Save", exact: true }).click();
     await expect(aboutComment).toHaveText("The edit could not be saved.");
     await expect(edit, "the edit stays in its box").toHaveValue("flush should retry twice");
+    await comment.getByRole("button", { name: "Cancel", exact: true }).click();     // Cancel gives the edit up, and its failure with it
+    await expect(edit).toHaveCount(0);
+    await expect(aboutComment, "a failure under a comment no longer being edited would be stale").toHaveCount(0);
+    await comment.getByRole("button", { name: "edit", exact: true }).click();       // started again and refused again, it says so again
+    await edit.fill("flush should retry twice");
+    await comment.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(aboutComment).toHaveText("The edit could not be saved.");
     refusing.on = false;
     await comment.getByRole("button", { name: "Save", exact: true }).click();
     await expect(comment).toContainText("flush should retry twice");
