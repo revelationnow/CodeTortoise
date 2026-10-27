@@ -6,12 +6,12 @@ import { barNames, expectNamed, expectNoNodeIds, openFold, startReview } from ".
 const FOUR = "101 102 103 104";
 /** The server whose tortoise.yaml lists Stats::* as shared sinks (e2e/serve-sinks.sh): its Coverage has the Show/Hide line. */
 const SINKS = "http://127.0.0.1:8794";
-/** The server on the generated large fixture (e2e/serve-large.sh): one thread, whose first story has 140 flows in six groups. */
+/** The server on the generated large fixture (e2e/serve-large.sh): one thread, whose first story has 140 flows in six groups, and a Tests row. */
 const LARGE = "http://127.0.0.1:8796";
 
-/** Serves the review's reading with `edit` applied, every time the page asks for it. */
-async function patchReading(page: Page, edit: (r: any) => void) {
-  await page.route("**/api/reviews/*/reading", async (route) => {
+/** Serves the review's reading or its stories with `edit` applied, every time the page asks for them. */
+async function patchServed(page: Page, what: "reading" | "stories", edit: (j: any) => void) {
+  await page.route(`**/api/reviews/*/${what}`, async (route) => {
     let res: APIResponse, j: any;
     try { res = await route.fetch(); j = await res.json(); }
     catch { return; }                          // the page or the test went away while it was in flight: nobody reads it
@@ -19,6 +19,8 @@ async function patchReading(page: Page, edit: (r: any) => void) {
     await route.fulfill({ response: res, json: j });
   });
 }
+const patchReading = (page: Page, edit: (r: any) => void) => patchServed(page, "reading", edit);
+const patchStories = (page: Page, edit: (s: any) => void) => patchServed(page, "stories", edit);
 
 /** An element's right edge, to the pixel. */
 const right = async (l: Locator) => { const b = (await l.boundingBox())!; return Math.round(b.x + b.width); };
@@ -50,37 +52,46 @@ async function barsHold(page: Page, under: number) {
     .toBeLessThanOrEqual(0);
 }
 
-/** Tab onto each link of the open thread, then Shift+Tab back: every one lies wholly between the last bar pinned at the top and
- * the first pinned at the bottom (the scroll box's edge when none is), so focus never hides under a bar (WCAG 2.2, 2.4.11).
- * The outline must be short enough that the thread cannot show whole between its bars, or this would prove nothing. */
+/** Tab onto every row of the outline, from the overview link to the last link of the opened Index, then Shift+Tab back: none has any
+ * of it under a bar (WCAG 2.2, 2.4.11) or outside the outline's box, whether it belongs to the open thread (between the bars pinned
+ * above and below it) or follows the bars (the Tests group, the Index: under the bars pinned above them).
+ * The outline must be short enough that the open thread cannot show whole between its bars, or this would prove nothing. */
 async function focusStaysClear(page: Page) {
-  const rail = page.locator("aside.ws-outline"), links = rail.locator(".ws-bar-list a");
-  await expect(links.first()).toBeVisible();
-  const room = await rail.locator(".ws-rail-scroll").evaluate((box) => ({
+  const rail = page.locator("aside.ws-outline"), scroller = rail.locator(".ws-rail-scroll"), index = rail.locator("details.ws-index");
+  await expect(rail.locator(".ws-bar-list a").first()).toBeVisible();
+  if (!(await index.evaluate((el) => (el as HTMLDetailsElement).open))) await index.locator("summary").click();   // its summary and links are rows too
+  await expect(index.locator("a")).toHaveCount(4);
+  await expect(rail.locator(".ws-group a"), "the Tests rows are there to walk").not.toHaveCount(0);
+  const room = await scroller.evaluate((box) => ({
     scrolls: box.scrollHeight > box.clientHeight, list: box.querySelector(".ws-bar-list")!.getBoundingClientRect().height,
     between: box.clientHeight - box.querySelectorAll(":scope > .ws-bar").length * 36,       // what is left of it when every bar is pinned
   }));
   expect(room.scrolls, "the outline scrolls").toBe(true);
   expect(room.list, "the thread is taller than the room between its bars").toBeGreaterThan(room.between);
   const clearance = () => page.evaluate(() => {
-    const box = document.querySelector(".ws-rail-scroll")!.getBoundingClientRect();
-    const bars = Array.from(document.querySelectorAll(".ws-rail-scroll > .ws-bar")), open = bars.findIndex((b) => b.classList.contains("on"));
-    const el = document.activeElement!, link = el.getBoundingClientRect();
-    const above = bars[open].getBoundingClientRect().bottom, below = bars[open + 1]?.getBoundingClientRect().top ?? box.bottom;
-    return { name: el.getAttribute("aria-label"), inList: !!el.closest(".ws-bar-list"),
-             top: Math.max(0, above - link.top), bottom: Math.max(0, link.bottom - below) };
+    const box = document.querySelector(".ws-rail-scroll")!, edge = box.getBoundingClientRect();
+    const el = document.activeElement!, row = el.getBoundingClientRect(), isBar = !!el.closest(".ws-bar");   // a bar is never under another: the later ones paint over the earlier
+    const under = Array.from(box.querySelectorAll(":scope > .ws-bar")).map((b) => {
+      const r = b.getBoundingClientRect();
+      return Math.min(row.bottom, r.bottom) - Math.max(row.top, r.top);
+    });
+    return { name: el.getAttribute("aria-label") ?? el.textContent?.trim(), inBox: box.contains(el),
+             under: isBar ? 0 : Math.max(0, ...under), out: isBar ? 0 : Math.max(0, edge.top - row.top, row.bottom - edge.bottom) };
   });
+  // A pixel of slack: the bars sit on whole device pixels and the rows on fractions of one, so a row clear of a bar still overlaps it by up
+  // to half a pixel (measured, at several stops); the bar's own bottom border is 1px.
+  const slack = 1;
   const stop = async (how: string) => {
     const c = await clearance();
-    expect.soft(c.inList, `${how} lands on a link of the open thread`).toBe(true);
-    expect.soft(c.top, `${how}, ${c.name}: px under the bar above`).toBeLessThanOrEqual(0.5);
-    expect.soft(c.bottom, `${how}, ${c.name}: px under the bar below`).toBeLessThanOrEqual(0.5);
+    expect.soft(c.inBox, `${how} stays in the outline`).toBe(true);
+    expect.soft(c.under, `${how}, ${c.name}: px under a pinned bar`).toBeLessThanOrEqual(slack);
+    expect.soft(c.out, `${how}, ${c.name}: px outside the outline's box`).toBeLessThanOrEqual(slack);
   };
-  const n = await links.count();
-  await links.first().focus();
+  const rows = scroller.locator("a:visible, button:visible, summary:visible"), n = await rows.count();
+  await rows.first().focus();
   await stop("focus");
-  for (let i = 1; i < n; i++) { await page.keyboard.press("Tab"); await stop(`Tab to link ${i + 1} of ${n}`); }
-  for (let i = n - 1; i > 0; i--) { await page.keyboard.press("Shift+Tab"); await stop(`Shift+Tab to link ${i} of ${n}`); }
+  for (let i = 1; i < n; i++) { await page.keyboard.press("Tab"); await stop(`Tab to row ${i + 1} of ${n}`); }
+  for (let i = n - 1; i > 0; i--) { await page.keyboard.press("Shift+Tab"); await stop(`Shift+Tab to row ${i} of ${n}`); }
 }
 
 test.describe("desktop", () => {
@@ -246,12 +257,20 @@ test.describe("desktop", () => {
     expect(await spill()).toBeLessThanOrEqual(0.5);
   });
 
-  test("keyboard focus never hides under a pinned bar: Tab and Shift+Tab through the open thread of a short outline", async ({ page }) => {
+  test("keyboard focus never hides under a pinned bar: Tab and Shift+Tab through the whole outline of a short window, the Tests rows and the Index too", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await patchStories(page, (s) => {                                              // the fixture has no Tests group: three rows after the bars
+      for (let i = 1; i <= 3; i++) s.stories.push({ ...s.stories.at(-1), id: `S10${i}`, kind: "tests", title: `Tests of the Uart driver ${i}`, flows: [], nodes: [], findings: [] });
+    });
     await page.setViewportSize({ width: 1440, height: 320 });                      // short, so the outline scrolls
     const base = await startReview(page, FOUR);
-    await page.goto(`${base}/s/S1`);                                               // Thread A of three: a bar above its list, two below; S1 has two flow lines
-    await expect(page.locator(".ws-bar-list .ws-flows a")).toHaveCount(2);
-    await focusStaysClear(page);
+    for (const [sid, lines] of [["S1", 2], ["S3", 0]] as const) {                  // Thread A of three (a bar above its list, two below; S1 has two flow lines), then Thread B (two above, one below)
+      await page.goto(`${base}/s/${sid}`);
+      await expect(page.locator(".ws-bar-list .ws-flows a")).toHaveCount(lines);
+      await focusStaysClear(page);
+    }
+    expect(errors).toEqual([]);
   });
 
   test("going back inside the app to a story opens its thread, not the bar clicked since", async ({ page }) => {
@@ -313,7 +332,7 @@ test.describe("desktop", () => {
 test.describe("a thread with many flow lines", () => {
   test.use({ baseURL: LARGE, viewport: { width: 1440, height: 320 } });
 
-  test("keyboard focus never hides under the pinned bar while Tab and Shift+Tab walk a story's six flow lines", async ({ page }) => {
+  test("keyboard focus never hides under the pinned bar while Tab and Shift+Tab walk a story's six flow lines, its Tests row and the Index", async ({ page }) => {
     const base = await startReview(page, "201 202");
     await page.goto(`${base}/s/S1`);                                               // the only thread, so one bar above its list and none below
     await expect(page.locator(".ws-bar-list .ws-flows a")).toHaveCount(6);

@@ -91,7 +91,7 @@ function StoriesView({ r, onPick }: { r: Reading; onPick: () => void }) {
   }, [here, holding]);
   const on = chosen && chosen.here === here ? chosen.id : openThread(r.threads, here, last);
   const at = r.threads.findIndex((t) => t.id === on);
-  const space = pinnedSpace(at, r.threads.length);          // what the pinned bars take: the open list's links keep clear of it when focus scrolls them
+  const space = pinnedSpace(at, r.threads.length);          // what the pinned bars take: the rows keep clear of it when focus scrolls them
   const pinned = { ["--pin-top" as string]: `${space.top}px`, ["--pin-bottom" as string]: `${space.bottom}px` };
   const toggle = (id: string) => {
     const next = on === id ? null : id;
@@ -148,9 +148,9 @@ function StoriesView({ r, onPick }: { r: Reading; onPick: () => void }) {
         </Fragment>
       );
     })}
-    {tests.length > 0 && <div className="ws-group"><h3>Tests</h3><ul>{tests.map((st) => story(st))}</ul></div>}
+    {tests.length > 0 && <div className="ws-group" style={pinned}><h3>Tests</h3><ul>{tests.map((st) => story(st))}</ul></div>}
     {!r.threads.length && !tests.length && <p className="muted small ws-pad">No changed functions.</p>}
-    <details className="ws-index">
+    <details className="ws-index" style={pinned}>
       <summary>Index</summary>
       <ul>{INDEX_TABS.map((t) => (
         <li key={t}><Link to={ws.link(ws.item({ kind: "index", tab: t }))} className="ws-row ws-index-row"

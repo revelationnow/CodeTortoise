@@ -691,10 +691,13 @@ a.ws-chip { text-decoration: none; }
 .ws-bar .ck-count, .ws-bar .ws-thread-read { flex: none; margin-left: 0; }
 .ws-bar-caret { flex: none; width: 10px; color: var(--muted); }
 .ws-rail .ws-bar-list { padding: 2px 0 6px; }
-/* Focus brings a link of the open thread into view clear of the bars pinned above and below it (WCAG 2.2, 2.4.11). The list
-   carries how much they take (pinnedSpace, from barPin's rule) and its links keep that much as scroll margin. Scroll padding
-   on the box would also move a pinned bar itself, when focused, to the padded edge. */
+/* Focus brings a row into view clear of the bars pinned over it (WCAG 2.2, 2.4.11). The open thread's list, the Tests group and
+   the Index carry how much the bars take (pinnedSpace, from barPin's rule). The open thread's links keep clear of the bars above
+   and below it; the rows that follow the bars (Tests, the Index) keep clear of those pinned above them only, for the bars pinned
+   at the bottom come before these rows in the flow and never cover them. Scroll padding on the box would also move a pinned bar
+   itself, when focused, to the padded edge. */
 .ws-bar-list a { scroll-margin-top: var(--pin-top, 0px); scroll-margin-bottom: var(--pin-bottom, 0px); }
+.ws-group a, .ws-index > summary, .ws-index a { scroll-margin-top: var(--pin-top, 0px); }
 .ws-num { flex: none; min-width: 1.2em; color: var(--muted); font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
 /* a sticky bar's offsets are measured inside its scroll box's padding and it cannot leave the box's content, so with bars
    the box has none: the spacing is margin on the first and last rows, and the pinned bars sit flush with its edges */

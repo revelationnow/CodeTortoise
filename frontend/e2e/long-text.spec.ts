@@ -95,7 +95,7 @@ async function oneLine(page: Page, selector: string): Promise<string[]> {
   }));
 }
 
-test("the story's file tree, the breadcrumb and the outline's story rows stay one line, the whole name on hover", async ({ page }) => {
+test("the story's file tree, the breadcrumb and the outline's story rows and flow group lines stay one line, the whole name on hover", async ({ page }) => {
   test.setTimeout(240_000);
   await longNames(page);
   const base = await startReview(page);
