@@ -47,7 +47,7 @@ export default function Detail() {
     if (!nid || known) return;
     let live = true;
     api.neighbours(d.id, nid, 1).then((m) => { if (live) setAsked({ nid, name: m.node }); }, (e) => {
-      if (live) setAsked({ nid, name: null, error: e instanceof ApiError && e.status === 404 ? undefined : errorText(e, "The node could not be loaded.") });
+      if (live) setAsked({ nid, name: null, error: e instanceof ApiError && e.status === 404 ? undefined : errorText(e, "This function could not be loaded.") });
     });
     return () => { live = false; };
   }, [nid, known, d.id]);

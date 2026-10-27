@@ -205,6 +205,15 @@ test.describe("desktop", () => {
     await page.goto(`${base}?open=N99999`);
     await expect(page.locator(".ws-detail .banner")).toContainText("This function isn't in this review.");
   });
+
+  test("a node the server refuses to name, without a word, still says that the function could not be loaded", async ({ page }) => {
+    const base = await startReview(page);
+    // a refusal with no words in it: what the page has to go on when the status line is empty too, as over HTTP/2
+    await page.route("**/api/reviews/*/nodes/N99999/neighbours**", (route) => route.fulfill({ status: 500, json: { detail: "" } }));
+    await page.goto(`${base}?open=N99999`);
+    await expect(page.locator(".ws-detail .bd-note.error")).toHaveText("This function could not be loaded.");
+    await expect(page.locator(".ws-detail .banner"), "a refusal is no 'not in this review'").toHaveCount(0);
+  });
 });
 
 test.describe("phone", () => {
