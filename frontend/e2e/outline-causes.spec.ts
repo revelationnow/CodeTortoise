@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { barNames, expectNamed, expectNoNodeIds, hold, recordSaid, reviewMenu, setShortcuts, sideways, startReview, storyLink } from "./helpers";
+import { barNames, expectNamed, expectNoNodeIds, hold, LARGE, recordSaid, reviewMenu, setShortcuts, sideways, startReview, storyLink, STRONG } from "./helpers";
 
 /** The outline and checks by cause (spec 2026-10-16-outline-and-causes): fixture CLs 101–104 make three threads; with
  * Confirm hidden their causes are a caller, a result and a reader in thread A and an ask in thread C. */
@@ -175,7 +175,7 @@ test.describe("desktop", () => {
 const READERS = "5 places read UartDev::errors, which uart_a1 now writes";
 
 test.describe("a cause of many places", () => {
-  test.use({ baseURL: "http://127.0.0.1:8796", viewport: { width: 1440, height: 900 } });
+  test.use({ baseURL: LARGE, viewport: { width: 1440, height: 900 } });
 
   async function openReaders(page: Page) {
     await startReview(page, "201 202");
@@ -693,7 +693,7 @@ test.describe("phone", () => {
 });
 
 test.describe("names, never node ids", () => {
-  test.use({ baseURL: "http://127.0.0.1:8795", viewport: { width: 1440, height: 900 } });
+  test.use({ baseURL: STRONG, viewport: { width: 1440, height: 900 } });
 
   test("a hazard whose AI reason cites nodes reads their names in the outline, the chips and the stepper", async ({ page }) => {
     const base = await startReview(page);

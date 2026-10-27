@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { startReview, storyLink } from "./helpers";
+import { SCROLLERS, startReview, storyLink } from "./helpers";
 
 /** Layout (owner feedback 2026-10-08, sub-project C): a wider story page with a divider, code in the side panel, a
  * resizable review header; the overview and the text pages as wide (owner feedback 2026-10-09). */
@@ -37,6 +37,13 @@ test("a function's code opens in the side panel from the story's Code, leaving t
   await expect(row.locator(".bd-code").first()).toBeVisible();
   await row.getByRole("link", { name: "Open uart_send in the side panel" }).click();
   await expect(row).toHaveAttribute("open", "");                              // and stays open
+});
+
+test("the scrollers the sideways check reads each exist once on a story page with a panel open", async ({ page }) => {
+  const base = await story(page);
+  await page.goto(`${base}/s/S1?open=${encodeURIComponent("file://fixture/driver/uart.c")}`);
+  await expect(page.getByRole("complementary", { name: "Code: uart.c" })).toBeVisible();
+  for (const scroller of SCROLLERS) await expect(page.locator(scroller), `${scroller}, which sideways() reads`).toHaveCount(1);
 });
 
 test("the review header can be dragged taller or down to one line, scrolls what no longer fits, and double-click restores it", async ({ page }) => {

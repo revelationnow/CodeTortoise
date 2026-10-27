@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { expectIconsOnly, expectNamed, expectNoNodeIds, openFold, openIndex, sideways, startReview } from "./helpers";
+import { expectIconsOnly, expectNamed, expectNoNodeIds, LARGE, openFold, openIndex, sideways, startReview } from "./helpers";
 
 /** The detail panel (spec 2026-10-04-review-workspace §3.7): a node's code or a file's diff, on demand. */
 
@@ -382,7 +382,7 @@ test.describe("neighbours off every board", () => {
 });
 
 test.describe("a split review", () => {
-  test.use({ baseURL: "http://127.0.0.1:8796", viewport: { width: 1440, height: 900 } });
+  test.use({ baseURL: LARGE, viewport: { width: 1440, height: 900 } });
   type Node = { id: string; label: string; path: string | null; range: number[] | null; change: unknown; fields?: { id: string }[] };
 
   test("opened folds close again with Fold again", async ({ page }) => {

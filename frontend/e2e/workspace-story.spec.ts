@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, flowStripHolds, openIndex, reviewMenu, sideways, startReview, storyLink } from "./helpers";
+import { expectNamed, expectNoNodeIds, flowStripHolds, LARGE, noReading, openIndex, reviewMenu, sideways, startReview, storyLink } from "./helpers";
 
 /** A story in the workspace (spec 2026-10-04-review-workspace §3.2, §2.4). */
 
@@ -89,8 +89,7 @@ test.describe("desktop", () => {
     const base = await startReview(page);
     await page.route(`**/api/reviews/${base.split("/")[2]}/stories`, (r) =>
       r.fulfill({ status: 404, json: { detail: "this review has no stories: re-run it" } }));
-    await page.route(`**/api/reviews/${base.split("/")[2]}/reading`, (r) =>
-      r.fulfill({ status: 404, json: { detail: "this review has no reading: re-run it" } }));
+    await noReading(page, base.split("/")[2]);
     await page.reload();
     await expect(page.locator(".ws-rail").getByRole("link", { name: /^Go to finding/ }).first()).toBeAttached();
     await expect(page.locator(".ws-rail").getByRole("button", { name: /^Stories/ })).toHaveCount(0);
@@ -100,8 +99,7 @@ test.describe("desktop", () => {
   test("a review with stories but no reading (run between them) keeps the stories rail and the old story page", async ({ page }) => {
     const base = await startReview(page);
     const rid = base.split("/")[2];
-    await page.route(`**/api/reviews/${rid}/reading`, (r) =>
-      r.fulfill({ status: 404, json: { detail: "this review has no reading: re-run it" } }));
+    await noReading(page, rid);
     const real = await (await page.request.get(`/api/reviews/${rid}/stories/S1`)).json();
     await page.route(`**/api/reviews/${rid}/stories/S1`, (r) => r.fulfill({ json: { ...real, reading: null } }));
     await page.reload();
@@ -190,8 +188,7 @@ test.describe("a story loading", () => {
     const base = await startReview(page);
     const rid = base.split("/")[2];
     if (!reading) {
-      await page.route(`**/api/reviews/${rid}/reading`, (r) =>
-        r.fulfill({ status: 404, json: { detail: "this review has no reading: re-run it" } }));
+      await noReading(page, rid);
     }
     await page.route(/\/api\/reviews\/\d+\/stories\/S1$/, async (route) => {
       const res = await route.fetch(), j = await res.json();
@@ -265,7 +262,7 @@ test.describe("phone", () => {
 });
 
 test.describe("a story's flows on its graph", () => {
-  test.use({ baseURL: "http://127.0.0.1:8796", viewport: { width: 1440, height: 900 } });
+  test.use({ baseURL: LARGE, viewport: { width: 1440, height: 900 } });
 
   test("a flow too long to draw says so on the graph and links to the story's call paths", async ({ page }) => {
     const base = await startReview(page, "201 202");

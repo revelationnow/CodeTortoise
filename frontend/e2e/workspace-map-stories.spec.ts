@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { startReview, storyLink } from "./helpers";
+import { LARGE, startReview, storyLink } from "./helpers";
 
 /** The map and the stories, related: each changed node on a map is tagged with its story; a story in the rail lights its
  * nodes on the map; a story's "Show on the map" opens its map with the story lit and in view. */
@@ -57,7 +57,7 @@ test.describe("one board", () => {
 });
 
 test.describe("a split review", () => {
-  test.use({ baseURL: "http://127.0.0.1:8796", viewport: { width: 1440, height: 900 } });
+  test.use({ baseURL: LARGE, viewport: { width: 1440, height: 900 } });
 
   test("Show on the map opens the story's own part", async ({ page }) => {
     const base = await startReview(page, "201 202"), rid = base.split("/")[2];

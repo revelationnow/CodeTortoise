@@ -1,7 +1,5 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { openAiUsage, openFold, railReady, reviewMenu, startReview } from "./helpers";
-
-const AI = "http://127.0.0.1:8798";      // e2e/serve-ai.sh: CodeTortoise with the fake model in e2e/fake_llm.py
+import { AI, commentOnReturn, openAiUsage, openFold, railReady, reviewMenu, startReview } from "./helpers";
 
 /** The header's one row and its ⋯ menu (spec 2026-10-25-review-ui-redesign §2). */
 test.use({ viewport: { width: 1440, height: 900 } });
@@ -10,12 +8,7 @@ test.use({ viewport: { width: 1440, height: 900 } });
  * keeps its presses to itself. */
 async function openThread(page: Page, base: string): Promise<Locator> {
   await page.goto(`${base}?open=${encodeURIComponent("file://fixture/driver/uart.c")}`);
-  const file = page.getByRole("complementary", { name: "Code: uart.c" });
-  await file.getByRole("button", { name: "Stacked" }).click();
-  await file.locator(".bd-ln.a", { hasText: "return -2;" }).first().click();
-  const thread = file.locator(".bd-thread");
-  await expect(thread.getByPlaceholder("Leave a comment…")).toBeVisible();
-  return thread;
+  return (await commentOnReturn(page)).thread;
 }
 
 test("the header keeps one quiet row; the rest is in the review menu, which the keyboard walks", async ({ page }) => {
@@ -436,6 +429,23 @@ test.describe("the AI usage panel", () => {
     await expect(page.locator(".fl-toggle:focus"), "no row took focus").toHaveCount(0);
   });
 
+  test("J, K and F stay off the cause stepper while the panel has focus", async ({ page }) => {
+    await startReview(page);
+    const outline = page.locator("aside.ws-outline");
+    await outline.getByRole("button", { name: "Checks" }).click();
+    await outline.getByRole("link", { name: /^Open check: / }).first().click();
+    const stepper = page.getByRole("complementary", { name: /^Check: / }), pos = stepper.locator(".cs-pos");
+    await expect(stepper.locator(".cs-donecount")).toHaveText("0 done");
+    const at = await pos.innerText();
+    const usage = await openAiUsage(page);
+    await expect(usage).toBeFocused();
+    for (const key of ["j", "k", "f"]) await page.keyboard.press(key);
+    await page.waitForTimeout(300);                                      // a mark that wrongly started would have landed by now
+    await expect(usage, "the keys left focus in the panel").toBeFocused();
+    await expect(stepper.locator(".cs-donecount"), "no place was marked").toHaveText("0 done");
+    await expect(pos, "the stepper stayed where it was").toHaveText(at);
+  });
+
   test("a press outside it closes it", async ({ page }) => {
     await startReview(page);
     const usage = await openAiUsage(page);
@@ -495,6 +505,7 @@ test.describe("the AI usage panel", () => {
       expect(m.sideways, "the panel scrolls sideways").toBeLessThanOrEqual(0);
       expect(m.spilling, "cells whose text runs out of them into the next").toEqual([]);
       await expect(usage.locator(".ai-calls"), "a smaller font on a phone").toHaveCSS("font-size", "11px");
+      await expect(usage.locator(".ai-calls"), "the columns share the table's width, not the text's").toHaveCSS("table-layout", "fixed");
     });
   });
 });

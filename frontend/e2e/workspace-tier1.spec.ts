@@ -1,7 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { expectNamed, login, openAiUsage, reviewMenu, startReview, storyLink } from "./helpers";
-
-const STRONG = "http://127.0.0.1:8795";  // e2e/serve-strong.sh: stories and risk review by the fake strong model, targets hal and fw
+import { expectNamed, login, openAiUsage, reviewMenu, startReview, storyLink, STRONG } from "./helpers";
 
 test.describe("stories formed by a strong model", () => {
   test.use({ baseURL: STRONG });
@@ -41,14 +39,17 @@ test.describe("stories formed by a strong model", () => {
 
   test("a story's own purpose, where its account has not come, names the strong model that wrote it", async ({ page }) => {
     const base = await startReview(page);
+    let served = false;
     await page.route(`**/api/reviews/${base.split("/")[2]}/stories/S1`, async (route) => {   // no account: the story's own purpose shows
       try {
         const real = await (await route.fetch()).json();
         real.reading.account = [];
         await route.fulfill({ json: real });
-      } catch { /* the page went away while it was held */ }
+        served = true;
+      } catch (e) { if (!page.isClosed()) throw e; }       // only a page that went away while it was held is no news: a broken endpoint is told
     });
     await page.goto(`${base}/s/S1`);
+    await expect.poll(() => served, { message: "the story is served without its account" }).toBe(true);   // the list shows the purpose before the stub answers: wait, or it is still running as the page closes
     const purpose = page.locator(".st-summary .ai-text");
     await expect(purpose).toContainText("uart_send now counts transmit errors, so its callers see a new error value.");
     await expect(purpose).toHaveAttribute("title", "Written by AI · fake-strong");

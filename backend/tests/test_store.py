@@ -133,7 +133,6 @@ def test_clear_marks_reopens_every_key_in_one_transaction_or_none(store):
     assert list(store.list_marks(rid)) == ["reader|b.c|r|w"]
 
 
-
 def test_read_ticks_belong_to_one_reader_and_a_run_clears_them_all(store):
     rid = store.create_review("t", "a", [1])
     store.set_tick(rid, "ana", "story", "S1")

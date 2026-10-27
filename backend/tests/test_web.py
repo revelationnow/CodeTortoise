@@ -711,7 +711,7 @@ def test_a_story_stored_before_checks_named_their_change_is_served_whole_and_its
     owner, rid = _review(app)
     for sid in ("S1", "S2"):
         old = svc.store.get_blob(rid, f"story_reading:{sid}")      # served as stored, so a missing `related` stays missing
-        assert old["checks"] and all(k["related"] for k in old["checks"])
+        assert old["checks"] and any(k["related"] for k in old["checks"])   # a row that has one to lose
         for k in old["checks"]:
             del k["related"]
         svc.store.put_blob(rid, f"story_reading:{sid}", old)

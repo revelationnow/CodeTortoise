@@ -1,7 +1,5 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { explainItem, login, openAiUsage, openIndex, startReview, storyLink } from "./helpers";
-
-const AI = "http://127.0.0.1:8798";      // e2e/serve-ai.sh: CodeTortoise with the fake model in e2e/fake_llm.py
+import { AI, explainItem, login, openAiUsage, openIndex, startReview, storyLink } from "./helpers";
 
 /** An open menu ends on the screen, and the page or panel around it has nothing running past its right edge (a page that
  * scrolls would scroll sideways, one that clips would cut the menu off) and has not been scrolled sideways. */
@@ -68,19 +66,24 @@ test.describe("with an AI", () => {
       await page.keyboard.press(key);
       await expect(to, `${key} moves focus to the ${to === first ? "first" : "last"} item`).toBeFocused();
     }
-    await menu.evaluate((el) => {                                            // add a checkbox item and a disabled radio item after the others
-      for (const [role, disabled] of [["menuitemcheckbox", false], ["menuitemradio", true]] as const) {
+    await menu.evaluate((el) => {                                            // after the others: a disabled checkbox item, a checkbox item, a disabled one and a disabled radio item
+      for (const [role, disabled] of [["menuitemcheckbox", true], ["menuitemcheckbox", false], ["menuitemcheckbox", true], ["menuitemradio", true]] as const) {
         const item = document.createElement("button");
         item.setAttribute("role", role);
-        item.textContent = role;
+        item.textContent = disabled ? `${role} (disabled)` : role;
         item.disabled = disabled;
         el.append(item);
       }
     });
+    const check = menu.getByRole("menuitemcheckbox", { name: "menuitemcheckbox", exact: true });     // the one that is enabled
     await page.keyboard.press("End");
-    await expect(menu.getByRole("menuitemcheckbox"), "End reaches a checkbox item, past the disabled radio one").toBeFocused();
+    await expect(check, "End reaches the checkbox item, past the disabled ones after it").toBeFocused();
+    await page.keyboard.press("ArrowUp");
+    await expect(last, "ArrowUp skips the disabled checkbox item before it").toBeFocused();
     await page.keyboard.press("ArrowDown");
-    await expect(first, "ArrowDown skips the disabled item and wraps").toBeFocused();
+    await expect(check).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(first, "ArrowDown skips the disabled items and wraps").toBeFocused();
     await page.getByRole("region", { name: "Flow" }).locator(".ws-flow-title").click();      // a press outside
     await expect(menu).toHaveCount(0);
     await expect(button).toHaveAttribute("aria-expanded", "false");
@@ -280,6 +283,24 @@ test.describe("with an AI", () => {
         await menuFits(page, holder.getByRole("menu"));
       });
     }
+  });
+
+  test("a refused Explain offers the owner Raise budget, and the usage panel it opens hands focus back to that button", async ({ page }) => {
+    await startReview(page);
+    const usage = await openAiUsage(page);
+    await usage.getByLabel("New budget").fill("6");                       // the run used 6: none is left
+    await usage.getByRole("button", { name: "Raise budget" }).click();
+    await usage.getByRole("button", { name: "Close" }).click();
+    await (await storyLink(page, /^Go to story S1/)).click();
+    const head = page.locator(".ws-story-head");
+    await explainItem(head, "Explain");
+    const raise = head.getByRole("alert").getByRole("button", { name: "Raise budget" });
+    await expect(raise).toBeVisible();
+    await raise.click();
+    await expect(page.getByRole("dialog", { name: "AI usage" })).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "AI usage" })).toHaveCount(0);
+    await expect(raise, "Escape hands focus back to the button that opened the panel").toBeFocused();
   });
 
   test("the owner raises the budget from the review menu; a reviewer sees the usage without the control", async ({ page, browser }) => {

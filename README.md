@@ -464,7 +464,7 @@ restart. Reviews keep working across upgrades, and re-running a review rebuilds 
 
 ```bash
 cd backend && uv run pytest && uv run ruff check codetortoise tests
-cd frontend && npm test && npx tsc --noEmit && npm run build && npm run e2e
+cd frontend && npm test && npx tsc --noEmit && npx tsc --noEmit -p e2e && npm run build && npm run e2e
 ```
 
 A local Perforce + Swarm + libgit2 lab for end-to-end checks lives in `lab/` (see `lab/README.md`).

@@ -1,13 +1,9 @@
 import { type APIResponse, devices, expect, type Locator, type Page, test } from "@playwright/test";
-import { barNames, expectNamed, expectNoNodeIds, openFold, sideways, startReview } from "./helpers";
+import { barNames, expectNamed, expectNoNodeIds, LARGE, openFold, sideways, SINKS, startReview } from "./helpers";
 
 /** The overview's thread sections (spec 2026-10-25-review-ui-redesign §5): fixture CLs 101–104 make three threads, the
  * first two joined by a shared caller, the third only by arriving in CL 104. */
 const FOUR = "101 102 103 104";
-/** The server whose tortoise.yaml lists Stats::* as shared sinks (e2e/serve-sinks.sh): its Coverage has the Show/Hide line. */
-const SINKS = "http://127.0.0.1:8794";
-/** The server on the generated large fixture (e2e/serve-large.sh): one thread, whose first story has 140 flows in six groups, and a Tests row. */
-const LARGE = "http://127.0.0.1:8796";
 
 /** Serves the review's reading or its stories with `edit` applied, every time the page asks for them. */
 async function patchServed(page: Page, what: "reading" | "stories", edit: (j: any) => void) {
@@ -48,8 +44,7 @@ async function barsHold(page: Page, under: number) {
     expect.soft(b.actInside, `thread ${i + 1}: its Start stays inside its section`).toBe(true);
     expect.soft(b.overCounts, `thread ${i + 1}: its label runs into its counts`).toBe(0);
   });
-  expect.soft(await page.locator(".ws-page").evaluate((e) => e.scrollWidth - e.clientWidth), "the page scrolls sideways")
-    .toBeLessThanOrEqual(0);
+  expect.soft(await sideways(page), "the page scrolls sideways").toBeLessThanOrEqual(0);
 }
 
 /** Tab onto every row of the outline, from the overview link to the last link of the opened Index, then Shift+Tab back: none has any
@@ -213,6 +208,8 @@ test.describe("desktop", () => {
     await page.goto(base);
     await expect(page.locator(".ov3 h2").first()).toHaveText("The change");
     await expect(page.locator(".ov-cols, section.ov-sec")).toHaveCount(0);
+    const top = (await page.locator(".ov-top").boundingBox())!, fold = (await page.locator(".ov3 > section:has(> details.ov-fold)").first().boundingBox())!;
+    expect(fold.y - (top.y + top.height), "from the change to the first fold: a row's gap, as between the folds").toBeCloseTo(6, 0);
     await page.getByRole("link", { name: "Start here ›" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}/s/S2$`));
   });
@@ -314,11 +311,16 @@ test.describe("desktop", () => {
     page.on("pageerror", (e) => errors.push(e.message));
     await patchStories(page, (s) => {                                              // the fixture has no Tests group: three rows after the bars
       for (let i = 1; i <= 3; i++) s.stories.push({ ...s.stories.at(-1), id: `S10${i}`, kind: "tests", title: `Tests of the Uart driver ${i}`, flows: [], nodes: [], findings: [] });
+      for (let i = 1; i <= 3; i++) s.stories.push({ ...s.stories[0], id: `S20${i}`, title: `Another story of the service ${i}`, flows: [], nodes: [], findings: [] });
     });
+    await patchReading(page, (r) => { r.threads[2].stories.push("S201", "S202", "S203"); });   // Thread C has one story: its list would fit between the three bars, and prove nothing there
     await page.setViewportSize({ width: 1440, height: 320 });                      // short, so the outline scrolls
     const base = await startReview(page, FOUR);
-    for (const [sid, lines] of [["S1", 2], ["S3", 0]] as const) {                  // Thread A of three (a bar above its list, two below; S1 has two flow lines), then Thread B (two above, one below)
+    const last = ((await (await page.request.get(`/api/reviews/${base.split("/")[2]}/reading`)).json()) as { threads: { stories: string[] }[] }).threads[2].stories[0];
+    for (const [sid, lines] of [["S1", 2], ["S3", 0], [last, 0]] as const) {       // Thread A of three (a bar above its list, two below; S1 has two flow lines), Thread B (two above, one below), then C (the three bars above: 108px)
       await page.goto(`${base}/s/${sid}`);
+      await expect(page.locator(".ws-bar-list a[aria-current='page']"), `${sid}: the open thread's list has drawn`).toBeVisible();
+      await expect(page.getByRole("navigation", { name: "Story sections" }), `${sid}: the story is in, so its flow lines are`).toBeVisible();
       await expect(page.locator(".ws-bar-list .ws-flows a")).toHaveCount(lines);
       await focusStaysClear(page);
     }
@@ -411,6 +413,14 @@ test.describe("shared sinks", () => {
     await page.goto(base);
     await expect(fold).toBeVisible();
     await expect(fold).not.toHaveAttribute("open", "");
+    // and by the app's own navigation, with no new document: open Coverage, follow a story, come back by the overview link
+    await openFold(page, "Coverage");
+    await page.locator(".ov-stories a").first().click();
+    await expect(page).toHaveURL(new RegExp(`${base}/s/S\\d+$`));
+    await page.getByRole("link", { name: "Go to the overview" }).click();
+    await expect(page).toHaveURL(new RegExp(`${base}$`));
+    await expect(fold).toBeVisible();
+    await expect(fold, "Coverage starts shut again").not.toHaveAttribute("open", "");
   });
 
   test.describe("on a phone", () => {

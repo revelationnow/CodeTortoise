@@ -1,16 +1,11 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { contrast, explainItem, hold, openAiUsage, openIndex, reviewMenu, startReview } from "./helpers";
+import { AI, commentOnReturn, contrast, explainItem, hold, openAiUsage, openIndex, reviewMenu, startReview } from "./helpers";
 
-const AI = "http://127.0.0.1:8798";      // e2e/serve-ai.sh: CodeTortoise with the fake model in e2e/fake_llm.py
-
-/** Open uart.c's diff in the detail panel and start a comment on its new `return -2;` line. */
-async function commentOnReturn(page: Page): Promise<{ viewer: Locator; box: Locator }> {
+/** Open uart.c's diff in the detail panel from the Index's Files and start a comment on its new `return -2;` line. */
+async function commentFromIndex(page: Page) {
   await openIndex(page, "Files");
   await page.getByRole("link", { name: "Open uart.c's diff" }).click();
-  const viewer = page.getByRole("complementary", { name: "Code: uart.c" });
-  await viewer.getByRole("button", { name: "Stacked" }).click();
-  await viewer.locator(".bd-ln.a", { hasText: "return -2;" }).first().click();
-  return { viewer, box: viewer.getByPlaceholder("Leave a comment…") };
+  return commentOnReturn(page);
 }
 
 test.describe("with an AI", () => {
@@ -18,7 +13,7 @@ test.describe("with an AI", () => {
 
   test("the @ menu asks tortoise, which reads code and answers in the thread", async ({ page }) => {
     await startReview(page);
-    const { viewer, box } = await commentOnReturn(page);
+    const { viewer, box } = await commentFromIndex(page);
     await box.fill("Who handles this? ");
     await box.pressSequentially("@");
     const menu = viewer.getByRole("listbox", { name: "Mention" });
@@ -113,7 +108,7 @@ test.describe("with an AI", () => {
     await expect(page.getByRole("button", { name: "AI 6/6" })).toBeVisible();          // at the limit the pill comes back
     expect(await contrast(page, ".ws-head .ai-pill")).toBeGreaterThanOrEqual(4.5);   // readable on the light head
     await usage.getByRole("button", { name: "Close" }).click();
-    const { viewer, box } = await commentOnReturn(page);
+    const { viewer, box } = await commentFromIndex(page);
     await box.fill("@tortoise does this leak?");
     await viewer.getByRole("button", { name: "Comment", exact: true }).click();
     const reply = viewer.locator(".comment.ai");
@@ -122,6 +117,9 @@ test.describe("with an AI", () => {
     await expect(reply.locator(".comment-body .vh")).toHaveCount(0);                      // so no "Written by AI." for a screen reader
     await reply.getByRole("button", { name: "Raise budget" }).click();
     await expect(page.getByRole("dialog", { name: "AI usage" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "AI usage" })).toHaveCount(0);
+    await expect(reply.getByRole("button", { name: "Raise budget" }), "Escape hands focus back to the button that opened the panel").toBeFocused();
   });
 });
 
@@ -132,7 +130,7 @@ test.describe("without an AI", () => {
     await expect((await reviewMenu(page)).getByRole("menuitem", { name: /^AI calls used/ })).toHaveCount(0);
     await page.keyboard.press("Escape");
     await expect(page.getByRole("button", { name: /^(Explain|Summarise|Ask…)$/ })).toHaveCount(0);
-    const { viewer, box } = await commentOnReturn(page);
+    const { viewer, box } = await commentFromIndex(page);
     await box.pressSequentially("@");
     const first = viewer.getByRole("listbox", { name: "Mention" }).getByRole("option").first();
     await expect(first).toContainText("no AI is configured for CodeTortoise");

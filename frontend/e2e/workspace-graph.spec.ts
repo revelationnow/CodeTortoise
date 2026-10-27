@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, flowStripHolds, startReview } from "./helpers";
+import { commentOnReturn, expectNamed, expectNoNodeIds, flowStripHolds, startReview } from "./helpers";
 
 /** Graphs in the workspace (spec 2026-10-04-review-workspace §3.2, §3.6): a node click opens its code and a second
  * click closes it; "+N callers" opens Neighbours; the flow strip keeps its controls in place and never overflows. */
@@ -307,11 +307,7 @@ test.describe("by keyboard", () => {
   test("a press inside a code comment thread, which keeps its presses to itself, still closes the flow menu", async ({ page }) => {
     const base = await startReview(page);
     await page.goto(`${base}/s/S1?view=graph&open=${encodeURIComponent("file://fixture/driver/uart.c")}`);
-    const file = page.getByRole("complementary", { name: "Code: uart.c" });
-    await file.getByRole("button", { name: "Stacked" }).click();
-    await file.locator(".bd-ln.a", { hasText: "return -2;" }).first().click();
-    const thread = file.locator(".bd-thread");
-    await expect(thread.getByPlaceholder("Leave a comment…")).toBeVisible();
+    const { thread } = await commentOnReturn(page);
     await page.getByRole("button", { name: "Every flow" }).click();
     const menu = page.getByRole("menu", { name: "Every flow" });
     await expect(menu).toBeVisible();

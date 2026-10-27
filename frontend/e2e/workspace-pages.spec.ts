@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, openIndex, startReview } from "./helpers";
+import { expectNamed, expectNoNodeIds, LARGE, noReading, openIndex, startReview, STRONG } from "./helpers";
 
 /** Finding, CL and cluster pages (spec 2026-10-04-review-workspace §3.3–§3.5). */
 
@@ -79,8 +79,7 @@ test.describe("desktop", () => {
     await page.goto("/");
     await see(".rv-head h2", title("16px"));
     // a review whose reading has not come keeps the old rail and pages, which carry three more of the headings
-    await page.route(`**/api/reviews/${rid}/reading`, (r) =>
-      r.fulfill({ status: 404, json: { detail: "this review has no reading: re-run it" } }));
+    await noReading(page, rid);
     const story = await (await page.request.get(`/api/reviews/${rid}/stories/S1`)).json();
     await page.route(`**/api/reviews/${rid}/stories/S1`, (r) => r.fulfill({ json: { ...story, reading: null } }));
     await page.goto(base);
@@ -120,8 +119,7 @@ test.describe("desktop", () => {
     expect(dirs.length).toBeGreaterThanOrEqual(1);
     expect.soft(Math.min(...dirs), "the Files index's directories").toBeGreaterThanOrEqual(20);
     // a review whose reading has not come keeps the old page: a section, the stories' summary box, then the map
-    await page.route(`**/api/reviews/${rid}/reading`, (r) =>
-      r.fulfill({ status: 404, json: { detail: "this review has no reading: re-run it" } }));
+    await noReading(page, rid);
     await page.goto(base);
     await expect(page.locator(".ws-whole > .ws-summary")).toBeVisible();
     const blocks = await gapsAbove(page, ".ws-whole > :is(section, .ws-summary)");
@@ -240,7 +238,7 @@ test.describe("desktop", () => {
 });
 
 test.describe("stories formed by a strong model", () => {
-  test.use({ baseURL: "http://127.0.0.1:8795", viewport: { width: 1440, height: 900 } });         // e2e/serve-strong.sh
+  test.use({ baseURL: STRONG, viewport: { width: 1440, height: 900 } });         // e2e/serve-strong.sh
 
   test("the global h4 is a dark sentence-case title: a story's \"Also worth checking\" has no rule of its own", async ({ page }) => {
     const base = await startReview(page);
@@ -252,7 +250,7 @@ test.describe("stories formed by a strong model", () => {
 });
 
 test.describe("a large change", () => {
-  test.use({ baseURL: "http://127.0.0.1:8796", viewport: { width: 1440, height: 900 } });         // e2e/serve-large.sh
+  test.use({ baseURL: LARGE, viewport: { width: 1440, height: 900 } });         // e2e/serve-large.sh
 
   test("a layer band's heading on the map is a dark sentence-case title", async ({ page }) => {
     const base = await startReview(page, "201 202");

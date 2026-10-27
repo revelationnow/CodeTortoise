@@ -1,5 +1,5 @@
 import { devices, expect, test } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, openIndex, sideways, startReview, storyLink } from "./helpers";
+import { expectNamed, expectNoNodeIds, LARGE, openIndex, sideways, startReview, storyLink } from "./helpers";
 
 /** The workspace shell (spec 2026-10-04-review-workspace §2): rail, breadcrumb, addresses, phone levels. */
 
@@ -161,7 +161,7 @@ test.describe("phone", () => {
 });
 
 test.describe("a large change", () => {
-  test.use({ baseURL: "http://127.0.0.1:8796", viewport: { width: 1440, height: 900 } });
+  test.use({ baseURL: LARGE, viewport: { width: 1440, height: 900 } });
 
   test("the Index maps the change's parts; a part opens its page", async ({ page }) => {
     const base = await startReview(page, "201 202");
@@ -196,7 +196,7 @@ test.describe("a large change", () => {
 });
 
 test.describe("a large change on a phone", () => {
-  test.use({ baseURL: "http://127.0.0.1:8796", viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  test.use({ baseURL: LARGE, viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
   test("the map stacks the parts; a part opens with its place among them", async ({ page }) => {
     await startReview(page, "201 202");

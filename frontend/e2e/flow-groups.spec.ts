@@ -1,5 +1,5 @@
 import { devices, expect, test, type APIResponse, type Locator, type Page, type Route } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, explainItem, recordSaid, reviewMenu, setShortcuts, sideways, startReview } from "./helpers";
+import { AI, expectNamed, expectNoNodeIds, explainItem, LARGE, recordSaid, reviewMenu, setShortcuts, sideways, startReview } from "./helpers";
 
 const FOUR = "101 102 103 104";
 
@@ -602,7 +602,7 @@ test.describe("the Flows tab", () => {
 });
 
 test.describe("a story with many flows", () => {
-  test.use({ baseURL: "http://127.0.0.1:8796", viewport: { width: 1440, height: 900 } });
+  test.use({ baseURL: LARGE, viewport: { width: 1440, height: 900 } });
 
   test("each group shows eight rows until Show N more; a flow=N address unfolds its group and opens its row", async ({ page }) => {
     const base = await startReview(page, "201 202");
@@ -951,7 +951,7 @@ test.describe("a story with many flows", () => {
 });
 
 test.describe("the Flows tab on a phone", () => {
-  test.use({ baseURL: "http://127.0.0.1:8796", viewport: devices["iPhone 13"].viewport, userAgent: devices["iPhone 13"].userAgent,
+  test.use({ baseURL: LARGE, viewport: devices["iPhone 13"].viewport, userAgent: devices["iPhone 13"].userAgent,
     deviceScaleFactor: devices["iPhone 13"].deviceScaleFactor, isMobile: true, hasTouch: true });
 
   test("rows stay one line and nothing scrolls sideways, closed or open", async ({ page }) => {
@@ -1012,7 +1012,7 @@ test.describe("the Flows tab on a phone", () => {
 });
 
 test.describe("the Flows tab with AI", () => {
-  test.use({ baseURL: "http://127.0.0.1:8798", viewport: { width: 1440, height: 900 } });
+  test.use({ baseURL: AI, viewport: { width: 1440, height: 900 } });
 
   test("J, K and F are letters in the story's question box, and move rows again once it loses focus (Review Focus 4)", async ({ page }) => {
     const base = await startReview(page);

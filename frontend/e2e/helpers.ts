@@ -1,5 +1,16 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 
+// The fixture servers beyond the default one: playwright.config.ts starts them, and a spec picks one with `test.use({ baseURL })`.
+
+/** CodeTortoise with the fake model in e2e/fake_llm.py (e2e/serve-ai.sh). */
+export const AI = "http://127.0.0.1:8798";
+/** Stories and risk review by the fake strong model, targets hal and fw (e2e/serve-strong.sh). */
+export const STRONG = "http://127.0.0.1:8795";
+/** The generated large fixture, CLs 201 and 202 (e2e/serve-large.sh): one thread, whose first story has 140 flows in six groups, and a Tests row. */
+export const LARGE = "http://127.0.0.1:8796";
+/** The server whose tortoise.yaml lists Stats::* as shared sinks (e2e/serve-sinks.sh): its Coverage has the Show/Hide line. */
+export const SINKS = "http://127.0.0.1:8794";
+
 export async function login(page: Page, user = "demo") {
   await page.goto("/login");
   await page.getByLabel("P4 user").fill(user);
@@ -30,6 +41,23 @@ export async function startReview(page: Page, cls = "101 102"): Promise<string> 
   return page.url().match(/\/r\/\d+/)![0];
 }
 
+/** Serves the review as one stored before readings: its `/reading` is a 404 that says to re-run. `rid` is the review's number ("12"). */
+export function noReading(page: Page, rid: string) {
+  return page.route(`**/api/reviews/${rid}/reading`, (r) =>
+    r.fulfill({ status: 404, json: { detail: "this review has no reading: re-run it" } }));
+}
+
+/** With uart.c's diff open in the detail panel, starts a comment on its new `return -2;` line (stacked view); returns the panel, the thread
+ * that opens under the line and the thread's box. */
+export async function commentOnReturn(page: Page): Promise<{ viewer: Locator; thread: Locator; box: Locator }> {
+  const viewer = page.getByRole("complementary", { name: "Code: uart.c" });
+  await viewer.getByRole("button", { name: "Stacked" }).click();
+  await viewer.locator(".bd-ln.a", { hasText: "return -2;" }).first().click();
+  const thread = viewer.locator(".bd-thread"), box = thread.getByPlaceholder("Leave a comment…");
+  await expect(box).toBeVisible();
+  return { viewer, thread, box };
+}
+
 /** Waits for the outline's first thread bar or story row (a review without threads, or before the reading, has rows). */
 export async function railReady(page: Page) {
   const rail = page.locator(".ws-rail");
@@ -38,17 +66,20 @@ export async function railReady(page: Page) {
 }
 
 /** A story's row in the outline, opening thread bars in turn until it shows (spec 2026-10-25-review-ui-redesign §6: one
- * thread open at a time). */
+ * thread open at a time). The stories can load after the reading, so a list may be empty for a moment: it goes round the bars, each
+ * given a moment, until the row shows or `startReview`'s minute for the outline is up, so no bar costs more than that moment. */
 export async function storyLink(page: Page, name: RegExp): Promise<Locator> {
   const rail = page.locator(".ws-rail"), link = rail.getByRole("link", { name }).first();
   const bars = rail.getByRole("button", { name: /^Thread \w+:/ });
   await expect(bars.or(link).first()).toBeVisible({ timeout: 60_000 });
   if (await link.isVisible()) return link;
-  for (let i = 0; i < await bars.count(); i++) {
-    const bar = bars.nth(i);
-    if ((await bar.getAttribute("aria-expanded")) !== "true") await bar.click();
-    await rail.locator(".ws-bar-list > li").first().waitFor({ state: "visible", timeout: 60_000 }).catch(() => {});   // the stories load after the reading: as long as startReview waits for it
-    if (await link.waitFor({ state: "visible", timeout: 1000 }).then(() => true, () => false)) return link;
+  const n = await bars.count();
+  for (const end = Date.now() + 60_000; Date.now() < end;) {
+    for (let i = 0; i < n; i++) {
+      const bar = bars.nth(i);
+      if ((await bar.getAttribute("aria-expanded")) !== "true") await bar.click();
+      if (await link.waitFor({ state: "visible", timeout: 750 }).then(() => true, () => false)) return link;
+    }
   }
   return link;
 }
@@ -93,15 +124,19 @@ export async function flowStripHolds(page: Page) {
   }
 }
 
+/** The workspace's scrollers, by class: the page, the outline's rows and the detail panel's body. `sideways` reads these, and the
+ * layout spec pins that each is there once on a story page with a panel open, so a renamed scroller cannot drop out of it unseen. */
+export const SCROLLERS = [".ws-page", ".ws-rail-scroll", ".ws-detail-body"];
+
 /** How far the page scrolls sideways at most: the largest `scrollWidth - clientWidth` over the document and over each of the workspace's
- * scrollers on the page, `.ws-page`, `.ws-rail-scroll` and `.ws-detail-body`. In the workspace the document never scrolls (`main` and
- * the centre clip), so the document alone measures nothing there; the overflow is on these. A scroller that clips (`overflow-x: hidden`)
- * counts too: what it hides is still too wide. Above zero is a real overflow: fix the CSS, never the check. */
+ * `SCROLLERS` on the page. In the workspace the document never scrolls (`main` and the centre clip), so the document alone measures
+ * nothing there; the overflow is on these. A scroller that clips (`overflow-x: hidden`) counts too: what it hides is still too wide.
+ * Above zero is a real overflow: fix the CSS, never the check. */
 export async function sideways(page: Page): Promise<number> {
-  return page.evaluate(() => {
-    const scrollers = [document.documentElement, ...document.querySelectorAll(".ws-page, .ws-rail-scroll, .ws-detail-body")];
+  return page.evaluate((selector) => {
+    const scrollers = [document.documentElement, ...document.querySelectorAll(selector)];
     return Math.max(...scrollers.map((e) => e.scrollWidth - e.clientWidth));
-  });
+  }, SCROLLERS.join(", "));
 }
 
 /** WCAG contrast ratio between an element's text colour and the first opaque background behind it. */

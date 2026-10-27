@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { sideways, startReview } from "./helpers";
+import { AI, sideways, startReview } from "./helpers";
 
 /** Long names (owner feedback 2026-10-10): nothing sticks out of its box; a one-line label that is cut short ends in
  * "…" and shows the whole text on hover. The fixture's names are made long in every answer from the server. */
@@ -119,7 +119,7 @@ test("the story's file tree, the breadcrumb and the outline's story rows and flo
 });
 
 test.describe("with an AI", () => {
-  test.use({ baseURL: "http://127.0.0.1:8798" });       // e2e/serve-ai.sh: the fake model writes story accounts
+  test.use({ baseURL: AI });       // e2e/serve-ai.sh: the fake model writes story accounts
 
   test("a story's account keeps long names inside its box", async ({ page }) => {
     test.setTimeout(180_000);
@@ -192,6 +192,6 @@ test.describe("phone", () => {
     }
     expect(await names.first().evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(true);                    // cut short…
     await expect(names.first()).toHaveAttribute("title", NAME);                                               // …with the whole name on hover
-    expect(await page.locator(".ws-page").evaluate((e) => e.scrollWidth - e.clientWidth)).toBeLessThanOrEqual(0);
+    expect(await sideways(page)).toBeLessThanOrEqual(0);
   });
 });
