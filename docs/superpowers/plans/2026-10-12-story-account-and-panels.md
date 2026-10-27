@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - The repo is public: no proprietary identifiers from the owner's code, toolchains or builds in code, tests, docs or commit messages. Use the fixture's names (`uart_send`, `logger_flush`, `hal_write`, `Uart::errors`) or generic stand-ins.
-- Work in the worktree `/media/anoop/ssd_1/Work/CodeTortoise/.worktrees/story-panels` on branch `story-panels`. Don't push; integration is the owner's call.
+- Work in the worktree `.worktrees/story-panels` on branch `story-panels`. Don't push; integration is the owner's call.
 - Every commit: `git -c user.email=2929430+revelationnow@users.noreply.github.com commit …`, message ending with the two lines `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` and `Claude-Session: https://claude.ai/code/session_01M17gxTwmjM6Qhg9xMppJuH`.
 - Never bare `git stash`, never `git clean -fdx`, never `--force` a worktree removal. Kill processes by PID, never `pkill -f`. Never use `uv`. Use `$CLAUDE_JOB_DIR/tmp`, not `/tmp`, for scratch files.
 - AI-written text follows the house style (`codetortoise/llm/style.py`): test texts in fake answers must pass `check_style(text, "explanation")` (no "just", "simply", "easy", "please", "e.g.", "etc.", no sentence over 30 words).
@@ -27,15 +27,15 @@ Run backend commands from `backend/`, frontend ones from `frontend/`:
 
 ```bash
 # backend/
-export PYTEST="env PYTHONPATH=/media/anoop/ssd_1/Work/CodeTortoise/.worktrees/story-panels/backend /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest -q -p no:cacheprovider"
-export RUFF="/media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/ruff check codetortoise tests"
+export PYTEST="env PYTHONPATH=$PWD .venv/bin/python -m pytest -q -p no:cacheprovider"
+export RUFF=".venv/bin/ruff check codetortoise tests"
 # frontend/  (once, before the first frontend task: the worktree shares main's node_modules)
-[ -e node_modules ] || ln -s /media/anoop/ssd_1/Work/CodeTortoise/frontend/node_modules node_modules
-mkdir -p /media/anoop/ssd_1/Work/CodeTortoise/.pwtmp
-export E2E="env TMPDIR=/media/anoop/ssd_1/Work/CodeTortoise/.pwtmp TORTOISE_CMD='env PYTHONPATH=/media/anoop/ssd_1/Work/CodeTortoise/.worktrees/story-panels/backend /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m codetortoise.cli' npx playwright test"
+[ -e node_modules ] || ln -s ../../../frontend/node_modules node_modules
+mkdir -p $(git rev-parse --show-toplevel)/.pwtmp
+export E2E="env TMPDIR=$(git rev-parse --show-toplevel)/.pwtmp TORTOISE_CMD='env PYTHONPATH=$(cd ../backend && pwd) $(cd ../backend && pwd)/.venv/bin/python -m codetortoise.cli' npx playwright test"
 ```
 
-e2e runs need `npm run build` first. `startReview` can time out at 60 s when the whole suite runs at once: rerun a test that failed that way on its own before treating it as a failure. Remove `/media/anoop/ssd_1/Work/CodeTortoise/.pwtmp` after the last e2e run, and remove the `frontend/node_modules` symlink before any `git worktree remove`.
+e2e runs need `npm run build` first. `startReview` can time out at 60 s when the whole suite runs at once: rerun a test that failed that way on its own before treating it as a failure. Remove `$(git rev-parse --show-toplevel)/.pwtmp` after the last e2e run, and remove the `frontend/node_modules` symlink before any `git worktree remove`.
 
 ## Review Focus
 
@@ -1902,4 +1902,4 @@ git -c user.email=2929430+revelationnow@users.noreply.github.com commit -m "test
 Claude-Session: https://claude.ai/code/session_01M17gxTwmjM6Qhg9xMppJuH"
 ```
 
-Then `rm -rf /media/anoop/ssd_1/Work/CodeTortoise/.pwtmp`.
+Then `rm -rf $(git rev-parse --show-toplevel)/.pwtmp`.

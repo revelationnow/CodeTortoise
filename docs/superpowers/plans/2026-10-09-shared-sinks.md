@@ -19,16 +19,16 @@ The browser hides `sink` annotations and findings in the API layer unless the vi
 
 ## Global Constraints
 
-- Worktree: `/media/anoop/ssd_1/Work/CodeTortoise/.worktrees/sinks` (branch `sinks`). All paths below are relative to it.
+- Worktree: `.worktrees/sinks` (branch `sinks`). All paths below are relative to it.
 - Python: run from `backend/` with
-  `env PYTHONPATH=/media/anoop/ssd_1/Work/CodeTortoise/.worktrees/sinks/backend /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m pytest ...`
+  `env PYTHONPATH=$PWD .venv/bin/python -m pytest ...`
   (written `PYTEST` below). Never use `uv`.
-- Lint: from `backend/`, `/media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/ruff check codetortoise tests` (written `RUFF`).
+- Lint: from `backend/`, `.venv/bin/ruff check codetortoise tests` (written `RUFF`).
 - Frontend: the worktree needs `frontend/node_modules` symlinked to the main checkout's
-  (`ln -s /media/anoop/ssd_1/Work/CodeTortoise/frontend/node_modules frontend/node_modules`); remove the symlink before
+  (`ln -s ../../../frontend/node_modules frontend/node_modules`); remove the symlink before
   any `git worktree remove`. Unit tests `npx vitest run`, type check and build `npm run build`.
 - e2e: `npm run build` first, then from `frontend/`:
-  `TMPDIR=$CLAUDE_JOB_DIR/tmp/pw TORTOISE_CMD="env PYTHONPATH=/media/anoop/ssd_1/Work/CodeTortoise/.worktrees/sinks/backend /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m codetortoise.cli" npx playwright test`.
+  `TMPDIR=$CLAUDE_JOB_DIR/tmp/pw TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test`.
   Known flake: the first full run may time out one to three `startReview` calls; they pass on `--last-failed`.
 - Commits: `git -c user.email=2929430+revelationnow@users.noreply.github.com commit`, message ending with the line
   `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Do not push.
@@ -1039,7 +1039,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Link node_modules (once per worktree)**
 
-Run: `ln -s /media/anoop/ssd_1/Work/CodeTortoise/frontend/node_modules frontend/node_modules` (skip if present).
+Run: `ln -s ../../../frontend/node_modules frontend/node_modules` (skip if present).
 
 - [ ] **Step 2: Write the failing test**
 
@@ -1437,7 +1437,7 @@ review-reading e2e spec or the page and fix `READER` — not the production text
 - [ ] **Step 3: Run the new spec**
 
 Run (from `frontend/`): `npm run build`, then
-`TMPDIR=$CLAUDE_JOB_DIR/tmp/pw TORTOISE_CMD="env PYTHONPATH=/media/anoop/ssd_1/Work/CodeTortoise/.worktrees/sinks/backend /media/anoop/ssd_1/Work/CodeTortoise/backend/.venv/bin/python -m codetortoise.cli" npx playwright test e2e/workspace-sinks.spec.ts`
+`TMPDIR=$CLAUDE_JOB_DIR/tmp/pw TORTOISE_CMD="env PYTHONPATH=$(cd ../backend && pwd) $(cd ../backend && pwd)/.venv/bin/python -m codetortoise.cli" npx playwright test e2e/workspace-sinks.spec.ts`
 Expected: 2 passed.
 
 - [ ] **Step 4: Full suites**
