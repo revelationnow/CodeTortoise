@@ -37,6 +37,8 @@ export const keys = {
   hiddenKinds: "ct.ws.hiddenKinds",
   /** Neighbours drawn as tiles or as the call tree. */
   nbView: "ct.ws.nb.view",
+  /** The ⋯ menu's Single-key shortcuts: J, K and F act on the Flows tab and in the stepper unless a false is stored. */
+  shortcuts: "ct.ws.shortcuts",
 };
 
 /* Typed readers: a value of the wrong shape (another app version, an extension, a manual edit) falls back to the

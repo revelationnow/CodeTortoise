@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { openAiUsage, reviewMenu, startReview } from "./helpers";
+import { openAiUsage, railReady, reviewMenu, startReview } from "./helpers";
 
 const AI = "http://127.0.0.1:8798";      // e2e/serve-ai.sh: CodeTortoise with the fake model in e2e/fake_llm.py
 
@@ -85,6 +85,46 @@ test("Tab out of the menu closes it and leaves focus where Tab took it; Shift+Ta
   await page.keyboard.press("Escape");
   await expect(menu).toHaveCount(0);
   await expect(button).toBeFocused();
+});
+
+test("Single-key shortcuts is a checkbox item after the help, on at first; a pick turns it off and returns to ⋯, the menu reopens showing it off, and a reload keeps it", async ({ page }) => {
+  await startReview(page);
+  const button = page.getByRole("button", { name: "Review menu" });
+  const item = (menu: Locator) => menu.getByRole("menuitemcheckbox", { name: "Single-key shortcuts" });
+  let menu = await reviewMenu(page);
+  await expect(menu.locator('[role="menuitem"],[role="menuitemcheckbox"]'))
+    .toHaveText([/^Stage notes · \d+$/, "How to read this page", "Single-key shortcuts✓", "Re-run"]);
+  await expect(item(menu)).toHaveAttribute("aria-checked", "true");
+  await expect(item(menu).locator(".rm-check"), "a ✓ shows it is on, for the eye only").toHaveText("✓");
+  await expect(item(menu).locator(".rm-check")).toHaveAttribute("aria-hidden", "true");
+  // useMenu starts a radio menu on its checked item; a checked checkbox item is no place to start
+  await expect(menu.getByRole("menuitem").first(), "the menu opens on its first item, with the box checked").toBeFocused();
+  await expect(item(menu)).not.toBeFocused();
+  await page.keyboard.press("ArrowDown");                                 // Stage notes → How to read this page
+  await page.keyboard.press("ArrowDown");                                 // → the switch: the arrow keys walk checkbox items too
+  await expect(item(menu)).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(menu).toHaveCount(0);
+  await expect(button, "a pick returns focus to ⋯").toBeFocused();
+  menu = await reviewMenu(page);
+  await expect(item(menu)).toHaveAttribute("aria-checked", "false");
+  await expect(item(menu).locator(".rm-check")).toHaveText("");
+  await expect(menu.getByRole("menuitem").first(), "and on its first item with the box unchecked").toBeFocused();
+  await page.keyboard.press("Escape");
+  await page.reload();
+  await railReady(page);
+  menu = await reviewMenu(page);
+  await expect(item(menu), "a reload keeps it").toHaveAttribute("aria-checked", "false");
+  await item(menu).click();                                               // and a click turns it on again
+  await expect(menu).toHaveCount(0);
+  await expect(button).toBeFocused();
+  menu = await reviewMenu(page);
+  await expect(item(menu)).toHaveAttribute("aria-checked", "true");
+  await expect(item(menu).locator(".rm-check")).toHaveText("✓");
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => window.localStorage.setItem("ct.ws.shortcuts", "false"));   // another tab switched it off
+  menu = await reviewMenu(page);
+  await expect(item(menu), "the menu shows what is stored each time it opens").toHaveAttribute("aria-checked", "false");
 });
 
 test("a press inside a code comment thread, which keeps its presses to itself, still closes the menu", async ({ page }) => {

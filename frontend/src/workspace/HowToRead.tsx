@@ -16,7 +16,8 @@ export default function HowToRead({ top }: { top: number }) {
           starts a thread. Keys: J next, K back, F looks fine &amp; next.</li>
         <li><b>Next open check ›</b> goes to the next place still open, in reading order.</li>
         <li><b>A story</b> has tabs: Flows (its flows grouped by what changed, a line each), Before → after, Where, Call
-          paths, Code, Graph and Talk. On Flows: J next row, K back, Enter opens it, F looks fine &amp; next.</li>
+          paths, Code, Graph and Talk. On Flows: J next row, K back, Enter opens it, F looks fine &amp; next. The ⋯ menu's
+          <b>Single-key shortcuts</b> switches J, K and F off, here and in a check; it is kept in this browser.</li>
         <li><b>Mark as read</b> ticks a story for you alone; the top bar counts the stories you have read and the checks
           still open.</li>
         <li><b>The side panel</b> keeps a tab per thing you open; <b>Focus</b> folds the outline to give it room.</li>

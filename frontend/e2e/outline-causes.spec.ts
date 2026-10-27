@@ -1,5 +1,5 @@
 import { devices, expect, type Page, test } from "@playwright/test";
-import { barNames, expectNamed, expectNoNodeIds, hold, reviewMenu, startReview, storyLink } from "./helpers";
+import { barNames, expectNamed, expectNoNodeIds, hold, recordSaid, reviewMenu, setShortcuts, startReview, storyLink } from "./helpers";
 
 /** The outline and checks by cause (spec 2026-10-16-outline-and-causes): fixture CLs 101–104 make three threads; with
  * Confirm hidden their causes are a caller, a result and a reader in thread A and an ask in thread C. */
@@ -279,6 +279,57 @@ test.describe("a cause of many places", () => {
     await expect(panel.locator(".cs-donecount")).toHaveText("0 done");
   });
 
+  test("with Single-key shortcuts off, J, K and F do nothing in the stepper, its buttons still act, and switched on again the keys step", async ({ page }) => {
+    const panel = await openReaders(page);
+    const pos = panel.locator(".cs-pos"), done = panel.locator(".cs-donecount");
+    await expect(pos).toHaveText("1 / 5");
+    await setShortcuts(page, false);
+    for (const key of ["j", "k", "f"]) {                                 // from 1 / 5 they would step to 2, wrap back to 5, and clear place 1
+      await page.keyboard.press(key);
+      await page.waitForTimeout(300);                                    // a step or a mark that wrongly started would have landed by now
+      await expect(pos, `${key} stepped`).toHaveText("1 / 5");
+      await expect(done, `${key} marked`).toHaveText("0 done");
+    }
+    await panel.getByRole("button", { name: "Skip ›" }).focus();
+    await page.keyboard.press("Enter");                                  // the buttons are the reader's own
+    await expect(pos).toHaveText("2 / 5");
+    await panel.getByRole("button", { name: "Looks fine & next" }).focus();
+    await page.keyboard.press("Space");
+    await expect(pos).toHaveText("3 / 5");
+    await expect(done).toHaveText("1 done");
+    await setShortcuts(page, true);
+    await page.keyboard.press("k");                                      // back over the done place 2 to place 1
+    await expect(pos).toHaveText("1 / 5");
+    await page.keyboard.press("j");
+    await expect(pos).toHaveText("3 / 5");
+    await page.keyboard.press("f");
+    await expect(pos).toHaveText("4 / 5");
+    await expect(done).toHaveText("2 done");
+  });
+
+  test("F says Marked fine in a hidden live region once its mark has landed, and says it again for the next place; a mark that fails says nothing", async ({ page }) => {
+    const panel = await openReaders(page);
+    const said = panel.locator('[aria-live="polite"]'), pos = panel.locator(".cs-pos");
+    await expect(pos).toHaveText("1 / 5");
+    await expect(said, "a polite live region that is there before F, and empty").toHaveText("");
+    await expect(said, "for screen readers only").toHaveClass("vh");
+    expect((await said.boundingBox())!.width).toBeLessThanOrEqual(1);
+    const log = await recordSaid(said);
+    await page.keyboard.press("f");
+    await expect(pos).toHaveText("2 / 5");
+    await expect(said).toHaveText("Marked fine");
+    await page.keyboard.press("f");
+    await expect(pos).toHaveText("3 / 5");
+    await expect(said).toHaveText("Marked fine");
+    expect(await log(), "emptied between the two, so a screen reader hears it twice").toEqual(["Marked fine", "", "Marked fine"]);
+    await holdMarks(page, "fail");                                       // from here the server refuses every mark
+    await page.keyboard.press("f");
+    await expect(panel.locator(".banner.warn")).toContainText("the store is busy");
+    await page.waitForTimeout(300);                                      // words that wrongly came after the refusal would be here by now
+    await expect(said, "the old words are gone, and none came for a mark that did not land").toHaveText("");
+    await expect(pos).toHaveText("3 / 5");
+  });
+
   test("a J pressed the moment the stepper shows is heard, not lost to the next paint", async ({ page }) => {
     await startReview(page, "201 202");
     const outline = page.locator("aside.ws-outline");
@@ -370,6 +421,7 @@ test.describe("the top bar", () => {
     await expect(dialog).toContainText("J next, K back, F looks fine & next");
     await expect(dialog).toContainText("the story you are on shows its flow groups.");
     await expect(dialog).toContainText("On Flows: J next row, K back, Enter opens it, F looks fine & next.");
+    await expect(dialog).toContainText("Single-key shortcuts switches J, K and F off, here and in a check");
     await expect(dialog).toContainText("A faint violet line at the left of a paragraph marks text the AI wrote.");
     for (const w of [1440, 600]) {
       await page.setViewportSize({ width: w, height: 900 });

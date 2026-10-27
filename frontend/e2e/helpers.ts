@@ -150,6 +150,28 @@ export async function reviewMenu(page: Page): Promise<Locator> {
   return menu;
 }
 
+/** Turn the ⋯ menu's Single-key shortcuts on or off (owner decision 2, 2026-10-26) by a pick, as a reader does; a menu that already
+ * shows the wanted state is left with Escape. Returns once the menu has closed, with focus on ⋯. */
+export async function setShortcuts(page: Page, on: boolean) {
+  const menu = await reviewMenu(page), item = menu.getByRole("menuitemcheckbox", { name: "Single-key shortcuts" });
+  await expect(item).toBeVisible();
+  if ((await item.getAttribute("aria-checked")) === String(on)) await page.keyboard.press("Escape");
+  else await item.click();
+  await expect(menu).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Review menu/ })).toBeFocused();
+}
+
+/** What a polite live region holds each time it changes, from the call on; returns a function that reads the record. A screen reader
+ * announces text put into a live region, so the same words are heard twice only if the region was emptied in between. */
+export async function recordSaid(region: Locator): Promise<() => Promise<string[]>> {
+  await region.evaluate((el) => {
+    const log: string[] = [];
+    (window as unknown as { said: string[] }).said = log;
+    new MutationObserver(() => log.push(el.textContent ?? "")).observe(el, { childList: true, characterData: true, subtree: true });
+  });
+  return () => region.page().evaluate(() => (window as unknown as { said: string[] }).said);
+}
+
 /** Open the AI usage panel from the review menu; returns the panel. */
 export async function openAiUsage(page: Page): Promise<Locator> {
   await (await reviewMenu(page)).getByRole("menuitem", { name: /^AI calls used · / }).click();

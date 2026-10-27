@@ -7,18 +7,21 @@ import { useMenu } from "../lib/useMenu";
 import { useWs } from "./context";
 import HowToRead from "./HowToRead";
 import { menuAttention, type MenuId, menuItems, type MenuState } from "./reviewMenu";
+import { setShortcutsOn, shortcutsOn } from "./shortcuts";
 
 const FRESH = "Ask the strong model for new stories instead of reusing the ones it formed for this change";
 
-/** The header's ⋯ menu (spec 2026-10-25-review-ui-redesign §2.2): drift, stage notes, AI usage, the help and the
- * owner's re-runs, with an amber dot when the workspace drifted or a stage failed. The menu and its panels are fixed
- * under the header's right end (`under()`), since the header itself scrolls; a re-run the server refuses is told in a
- * panel of its own. */
+/** The header's ⋯ menu (spec 2026-10-25-review-ui-redesign §2.2): drift, stage notes, AI usage, the help, the single-key
+ * shortcuts switch and the owner's re-runs, with an amber dot when the workspace drifted or a stage failed. The switch is a
+ * checkbox item kept in this browser (`shortcuts.ts`): a pick flips it, closes the menu and gives focus back to ⋯. The menu
+ * and its panels are fixed under the header's right end (`under()`), since the header itself scrolls; a re-run the server
+ * refuses is told in a panel of its own. */
 export default function ReviewMenu({ under }: { under: () => number }) {
   const ws = useWs(), d = ws.data, me = useMe(), ai = useAi();
   const [open, setOpen] = useState(false);
   const [panel, setPanel] = useState<"drift" | "notes" | "help" | "rerun" | null>(null);
   const [failed, setFailed] = useState("");                  // why the last re-run did not start
+  const [keysOn, setKeysOn] = useState(shortcutsOn);          // the single-key shortcuts switch, read again each time the menu opens
   const [top, setTop] = useState(56);
   const { button, menu } = useMenu<HTMLUListElement>(open, () => setOpen(false));
   const box = useRef<HTMLDivElement>(null);
@@ -28,7 +31,7 @@ export default function ReviewMenu({ under }: { under: () => number }) {
   const state: MenuState = {
     drift: drift.length, notes: { failed: notes.filter((s) => s.status === "failed").length,
                                   degraded: notes.filter((s) => s.status === "degraded").length },
-    ai: v?.llm ? { used: v.used, budget: v.budget } : null, reading: !!d.reading,
+    ai: v?.llm ? { used: v.used, budget: v.budget } : null, reading: !!d.reading, keys: keysOn,
     owner: !!me?.is_owner, ready: d.ready, strong: !!v?.strong };
   const items = menuItems(state), why = menuAttention(state);
   const at = { top, maxHeight: `calc(100vh - ${top + 16}px)` };   // the menu or a panel scrolls inside itself rather than run past 16px above the window's bottom
@@ -52,23 +55,26 @@ export default function ReviewMenu({ under }: { under: () => number }) {
     setOpen(false);
     if (id === "drift" || id === "notes" || id === "help") { setPanel(id); return; }
     button.current?.focus();
-    if (id === "ai") ai?.setUsageOpen(true);
+    if (id === "keys") { setShortcutsOn(!keysOn); setKeysOn(shortcutsOn()); }   // shows what the keys will do, which blocked storage keeps on
+    else if (id === "ai") ai?.setUsageOpen(true);
     else api.rerun(d.id, id === "fresh").then(d.loadDetail).catch((e) => { setFailed(String((e as Error).message ?? e)); setPanel("rerun"); });
   };
   return (
     <div className="rm">
       <button ref={button} className="rm-btn" aria-label={why ? `Review menu (${why})` : "Review menu"} title="Review menu"
               aria-haspopup="menu" aria-expanded={open}
-              onClick={() => { setTop(under()); setPanel(null); setOpen(!open); }}>
+              onClick={() => { setTop(under()); setPanel(null); setKeysOn(shortcutsOn()); setOpen(!open); }}>
         ⋯{why && <span className="rm-dot" aria-hidden />}
       </button>
       {open && (
         <ul className="rm-menu" role="menu" aria-label="Review menu" ref={menu} style={at}>
           {items.map((it) => (
             <li key={it.id} role="none">
-              <button role="menuitem" title={it.id === "fresh" ? FRESH : undefined} onClick={() => pick(it.id)}>
+              <button role={it.checked === undefined ? "menuitem" : "menuitemcheckbox"} aria-checked={it.checked}
+                      title={it.id === "fresh" ? FRESH : undefined} onClick={() => pick(it.id)}>
                 {(it.id === "drift" || (it.id === "notes" && state.notes.failed > 0)) && <span className="rm-amber" aria-hidden />}
                 {it.label}
+                {it.checked !== undefined && <span className="rm-check" aria-hidden>{it.checked ? "✓" : ""}</span>}
               </button>
             </li>
           ))}

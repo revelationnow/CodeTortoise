@@ -13,8 +13,11 @@ section of the overview that counts its stories, its open checks and the stories
 opens one thread at a time. A story's **Flows** tab groups its flows by what changed, one line each: a line opens in
 place, and its tick box marks the flow's places fine for every reviewer. A group shows eight lines, then
 **Show N more**. On that tab J and K move between lines, Enter opens one, and F marks it fine and moves to the next
-line still open; while you type, or while a check is open beside the page, the keys leave the tab alone. The header's
-`⋯` menu holds workspace drift, stage notes, AI usage, the help and the owner's re-runs.
+line still open; while you type, or while a check is open beside the page (where J, K and F step through its places),
+the keys leave the tab alone. The **Single-key shortcuts** item in the header's `⋯` menu turns J, K and F off, on the
+tab and beside a check; it is on by default and remembered in that browser. F also says "Marked fine" to a screen
+reader once its mark has landed. The same menu holds workspace drift, stage notes, AI usage, the help and the owner's
+re-runs.
 
 The web app is the system of record for review discussion. P4 Swarm is a side channel: CodeTortoise reads review state,
 can create a Swarm review for a shelved CL and posts a summary link.

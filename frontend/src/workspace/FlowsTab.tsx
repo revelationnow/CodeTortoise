@@ -38,17 +38,18 @@ export default function FlowsTab({ detail, sr, flows }: { detail: StoryDetail; s
   const [more, setMore] = useState<ReadonlySet<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const run = (act: () => Promise<unknown>) => {
-    if (busy) return;                                                          // one mark at a time; the tick boxes stay enabled, so they keep their focus
+  // settles to whether the change landed (never rejects): F says "Marked fine" only for a mark that did
+  const run = (act: () => Promise<unknown>): Promise<boolean> => {
+    if (busy) return Promise.resolve(false);                                   // one mark at a time; the tick boxes stay enabled, so they keep their focus
     setBusy(true);
     setError(null);
-    act().then(() => Promise.all([d.loadReading(), d.loadTicks().catch(() => {})]))
-      .catch((e) => setError(String(e.message ?? e))).finally(() => setBusy(false));
+    return act().then(() => Promise.all([d.loadReading(), d.loadTicks().catch(() => {})])).then(() => true)
+      .catch((e) => { setError(String(e.message ?? e)); return false; }).finally(() => setBusy(false));
   };
   const fine = (keys: string[]) => run(() => api.markChecks(d.id, keys));
   const reopen = (keys: string[]) => run(() => api.unmarkChecks(d.id, keys));  // all of them or none, so a refusal leaves the row as it was
   const leftAt = (n: number) => openKeys(places.get(flows[n - 1]?.id ?? "") ?? [], marks);
-  const { cur, setCur, move, focusRow } = useRowKeys({ order, busy, leftAt, fine });
+  const { cur, setCur, move, focusRow, said } = useRowKeys({ order, busy, leftAt, fine });
   // An address that names a row opens it and brings it into view, once. An outline group line names its first row even when the address
   // already holds it: `lit` then stays as it was, so the line says in its navigation state (`showFlow`) that it was clicked. Back and
   // Forward land on an entry that still carries that state and are no click; any other step that keeps the flow carries none.
@@ -79,6 +80,7 @@ export default function FlowsTab({ detail, sr, flows }: { detail: StoryDetail; s
   }, [more]);
   return (
     <div className="st-flows" aria-busy={busy}>
+      <div className="vh" aria-live="polite">{said}</div>
       {error && <div className="banner warn">{error}</div>}
       {groups.map((g) => {
         const title = groupTitle(g, label), rows = unfolded(g) ? g.rows : g.rows.slice(0, FOLD_AT);
