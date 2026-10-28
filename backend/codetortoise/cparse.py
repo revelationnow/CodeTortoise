@@ -146,14 +146,12 @@ _LEADING = re.compile(r"\w+")
 
 
 def _statement_like(name: str) -> bool:
-    """Whether a parsed "function" is a statement taken for a definition: its name starts with a statement keyword, or has
-    a parameter list's parentheses in it (tree-sitter names a declarator by its whole text, so `if ((v == 1)` stays whole).
-    A C++ `operator()` and a function returning a function pointer, `(*name(...))`, are real definitions named with
-    parentheses."""
+    """Whether a parsed "function" is a statement taken for a definition: its name starts with a statement keyword
+    (tree-sitter names a declarator by its whole text, so `else if ((v == 1)` is named `if((v==1)`). Parentheses in a name
+    say nothing: a function named by a macro, `NAME(alpha)`, a C++ `result_type(min)` or `operator()`, and one returning a
+    function pointer, `(*name(...))`, are definitions."""
     lead = _LEADING.match(name)
-    if lead and lead.group() in _STATEMENTS:
-        return True
-    return "(" in name and not name.startswith(("operator", "("))
+    return lead is not None and lead.group() in _STATEMENTS
 
 
 def parse_source(path: str, text: str, flatten: Literal["never", "auto", "always"] = "never") -> ParsedFile:

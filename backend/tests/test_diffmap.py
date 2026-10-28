@@ -86,6 +86,12 @@ def test_an_edit_inside_a_function_with_a_parse_error_in_a_dropped_branch_is_map
     assert [(f.qualname, f.kind) for f in dm.functions] == [("delta", "body_modified")]
 
 
+def test_an_edit_inside_a_function_named_by_a_macro_is_mapped_to_it_and_no_file_is_flattened():
+    before = "#define NAME(x) fn_##x\nint NAME(alpha)(int v) { return v; }\nint beta(void) { return 1; }\n"
+    dm = map_changes(_cs(before, before.replace("return v;", "return v + 1;")))
+    assert [(f.qualname, f.kind) for f in dm.functions] == [("NAME(alpha)", "body_modified")] and dm.flattened == []
+
+
 def test_a_function_the_parser_loses_in_one_version_with_no_edit_in_it_is_not_a_change(monkeypatch):
     from codetortoise import cparse
     before, after = HEAD + SPLIT + tail(5), HEAD + SPLIT + tail(6)

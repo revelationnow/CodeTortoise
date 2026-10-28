@@ -197,6 +197,19 @@ def test_a_function_whose_name_has_parentheses_in_a_clean_file_is_neither_droppe
         assert [f.name for f in pf.functions] == [name] and not pf.flattened
 
 
+def test_a_function_named_by_a_macro_is_kept_and_does_not_flatten_a_file_with_no_conditional():
+    text = "#define NAME(x) fn_##x\nint NAME(alpha)(int v) { return v; }\nint beta(void) { return 1; }\n"
+    pf = parse_source("a.c", text, flatten="auto")
+    assert _spans(pf) == [("NAME(alpha)", 2, 2), ("beta", 3, 3)] and not pf.flattened
+
+
+def test_a_function_whose_name_is_in_parentheses_is_kept_and_does_not_flatten_a_file_with_no_conditional():
+    text = ("struct Widget { typedef int result_type; static constexpr result_type(min)() { return 0; } };\n"
+            "int beta(void) { return 1; }\n")
+    pf = parse_source("a.cpp", text, flatten="auto")
+    assert _spans(pf) == [("result_type(min)", 1, 1), ("beta", 2, 2)] and not pf.flattened
+
+
 def test_an_untangled_file_is_not_flattened():
     text = "int first(void) { return 1; }\n#ifdef OPT_A\nint beta(void) { return 2; }\n#endif\n"
     pf = parse_source("a.c", text, flatten="auto")
