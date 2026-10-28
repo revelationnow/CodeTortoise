@@ -1,5 +1,5 @@
 import pytest
-from test_cparse import DROPPED, HEAD, SPLIT, tail
+from test_cparse import ALTERNATE, DROPPED, HEAD, SPLIT, tail
 
 from codetortoise.diffmap import map_changes
 from codetortoise.vcs.model import ChangeSet, ClMeta, FileChange
@@ -43,6 +43,12 @@ def test_an_edit_inside_a_function_whose_braces_an_ifdef_splits_is_mapped_to_it(
     before = HEAD + SPLIT + tail(6)
     dm = map_changes(_cs(before, before.replace("v++;", "v += 2;")))
     assert [(f.qualname, f.kind) for f in dm.functions] == [("alpha", "body_modified")] and dm.flattened == ["/w/a.c"]
+
+
+def test_an_edit_inside_a_function_whose_signature_an_ifdef_alternates_is_mapped_to_it():
+    before = HEAD + ALTERNATE + tail(6)
+    dm = map_changes(_cs(before, before.replace("return v;", "return v + 1;")))
+    assert [(f.qualname, f.kind) for f in dm.functions] == [("beta", "body_modified")] and dm.flattened == ["/w/a.c"]
 
 
 @pytest.mark.parametrize("eol", ["\n", "\r\n", "\r\r\n"])

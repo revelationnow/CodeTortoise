@@ -203,10 +203,11 @@ def parse_source(path: str, text: str, flatten: Literal["never", "auto", "always
     """Functions, declarations, types, macros, calls, includes and member references of one file.
 
     `flatten`: "auto" finds the functions (with their calls and member references) again on flatten_preproc's text
-    when a preprocessor conditional tangles the parse (a "function" named like a statement, or an error on or across a
-    conditional's line), and "always" does so regardless. Line numbers stay; a function's hash still comes from the
-    original text, so an edit inside a dropped branch still changes it; a function the first parse found that no
-    function of the flattened text covers (one in a branch not kept) stays; "functions" named like statements go.
+    when a preprocessor conditional tangles the parse (a "function" named like a statement, an error on or across a
+    conditional's line, or a missing token at the end of the line before one), and "always" does so regardless. Line
+    numbers stay; a function's hash still comes from the original text, so an edit inside a dropped branch still changes
+    it; a function the first parse found that no function of the flattened text covers (one in a branch not kept) stays;
+    "functions" named like statements go.
 
     Lines are numbered as clang and `linediff.lines` number them: a line ends at a newline, a carriage return plus
     newline or a lone carriage return. tree-sitter's rows break at a newline only, so in a text with a lone carriage
@@ -360,7 +361,8 @@ _DEFINED = re.compile(r"(!?)[ \t]*defined[ \t]*\(?[ \t]*(\w+)[ \t]*\)?")
 
 def _tangled(tree: ts.Tree, text: str, pf: ParsedFile) -> bool:
     """Whether a preprocessor conditional tangles a parse: a "function" named like a statement, or a parse error or
-    missing token on a conditional directive's line or spanning one."""
+    missing token on a conditional directive's line or spanning one, or a missing token at the end of the line before one
+    (the `;` tree-sitter supplies after a signature that an `#ifdef` and its `#else` alternate before one body)."""
     if any(_statement_like(f.name) for f in pf.functions):
         return True
     rows = [i for i, line in enumerate(text.split("\n")) if _COND.match(line)]
@@ -370,8 +372,9 @@ def _tangled(tree: ts.Tree, text: str, pf: ParsedFile) -> bool:
     while stack:
         n = stack.pop()
         if n.type == "ERROR" or n.is_missing:
+            last = n.end_point.row + (1 if n.is_missing else 0)
             k = bisect.bisect_left(rows, n.start_point.row)
-            if k < len(rows) and rows[k] <= n.end_point.row:
+            if k < len(rows) and rows[k] <= last:
                 return True
         stack.extend(ch for ch in n.children if ch.has_error or ch.is_missing)
     return False

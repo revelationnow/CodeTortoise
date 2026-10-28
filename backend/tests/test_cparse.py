@@ -148,6 +148,14 @@ SPLIT = """int alpha(int v)
 #endif
 }
 """
+# a signature an #ifdef alternates: tree-sitter ends each branch's signature with a missing ";", on the line before a directive
+ALTERNATE = """#ifdef OPT_B
+static int beta(int v, int w)
+#else
+static int beta(int v)
+#endif
+{ return v; }
+"""
 
 
 def tail(n):
@@ -181,6 +189,15 @@ def test_a_function_whose_braces_an_ifdef_splits_is_found_on_the_flattened_text(
     assert "alpha" not in [f.name for f in parse_source("a.c", text).functions]     # the raw parse loses it
     pf = parse_source("a.c", text, flatten="auto")
     assert ("alpha", 2, 14) in _spans(pf) and pf.flattened
+
+
+def test_a_function_whose_signature_an_ifdef_alternates_is_found_on_the_flattened_text():
+    text = HEAD + ALTERNATE + tail(6)
+    assert "beta" not in [f.name for f in parse_source("a.c", text).functions]     # the raw parse loses it
+    always = _spans(parse_source("a.c", text, flatten="always"))
+    assert ("beta", 3, 7) in always                                               # the first branch's signature, to the body's end
+    pf = parse_source("a.c", text, flatten="auto")
+    assert _spans(pf) == always and pf.flattened
 
 
 def test_a_flattened_function_is_hashed_on_the_original_text_so_an_edit_in_a_dropped_branch_counts():
@@ -266,6 +283,14 @@ def test_tree_sitter_facts_find_a_function_whose_braces_an_ifdef_splits():
     text = HEAD + SPLIT + tail(6)
     facts = extract_tu_treesitter(TuRequest(file="/w/a.c", args=[], variant="after", unsaved={"/w/a.c": text}))
     assert ("alpha", 2, 14) in [(f.name, f.start_line, f.end_line) for f in facts.functions]
+
+
+def test_tree_sitter_facts_find_a_function_whose_signature_an_ifdef_alternates():
+    from codetortoise.facts.clang_extractor import TuRequest
+    from codetortoise.facts.treesitter_extractor import extract_tu_treesitter
+    text = HEAD + ALTERNATE + tail(6)
+    facts = extract_tu_treesitter(TuRequest(file="/w/a.c", args=[], variant="after", unsaved={"/w/a.c": text}))
+    assert ("beta", 3, 7) in [(f.name, f.start_line, f.end_line) for f in facts.functions]
 
 
 def test_a_lone_cr_ends_a_line_for_the_parse_as_it_does_for_the_line_diff():
