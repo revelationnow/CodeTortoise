@@ -783,3 +783,18 @@ def test_when_no_account_survives_and_some_calls_failed_the_reading_is_degraded(
     st = next(s for s in svc.store.list_stages(rid) if s["name"] == "reading")
     assert st["status"] == "degraded" and "; 0 story account(s)" in st["message"]
     assert "1 story account(s) not written: RuntimeError: timed out" in st["message"]
+
+
+def test_changed_sources_over_the_tu_budget_are_read_by_tree_sitter_and_the_stage_says_so(fx, tmp_path):
+    from helpers import make_config
+
+    from codetortoise.services import build_services
+    svc = build_services(make_config(fx, tmp_path, analysis={"module_min_files": 1, "workers": 1, "tu_budget": 1}))
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    st = stages(svc, rid)
+    assert st["tu_select"] == "degraded" and st["facts"] == "degraded" and st["impact"] == "ok"
+    msg = next(s["message"] for s in svc.store.list_stages(rid) if s["name"] == "tu_select")
+    assert "1 changed source file(s) over the TU budget, read by tree-sitter only: //fixture/" in msg
+    im = svc.store.get_blob(rid, "impact")
+    assert sorted(im["nodes"][n]["label"] for n in im["changed"]) == ["hal_write", "uart_send"]

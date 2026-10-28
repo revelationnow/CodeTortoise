@@ -18,6 +18,7 @@ from codetortoise.detectors.base import DetectorContext, renumber, run_detectors
 from codetortoise.diffmap import map_changes
 from codetortoise.facts.model import Facts, relative_records
 from codetortoise.facts.runner import build_requests, parse_summary, run_extraction
+from codetortoise.facts.treesitter_extractor import extract_tu_treesitter
 from codetortoise.facts_prep import prepare_facts
 from codetortoise.grouping import StoryPlan, rules_plan
 from codetortoise.impact import ImpactModel, build_impact
@@ -200,7 +201,14 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
         sel = select_tus(ctx["dm"], svc.index, svc.cdb, cfg.analysis)
         ctx["sel"] = sel
         store.put_blob(rid, "selection", sel)
-        return f"{len(sel.selected)} TU(s) selected, {sel.over_budget} over budget"
+        msg = f"{len(sel.selected)} TU(s) selected, {sel.over_budget} over budget"
+        if sel.ts_only:
+            depot = {f.local: f.depot for f in ctx["cs"].files}
+            names = ", ".join(depot.get(p, p) for p in sel.ts_only[:5])
+            more = f" (+{len(sel.ts_only) - 5} more)" if len(sel.ts_only) > 5 else ""
+            raise Degraded(f"{msg}; {len(sel.ts_only)} changed source file(s) over the TU budget, read by tree-sitter "
+                           f"only: {names}{more}")
+        return msg
 
     def layers():
         model = svc.layers.get()
@@ -221,6 +229,12 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
         svc.toolchain.prepare()
         before = extract(build_requests(ctx["sel"], ctx["cs"], svc.toolchain, "before"))
         after = extract(build_requests(ctx["sel"], ctx["cs"], svc.toolchain, "after"))
+        if ctx["sel"].ts_only:      # changed sources over the budget: tree-sitter, so their functions still count
+            parsed = {f.tu.file for f in before + after}
+            over = TuSelection(selected=ctx["sel"].ts_only)
+            for variant, out in (("before", before), ("after", after)):
+                out += [extract_tu_treesitter(r, reason="over the TU budget")
+                        for r in build_requests(over, ctx["cs"], svc.toolchain, variant) if r.file not in parsed]
         note = ""
         extra = field_follow_up(ctx["dm"], after, svc.index, svc.cdb, ctx["sel"], cfg.analysis)
         if extra:
