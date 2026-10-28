@@ -194,7 +194,15 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
         dm = map_changes(ctx["cs"])
         ctx["dm"] = dm
         store.put_blob(rid, "diffmap", dm)
-        return f"{len(dm.functions)} function change(s), {len(dm.types)} type/macro/decl change(s)"
+        msg = f"{len(dm.functions)} function change(s), {len(dm.types)} type/macro/decl change(s)"
+        if dm.flattened:
+            msg += f"; {len(dm.flattened)} file(s) read with one branch of each #if to find their functions"
+        misread = [c for c in dm.functions if c.misread]
+        if misread:
+            names = ", ".join(c.qualname for c in misread[:5]) + (f" (+{len(misread) - 5} more)" if len(misread) > 5 else "")
+            raise Degraded(f"{msg}; {len(misread)} function(s) the parser may have misread, shown as added or removed: "
+                           f"{names}")
+        return msg
 
     def tu_select():
         if svc.index.generation() == 0:

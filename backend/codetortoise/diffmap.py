@@ -1,12 +1,14 @@
 """Maps a ChangeSet to changed functions / types / macros using tree-sitter."""
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from codetortoise.cparse import FuncDef, is_source, parse_source
+from codetortoise.linediff import edits, touches
 from codetortoise.vcs.model import ChangeSet
 
 FunctionChangeKind = Literal["added", "removed", "body_modified", "signature_changed"]
@@ -26,6 +28,7 @@ class FunctionChange(BaseModel):
     signature_before: str | None = None
     signature_after: str | None = None
     written_members: list[str] = Field(default_factory=list)
+    misread: bool = False     # added or removed, yet the other version's text defines it where the parser found nothing
 
 
 class TypeChange(BaseModel):
@@ -39,6 +42,7 @@ class DiffMap(BaseModel):
     functions: list[FunctionChange] = Field(default_factory=list)
     types: list[TypeChange] = Field(default_factory=list)
     changed_files: list[str] = Field(default_factory=list)
+    flattened: list[str] = Field(default_factory=list)   # files whose functions were found on one branch of each #if
 
 
 def _keyed(funcs: list[FuncDef]) -> dict[tuple[str, int], FuncDef]:
@@ -62,19 +66,42 @@ def _diff_named(before: dict[str, str], after: dict[str, str], prefix: str) -> l
     return out
 
 
+_TO_BODY = re.compile(r"[;{]")
+
+
+def _definitions(text: str, name: str) -> int:
+    """How many times the text defines `name` at the left margin: a type (or nothing) then the name and "(" at the start
+    of a line, then "{" before any ";" (a call is indented; a prototype reaches ";" first)."""
+    pat = re.compile(rf"^(?:[A-Za-z_][\w \t*&:<>,]*[ \t*&])?{re.escape(name)}[ \t]*\(", re.M)
+    n = 0
+    for m in pat.finditer(text):
+        nxt = _TO_BODY.search(text, m.end())
+        n += nxt is not None and nxt.group() == "{"
+    return n
+
+
 def map_changes(cs: ChangeSet) -> DiffMap:
     dm = DiffMap()
     for fc in cs.files:
         if not is_source(fc.local):
             continue
         dm.changed_files.append(fc.local)
-        b = parse_source(fc.local, fc.before)
-        a = parse_source(fc.local, fc.after)
+        b = parse_source(fc.local, fc.before, flatten="auto")
+        a = parse_source(fc.local, fc.after, flatten="auto")
+        if b.flattened != a.flattened:             # read both versions the same way
+            b = b if b.flattened else parse_source(fc.local, fc.before, flatten="always")
+            a = a if a.flattened else parse_source(fc.local, fc.after, flatten="always")
+        if a.flattened:
+            dm.flattened.append(fc.local)
         bf, af = _keyed(b.functions), _keyed(a.functions)
+        eb, ea = edits(fc.before, fc.after, "before"), edits(fc.before, fc.after, "after")
         for key in sorted(set(bf) | set(af)):
             fb, fa = bf.get(key), af.get(key)
             if fb is not None and fa is not None and fb.text_hash == fa.text_hash:
                 continue
+            if not ((fb is not None and touches(eb, fb.start_line, fb.end_line))
+                    or (fa is not None and touches(ea, fa.start_line, fa.end_line))):
+                continue                           # no edit in its own lines: the parser read the versions differently
             if fb is None:
                 kind = "added"
             elif fa is None:
@@ -84,6 +111,10 @@ def map_changes(cs: ChangeSet) -> DiffMap:
             else:
                 kind = "body_modified"
             ref = fa or fb
+            misread = False
+            if fb is None or fa is None:
+                other, parsed = (fc.before, b) if fb is None else (fc.after, a)
+                misread = _definitions(other, ref.name) > sum(1 for f in parsed.functions if f.name == ref.name)
             written = sorted({m.field for pf in (a, b) for m in pf.members
                               if m.is_write and m.fn == ref.qualname})
             dm.functions.append(FunctionChange(
@@ -92,7 +123,7 @@ def map_changes(cs: ChangeSet) -> DiffMap:
                 after_lines=(fa.start_line, fa.end_line) if fa else None,
                 signature_before=fb.signature if fb else None,
                 signature_after=fa.signature if fa else None,
-                written_members=written))
+                written_members=written, misread=misread))
         for name, kind in _diff_named({t.name: t.text for t in b.types if t.name},
                                       {t.name: t.text for t in a.types if t.name}, "type"):
             dm.types.append(TypeChange(file=fc.local, depot=fc.depot, name=name, kind=kind))

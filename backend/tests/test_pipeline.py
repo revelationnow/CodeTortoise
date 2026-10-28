@@ -873,3 +873,33 @@ def test_a_changed_function_no_parse_covers_degrades_the_impact_stage_and_is_nam
     assert stages(svc, rid)["impact"] == "degraded"
     msg = next(s["message"] for s in svc.store.list_stages(rid) if s["name"] == "impact")
     assert "1 changed function(s) in no parse" in msg and msg.endswith(": beta")
+
+
+class SplitEdit:
+    """A change whose old version tree-sitter cannot read one function of (an #ifdef splits its braces)."""
+    def __init__(self, path):
+        self.path = path
+
+    def load(self, cls):
+        from test_cparse import HEAD, SPLIT, tail
+        return ChangeSet(cls=[ClMeta(cl=1, status="pending")],
+                         files=[FileChange(depot="//fixture/driver/uart.c", local=self.path, action="edit",
+                                           before=HEAD + SPLIT + tail(6),
+                                           after=HEAD + SPLIT.replace("v++;", "v += 2;") + tail(5))])
+
+
+def test_the_diffmap_stage_says_which_files_it_flattened_and_names_functions_it_may_have_misread(fx, tmp_path, monkeypatch):
+    from codetortoise import cparse, diffmap
+    path = str((fx.root / "driver" / "uart.c").resolve())
+    svc = make_services(fx, tmp_path, source=SplitEdit(path))
+    rid = svc.store.create_review("t", "owner", [1])
+    run_review(rid, svc)
+    msg = next(s["message"] for s in svc.store.list_stages(rid) if s["name"] == "diffmap")
+    assert stages(svc, rid)["diffmap"] == "ok"
+    assert msg.endswith("; 1 file(s) read with one branch of each #if to find their functions")
+    monkeypatch.setattr(diffmap, "parse_source", lambda path, text, flatten="never": cparse.parse_source(path, text))
+    rid = svc.store.create_review("t", "owner", [1])
+    run_review(rid, svc)
+    msg = next(s["message"] for s in svc.store.list_stages(rid) if s["name"] == "diffmap")
+    assert stages(svc, rid)["diffmap"] == "degraded"
+    assert msg.endswith("; 1 function(s) the parser may have misread, shown as added or removed: alpha")

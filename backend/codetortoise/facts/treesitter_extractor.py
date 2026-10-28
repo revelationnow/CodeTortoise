@@ -14,7 +14,7 @@ def extract_tu_treesitter(req: TuRequest, reason: str = "") -> Facts:
     if text is None:
         p = Path(req.file)
         text = p.read_text(errors="replace") if p.exists() else ""
-    pf = parse_source(file, text)
+    pf = parse_source(file, text, flatten="auto")
 
     def usr(q: str) -> str:
         return f"ts:{file}#{q}"
