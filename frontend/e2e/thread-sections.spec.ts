@@ -116,14 +116,14 @@ test.describe("desktop", () => {
     await expectNoNodeIds(page);
     await expectNamed(page);
     await secs.nth(1).getByRole("link", { name: "Start thread B" }).click();
-    await expect(page).toHaveURL(new RegExp(`${base}/s/S3$`));
+    await expect(page).toHaveURL(new RegExp(`${base}/s/S4$`));
     await page.getByRole("button", { name: "Mark as read" }).click();
     await page.goto(base);
     await expect(secs.nth(1).locator(".ov-n").last()).toHaveText(", 1 read");
     await expect(page.getByRole("link", { name: "Continue ›", exact: true })).toBeVisible();
     await secs.nth(1).getByRole("link", { name: "Continue thread B" }).click();
-    await expect(page).toHaveURL(new RegExp(`${base}/s/S5$`));
-    expect((await page.request.put(`/api/reviews/${base.split("/")[2]}/ticks/story/S5`)).ok()).toBe(true);
+    await expect(page).toHaveURL(new RegExp(`${base}/s/S3$`));
+    expect((await page.request.put(`/api/reviews/${base.split("/")[2]}/ticks/story/S3`)).ok()).toBe(true);
     await page.goto(base);
     await expect(secs.nth(1).locator(".ov-act")).toHaveText("All read ✓");
   });
@@ -379,7 +379,7 @@ test.describe("desktop", () => {
     await bar("C").click();                                                       // clicked on the overview…
     await expect(bar("C")).toHaveAttribute("aria-expanded", "true");
     await page.getByRole("region", { name: /^Thread B:/ }).getByRole("link", { name: "Start thread B" }).click();   // …then a story of B, no reload
-    await expect(page).toHaveURL(new RegExp(`${base}/s/S3$`));
+    await expect(page).toHaveURL(new RegExp(`${base}/s/S4$`));
     await expect(bar("B")).toHaveAttribute("aria-expanded", "true");
     await rail.getByRole("link", { name: "Go to the overview" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}$`));
@@ -392,13 +392,13 @@ test.describe("desktop", () => {
     const base = await startReview(page, FOUR);
     const rail = page.locator("aside.ws-outline");
     const bar = (L: string) => rail.getByRole("button", { name: new RegExp(`^Thread ${L}:`) });
-    await page.goto(`${base}/s/S3`);                                               // Thread B, story 1 of 2
+    await page.goto(`${base}/s/S4`);                                               // Thread B, story 1 of 2
     await expect(bar("B")).toHaveAttribute("aria-expanded", "true");
     await bar("A").click();                                                       // a look at A's stories, kept as the last opened…
     await expect(bar("A")).toHaveAttribute("aria-expanded", "true");
-    await page.getByRole("link", { name: /^Next story: S5/ }).click();            // …then the story page's › to B's second story, no reload
-    await expect(page).toHaveURL(new RegExp(`${base}/s/S5$`));
-    await expect(bar("B")).toHaveAttribute("aria-expanded", "true");               // B holds S5
+    await page.getByRole("link", { name: /^Next story: S3/ }).click();            // …then the story page's › to B's second story, no reload
+    await expect(page).toHaveURL(new RegExp(`${base}/s/S3$`));
+    await expect(bar("B")).toHaveAttribute("aria-expanded", "true");               // B holds S3
     await expect(bar("A")).toHaveAttribute("aria-expanded", "false");
     await rail.getByRole("link", { name: "Go to the overview" }).click();
     await expect(page).toHaveURL(new RegExp(`${base}$`));
@@ -507,7 +507,7 @@ test.describe("phone", () => {
     await expect(bar("A")).toHaveAttribute("aria-expanded", "true");
     await rail.getByRole("link", { name: "Go to the overview" }).click();         // …then the overview, with no outline beside it
     await page.getByRole("region", { name: /^Thread B:/ }).getByRole("link", { name: "Start thread B" }).click();   // and a story of B, no reload
-    await expect(page).toHaveURL(/\/s\/S3$/);
+    await expect(page).toHaveURL(/\/s\/S4$/);
     await expect(page.locator(".st-crumb")).toContainText("Thread B");            // drawn: the address changes first
     await page.getByRole("link", { name: "Back to Thread B" }).click();           // the phone bar's way back to the contents
     await expect(bar("B")).toHaveAttribute("aria-expanded", "true");

@@ -680,7 +680,7 @@ test.describe("the overview", () => {
     await expect(page).toHaveURL(new RegExp(`${base}/s/S1`));
     await page.goto(base);
     await page.getByRole("link", { name: "Start thread B" }).click();
-    await expect(page).toHaveURL(new RegExp(`${base}/s/S3`));
+    await expect(page).toHaveURL(new RegExp(`${base}/s/S4`));
     await expectNoNodeIds(page);
     await expectNamed(page);
   });
