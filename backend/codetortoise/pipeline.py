@@ -199,6 +199,9 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
         if svc.index.generation() == 0:
             svc.build_index()
         sel = select_tus(ctx["dm"], svc.index, svc.cdb, cfg.analysis)
+        # build_requests parses a new or deleted source whatever the budget, so tree-sitter never has to read it
+        always = {f.local for f in ctx["cs"].files if f.action in ("add", "delete")}
+        sel.ts_only = [p for p in sel.ts_only if p not in always]
         ctx["sel"] = sel
         store.put_blob(rid, "selection", sel)
         msg = f"{len(sel.selected)} TU(s) selected, {sel.over_budget} over budget"

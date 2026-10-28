@@ -3,7 +3,7 @@ import os
 import pytest
 
 from codetortoise.config import AnalysisConfig
-from codetortoise.diffmap import map_changes
+from codetortoise.diffmap import DiffMap, FunctionChange, map_changes
 from codetortoise.index.symbols import SymbolIndex
 from codetortoise.layers import infer_layers
 from codetortoise.toolchain.compile_db import CompileDb
@@ -148,7 +148,6 @@ class _Cdb:
 
 
 def test_changed_sources_come_before_header_includers_however_many_changed_headers_they_include():
-    from codetortoise.diffmap import DiffMap, FunctionChange
     one, a, b = "/w/src/one.c", "/w/src/a.c", "/w/src/b.c"
     h1, h2 = "/w/inc/x.h", "/w/inc/y.h"
     dm = DiffMap(changed_files=[h1, h2, one],
@@ -160,7 +159,6 @@ def test_changed_sources_come_before_header_includers_however_many_changed_heade
 
 
 def test_changed_sources_over_the_budget_go_to_tree_sitter_those_with_mapped_changes_kept_first():
-    from codetortoise.diffmap import DiffMap, FunctionChange
     z, a = "/w/src/z.c", "/w/src/a.c"
     dm = DiffMap(changed_files=[a, z],
                  functions=[FunctionChange(file=z, depot="//d/src/z.c", qualname="beta", name="beta",

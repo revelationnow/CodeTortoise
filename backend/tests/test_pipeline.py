@@ -1,6 +1,8 @@
+import pytest
 from helpers import make_services
 
 from codetortoise.health import run_health
+from codetortoise.paths import canon
 from codetortoise.pipeline import run_review
 from codetortoise.vcs.gitfixture import GitFixtureSource
 from codetortoise.vcs.model import ChangeSet, ClMeta, FileChange
@@ -796,5 +798,56 @@ def test_changed_sources_over_the_tu_budget_are_read_by_tree_sitter_and_the_stag
     assert st["tu_select"] == "degraded" and st["facts"] == "degraded" and st["impact"] == "ok"
     msg = next(s["message"] for s in svc.store.list_stages(rid) if s["name"] == "tu_select")
     assert "1 changed source file(s) over the TU budget, read by tree-sitter only: //fixture/" in msg
+    # clang parses the selected file before and after; tree-sitter reads the other in both variants
+    facts_msg = next(s["message"] for s in svc.store.list_stages(rid) if s["name"] == "facts")
+    assert facts_msg == "4 parse(s): 2 precise, 2 tree-sitter fallback; most common problem (2): over the TU budget"
     im = svc.store.get_blob(rid, "impact")
     assert sorted(im["nodes"][n]["label"] for n in im["changed"]) == ["hal_write", "uart_send"]
+
+
+class WithDelta(GitFixtureSource):
+    """The fixture's CLs, and `service/delta.c` with one function, `delta`, which the same change adds or deletes."""
+    def __init__(self, repo, action):
+        super().__init__(repo)
+        self.action = action
+
+    def load(self, cls):
+        cs = super().load(cls)
+        text = "int delta(int x)\n{\n    return x + 1;\n}\n"
+        adds = self.action == "add"
+        cs.files.append(FileChange(depot="//fixture/service/delta.c", local=canon(str(self.repo / "service/delta.c")),
+                                   action=self.action, before="" if adds else text, after=text if adds else ""))
+        return cs
+
+
+@pytest.mark.parametrize("action", ["add", "delete"])
+def test_a_new_or_deleted_source_over_the_tu_budget_is_parsed_by_clang_so_the_stage_does_not_degrade(fx, tmp_path, action):
+    from helpers import make_config
+
+    from codetortoise.services import build_services
+    svc = build_services(make_config(fx, tmp_path, analysis={"module_min_files": 1, "workers": 1, "tu_budget": 1}),
+                         source=WithDelta(fx.root, action))
+    rid = svc.store.create_review("t", "owner", [101])
+    run_review(rid, svc)
+    sel = svc.store.get_blob(rid, "selection")
+    assert [p.split("/")[-1] for p in sel["selected"]] == ["uart.c"]      # delta.c sorts after it: the file past the budget
+    assert stages(svc, rid)["tu_select"] == "ok" and sel["ts_only"] == []   # build_requests parses it whatever the budget
+    im = svc.store.get_blob(rid, "impact")
+    assert sorted(im["nodes"][n]["label"] for n in im["changed"]) == ["delta", "uart_send"]
+
+
+@pytest.mark.parametrize("action", ["add", "delete"])
+def test_only_the_over_budget_edit_is_read_by_tree_sitter_beside_a_new_or_deleted_source(fx, tmp_path, action):
+    from helpers import make_config
+
+    from codetortoise.services import build_services
+    svc = build_services(make_config(fx, tmp_path, analysis={"module_min_files": 1, "workers": 1, "tu_budget": 1}),
+                         source=WithDelta(fx.root, action))
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    msgs = {s["name"]: s["message"] for s in svc.store.list_stages(rid)}
+    assert msgs["tu_select"].endswith("read by tree-sitter only: //fixture/driver/uart.c")      # delta.c is not named too
+    # clang parses regs.c and delta.c; tree-sitter reads uart.c before and after, and delta.c is not read a second time
+    assert msgs["facts"] == "5 parse(s): 3 precise, 2 tree-sitter fallback; most common problem (2): over the TU budget"
+    im = svc.store.get_blob(rid, "impact")
+    assert sorted(im["nodes"][n]["label"] for n in im["changed"]) == ["delta", "hal_write", "uart_send"]
