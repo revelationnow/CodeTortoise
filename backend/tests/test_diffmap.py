@@ -163,3 +163,37 @@ def test_a_removed_declaration_carries_its_old_line_and_text_and_an_added_one_it
         "Widget": ("type_removed", 3, "struct Widget { int a; }", "", [], []),
         "OPT_B": ("macro_added", 2, "", "#define OPT_B 2", [], []),
         "Mode": ("type_added", 3, "", "enum Mode { MODE_A, MODE_B }", [], [])}
+
+
+def test_guarding_a_field_with_an_ifdef_or_dropping_the_guard_changes_the_text_not_the_fields():
+    plain = "struct Widget { int a; int b; };\n"
+    guarded = "struct Widget {\n  int a;\n#ifdef OPT_A\n  int b;\n#endif\n};\n"
+    for before, after in ((plain, guarded), (guarded, plain)):
+        (t,) = map_changes(_cs(before, after, local="/w/w.h")).types
+        assert (t.kind, t.fields_added, t.fields_removed) == ("type_changed", [], [])
+
+
+def test_a_field_or_enumerator_added_inside_an_ifdef_is_listed_as_added():
+    before = "struct Widget { int a; };\nenum Mode { MODE_A };\n"
+    after = ("struct Widget {\n  int a;\n#ifdef OPT_A\n  int c;\n#endif\n};\n"
+             "enum Mode {\n  MODE_A,\n#ifdef OPT_A\n  MODE_B,\n#endif\n};\n")
+    got = {t.name: (t.fields_added, t.fields_removed) for t in map_changes(_cs(before, after, local="/w/w.h")).types}
+    assert got == {"Widget": (["c"], []), "Mode": (["MODE_B"], [])}
+
+
+def test_a_text_is_stored_up_to_the_cap_and_not_beyond_it_but_the_change_and_its_fields_still_are():
+    from codetortoise.diffmap import TEXT_CAP
+    kept = "#define LIMIT " + "x" * (TEXT_CAP - len("#define LIMIT "))
+    over = "#define OPT_C " + "x" * (TEXT_CAP - len("#define OPT_C ") + 1)
+    assert (len(kept), len(over)) == (TEXT_CAP, TEXT_CAP + 1)
+    big = "enum Mode { " + ", ".join(f"MODE_{i}" for i in range(200)) + " };"
+    assert len(big) > TEXT_CAP
+    short = "enum Widget { OPT_A };"
+    before = f"{big}\n{short}\n"
+    after = f"{big.replace(' };', ', MODE_NEW };')}\n{short.replace('OPT_A', 'OPT_B')}\n{kept}\n{over}\n"
+    got = {t.name: t for t in map_changes(_cs(before, after, local="/w/w.h")).types}
+    assert (got["LIMIT"].kind, got["LIMIT"].after) == ("macro_added", kept)
+    assert (got["OPT_C"].kind, got["OPT_C"].after) == ("macro_added", "")
+    assert (got["Widget"].before, got["Widget"].after) == ("enum Widget { OPT_A }", "enum Widget { OPT_B }")
+    mode = got["Mode"]
+    assert (mode.kind, mode.before, mode.after, mode.fields_added) == ("type_changed", "", "", ["MODE_NEW"])

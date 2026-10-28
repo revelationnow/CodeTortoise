@@ -125,20 +125,38 @@ def _declared(node: ts.Node | None) -> ts.Node | None:
     return node
 
 
+_CONDITIONAL = ("preproc_if", "preproc_ifdef", "preproc_elif", "preproc_elifdef", "preproc_else")
+
+
 def _members(src: bytes, body: ts.Node) -> tuple[str, ...]:
-    """The names a type's body declares: an enum's enumerators, or a struct's, union's or class's fields (not methods)."""
-    if body.type == "enumerator_list":
-        out = [_txt(src, ch.child_by_field_name("name")) for ch in body.children if ch.type == "enumerator"]
-    else:
-        out = []
-        for ch in body.children:
-            if ch.type != "field_declaration":
-                continue
-            for d in ch.children_by_field_name("declarator"):
-                n = _declared(d)
-                if n is not None and n.parent.type != "function_declarator":    # else a method's declaration
-                    out.append(_txt(src, n))
-    return tuple(name for name in out if name)          # an unnamed bit-field's identifier is missing
+    """The names a type's body declares, once each and in order: an enum's enumerators, or a struct's, union's or class's
+    fields (not methods). A member under `#if` counts in every branch, and the fields of a nameless struct or union member
+    are the outer type's own."""
+    out: list[str] = []
+    todo = [iter(body.children)]            # a stack of iterators, so a deep nest cannot overflow the call stack
+    while todo:
+        for ch in todo[-1]:
+            below = None
+            if ch.type in _CONDITIONAL:
+                below = ch
+            elif ch.type == "enumerator":
+                out.append(_txt(src, ch.child_by_field_name("name")))
+            elif ch.type == "field_declaration":
+                declarators = ch.children_by_field_name("declarator")
+                for d in declarators:
+                    n = _declared(d)
+                    if n is not None and n.parent.type != "function_declarator":    # else a method's declaration
+                        out.append(_txt(src, n))
+                inner = ch.child_by_field_name("type")
+                if not declarators and inner is not None and inner.type in ("struct_specifier", "union_specifier") \
+                        and inner.child_by_field_name("name") is None:
+                    below = inner.child_by_field_name("body")
+            if below is not None:
+                todo.append(iter(below.children))
+                break
+        else:
+            todo.pop()
+    return tuple(dict.fromkeys(name for name in out if name))      # an unnamed bit-field's identifier is missing
 
 
 def _callee_name(src: bytes, fn_node: ts.Node | None) -> str | None:

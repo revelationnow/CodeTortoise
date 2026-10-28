@@ -96,7 +96,7 @@ def account_key(ctx: AiContext, d: StoryDetail, sr: StoryReading) -> str:
     return repr((st.id, st.kind, st.source, said, st.nodes, st.findings,
                  [(fl.id, fl.text, fl.path) for fl in flows],
                  [p.model_dump() for p in sr.paths], [c.model_dump() for c in sr.contracts],
-                 [w.model_dump() for w in sr.where], found, _facts_for_nodes(ctx.impact, nodes),
+                 [w.model_dump(exclude={"decls"}) for w in sr.where], found, _facts_for_nodes(ctx.impact, nodes),
                  [ctx.snippets.get(n) for n in nodes], ctx.per_call))
 
 

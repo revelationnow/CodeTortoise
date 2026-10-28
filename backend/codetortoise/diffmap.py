@@ -11,6 +11,8 @@ from codetortoise.cparse import FuncDef, is_source, parse_source
 from codetortoise.linediff import edits, touches
 from codetortoise.vcs.model import ChangeSet, FileChange
 
+TEXT_CAP = 300     # a changed declaration's text is kept in the diff map up to this many characters (a row shows no more)
+
 FunctionChangeKind = Literal["added", "removed", "body_modified", "signature_changed"]
 TypeChangeKind = Literal["type_added", "type_removed", "type_changed",
                          "macro_added", "macro_removed", "macro_changed",
@@ -37,8 +39,8 @@ class TypeChange(BaseModel):
     name: str
     kind: TypeChangeKind
     line: int | None = None           # new side (old side for a removed one)
-    before: str = ""                  # its text in each version, whitespace collapsed ("" where it does not exist)
-    after: str = ""
+    before: str = ""                  # its text in each version, whitespace collapsed ("" where it does not exist
+    after: str = ""                   # or is over TEXT_CAP)
     fields_added: list[str] = Field(default_factory=list)     # a changed type's fields or enumerators
     fields_removed: list[str] = Field(default_factory=list)
 
@@ -59,6 +61,10 @@ def _keyed(funcs: list[FuncDef]) -> dict[tuple[str, int], FuncDef]:
     return out
 
 
+def _kept(text: str) -> str:
+    return text if len(text) <= TEXT_CAP else ""        # a big enum's text would be stored for nothing: no row shows it
+
+
 def _named(before: dict[str, tuple[int, str, tuple[str, ...]]], after: dict[str, tuple[int, str, tuple[str, ...]]],
            prefix: str, fc: FileChange) -> list[TypeChange]:
     """Added, removed and changed names of one kind (types, declarations or macros): name -> (line, text, fields)."""
@@ -74,7 +80,7 @@ def _named(before: dict[str, tuple[int, str, tuple[str, ...]]], after: dict[str,
             had, has = set(b[2]), set(a[2])             # sets: a generated header's enum can hold thousands of names
             added, removed = [f for f in a[2] if f not in had], [f for f in b[2] if f not in has]
         out.append(TypeChange(file=fc.local, depot=fc.depot, name=name, kind=kind, line=(a or b)[0],
-                              before=b[1] if b else "", after=a[1] if a else "",
+                              before=_kept(b[1]) if b else "", after=_kept(a[1]) if a else "",
                               fields_added=added, fields_removed=removed))
     return out
 

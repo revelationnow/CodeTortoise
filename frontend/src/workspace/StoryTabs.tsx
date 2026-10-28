@@ -18,24 +18,34 @@ import NameText, { Ticks } from "./NameText";
 import { MechanicalStory, TestsStory } from "./StoryBodies";
 import { StoryWhy } from "./StoryPlan";
 
+/** A row's code lines (§8.1): the signature pair, its new side with the part that differs marked; a declaration that
+ * was only added or only removed has the one side it has, drawn as that side of a pair is. */
+export function Sig({ row }: { row: ContractRow }) {
+  const [a, b] = row.mark.length === 2 ? row.mark : [0, 0];
+  if (row.before && row.after) {
+    return (
+      <div className="st-sig mono">
+        <div className="del">{row.before}</div>
+        <div className="add">{row.after.slice(0, a)}<mark>{row.after.slice(a, b)}</mark>{row.after.slice(b)}</div>
+      </div>
+    );
+  }
+  if (row.kind !== "declaration" || !(row.before || row.after)) return null;
+  return <div className="st-sig mono">{row.after ? <div className="add">{row.after}</div> : <div className="del">{row.before}</div>}</div>;
+}
+
 /** A contract row (§8.1): its sentence; a signature with the part that differs marked; repeated and body-only edits
  * name their functions on "show N". */
 function Contract({ row }: { row: ContractRow }) {
   const names = useWs().data.names;
   const [open, setOpen] = useState(false);
   const many = (row.kind === "repeated" || row.kind === "body") && row.nodes.length > 1;
-  const [a, b] = row.mark.length === 2 ? row.mark : [0, 0];
   return (
     <li className={`st-contract ${row.kind}`}>
       <Ticks text={row.text} />
       {many && <button className="link small" aria-expanded={open} onClick={() => setOpen(!open)}>
         {open ? "hide" : `show ${row.nodes.length}`}</button>}
-      {row.before && row.after && (
-        <div className="st-sig mono">
-          <div className="del">{row.before}</div>
-          <div className="add">{row.after.slice(0, a)}<mark>{row.after.slice(a, b)}</mark>{row.after.slice(b)}</div>
-        </div>
-      )}
+      <Sig row={row} />
       {open && <ul className="st-names">{row.nodes.map((n) => <li key={n} className="mono">{names[n]?.label ?? "a function"}</li>)}</ul>}
     </li>
   );
@@ -64,7 +74,7 @@ function WhereDirs({ files }: { files: (WhereFile & { also?: number[] })[] }) {
             })}{(file.decls ?? []).map((d) => {
               const label = `Open ${d.name} in ${file.path}${d.line ? ` at line ${d.line}` : ""}`;
               return (
-                <li key={`decl:${d.name}`}>
+                <li key={`decl:${d.name}:${d.line}`}>
                   {file.depot ? <Link className="mono" to={ws.link(ws.opened({ file: file.depot, line: d.line }))} title={label}
                                       aria-label={label}>{d.name}</Link> : <span className="mono" title={d.name}>{d.name}</span>}
                 </li>

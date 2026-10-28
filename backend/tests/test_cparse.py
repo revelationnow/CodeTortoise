@@ -57,6 +57,23 @@ def test_a_types_fields_are_names_not_unnamed_bit_fields_methods_or_dropped_refe
     assert [t.fields for t in cpp.types] == [("a", "ref", "moved", "cb", "count")]
 
 
+def test_members_under_conditionals_and_in_anonymous_members_are_listed_each_once():
+    widget = ("struct Widget {\n  int a;\n#ifdef OPT_A\n  int b;\n#else\n  long b;\n  int c;\n#endif\n"
+              "#if defined(OPT_B)\n  int d;\n#elif defined(OPT_C)\n  int e;\n#endif\n"
+              "  union { int u; float v; };\n  struct { int x; } gamma;\n  struct beta { int q; };\n  int f;\n};\n")
+    mode = "enum Mode {\n  MODE_A,\n#ifdef OPT_A\n  MODE_B,\n#else\n  MODE_C,\n#endif\n  MODE_D\n};\n"
+    got = {t.name: t.fields for t in parse_source("t.c", widget + mode).types if t.name in ("Widget", "Mode")}
+    assert got == {"Widget": ("a", "b", "c", "d", "e", "u", "v", "gamma", "f"),       # `b` once; `x` and `q` belong to other types
+                   "Mode": ("MODE_A", "MODE_B", "MODE_C", "MODE_D")}
+    cpp = "class Widget {\n public:\n  int a;\n#ifdef OPT_A\n  int &r;\n  char *alpha();\n  struct { int x; int y; };\n#endif\n};\n"
+    assert [t.fields for t in parse_source("t.cpp", cpp).types if t.name == "Widget"] == [("a", "r", "x", "y")]
+
+
+def test_a_deeply_nested_conditional_in_a_type_does_not_overflow_the_call_stack():
+    src = "struct Widget {\n  int a;\n" + "#ifdef OPT_A\n  int b;\n" * 1200 + "#endif\n" * 1200 + "  int z;\n};\n"
+    assert [t.fields for t in parse_source("t.c", src).types if t.name == "Widget"] == [("a", "b", "z")]
+
+
 def test_function_hash_changes_with_body_only():
     a = parse_source("a.c", "int f(int x) { return x; }\n").functions[0]
     b = parse_source("a.c", "int f(int x) {   return x; }\n").functions[0]
