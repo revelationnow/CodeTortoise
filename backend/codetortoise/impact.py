@@ -8,13 +8,14 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from codetortoise.attribution import changed_functions
 from codetortoise.config import AnalysisConfig
 from codetortoise.cparse import is_header
-from codetortoise.diffmap import DiffMap
 from codetortoise.facts.model import Facts, Function
 from codetortoise.index.symbols import SymbolIndex
 from codetortoise.layers import LayerModel
 from codetortoise.tu_select import TuSelection
+from codetortoise.vcs.model import ChangeSet
 
 Status = Literal["added", "removed", "changed", "unchanged"]
 EdgeKind = Literal["call", "virtual", "writes", "reads"]
@@ -92,11 +93,6 @@ class ImpactModel(BaseModel):
         return [e for e in self.edges if e.dst == node_id and e.kind in kinds]
 
 
-def _overlaps(fn: Function, file: str, lines: tuple[int, int] | None) -> bool:
-    return (lines is not None and fn.file == file
-            and fn.start_line <= lines[1] and lines[0] <= fn.end_line)
-
-
 def _name_resolver(fns: dict[str, Function]) -> Callable[[str, str], str]:
     """A call tree-sitter knows only by name ("name:foo") goes to the one function called foo: the one in the caller's
     own file, else the one non-static function of that name. A clang parse of a function wins over tree-sitter's.
@@ -135,7 +131,7 @@ class _Builder:
             cur["confidence"] = conf
 
 
-def build_impact(before: list[Facts], after: list[Facts], dm: DiffMap, sel: TuSelection,
+def build_impact(before: list[Facts], after: list[Facts], cs: ChangeSet, sel: TuSelection,
                  index: SymbolIndex | None, layers: LayerModel | None, cfg: AnalysisConfig,
                  marked: Collection[str] = ()) -> ImpactModel:
     fb = {f.usr: f for facts in before for f in facts.functions}
@@ -143,20 +139,8 @@ def build_impact(before: list[Facts], after: list[Facts], dm: DiffMap, sel: TuSe
     resolve = _name_resolver({**fb, **fa})
     b = _Builder()
 
-    # 1. changed functions
-    changed_status: dict[str, str] = {}
-    for ch in dm.functions:
-        if ch.kind == "removed":
-            hit = [u for u, f in fb.items() if _overlaps(f, ch.file, ch.before_lines)]
-            status = "removed"
-        else:
-            hit = [u for u, f in fa.items() if _overlaps(f, ch.file, ch.after_lines)]
-            status = "added" if ch.kind == "added" else "changed"
-        if not hit:
-            pool = fb if ch.kind == "removed" else fa
-            hit = [u for u, f in pool.items() if f.qualname == ch.qualname]
-        for u in hit:
-            changed_status[u] = status
+    # 1. changed functions: each parsed function whose own lines the change edits (attribution.py)
+    changed_status = changed_functions(before, after, cs)
 
     # 2. function nodes and call edges
     for variant, facts_list, funcs in (("before", before, fb), ("after", after, fa)):

@@ -1,6 +1,8 @@
 """Chooses which translation units get precise (clang) analysis, within a budget."""
 from __future__ import annotations
 
+from collections.abc import Collection
+
 from pydantic import BaseModel, Field
 
 from codetortoise.config import AnalysisConfig
@@ -71,24 +73,19 @@ def select_tus(dm: DiffMap, index: SymbolIndex, cdb: CompileDb, cfg: AnalysisCon
     return sel
 
 
-def field_follow_up(dm: DiffMap, after: list[Facts], index: SymbolIndex, cdb: CompileDb, sel: TuSelection,
+def field_follow_up(changed: Collection[str], after: list[Facts], index: SymbolIndex, cdb: CompileDb, sel: TuSelection,
                     cfg: AnalysisConfig) -> list[str]:
     """Second selection round, after clang facts exist for the changed TUs.
 
     Tree-sitter only sees `x->f = ...` writes; clang also sees writes through local aliases. For every field a
-    changed function writes (per clang), add not-yet-parsed TUs that reference a same-named member and can see
-    the record's declaration, so its readers get precise facts. Bounded by the remaining TU budget.
+    changed function (a usr in `changed`, from attribution.changed_functions) writes, add not-yet-parsed TUs that
+    reference a same-named member and can see the record's declaration, so its readers get precise facts. Bounded by
+    the remaining TU budget.
     """
-    ranges: dict[str, list[tuple[int, int]]] = {}
-    for c in dm.functions:
-        if c.after_lines:
-            ranges.setdefault(c.file, []).append(c.after_lines)
-    changed_usrs = {f.usr for facts in after for f in facts.functions
-                    if any(f.start_line <= hi and lo <= f.end_line for lo, hi in ranges.get(f.file, []))}
     written: dict[str, str] = {}
     for facts in after:
         for a in facts.fields:
-            if a.fn in changed_usrs and a.mode != "read" and a.root_kind != "local":
+            if a.fn in changed and a.mode != "read" and a.root_kind != "local":
                 written.setdefault(a.field_name, a.record_file)
     tus, have = set(cdb.files()), set(sel.selected)
     extra: dict[str, None] = {}

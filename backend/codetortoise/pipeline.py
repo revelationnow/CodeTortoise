@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from codetortoise import boardstore, filestore
+from codetortoise.attribution import changed_functions, unparsed
 from codetortoise.board import BoardContext, analyse, build_boards, is_test_path
 from codetortoise.brief import Brief, cache_key
 from codetortoise.cltext import prompt_text
@@ -239,7 +240,8 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
                 out += [extract_tu_treesitter(r, reason="over the TU budget")
                         for r in build_requests(over, ctx["cs"], svc.toolchain, variant) if r.file not in parsed]
         note = ""
-        extra = field_follow_up(ctx["dm"], after, svc.index, svc.cdb, ctx["sel"], cfg.analysis)
+        changed = changed_functions(before, after, ctx["cs"])
+        extra = field_follow_up(set(changed), after, svc.index, svc.cdb, ctx["sel"], cfg.analysis)
         if extra:
             parsed = {f.tu.file for f in before + after}
             follow = TuSelection(selected=extra)
@@ -264,12 +266,18 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
         return summary
 
     def impact():
-        im = build_impact(ctx["before"], ctx["after"], ctx["dm"], ctx["sel"], svc.index, ctx.get("layers"), cfg.analysis,
+        im = build_impact(ctx["before"], ctx["after"], ctx["cs"], ctx["sel"], svc.index, ctx.get("layers"), cfg.analysis,
                           marked=sink_marks(store))
         ctx["impact"] = im
         store.put_blob(rid, "impact", im)
-        return (f"{len(im.nodes)} node(s), {len(im.edges)} edge(s), blast {len(im.blast)}"
-                + (f", {len(im.sinks)} shared sink(s)" if im.sinks else ""))
+        msg = (f"{len(im.nodes)} node(s), {len(im.edges)} edge(s), blast {len(im.blast)}"
+               + (f", {len(im.sinks)} shared sink(s)" if im.sinks else ""))
+        missed = unparsed(ctx["dm"], ctx["before"], ctx["after"])
+        if missed:
+            names = ", ".join(c.qualname for c in missed[:5]) + (f" (+{len(missed) - 5} more)" if len(missed) > 5 else "")
+            raise Degraded(f"{msg}; {len(missed)} changed function(s) in no parse (an #if this configuration leaves out, "
+                           f"or a file no parse reached): {names}")
+        return msg
 
     def detectors():
         findings = run_detectors(DetectorContext(ctx["before"], ctx["after"], ctx["dm"], ctx["impact"], cfg.analysis))

@@ -255,14 +255,15 @@ def test_facts_stage_parses_field_follow_up_tus(fx, tmp_path, monkeypatch):
     logger = str((fx.root / "service/logger.c").resolve())
     seen = {}
 
-    def fake_follow_up(dm, after, index, cdb, sel, cfg):
+    def fake_follow_up(changed, after, index, cdb, sel, cfg):
+        seen["changed"] = sorted(changed)
         seen["after_files"] = [f.tu.file.split("/")[-1] for f in after]
         return [logger]
 
     monkeypatch.setattr(pipeline, "field_follow_up", fake_follow_up)
     rid = svc.store.create_review("t", "owner", [101])
     run_review(rid, svc)
-    assert seen["after_files"] == ["uart.c"]
+    assert seen["after_files"] == ["uart.c"] and seen["changed"] == ["c:@F@uart_send"]      # what attribution found
     sel = svc.store.get_blob(rid, "selection")
     assert logger in sel["selected"] and sel["hops"][logger] == 1
     parsed = {f["tu"]["file"].split("/")[-1] for f in svc.store.get_blob(rid, "facts_before")}
@@ -851,3 +852,24 @@ def test_only_the_over_budget_edit_is_read_by_tree_sitter_beside_a_new_or_delete
     assert msgs["facts"] == "5 parse(s): 3 precise, 2 tree-sitter fallback; most common problem (2): over the TU budget"
     im = svc.store.get_blob(rid, "impact")
     assert sorted(im["nodes"][n]["label"] for n in im["changed"]) == ["delta", "hal_write", "uart_send"]
+
+
+class IfdefEdit:
+    """One edit, inside a function an #ifdef this configuration never takes holds."""
+    def __init__(self, path):
+        self.path = path
+
+    def load(self, cls):
+        before = "int alpha(void) { return 1; }\n#ifdef NEVER_SET\nint beta(void) { return 2; }\n#endif\n"
+        return ChangeSet(cls=[ClMeta(cl=1, status="pending")],
+                         files=[FileChange(depot="//fixture/driver/uart.c", local=self.path, action="edit",
+                                           before=before, after=before.replace("return 2;", "return 3;"))])
+
+
+def test_a_changed_function_no_parse_covers_degrades_the_impact_stage_and_is_named(fx, tmp_path):
+    svc = make_services(fx, tmp_path, source=IfdefEdit(str((fx.root / "driver" / "uart.c").resolve())))
+    rid = svc.store.create_review("t", "owner", [1])
+    run_review(rid, svc)
+    assert stages(svc, rid)["impact"] == "degraded"
+    msg = next(s["message"] for s in svc.store.list_stages(rid) if s["name"] == "impact")
+    assert "1 changed function(s) in no parse" in msg and msg.endswith(": beta")

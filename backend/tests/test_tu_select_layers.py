@@ -121,7 +121,7 @@ def test_follow_up_selects_tus_touching_fields_written_through_aliases(tmp_path)
     sel = select_tus(dm, idx, cdb, AnalysisConfig())
     assert names(sel.selected) == [f"{tmp_path.name}/a.c"]  # tree-sitter cannot see the alias write
     facts_after = [extract_tu(TuRequest(file=a, args=["-xc", f"-I{root}"], variant="after", unsaved={a: after}))]
-    assert field_follow_up(dm, facts_after, idx, cdb, sel, AnalysisConfig()) == [f"{root}/user.c"]
+    assert field_follow_up({"c:@F@bump"}, facts_after, idx, cdb, sel, AnalysisConfig()) == [f"{root}/user.c"]
 
 
 class _Index:

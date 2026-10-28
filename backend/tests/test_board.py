@@ -390,3 +390,23 @@ def test_a_sink_note_links_its_own_fields_finding_not_one_whose_name_starts_the_
     ctx.findings = [sunk("F1", "set now writes R::vv"), sunk("F2", "set now writes R::v through a local alias")]
     (note,) = [i for i in build_board(ctx).impacts if i.channel == "state"]
     assert note.finding == "F2"
+
+
+def test_the_about_line_counts_the_functions_the_impact_model_changed_not_the_diff_maps_guesses():
+    from test_stories import _edit, _world
+
+    from codetortoise.board import build_about
+    from codetortoise.diffmap import FunctionChange
+    c = _world([_edit("alpha", "src/a.c"), _edit("beta", "src/b.c")])
+    c.dm.functions.append(FunctionChange(file="/w/src/a.c", depot="//d/w/src/a.c", qualname="ghost", name="ghost",
+                                         kind="added", after_lines=(1, 9)))
+    assert build_about(c).intent.startswith("2 function(s) changed in 2 file(s).")
+
+
+def test_a_node_the_diff_map_thought_added_but_present_in_both_versions_is_modified():
+    from codetortoise.board import _change_kind
+    from codetortoise.diffmap import FunctionChange
+    ch = FunctionChange(file="/w/a.c", depot="//d/a.c", qualname="alpha", name="alpha", kind="added", after_lines=(1, 9))
+    assert _change_kind("changed", ch) == "modified"
+    assert _change_kind("changed", ch.model_copy(update={"kind": "signature_changed"})) == "signature"
+    assert _change_kind("added", None) == "added" and _change_kind("removed", ch) == "removed"

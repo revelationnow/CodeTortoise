@@ -46,5 +46,5 @@ def analysed(fx, fx_source, tmp_path_factory):
     layers = infer_layers(idx, str(fx.root), 1)
     before = run_extraction(build_requests(sel, cs, tc, "before"), None, 1)
     after = run_extraction(build_requests(sel, cs, tc, "after"), None, 1)
-    im = build_impact(before, after, dm, sel, idx, layers, cfg)
+    im = build_impact(before, after, cs, sel, idx, layers, cfg)
     return SimpleNamespace(cfg=cfg, cs=cs, dm=dm, sel=sel, layers=layers, before=before, after=after, impact=im)
