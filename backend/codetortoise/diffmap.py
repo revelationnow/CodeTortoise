@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -66,18 +66,19 @@ def _diff_named(before: dict[str, str], after: dict[str, str], prefix: str) -> l
     return out
 
 
+_DEF_HEAD = re.compile(r"^(?:[A-Za-z_][\w \t*&:<>,]*[ \t*&])?(~?[A-Za-z_]\w*|operator[^\w\s(]+)[ \t]*\(", re.M)
 _TO_BODY = re.compile(r"[;{]")
 
 
-def _definitions(text: str, name: str) -> int:
-    """How many times the text defines `name` at the left margin: a type (or nothing) then the name and "(" at the start
-    of a line, then "{" before any ";" (a call is indented; a prototype reaches ";" first)."""
-    pat = re.compile(rf"^(?:[A-Za-z_][\w \t*&:<>,]*[ \t*&])?{re.escape(name)}[ \t]*\(", re.M)
-    n = 0
-    for m in pat.finditer(text):
+def _defined(text: str) -> Counter[str]:
+    """The names the text defines at the left margin, each with how many times: a type (or nothing) then the name and "("
+    at the start of a line, then "{" before any ";" (a call is indented; a prototype reaches ";" first)."""
+    out: Counter[str] = Counter()
+    for m in _DEF_HEAD.finditer(text):
         nxt = _TO_BODY.search(text, m.end())
-        n += nxt is not None and nxt.group() == "{"
-    return n
+        if nxt is not None and nxt.group() == "{":
+            out[m.group(1)] += 1
+    return out
 
 
 def map_changes(cs: ChangeSet) -> DiffMap:
@@ -94,11 +95,15 @@ def map_changes(cs: ChangeSet) -> DiffMap:
         if a.flattened:
             dm.flattened.append(fc.local)
         bf, af = _keyed(b.functions), _keyed(a.functions)
-        eb, ea = edits(fc.before, fc.after, "before"), edits(fc.before, fc.after, "after")
+        eb = ea = None                             # the edits on each side, worked out when a function first differs
+        # per side, once an added or removed function needs it: the names its text defines more often than the parser found
+        unread: dict[str, Counter[str]] = {}
         for key in sorted(set(bf) | set(af)):
             fb, fa = bf.get(key), af.get(key)
             if fb is not None and fa is not None and fb.text_hash == fa.text_hash:
                 continue
+            if eb is None:
+                eb, ea = edits(fc.before, fc.after, "before"), edits(fc.before, fc.after, "after")
             if not ((fb is not None and touches(eb, fb.start_line, fb.end_line))
                     or (fa is not None and touches(ea, fa.start_line, fa.end_line))):
                 continue                           # no edit in its own lines: the parser read the versions differently
@@ -113,8 +118,10 @@ def map_changes(cs: ChangeSet) -> DiffMap:
             ref = fa or fb
             misread = False
             if fb is None or fa is None:
-                other, parsed = (fc.before, b) if fb is None else (fc.after, a)
-                misread = _definitions(other, ref.name) > sum(1 for f in parsed.functions if f.name == ref.name)
+                side, other, parsed = ("before", fc.before, b) if fb is None else ("after", fc.after, a)
+                if side not in unread:
+                    unread[side] = _defined(other) - Counter(f.name for f in parsed.functions)
+                misread = unread[side][ref.name] > 0
             written = sorted({m.field for pf in (a, b) for m in pf.members
                               if m.is_write and m.fn == ref.qualname})
             dm.functions.append(FunctionChange(

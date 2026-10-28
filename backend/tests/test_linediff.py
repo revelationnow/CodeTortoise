@@ -1,7 +1,7 @@
 """A file's line diff: how its lines are counted, which lines each edit takes up, and whether an edit touches a function."""
 import pytest
 
-from codetortoise.linediff import edits, lines, touches
+from codetortoise.linediff import edits, lines, matched_opcodes, opcodes, touches
 
 
 @pytest.mark.parametrize(("text", "expected"), [
@@ -59,3 +59,17 @@ def test_a_function_is_touched_when_its_lines_share_even_one_line_with_an_edit(l
 
 def test_nothing_is_touched_when_there_are_no_edits():
     assert touches((), 1, 10) is False
+
+
+def test_matched_opcodes_match_only_what_lies_between_the_common_first_and_last_lines():
+    a, b = ["p", "q", "x", "y", "r"], ["p", "q", "X", "r"]
+    assert matched_opcodes(a, b) == [("equal", 0, 2, 0, 2), ("replace", 2, 4, 2, 3), ("equal", 4, 5, 3, 4)]
+    assert matched_opcodes(["a", "b"], ["a", "b"]) == [("equal", 0, 2, 0, 2)]
+    assert matched_opcodes([], ["a"]) == [("insert", 0, 0, 0, 1)]
+    assert matched_opcodes(["a", "b"], ["a"]) == [("equal", 0, 1, 0, 1), ("delete", 1, 2, 1, 1)]
+
+
+def test_the_line_diff_of_two_texts_is_the_matched_opcodes_of_their_lines():
+    before, after = "p\nq\nx\ny\nr\n", "p\nq\nX\nr\n"
+    assert opcodes(before, after) == tuple(matched_opcodes(lines(before), lines(after)))
+    assert edits(before, after, "before") == ((3, 4),) and edits(before, after, "after") == ((3, 3),)

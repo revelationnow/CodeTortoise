@@ -6,7 +6,7 @@ import hashlib
 import itertools
 import re
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import PurePath
 from typing import Literal
 
@@ -142,6 +142,18 @@ def _is_write_target(node: ts.Node) -> bool:
 
 
 _STATEMENTS = frozenset({"if", "else", "for", "while", "do", "switch", "case", "return", "sizeof", "goto"})
+_LEADING = re.compile(r"\w+")
+
+
+def _statement_like(name: str) -> bool:
+    """Whether a parsed "function" is a statement taken for a definition: its name starts with a statement keyword, or has
+    a parameter list's parentheses in it (tree-sitter names a declarator by its whole text, so `if ((v == 1)` stays whole).
+    A C++ `operator()` and a function returning a function pointer, `(*name(...))`, are real definitions named with
+    parentheses."""
+    lead = _LEADING.match(name)
+    if lead and lead.group() in _STATEMENTS:
+        return True
+    return "(" in name and not name.startswith(("operator", "("))
 
 
 def parse_source(path: str, text: str, flatten: Literal["never", "auto", "always"] = "never") -> ParsedFile:
@@ -150,8 +162,20 @@ def parse_source(path: str, text: str, flatten: Literal["never", "auto", "always
     `flatten`: "auto" finds the functions (with their calls and member references) again on flatten_preproc's text
     when a preprocessor conditional tangles the parse (a "function" named like a statement, or an error on or across a
     conditional's line), and "always" does so regardless. Line numbers stay; a function's hash still comes from the
-    original text, so an edit inside a dropped branch still changes it; a function the first parse read cleanly that
-    the flattened text dropped (one in a branch not kept) stays; statement-named "functions" go."""
+    original text, so an edit inside a dropped branch still changes it; a function the first parse found that no
+    function of the flattened text covers (one in a branch not kept) stays; "functions" named like statements go.
+
+    Lines are numbered as clang and `linediff.lines` number them: a line ends at a newline, a carriage return plus
+    newline or a lone carriage return. tree-sitter's rows break at a newline only, so in a text with a lone carriage
+    return every line number is turned from its row's into the line that row starts on."""
+    out = _parse(path, text, flatten)
+    starts = _line_starts(text)
+    return out if starts is None else _renumbered(out, starts)
+
+
+def _parse(path: str, text: str, flatten: Literal["never", "auto", "always"]) -> ParsedFile:
+    """The parse `parse_source` describes, its line numbers still tree-sitter's rows (the merge below works in rows: the
+    flattened text keeps every kept line's row)."""
     parser = _parser_for(path)
     src = text.encode("utf-8", errors="replace")
     tree = parser.parse(src)
@@ -160,18 +184,16 @@ def parse_source(path: str, text: str, flatten: Literal["never", "auto", "always
         return out
     flat_src = flatten_preproc(text).encode("utf-8", errors="replace")
     flat = _collect(parser.parse(flat_src), flat_src, src.split(b"\n"))
-    fns = sorted((f for f in flat.functions if f.name not in _STATEMENTS), key=lambda f: (f.start_line, f.end_line))
+    fns = sorted((f for f in flat.functions if not _statement_like(f.name)), key=lambda f: (f.start_line, f.end_line))
     starts = [f.start_line for f in fns]
     reach = list(itertools.accumulate((f.end_line for f in fns), max))
-    broken = {(n.start_point.row + 1, n.end_point.row + 1) for n in _nodes(tree)
-              if n.type == "function_definition" and n.has_error}
 
     def covered(f: FuncDef) -> bool:
         k = bisect.bisect_right(starts, f.end_line) - 1      # the flattened functions starting before f ends,
         return k >= 0 and reach[k] >= f.start_line            # and whether one of them reaches f
     lost: dict[str, list[FuncDef]] = defaultdict(list)
     for f in out.functions:
-        if (f.start_line, f.end_line) not in broken and f.name not in _STATEMENTS and not covered(f):
+        if not _statement_like(f.name) and not covered(f):
             lost[f.qualname].append(f)
 
     def kept(fn: str | None, line: int) -> bool:
@@ -181,14 +203,6 @@ def parse_source(path: str, text: str, flatten: Literal["never", "auto", "always
     out.members = flat.members + [m for m in out.members if kept(m.fn, m.line)]
     out.flattened = True
     return out
-
-
-def _nodes(tree: ts.Tree):
-    stack = [tree.root_node]
-    while stack:
-        n = stack.pop()
-        yield n
-        stack.extend(n.children)
 
 
 def _orig_text(lines: list[bytes], node: ts.Node) -> str:
@@ -266,6 +280,36 @@ def _collect(tree: ts.Tree, src: bytes, orig: list[bytes] | None = None) -> Pars
     return out
 
 
+_LONE_CR = re.compile(r"\r(?!\n)")
+
+
+def _line_starts(text: str) -> list[int] | None:
+    """For each tree-sitter row of the text (rows break at a newline only), the line it starts on when a lone carriage
+    return ends a line too, as clang counts them; None when the text has none, so the two numberings agree."""
+    if "\r" not in text or _LONE_CR.search(text) is None:
+        return None
+    starts = [1]
+    for row in text.split("\n")[:-1]:       # a row's last "\r" before its newline is half of a "\r\n", not a line end
+        starts.append(starts[-1] + 1 + row.count("\r") - row.endswith("\r"))
+    return starts
+
+
+def _at(starts: list[int] | None, line: int) -> int:
+    """The line a tree-sitter line (a row, counted from 1) starts on, given `_line_starts`."""
+    return line if starts is None else starts[min(line, len(starts)) - 1]
+
+
+def _renumbered(pf: ParsedFile, starts: list[int]) -> ParsedFile:
+    """`pf` with every line number turned from a row's into the line that row starts on."""
+    pf.functions = [replace(f, start_line=_at(starts, f.start_line), end_line=_at(starts, f.end_line)) for f in pf.functions]
+    pf.decls = [replace(d, line=_at(starts, d.line)) for d in pf.decls]
+    pf.types = [replace(t, start_line=_at(starts, t.start_line), end_line=_at(starts, t.end_line)) for t in pf.types]
+    pf.macros = [replace(m, line=_at(starts, m.line)) for m in pf.macros]
+    pf.calls = [replace(c, line=_at(starts, c.line)) for c in pf.calls]
+    pf.members = [replace(m, line=_at(starts, m.line)) for m in pf.members]
+    return pf
+
+
 _COND = re.compile(r"[ \t]*#[ \t]*(if|ifdef|ifndef|elif|elifdef|elifndef|else|endif)\b(.*)")
 _DEFINE = re.compile(r"[ \t]*#[ \t]*(define|undef)[ \t]+(\w+)")
 _DEFINED = re.compile(r"(!?)[ \t]*defined[ \t]*\(?[ \t]*(\w+)[ \t]*\)?")
@@ -274,7 +318,7 @@ _DEFINED = re.compile(r"(!?)[ \t]*defined[ \t]*\(?[ \t]*(\w+)[ \t]*\)?")
 def _tangled(tree: ts.Tree, text: str, pf: ParsedFile) -> bool:
     """Whether a preprocessor conditional tangles a parse: a "function" named like a statement, or a parse error or
     missing token on a conditional directive's line or spanning one."""
-    if any(f.name in _STATEMENTS for f in pf.functions):
+    if any(_statement_like(f.name) for f in pf.functions):
         return True
     rows = [i for i, line in enumerate(text.split("\n")) if _COND.match(line)]
     if not rows or not tree.root_node.has_error:
@@ -364,21 +408,22 @@ def _negate(cond: str) -> str:
 def preproc_spans(path: str, text: str) -> list[tuple[int, int, str]]:
     """(first line, last line, condition) for each branch of each `#if`/`#ifdef`/`#ifndef` (`#elif` and `#else`
     included), in source order; include guards are left out. `#ifdef X` is `defined(X)`, `#ifndef X` is
-    `!defined(X)` and an `#else` negates the branch before it."""
+    `!defined(X)` and an `#else` negates the branch before it. Lines are numbered as `parse_source` numbers them."""
     src = text.encode("utf-8", errors="replace")
     tree = _parser_for(path).parse(src)
+    starts = _line_starts(text)
     out: list[tuple[int, int, str]] = []
 
     def branch(node: ts.Node, cond: str) -> None:
         alt = node.child_by_field_name("alternative")
-        end = alt.start_point.row if alt is not None else node.end_point.row + 1
-        out.append((node.start_point.row + 1, end, cond))
+        end = _at(starts, alt.start_point.row + 1) - 1 if alt is not None else _at(starts, node.end_point.row + 1)
+        out.append((_at(starts, node.start_point.row + 1), end, cond))
         if alt is not None:
             if alt.type == "preproc_elif":
                 c = alt.child_by_field_name("condition")
                 branch(alt, norm_ws(_txt(src, c)) if c is not None else "")
             else:
-                out.append((alt.start_point.row + 1, alt.end_point.row + 1, _negate(cond)))
+                out.append((_at(starts, alt.start_point.row + 1), _at(starts, alt.end_point.row + 1), _negate(cond)))
 
     stack = [tree.root_node]
     while stack:

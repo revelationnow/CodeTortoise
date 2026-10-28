@@ -1,4 +1,5 @@
 from codetortoise.cparse import flatten_preproc, is_header, is_source, parse_source, preproc_spans
+from codetortoise.linediff import lines
 
 CPP = """
 #include "cpp/engine.h"
@@ -119,6 +120,10 @@ def tail(n):
     return "".join(f"int g{i}(int v) {{ if (v) {{ return v + {i}; }} return {i}; }}\n" for i in range(n))
 
 
+# a branch the flattened text drops, holding a function the raw parse reads with an error (a macro in its signature)
+DROPPED = "#ifdef OPT_C\nint gamma(void) { return 1; }\n#else\nvoid LIMIT delta(int v)\n{\n  v++;\n}\n#endif\n"
+
+
 def _spans(pf):
     return [(f.name, f.start_line, f.end_line) for f in pf.functions]
 
@@ -162,12 +167,34 @@ def test_a_function_only_the_raw_parse_read_in_a_dropped_branch_is_kept():
     assert {"alpha", "gamma", "delta"} <= set(names)
 
 
+def test_a_function_the_raw_parse_read_with_an_error_in_a_dropped_branch_is_kept():
+    text = HEAD + SPLIT + tail(6) + DROPPED
+    assert ("delta", 24, 27) in _spans(parse_source("a.c", text))        # the raw parse finds it, with an error in it
+    assert ("delta", 24, 27) in _spans(parse_source("a.c", text, flatten="auto"))
+
+
 def test_a_statement_parsed_as_a_function_is_dropped():
     text = ("int pick(int v)\n{\n  if (v == 1) {\n    v = 2;\n  }\n#ifndef OPT_D\n  else if (v == 3) {\n    v = 4;\n  }\n"
             "#endif\n  return v;\n}\n")
     assert [f.name for f in parse_source("a.c", text).functions] == ["pick", "if"]
     pf = parse_source("a.c", text, flatten="auto")
     assert _spans(pf) == [("pick", 1, 12)] and pf.flattened
+
+
+def test_a_statement_parsed_as_a_function_is_dropped_though_its_name_keeps_parentheses():
+    text = ("int pick(int v)\n{\n  if (v == 1) {\n    v = 2;\n  }\n#ifndef OPT_D\n  else if ((v == 1)\n  (v == 1)\n  {\n"
+            "    v = 4;\n  }\n#endif\n  return v;\n}\n")
+    assert [f.name for f in parse_source("a.c", text).functions] == ["pick", "if((v==1)"]
+    pf = parse_source("a.c", text, flatten="auto")
+    assert _spans(pf) == [("pick", 1, 14)] and pf.flattened
+
+
+def test_a_function_whose_name_has_parentheses_in_a_clean_file_is_neither_dropped_nor_a_reason_to_flatten():
+    handler = "int (*get_handler(int id))(int)\n{\n  return 0;\n}\n"
+    functor = "struct Widget { int operator()(int x) const; };\nint Widget::operator()(int x) const\n{\n  return x;\n}\n"
+    for path, text, name in [("a.c", handler, "(*get_handler(intid))"), ("a.cpp", functor, "operator()")]:
+        pf = parse_source(path, text, flatten="auto")
+        assert [f.name for f in pf.functions] == [name] and not pf.flattened
 
 
 def test_an_untangled_file_is_not_flattened():
@@ -192,3 +219,44 @@ def test_tree_sitter_facts_find_a_function_whose_braces_an_ifdef_splits():
     text = HEAD + SPLIT + tail(6)
     facts = extract_tu_treesitter(TuRequest(file="/w/a.c", args=[], variant="after", unsaved={"/w/a.c": text}))
     assert ("alpha", 2, 14) in [(f.name, f.start_line, f.end_line) for f in facts.functions]
+
+
+def test_a_lone_cr_ends_a_line_for_the_parse_as_it_does_for_the_line_diff():
+    text = "".join(f"int {n}(int v)\n{{\n  return v + {i};\n}}\n" for i, n in enumerate(["alpha", "beta", "gamma"]))
+    text = text.replace("\n", "\r\r\n")       # tree-sitter's rows break at "\n" only; clang and the line diff at each "\r" too
+    rows = lines(text)
+    for flatten in ("never", "always"):
+        got = [(f.name, rows[f.start_line - 1], rows[f.end_line - 1]) for f in parse_source("a.c", text, flatten=flatten).functions]
+        assert got == [(n, f"int {n}(int v)", "}") for n in ("alpha", "beta", "gamma")]
+
+
+def test_every_line_the_parse_reports_is_counted_the_way_the_line_diff_counts_it():
+    src = ("#define LIMIT 4\nstruct Widget { int n; };\nint helper(int v);\nint pick(struct Widget *w)\n{\n  w->n = LIMIT;\n"
+           "  return helper(w->n);\n}\n")
+    text = src.replace("\n", "\r\r\n")
+    rows = lines(text)
+    pf = parse_source("a.c", text)
+    assert [rows[m.line - 1] for m in pf.macros] == ["#define LIMIT 4"]
+    assert [(rows[t.start_line - 1], rows[t.end_line - 1]) for t in pf.types] == [("struct Widget { int n; };",) * 2]
+    assert [rows[d.line - 1] for d in pf.decls] == ["int helper(int v);"]
+    assert [rows[c.line - 1] for c in pf.calls] == ["  return helper(w->n);"]
+    assert [rows[m.line - 1] for m in pf.members] == ["  w->n = LIMIT;", "  return helper(w->n);"]
+    assert [(rows[f.start_line - 1], rows[f.end_line - 1]) for f in pf.functions] == [("int pick(struct Widget *w)", "}")]
+
+
+def test_preproc_spans_count_lines_the_way_the_line_diff_does():
+    src = ("#ifdef CONFIG_WIN\nint f(void) { return 1; }\n#elif defined(X)\nint g;\n#else\nint h;\n#endif\n"
+           "#if FOO > 1\nint k;\n#endif\n")
+    assert preproc_spans("a.h", src) == [(1, 2, "defined(CONFIG_WIN)"), (3, 4, "defined(X)"), (5, 6, "!defined(X)"),
+                                         (8, 10, "FOO > 1")]
+    text = src.replace("\n", "\r\r\n")        # line n of src is lines n * 2 - 1 and n * 2 of this text
+    assert preproc_spans("a.h", text) == [(1, 4, "defined(CONFIG_WIN)"), (5, 8, "defined(X)"), (9, 11, "!defined(X)"),
+                                          (15, 19, "FOO > 1")]
+
+
+def test_tree_sitter_facts_count_lines_the_way_the_line_diff_does():
+    from codetortoise.facts.clang_extractor import TuRequest
+    from codetortoise.facts.treesitter_extractor import extract_tu_treesitter
+    text = (HEAD + tail(2)).replace("\n", "\r\r\n")
+    facts = extract_tu_treesitter(TuRequest(file="/w/a.c", args=[], variant="after", unsaved={"/w/a.c": text}))
+    assert [(f.name, f.start_line, f.end_line) for f in facts.functions] == [("first", 1, 1), ("g0", 3, 3), ("g1", 5, 5)]

@@ -1,4 +1,5 @@
-from test_cparse import HEAD, SPLIT, tail
+import pytest
+from test_cparse import DROPPED, HEAD, SPLIT, tail
 
 from codetortoise.diffmap import map_changes
 from codetortoise.vcs.model import ChangeSet, ClMeta, FileChange
@@ -44,10 +45,45 @@ def test_an_edit_inside_a_function_whose_braces_an_ifdef_splits_is_mapped_to_it(
     assert [(f.qualname, f.kind) for f in dm.functions] == [("alpha", "body_modified")] and dm.flattened == ["/w/a.c"]
 
 
+@pytest.mark.parametrize("eol", ["\n", "\r\n", "\r\r\n"])
+def test_an_edit_is_mapped_to_its_function_whatever_the_line_ends_are(eol):
+    before = (HEAD + tail(6)).replace("\n", eol)
+    dm = map_changes(_cs(before, before.replace("v + 4;", "v + 40;")))
+    assert [(f.qualname, f.kind) for f in dm.functions] == [("g4", "body_modified")]
+
+
+def test_a_file_whose_functions_are_all_unchanged_is_not_line_diffed(monkeypatch):
+    from codetortoise import diffmap
+    asked = []
+    real = diffmap.edits
+    monkeypatch.setattr(diffmap, "edits", lambda *a: asked.append(a) or real(*a))
+    table = "".join(f"  {{ {i % 5}, 1, 0 }},\n" for i in range(4000))
+    before = "static const int rows[][3] = {\n" + table + "};\n" + tail(2)
+    after = before.replace("{ 3, 1, 0 },\n", "{ 3, 1, 9 },\n", 1)           # one row of the table edited, no function
+    assert map_changes(_cs(before, after)).functions == [] and asked == []
+    dm = map_changes(_cs(before, before.replace("return 0;", "return 7;", 1)))        # g0 edited: both sides are diffed
+    assert [f.qualname for f in dm.functions] == ["g0"] and len(asked) == 2
+
+
+@pytest.mark.parametrize(("tangled_side", "kind"), [("after", "added"), ("before", "removed")])
+def test_both_versions_are_read_the_same_way_when_only_one_of_them_is_tangled(tangled_side, kind):
+    clean, tangled = HEAD + tail(6), HEAD + SPLIT + tail(6)
+    before, after = (clean, tangled) if tangled_side == "after" else (tangled, clean)
+    dm = map_changes(_cs(before, after))
+    assert [(f.qualname, f.kind, f.misread) for f in dm.functions] == [("alpha", kind, False)]
+    assert dm.flattened == ["/w/a.c"]
+
+
 def test_an_edit_inside_a_dropped_branch_still_changes_its_function():
     before = HEAD + SPLIT.replace("#ifdef OPT_A\n  }\n#endif", "#ifdef OPT_A\n  }\n#else\n    v = 0;\n#endif") + tail(6)
     dm = map_changes(_cs(before, before.replace("v = 0;", "v = 1;")))
     assert [(f.qualname, f.kind) for f in dm.functions] == [("alpha", "body_modified")]
+
+
+def test_an_edit_inside_a_function_with_a_parse_error_in_a_dropped_branch_is_mapped_to_it():
+    before = HEAD + SPLIT + tail(6) + DROPPED
+    dm = map_changes(_cs(before, HEAD + SPLIT + tail(6) + DROPPED.replace("v++;", "v += 2;")))
+    assert [(f.qualname, f.kind) for f in dm.functions] == [("delta", "body_modified")]
 
 
 def test_a_function_the_parser_loses_in_one_version_with_no_edit_in_it_is_not_a_change(monkeypatch):
@@ -65,6 +101,32 @@ def test_an_added_function_the_old_text_defines_where_the_parser_found_none_is_m
     _raw_parser(monkeypatch)
     dm = map_changes(_cs(before, after))
     assert [(f.qualname, f.kind, f.misread) for f in dm.functions] == [("alpha", "added", True), ("g5", "removed", False)]
+
+
+def test_each_added_or_removed_function_is_judged_by_its_own_name_and_each_text_is_read_once(monkeypatch):
+    from codetortoise import diffmap
+    read = []
+    real = diffmap._defined
+    monkeypatch.setattr(diffmap, "_defined", lambda text: read.append(text) or real(text))
+    before = HEAD + SPLIT + tail(6)
+    after = (HEAD + "int extra(void) { return 0; }\nint extra2(void) { return 0; }\n" + SPLIT.replace("v++;", "v += 2;") + tail(5))
+    _raw_parser(monkeypatch)
+    dm = map_changes(_cs(before, after))
+    assert [(f.qualname, f.kind, f.misread) for f in dm.functions] == [
+        ("alpha", "added", True), ("extra", "added", False), ("extra2", "added", False), ("g5", "removed", False)]
+    assert read == [before, after]          # the old text for the added ones, the new for the removed one: one read each
+
+
+def test_the_names_a_text_defines_at_the_left_margin_are_counted_each_with_how_often():
+    from codetortoise.diffmap import _defined
+    text = ("static int alpha(int a,\n        int b)\n{\n  return a + b;\n}\n"
+            "int alpha(int a);\n"                      # a prototype
+            "  alpha(1);\n"                            # an indented call
+            "beta(2);\n"                               # a call at the margin
+            "static int\ngamma (void)\n{\n}\n"        # the type on the line before
+            "int alpha(void)\n{\n}\n"                  # another definition of alpha
+            "bool operator==(const A &a, const A &b)\n{\n  return true;\n}\n")
+    assert _defined(text) == {"alpha": 2, "gamma": 1, "operator==": 1}
 
 
 def test_a_genuinely_added_function_is_not_misread_even_beside_its_old_prototype():
