@@ -344,7 +344,8 @@ def test_the_fixture_tells_two_behaviour_stories(analysed, fx_source):
     assert ss.summary == "2 behaviour stories."
     assert [(s.kind, s.risk, s.title) for s in ss.stories] == [
         ("behaviour", "high", "`uart_send` can now return -2; `logger_flush` ignores it (1 more effect)"),
-        ("behaviour", "medium", "`hal_write`'s signature changed; `uart_init` calls it")]
+        # regs.h declares `hal_write`: it joins this story, with its fan-out finding (high)
+        ("behaviour", "high", "`hal_write`'s signature changed; `uart_init` calls it")]
     for s in ss.stories:
         g = det[s.id].graph
         assert len(g.nodes) <= 12 and not any(n.label.startswith("/") or "(/" in n.label for n in g.nodes)
@@ -525,6 +526,22 @@ def test_a_header_joins_the_story_using_it_most_and_its_finding_goes_there_by_fi
     assert pd.placements[-1].reason == "declaration_used"
     assert "F2" not in ss.finding_story                       # no node and no file of the change: no story
     assert all("F1" not in s.findings for s in ss.stories if s.id != pd.id)
+
+
+def test_a_header_declaring_a_function_joins_the_story_defining_it_even_when_another_uses_it_more():
+    from codetortoise.diffmap import TypeChange
+    c = _world([("alpha", "src/alpha.c", ["a = 0;"], ["a = 1;"]),
+                ("caller_one", "src/use/one.c", ["alpha();"], ["alpha(); x();"]),
+                ("caller_two", "src/use/two.c", ["alpha();"], ["alpha(); y();"])],
+               calls=[("caller_one", "caller_two")])
+    h = f"{W}/inc/alpha.h"
+    c.cs.files.append(FileChange(depot="//d" + h, local=h, action="edit", before="int alpha(void);\n",
+                                 after="int alpha(int v);\n"))
+    c.dm.types.append(TypeChange(file=h, depot="//d" + h, name="alpha", kind="decl_changed"))
+    ss, _ = build_stories(c)
+    home = next(s for s in ss.stories if "N1" in s.nodes)        # alpha's story
+    assert len(home.pieces) == 2 and home.placements[-1].reason == "declaration_used"
+    assert all(len(s.pieces) == 1 for s in ss.stories if s.id != home.id)
 
 
 def test_other_changes_over_the_limit_merge_only_within_a_target_and_cl():

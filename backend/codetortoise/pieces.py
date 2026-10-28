@@ -25,7 +25,7 @@ from codetortoise.repeated import Repeated, _note, _plural, _spans, find_repeate
 from codetortoise.targets import UNKNOWN
 
 PieceKind = Literal["tests", "repeated", "new", "edits", "declarations", "single"]
-LinkType = Literal["call", "field", "sub", "uses", "name"]
+LinkType = Literal["call", "field", "sub", "uses", "defines", "name"]
 CARD_CHARS = 1200                     # 300 tokens
 OVERVIEW_CHARS = 6000                 # 1500 tokens
 CL_CHARS = 2400                       # a CL description in the overview: 600 tokens
@@ -351,11 +351,13 @@ def _links(x: _Ctx, pieces: list[Piece], node_piece: dict[str, str], rep: Repeat
     texts = {n: _fn_text(x, n) for n in node_piece}
     for d in (p for p in pieces if p.kind == "declarations"):
         words = [re.compile(rf"\b{re.escape(n.split()[-1])}\b") for n in d.names]
+        declared = set(d.names)
         inc = includers(d.files[0]) if includers else None
         for p in pieces:
             if p.kind == "declarations" or (inc is not None and not (set(p.files) & inc) and d.files[0] not in p.files):
                 continue
             link(d.id, p.id, "uses", sum(1 for n in p.nodes if any(w.search(texts[n]) for w in words)))
+            link(d.id, p.id, "defines", sum(1 for n in p.nodes if im.nodes[n].kind == "function" and x.label(n) in declared))
     by_prefix: dict[str, Counter] = defaultdict(Counter)
     for n, pid in node_piece.items():
         pre = _prefix(x.label(n))

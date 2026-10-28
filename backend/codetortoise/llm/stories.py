@@ -33,9 +33,9 @@ from codetortoise.llm.tiers import TiersFailed, Tried, done_text, tried_note, tr
 from codetortoise.pieces import Piece, PieceSet
 from codetortoise.tidy import tidy
 
-STORY_RULES_VERSION = 2               # bump with every change to RULES or the prompts' wording
+STORY_RULES_VERSION = 3               # bump with every change to RULES or the prompts' wording
 CHUNK_SHARE = 0.6                     # a chunk's prompt stays within this share of the context
-JOINING = ("call", "field", "sub", "uses")   # links that let a piece of another CL join a story
+JOINING = ("call", "field", "sub", "uses", "defines")   # links that let a piece of another CL join a story
 QUOTE_MIN = 8                         # a quote shorter than this proves nothing
 
 RULES = """Form the stories of this change for its reviewers. Follow these steps in order.
@@ -43,7 +43,7 @@ RULES = """Form the stories of this change for its reviewers. Follow these steps
 most (most links); other targets' stories that touch it name that story under "related".
 2. Within each target, find the purposes: what each CL description says it does, and what each new-code piece adds.
 3. Place every piece in the purpose it serves. New code goes with the edits that call it. A declaration piece goes with \
-the story that uses its changes most.
+the story that defines what it declares (a `defines` link), else with the story that uses its changes most.
 4. Join pieces from different CLs only when a link joins them, or when both CL descriptions state the same purpose: then \
 put one quote from each CL description, exactly as written, in "quote".
 5. A story with more than 12 pieces or 40 changed functions must be split along its weakest links into purposes.

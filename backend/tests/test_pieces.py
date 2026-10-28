@@ -135,6 +135,24 @@ def test_a_changed_header_is_a_declarations_piece_linked_to_the_code_using_it():
     assert "changed: CFG_FLAG" in d.card and "inc/config.h (+1 −0)" in d.card
 
 
+def test_a_declarations_piece_is_linked_to_the_piece_defining_its_function_apart_from_those_calling_it():
+    c = _world([("alpha", "src/alpha.c", ["a = 0;"], ["a = 1;"]),
+                ("caller_one", "src/use/one.c", ["alpha();"], ["alpha(); x();"]),
+                ("caller_two", "src/use/two.c", ["alpha();"], ["alpha(); y();"])],
+               calls=[("caller_one", "caller_two")])
+    h = f"{W}/inc/alpha.h"
+    c.cs.files.append(FileChange(depot="//d" + h, local=h, action="edit", before="int alpha(void);\n",
+                                 after="int alpha(int v);\n"))
+    c.dm.types.append(TypeChange(file=h, depot="//d" + h, name="alpha", kind="decl_changed"))
+    ps = _pieces(c)
+    (d,) = [p for p in ps.pieces if p.kind == "declarations"]
+
+    def piece_of(label):
+        return ps.node_piece[next(n for n, x in c.impact.nodes.items() if x.label == label)]
+    assert ("defines", 1) in {(lk.type, lk.count) for lk in ps.links if {lk.a, lk.b} == {d.id, piece_of("alpha")}}
+    assert not [lk for lk in ps.links if lk.type == "defines" and piece_of("caller_one") in (lk.a, lk.b)]
+
+
 def test_repeated_edits_and_tests_are_pieces_of_their_own():
     c = _world([_mech("free_a", "src/a.c"), _mech("free_b", "src/b.c", var="b"), _edit("test_free", "tests/t.c"),
                 _edit("busy", "src/c.c")])
