@@ -1,6 +1,7 @@
 """Checks grouped by cause (spec 2026-10-16-outline-and-causes §4)."""
 import hashlib
 
+import pytest
 from test_reading import _caller_world, _checks, _f, _set, _x
 from test_stories import _edit, _same, _world
 
@@ -155,6 +156,21 @@ def test_without_its_own_line_a_cause_shows_the_functions_first_changed_block_an
     rows, (cause,) = _causes(c, _set(["N1"]))
     assert cause.kind == "unanalysed" and len(cause.change.lines) == 6
     assert all(ln.sign == "+" for ln in cause.change.lines)
+
+
+@pytest.mark.parametrize("fns, name, want", [
+    # an edit in the middle: the context above and below it and the removed and added lines are the rows the diff numbers
+    ([("send", "drv/uart.c", ["\f", "a = 0;", "b = 0;", "c = 0;"], ["\f", "a = 0;", "x = 1;", "c = 0;"])], "send",
+     [(" ", "a = 0;", 4), ("-", "b = 0;", 5), ("+", "x = 1;", 5), (" ", "c = 0;", 6)]),
+    # an edit at the end of the file has no row below it, whatever the rows above it split into
+    ([("early", "drv/uart.c", ["\f", "a = 0;"], ["\f", "a = 0;"]), ("late", "drv/uart.c", None, ["a = 0;"])], "late",
+     [(" ", "}", 5), ("+", "void late(void)", 6), ("+", "{", 7), ("+", "a = 0;", 8), ("+", "}", 9)])])
+def test_a_cause_shows_the_rows_the_line_diff_numbers_when_a_form_feed_line_comes_above_the_change(fns, name, want):
+    c = _world(fns)
+    c.impact.capped = {name: 90}
+    _, (cause,) = _causes(c, _set([next(n for n, x in c.impact.nodes.items() if x.label == name)]))
+    assert cause.kind == "unanalysed"
+    assert _lines(cause.change) == want
 
 
 def test_a_cause_without_a_changed_function_has_no_change():

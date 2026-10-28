@@ -16,6 +16,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from codetortoise import linediff
 from codetortoise.board import Analysis, BoardContext, _count, _Ctx, _opcodes
 from codetortoise.cltext import first_line, prompt_text
 from codetortoise.clusters import altered_access
@@ -93,10 +94,10 @@ def node_cl(x: _Ctx, nid: str) -> int | None:
     if fn is None:
         return min(cls)
     text = fc.after if side == "after" else fc.before
-    want = {ln.strip() for ln in text.splitlines()[fn.start_line - 1:fn.end_line] if len(ln.strip()) >= 4}
+    want = {ln.strip() for ln in linediff.lines(text)[fn.start_line - 1:fn.end_line] if len(ln.strip()) >= 4}
 
     def score(p) -> int:
-        a, b = p.before.splitlines(), p.after.splitlines()
+        a, b = linediff.lines(p.before), linediff.lines(p.after)
         hit = 0
         for tag, i1, i2, j1, j2 in _opcodes(p.before, p.after):
             if tag == "equal":
@@ -112,7 +113,7 @@ def _name_cl(fc, name: str) -> int | None:
     """The first CL whose own diff touches a line naming `name` (a header's macro, type or declaration)."""
     word = re.compile(rf"\b{re.escape(name.split()[-1])}\b")
     for p in sorted(fc.per_cl, key=lambda p: p.cl):
-        a, b = p.before.splitlines(), p.after.splitlines()
+        a, b = linediff.lines(p.before), linediff.lines(p.after)
         for tag, i1, i2, j1, j2 in _opcodes(p.before, p.after):
             if tag != "equal" and any(word.search(r) for r in a[i1:i2] + b[j1:j2]):
                 return p.cl
@@ -180,7 +181,7 @@ def _fn_text(x: _Ctx, nid: str) -> str:
     if fn is None or fc is None:
         return ""
     text = fc.after if n.key in x.fa else fc.before
-    return "\n".join(text.splitlines()[fn.start_line - 1:fn.end_line])
+    return "\n".join(linediff.lines(text)[fn.start_line - 1:fn.end_line])
 
 
 def _fn_lines(x: _Ctx, nid: str) -> tuple[int, int]:
