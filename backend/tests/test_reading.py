@@ -2,6 +2,8 @@
 from test_stories import W, _edit, _in_cls, _same, _world
 
 from codetortoise.board import analyse
+from codetortoise.diffmap import TypeChange
+from codetortoise.pieces import Piece, PieceSet
 from codetortoise.reading import (
     Check,
     Connection,
@@ -32,6 +34,7 @@ from codetortoise.reading import (
     with_marks,
 )
 from codetortoise.stories import Story, StorySet
+from codetortoise.vcs.model import FileChange
 
 
 def _set(*groups, kinds=None, cls=None):
@@ -338,6 +341,79 @@ def test_where_lists_each_file_and_its_functions_with_edit_size_and_cl():
     assert [(f.path, f.depot, [(fn.label, fn.add, fn.rem, fn.cl, fn.line) for fn in f.functions]) for f in got] == [
         ("drv/uart.c", "//d/w/drv/uart.c", [("a", 1, 0, 11, 1), ("b", 2, 1, 11, 6)]),
         ("svc/log.c", "//d/w/svc/log.c", [("c", 1, 0, 12, 1)])]
+
+
+# ---- a story of declarations only (§6.1, §8.1)
+def _declarations(c):
+    """inc/w.h's changed LIMIT and Widget, one declarations piece P1 holding them."""
+    h = f"{W}/inc/w.h"
+    c.cs.files.append(FileChange(depot="//d" + h, local=h, action="edit", before="struct Widget { int a; int b; };\n",
+                                 after="#define LIMIT 8\n\nstruct Widget { int a; int c; };\n"))
+    c.dm.types += [TypeChange(file=h, depot="//d" + h, name="Widget", kind="type_changed", line=3,
+                              before="struct Widget { int a; int b; }", after="struct Widget { int a; int c; }",
+                              fields_added=["c"], fields_removed=["b"]),
+                   TypeChange(file=h, depot="//d" + h, name="LIMIT", kind="macro_added", line=1, after="#define LIMIT 8")]
+    return PieceSet(pieces=[Piece(id="P1", kind="declarations", targets=["unknown"], files=[h], names=["LIMIT", "Widget"])])
+
+
+def test_a_story_of_declarations_only_shows_them_under_before_after_and_where():
+    c = _world([_edit("alpha", "src/a.c")])
+    ps = _declarations(c)
+    story = Story(id="S1", kind="other", title="t", summary="s", nodes=[], pieces=["P1"], cls=[1])
+    x = _x(c)
+    assert [(r.kind, r.text, r.before, r.after, r.added, r.removed) for r in contract_rows(story, x, ps)] == [
+        ("declaration", "`LIMIT` macro added", "", "#define LIMIT 8", [], []),
+        ("declaration", "`Widget` now has `c`; no longer has `b`", "struct Widget { int a; int b; }",
+         "struct Widget { int a; int c; }", ["c"], ["b"])]
+    (wf,) = where(story, x, ps)
+    assert (wf.path, wf.depot, wf.functions, [(d.name, d.line) for d in wf.decls]) == (
+        "inc/w.h", "//d/w/inc/w.h", [], [("LIMIT", 1), ("Widget", 3)])
+
+
+def test_a_declaration_row_says_what_happened_shows_short_texts_only_and_a_story_lists_only_its_own_pieces():
+    c = _world([_edit("alpha", "src/a.c")])
+    h, o = f"{W}/inc/w.h", f"{W}/inc/other.h"
+    big = "struct Widget { " + "int a; " * 50 + "}"                      # 366 characters
+    c.dm.types += [TypeChange(file=h, depot="//d" + h, name="Widget", kind="type_changed", line=5, before=big, after=big + " ;"),
+                   TypeChange(file=h, depot="//d" + h, name="alpha", kind="decl_removed", line=4, before="int alpha(void);"),
+                   TypeChange(file=h, depot="//d" + h, name="Mode", kind="type_added", line=3, after="enum Mode { MODE_A }"),
+                   TypeChange(file=h, depot="//d" + h, name="LIMIT", kind="macro_changed", line=1,
+                              before="#define LIMIT 4", after="#define LIMIT 8"),
+                   TypeChange(file=o, depot="//d" + o, name="OPT_A", kind="macro_added", line=1, after="#define OPT_A 1")]
+    ps = PieceSet(pieces=[Piece(id="P1", kind="declarations", targets=["unknown"], files=[h],
+                                names=["Widget", "alpha", "Mode", "LIMIT"]),
+                          Piece(id="P2", kind="declarations", targets=["unknown"], files=[o], names=["OPT_A"])])
+    story = Story(id="S1", kind="other", title="t", summary="s", nodes=[], pieces=["P1"], cls=[1])
+    rows = contract_rows(story, _x(c), ps)
+    assert [(r.text, r.before, r.after, r.mark) for r in rows] == [
+        ("`LIMIT` macro changed", "#define LIMIT 4", "#define LIMIT 8", [14, 15]),          # by line: 1, 3, 4, 5
+        ("`Mode` added", "", "enum Mode { MODE_A }", []),
+        ("`alpha` declaration removed", "int alpha(void);", "", []),
+        ("`Widget` changed", "", "", [])]                                                   # too long: the sentence only
+    (wf,) = where(story, _x(c), ps)
+    assert (wf.path, [(d.name, d.line) for d in wf.decls]) == ("inc/w.h", [("LIMIT", 1), ("Mode", 3), ("alpha", 4), ("Widget", 5)])
+
+
+def test_a_story_with_functions_keeps_declaration_pieces_out_of_before_after_and_where():
+    c = _world([_edit("alpha", "src/a.c")])
+    ps = _declarations(c)
+    story = Story(id="S1", kind="other", title="t", summary="s", nodes=["N1"], pieces=["P1"], cls=[1])
+    x = _x(c)
+    assert all(r.kind != "declaration" for r in contract_rows(story, x, ps))
+    assert [(f.path, f.decls) for f in where(story, x, ps)] == [("src/a.c", [])]
+
+
+def test_blobs_stored_before_this_change_still_load():
+    from codetortoise.diffmap import DiffMap
+    from codetortoise.tu_select import TuSelection
+    dm = DiffMap.model_validate({"functions": [{"file": "/w/a.c", "depot": "//d/a.c", "qualname": "a", "name": "a",
+                                                "kind": "added"}],
+                                 "types": [{"file": "/w/a.h", "depot": "//d/a.h", "name": "W", "kind": "type_changed"}],
+                                 "changed_files": ["/w/a.c"]})
+    assert dm.flattened == [] and not dm.functions[0].misread
+    assert (dm.types[0].line, dm.types[0].before, dm.types[0].after, dm.types[0].fields_added) == (None, "", "", [])
+    assert TuSelection.model_validate({"selected": ["/w/a.c"]}).ts_only == []
+    assert WhereFile.model_validate({"path": "a.c", "functions": []}).decls == []
 
 
 # ---- §8.2 call paths

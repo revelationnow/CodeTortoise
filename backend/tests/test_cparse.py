@@ -40,6 +40,23 @@ def test_calls_members_includes_macros_types_decls():
     assert [d.qualname for d in pf.decls] == ["svc::free_fn"]
 
 
+def test_types_list_their_fields_and_enums_their_enumerators():
+    pf = parse_source("t.c", "struct Widget { int a, b; char *name; void (*cb)(int); unsigned flag : 1; };\n"
+                             "enum Mode { MODE_OFF, MODE_ON = 2 };\n")
+    assert {t.name: t.fields for t in pf.types} == {"Widget": ("a", "b", "name", "cb", "flag"),
+                                                    "Mode": ("MODE_OFF", "MODE_ON")}
+
+
+def test_a_types_fields_are_names_not_unnamed_bit_fields_methods_or_dropped_references():
+    c = parse_source("t.c", "struct Widget { unsigned flag : 1; unsigned : 3; unsigned level : 2; };\n")
+    assert [t.fields for t in c.types] == [("flag", "level")]       # tree-sitter gives `unsigned : 3;` a missing identifier
+    members = ["int a;", "int &ref;", "int &&moved;", "char *name();", "const char *label() const;", "int &slot(int i);",
+               "int get() const;", "Widget();", "~Widget();", "bool operator==(const Widget &o) const;", "void (*cb)(int);",
+               "static int count;"]
+    cpp = parse_source("t.cpp", "class Widget {\n public:\n" + "".join(f"  {m}\n" for m in members) + "};\n")
+    assert [t.fields for t in cpp.types] == [("a", "ref", "moved", "cb", "count")]
+
+
 def test_function_hash_changes_with_body_only():
     a = parse_source("a.c", "int f(int x) { return x; }\n").functions[0]
     b = parse_source("a.c", "int f(int x) {   return x; }\n").functions[0]

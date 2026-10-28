@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from codetortoise.cparse import FuncDef, is_source, parse_source
 from codetortoise.linediff import edits, touches
-from codetortoise.vcs.model import ChangeSet
+from codetortoise.vcs.model import ChangeSet, FileChange
 
 FunctionChangeKind = Literal["added", "removed", "body_modified", "signature_changed"]
 TypeChangeKind = Literal["type_added", "type_removed", "type_changed",
@@ -36,6 +36,11 @@ class TypeChange(BaseModel):
     depot: str
     name: str
     kind: TypeChangeKind
+    line: int | None = None           # new side (old side for a removed one)
+    before: str = ""                  # its text in each version, whitespace collapsed ("" where it does not exist)
+    after: str = ""
+    fields_added: list[str] = Field(default_factory=list)     # a changed type's fields or enumerators
+    fields_removed: list[str] = Field(default_factory=list)
 
 
 class DiffMap(BaseModel):
@@ -54,15 +59,23 @@ def _keyed(funcs: list[FuncDef]) -> dict[tuple[str, int], FuncDef]:
     return out
 
 
-def _diff_named(before: dict[str, str], after: dict[str, str], prefix: str) -> list[tuple[str, str]]:
+def _named(before: dict[str, tuple[int, str, tuple[str, ...]]], after: dict[str, tuple[int, str, tuple[str, ...]]],
+           prefix: str, fc: FileChange) -> list[TypeChange]:
+    """Added, removed and changed names of one kind (types, declarations or macros): name -> (line, text, fields)."""
     out = []
     for name in sorted(set(before) | set(after)):
-        if name not in before:
-            out.append((name, f"{prefix}_added"))
-        elif name not in after:
-            out.append((name, f"{prefix}_removed"))
-        elif before[name] != after[name]:
-            out.append((name, f"{prefix}_changed"))
+        b, a = before.get(name), after.get(name)
+        if b is not None and a is not None and b[1] == a[1]:
+            continue
+        kind = f"{prefix}_added" if b is None else f"{prefix}_removed" if a is None else f"{prefix}_changed"
+        added: list[str] = []
+        removed: list[str] = []
+        if a is not None and b is not None:
+            had, has = set(b[2]), set(a[2])             # sets: a generated header's enum can hold thousands of names
+            added, removed = [f for f in a[2] if f not in had], [f for f in b[2] if f not in has]
+        out.append(TypeChange(file=fc.local, depot=fc.depot, name=name, kind=kind, line=(a or b)[0],
+                              before=b[1] if b else "", after=a[1] if a else "",
+                              fields_added=added, fields_removed=removed))
     return out
 
 
@@ -131,13 +144,10 @@ def map_changes(cs: ChangeSet) -> DiffMap:
                 signature_before=fb.signature if fb else None,
                 signature_after=fa.signature if fa else None,
                 written_members=written, misread=misread))
-        for name, kind in _diff_named({t.name: t.text for t in b.types if t.name},
-                                      {t.name: t.text for t in a.types if t.name}, "type"):
-            dm.types.append(TypeChange(file=fc.local, depot=fc.depot, name=name, kind=kind))
-        for name, kind in _diff_named({d.qualname: d.text for d in b.decls},
-                                      {d.qualname: d.text for d in a.decls}, "decl"):
-            dm.types.append(TypeChange(file=fc.local, depot=fc.depot, name=name, kind=kind))
-        for name, kind in _diff_named({m.name: m.text for m in b.macros},
-                                      {m.name: m.text for m in a.macros}, "macro"):
-            dm.types.append(TypeChange(file=fc.local, depot=fc.depot, name=name, kind=kind))
+        dm.types += _named({t.name: (t.start_line, t.text, t.fields) for t in b.types if t.name},
+                           {t.name: (t.start_line, t.text, t.fields) for t in a.types if t.name}, "type", fc)
+        dm.types += _named({d.qualname: (d.line, d.text, ()) for d in b.decls},
+                           {d.qualname: (d.line, d.text, ()) for d in a.decls}, "decl", fc)
+        dm.types += _named({m.name: (m.line, m.text, ()) for m in b.macros},
+                           {m.name: (m.line, m.text, ()) for m in a.macros}, "macro", fc)
     return dm

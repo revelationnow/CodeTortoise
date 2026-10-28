@@ -140,3 +140,26 @@ def test_a_genuinely_added_function_is_not_misread_even_beside_its_old_prototype
     added = before + "static int alpha(int a,\n                 int b)\n{\n  return a + b;\n}\n"
     dm = map_changes(_cs(before, added))
     assert [(f.qualname, f.kind, f.misread) for f in dm.functions] == [("alpha", "added", False)]
+
+
+def test_type_decl_and_macro_changes_carry_both_texts_their_line_and_field_changes():
+    before = "#define LIMIT 4\nstruct Widget { int a; int b; };\nint alpha(void);\n"
+    after = "#define LIMIT 8\n\nstruct Widget { int a; int c; };\nint alpha(int v);\n"
+    got = {t.name: t for t in map_changes(_cs(before, after, local="/w/w.h")).types}
+    w = got["Widget"]
+    assert (w.kind, w.line, w.fields_added, w.fields_removed) == ("type_changed", 3, ["c"], ["b"])
+    assert (w.before, w.after) == ("struct Widget { int a; int b; }", "struct Widget { int a; int c; }")
+    assert (got["alpha"].kind, got["alpha"].before, got["alpha"].after) == ("decl_changed", "int alpha(void);",
+                                                                             "int alpha(int v);")
+    assert (got["LIMIT"].kind, got["LIMIT"].line, got["LIMIT"].after) == ("macro_changed", 1, "#define LIMIT 8")
+
+
+def test_a_removed_declaration_carries_its_old_line_and_text_and_an_added_one_its_new_ones():
+    before = "#define OPT_A 1\nint first(void);\nstruct Widget { int a; };\n"
+    after = "int first(void);\n#define OPT_B 2\nenum Mode { MODE_A, MODE_B };\n"
+    got = {t.name: t for t in map_changes(_cs(before, after, local="/w/w.h")).types}
+    assert {n: (t.kind, t.line, t.before, t.after, t.fields_added, t.fields_removed) for n, t in got.items()} == {
+        "OPT_A": ("macro_removed", 1, "#define OPT_A 1", "", [], []),
+        "Widget": ("type_removed", 3, "struct Widget { int a; }", "", [], []),
+        "OPT_B": ("macro_added", 2, "", "#define OPT_B 2", [], []),
+        "Mode": ("type_added", 3, "", "enum Mode { MODE_A, MODE_B }", [], [])}

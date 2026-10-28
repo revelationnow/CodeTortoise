@@ -57,6 +57,7 @@ class TypeDef:
     start_line: int
     end_line: int
     text: str
+    fields: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -112,6 +113,32 @@ def _find_function_declarator(node: ts.Node | None) -> ts.Node | None:
             return node
         node = node.child_by_field_name("declarator")
     return None
+
+
+def _declared(node: ts.Node | None) -> ts.Node | None:
+    """The identifier a declarator names, through pointers, references, arrays, functions and parentheses."""
+    while node is not None and node.type not in ("field_identifier", "identifier"):
+        inner = node.child_by_field_name("declarator")
+        if inner is None and node.type in ("parenthesized_declarator", "reference_declarator"):
+            inner = next(iter(node.named_children), None)
+        node = inner
+    return node
+
+
+def _members(src: bytes, body: ts.Node) -> tuple[str, ...]:
+    """The names a type's body declares: an enum's enumerators, or a struct's, union's or class's fields (not methods)."""
+    if body.type == "enumerator_list":
+        out = [_txt(src, ch.child_by_field_name("name")) for ch in body.children if ch.type == "enumerator"]
+    else:
+        out = []
+        for ch in body.children:
+            if ch.type != "field_declaration":
+                continue
+            for d in ch.children_by_field_name("declarator"):
+                n = _declared(d)
+                if n is not None and n.parent.type != "function_declarator":    # else a method's declaration
+                    out.append(_txt(src, n))
+    return tuple(name for name in out if name)          # an unnamed bit-field's identifier is missing
 
 
 def _callee_name(src: bytes, fn_node: ts.Node | None) -> str | None:
@@ -233,7 +260,7 @@ def _collect(tree: ts.Tree, src: bytes, orig: list[bytes] | None = None) -> Pars
                 nm = _txt(src, name_node).replace(" ", "")
                 qual = "::".join(scope + (nm,)) if nm else ""
                 out.types.append(TypeDef(qual, t.split("_")[0], node.start_point.row + 1,
-                                         node.end_point.row + 1, norm_ws(whole(node))))
+                                         node.end_point.row + 1, norm_ws(whole(node)), _members(src, body)))
                 if nm and t != "enum_specifier":
                     child_scope = scope + (nm,)
         elif t == "function_definition":

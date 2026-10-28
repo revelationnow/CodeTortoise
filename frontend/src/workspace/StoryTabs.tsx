@@ -61,6 +61,14 @@ function WhereDirs({ files }: { files: (WhereFile & { also?: number[] })[] }) {
                   {showCl && f.cl !== null && <span className="ws-chip">CL {f.cl}</span>}
                 </li>
               );
+            })}{(file.decls ?? []).map((d) => {
+              const label = `Open ${d.name} in ${file.path}${d.line ? ` at line ${d.line}` : ""}`;
+              return (
+                <li key={`decl:${d.name}`}>
+                  {file.depot ? <Link className="mono" to={ws.link(ws.opened({ file: file.depot, line: d.line }))} title={label}
+                                      aria-label={label}>{d.name}</Link> : <span className="mono" title={d.name}>{d.name}</span>}
+                </li>
+              );
             })}</ul>
           </div>
         ))}

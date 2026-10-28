@@ -71,16 +71,19 @@ export interface Reading {
 }
 
 export interface ContractRow {
-  kind: "signature" | "returns" | "fields" | "repeated" | "body"; text: string; node: string | null;
+  kind: "signature" | "returns" | "fields" | "repeated" | "body" | "declaration"; text: string; node: string | null;
   before: string; after: string;
   /** [start, end) of the part of `after` that differs. */
   mark: number[]; added: string[]; removed: string[]; nodes: string[];
 }
 export interface WhereFn { node: string; label: string; add: number; rem: number; cl: number | null; line: number | null }
+export interface WhereDecl { name: string; line: number | null }
 export interface WhereFile {
   path: string; depot: string | null; functions: WhereFn[];
   /** The story's CLs that edit the file, in order (phase 2 §5.3); absent on a reading stored before phase 2. */
   cls?: number[];
+  /** A declarations-only story's changed declarations (types, prototypes, macros); absent on a reading stored before them. */
+  decls?: WhereDecl[];
 }
 export interface CallPath {
   /** Node ids, entry first; `hidden` are the folded middle steps of a long path. */
