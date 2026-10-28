@@ -17,7 +17,8 @@ from pydantic import BaseModel, Field
 from codetortoise.board import BoardContext, Files, Flow, _count, _covered, _Ctx, analyse, is_test_path
 from codetortoise.cparse import is_header, preproc_spans
 from codetortoise.detectors.base import SEVERITY_RANK, Finding
-from codetortoise.pieces import PieceSet, node_cl
+from codetortoise.diffmap import TEXT_CAP, TypeChange
+from codetortoise.pieces import Piece, PieceSet, node_cl
 from codetortoise.sequence import FileLines, Gap, Rewrite, file_lines, rewrites
 from codetortoise.stories import Story, StoryDetail, StorySet
 from codetortoise.targets import UNKNOWN
@@ -74,13 +75,13 @@ class Connection(BaseModel):
 
 class ContractRow(BaseModel):
     """One line of a story's Before → after (§8.1)."""
-    kind: Literal["signature", "returns", "fields", "repeated", "body"]
+    kind: Literal["signature", "returns", "fields", "repeated", "body", "declaration"]
     text: str
     node: str | None = None
     before: str = ""
     after: str = ""
     mark: list[int] = Field(default_factory=list)    # [start, end) of the part of `after` that differs
-    added: list[str] = Field(default_factory=list)   # return values now returned, fields now written
+    added: list[str] = Field(default_factory=list)   # return values now returned, fields now written, fields a type now declares
     removed: list[str] = Field(default_factory=list)
     nodes: list[str] = Field(default_factory=list)   # the functions it is about
 
@@ -94,11 +95,17 @@ class WhereFn(BaseModel):
     line: int | None = None           # new side (old side for a removed function)
 
 
+class WhereDecl(BaseModel):
+    name: str
+    line: int | None = None           # new side (old side for a removed one)
+
+
 class WhereFile(BaseModel):
     path: str                         # workspace-relative
     depot: str | None = None
     functions: list[WhereFn] = Field(default_factory=list)
     cls: list[int] = Field(default_factory=list)   # the story's CLs that edit the file, in order (phase 2 §5.3)
+    decls: list[WhereDecl] = Field(default_factory=list)   # a declarations-only story's declarations
 
 
 class CallPath(BaseModel):
@@ -681,9 +688,50 @@ def _story_fns(story: Story, x: _Ctx) -> list[str]:
     return [n for n in story.nodes if n in x.im.nodes and x.im.nodes[n].kind == "function"]
 
 
-def contract_rows(story: Story, x: _Ctx) -> list[ContractRow]:
+_LISTED = 5                           # a declaration row names this many added and this many removed fields, then counts the rest
+_DECL_NOUN = {"type": "", "decl": " declaration", "macro": " macro"}
+
+
+def _decl_pieces(story: Story, pieces: PieceSet | None) -> list[Piece]:
+    by_id = {p.id: p for p in pieces.pieces} if pieces is not None else {}
+    return [p for pid in story.pieces if (p := by_id.get(pid)) is not None and p.kind == "declarations"]
+
+
+def _decl_changes(story: Story, x: _Ctx, pieces: PieceSet | None) -> list[TypeChange]:
+    """The changed declarations of a story with no function nodes, from its declaration pieces, by file and line."""
+    if pieces is None or _story_fns(story, x):
+        return []
+    want = {(f, n) for p in _decl_pieces(story, pieces) for f in p.files for n in p.names}
+    return sorted((t for t in x.c.dm.types if (t.file, t.name) in want), key=lambda t: (t.file, t.line or 0, t.name))
+
+
+def _fields(names: list[str]) -> str:
+    more = len(names) - _LISTED
+    return ", ".join(f"`{n}`" for n in names[:_LISTED]) + (f" and {more:,} more" if more > 0 else "")
+
+
+def _decl_row(t: TypeChange) -> ContractRow:
+    what, how = t.kind.split("_")
+    if what == "type" and how == "changed" and (t.fields_added or t.fields_removed):
+        parts = ([f"now has {_fields(t.fields_added)}"] if t.fields_added else []) + \
+                ([f"no longer has {_fields(t.fields_removed)}"] if t.fields_removed else [])
+        text = f"`{t.name}` " + "; ".join(parts)
+    else:
+        text = f"`{t.name}`{_DECL_NOUN[what]} {how}"
+    before, after = t.before, t.after
+    if max(len(before), len(after)) > TEXT_CAP or (how == "changed" and not (before and after)):
+        before = after = ""             # too long (a diff map stored before the cap may hold it), or one side was: no half a pair
+    mark = list(_differ(before, after)[2:]) if before and after else []
+    return ContractRow(kind="declaration", text=text, before=before, after=after, mark=mark,
+                       added=list(t.fields_added), removed=list(t.fields_removed))
+
+
+def contract_rows(story: Story, x: _Ctx, pieces: PieceSet | None = None) -> list[ContractRow]:
     """Signatures (one row per repeated signature edit), return values, field writes, a mechanical story's repeated
-    edit, then the functions changed only inside their body."""
+    edit, then the functions changed only inside their body; a story with no functions, its changed declarations."""
+    decls = _decl_changes(story, x, pieces)
+    if decls:
+        return [_decl_row(t) for t in decls]
     fns = _story_fns(story, x)
     if story.kind == "mechanical":
         subs = [story.sub] if story.sub else story.subs
@@ -740,8 +788,9 @@ def contract_rows(story: Story, x: _Ctx) -> list[ContractRow]:
     return rows
 
 
-def where(story: Story, x: _Ctx) -> list[WhereFile]:
-    """The story's files (workspace-relative, in path order), each with its changed functions, edit sizes and CL."""
+def where(story: Story, x: _Ctx, pieces: PieceSet | None = None) -> list[WhereFile]:
+    """The story's files (workspace-relative, in path order), each with its changed functions, edit sizes and CL; a
+    story with no functions, the files of its changed declarations."""
     files: dict[str, WhereFile] = {}
     for n in _story_fns(story, x):
         key = x.im.nodes[n].key
@@ -757,8 +806,17 @@ def where(story: Story, x: _Ctx) -> list[WhereFile]:
             add, rem = 0, fn.end_line - fn.start_line + 1
         wf = files.setdefault(local, WhereFile(path=rel_path(x, local), depot=fc.depot if fc else None))
         wf.functions.append(WhereFn(node=n, label=x.label(n), add=add, rem=rem, cl=node_cl(x, n), line=fn.start_line))
+    for t in _decl_changes(story, x, pieces):
+        fc = x.texts.get(t.file)
+        files.setdefault(t.file, WhereFile(path=rel_path(x, t.file), depot=fc.depot if fc else None)).decls.append(
+            WhereDecl(name=t.name, line=t.line))
+    for p in _decl_pieces(story, pieces):               # a declaration file's CLs: those of the pieces holding it
+        for f in p.files:
+            if f in files and files[f].decls and p.cl is not None and p.cl not in files[f].cls:
+                files[f].cls.append(p.cl)
     for wf in files.values():
         wf.functions.sort(key=lambda f: (f.line or 0, f.label))
+        wf.cls.sort()
     return sorted(files.values(), key=lambda f: f.path)
 
 
@@ -1170,7 +1228,7 @@ def fixed_whole(threads: list[Thread], conns: list[Connection]) -> str:
 
 def thread_files(threads: list[Thread], per: dict[str, StoryReading]) -> dict[str, list[tuple[str, int]]]:
     """Each thread's changed files (workspace-relative) with how many of its changed functions each holds, most first,
-    then by path (spec 2026-10-09-review-introduction §3.3)."""
+    then by path (spec 2026-10-09-review-introduction §3.3). A header only a declarations-only story changes holds 0."""
     out: dict[str, list[tuple[str, int]]] = {}
     for t in threads:
         fns: dict[str, set[str]] = defaultdict(set)
@@ -1342,16 +1400,16 @@ def build_reading(ss: StorySet, c: BoardContext, details: dict[str, StoryDetail]
     for s in ss.stories:
         t = thread_of.get(s.id)
         flows = details[s.id].board.flows if details and s.id in details else a.flows
-        files = where(s, x)
+        files = where(s, x, pieces)
         for wf in files:
-            wf.cls = sorted({c for f in wf.functions for c in _cls_of(x, f.node, lines)})
+            wf.cls = sorted({*wf.cls, *(c for f in wf.functions for c in _cls_of(x, f.node, lines))})
         order_ = sorted({c for wf in files for c in wf.cls}) or sorted(s.cls)
-        per[s.id] = StoryReading(story=s.id, contracts=contract_rows(s, x), where=files, paths=call_paths(s, x, flows),
+        per[s.id] = StoryReading(story=s.id, contracts=contract_rows(s, x, pieces), where=files, paths=call_paths(s, x, flows),
                                  checks=[k for k in rows if k.story == s.id],
                                  causes=[z for z in causes if z.story == s.id],
                                  place_text=_place_text(s.id, t.stories, strong) if t else "",
                                  thread=t.id if t else None, position=t.stories.index(s.id) + 1 if t else None,
-                                 cl_order=order_, rewrites=_story_rewrites(s, x, reading.rewrites, local_of))
+                                 cl_order=order_, rewrites=_story_rewrites(s, x, reading.rewrites, local_of, pieces))
     files = thread_files(threads, per)
     for t in threads:
         t.files, t.modules = pick_files(files[t.id])
@@ -1380,11 +1438,13 @@ def _cls_of(x: _Ctx, n: str, lines: dict[str, FileLines]) -> list[int]:
     return sorted(out) or ([one] if one is not None else [])
 
 
-def _story_rewrites(s: Story, x: _Ctx, rows: list[Rewrite], local_of: dict[str, str]) -> list[Rewrite]:
+def _story_rewrites(s: Story, x: _Ctx, rows: list[Rewrite], local_of: dict[str, str],
+                    pieces: PieceSet | None = None) -> list[Rewrite]:
     """The rewrites in a story's code (phase 2 §4.4): in one of its changed functions, or — when no function stands in
-    their place — in a file holding its code."""
+    their place — in a file holding its code (a story of declarations only: a file holding its declarations)."""
     fns = _story_fns(s, x)
-    quals, files = {_qual(x, n) for n in fns}, {x.local(n) for n in fns}
+    quals = {_qual(x, n) for n in fns}
+    files = {x.local(n) for n in fns} | {t.file for t in _decl_changes(s, x, pieces)}
     return [r for r in rows if local_of.get(r.file) in files and (r.function is None or r.function in quals)]
 
 

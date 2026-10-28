@@ -3,7 +3,7 @@ import os
 import pytest
 
 from codetortoise.config import AnalysisConfig
-from codetortoise.diffmap import map_changes
+from codetortoise.diffmap import DiffMap, FunctionChange, map_changes
 from codetortoise.index.symbols import SymbolIndex
 from codetortoise.layers import infer_layers
 from codetortoise.toolchain.compile_db import CompileDb
@@ -121,4 +121,47 @@ def test_follow_up_selects_tus_touching_fields_written_through_aliases(tmp_path)
     sel = select_tus(dm, idx, cdb, AnalysisConfig())
     assert names(sel.selected) == [f"{tmp_path.name}/a.c"]  # tree-sitter cannot see the alias write
     facts_after = [extract_tu(TuRequest(file=a, args=["-xc", f"-I{root}"], variant="after", unsaved={a: after}))]
-    assert field_follow_up(dm, facts_after, idx, cdb, sel, AnalysisConfig()) == [f"{root}/user.c"]
+    assert field_follow_up({"c:@F@bump"}, facts_after, idx, cdb, sel, AnalysisConfig()) == [f"{root}/user.c"]
+
+
+class _Index:
+    """A symbol index stub: who includes each header; no callers, no member references."""
+    def __init__(self, includers):
+        self._inc = includers
+
+    def transitive_includers(self, path):
+        return set(self._inc.get(path, ()))
+
+    def callers_of(self, name):
+        return []
+
+    def member_refs(self, name):
+        return []
+
+
+class _Cdb:
+    def __init__(self, files):
+        self._files = files
+
+    def files(self):
+        return list(self._files)
+
+
+def test_changed_sources_come_before_header_includers_however_many_changed_headers_they_include():
+    one, a, b = "/w/src/one.c", "/w/src/a.c", "/w/src/b.c"
+    h1, h2 = "/w/inc/x.h", "/w/inc/y.h"
+    dm = DiffMap(changed_files=[h1, h2, one],
+                 functions=[FunctionChange(file=one, depot="//d/src/one.c", qualname="alpha", name="alpha",
+                                           kind="body_modified", before_lines=(1, 3), after_lines=(1, 3))])
+    sel = select_tus(dm, _Index({h1: [a, b], h2: [a, b]}), _Cdb([one, a, b]), AnalysisConfig(tu_budget=2))
+    assert sel.selected == [one, a]          # a and b count once per changed header; the changed one.c still comes first
+    assert sel.ts_only == [] and sel.over_budget == 1
+
+
+def test_changed_sources_over_the_budget_go_to_tree_sitter_those_with_mapped_changes_kept_first():
+    z, a = "/w/src/z.c", "/w/src/a.c"
+    dm = DiffMap(changed_files=[a, z],
+                 functions=[FunctionChange(file=z, depot="//d/src/z.c", qualname="beta", name="beta",
+                                           kind="body_modified", before_lines=(1, 3), after_lines=(1, 3))])
+    sel = select_tus(dm, _Index({}), _Cdb([a, z]), AnalysisConfig(tu_budget=1))
+    assert sel.selected == [z] and sel.ts_only == [a] and sel.over_budget == 1

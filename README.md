@@ -207,7 +207,7 @@ llm:                                # optional; without it, narratives use built
 auth:
   mode: p4                          # sign in with Perforce credentials ("dev" accepts any name: demos only)
 analysis:
-  tu_budget: 200                    # max translation units parsed per review (callers of changed code first)
+  tu_budget: 200                    # max translation units parsed per review (changed sources first, then callers and includers)
   index_scope: compile_db           # symbol index: compile_commands.json files and the headers they include
                                     #   ("workspace" indexes every C/C++ file under root)
   workers: 4                        # parallel libclang processes
@@ -368,8 +368,9 @@ another host.
 - `codetortoise index` scans the workspace with tree-sitter: roughly 1,000 files in a few seconds. Re-run it after
   large syncs (the Health page has a Rebuild button).
 - A review parses only the translation units it needs: the changed files, their callers up to `analysis.caller_hops`,
-  and a sample for header fan-out. This is capped by `tu_budget` and parsed by `workers` processes. For a 5,000-TU
-  codebase, start with the defaults and raise `workers` to your core count.
+  and a sample for header fan-out. This is capped by `tu_budget` and parsed by `workers` processes. A changed source
+  past the budget is still read by tree-sitter, and the `tu_select` stage says so (degraded). For a 5,000-TU codebase,
+  start with the defaults and raise `workers` to your core count.
 - libclang runs out of process with crash isolation. A file that crashes the parser falls back to tree-sitter facts,
   is marked "degraded", and does not stop the review.
 

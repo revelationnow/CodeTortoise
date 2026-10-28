@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 from collections import defaultdict
 
+from codetortoise import linediff
 from codetortoise.board import Flow, _Ctx, _opcodes
 from codetortoise.reading import CHECK_ORDER, Cause, CauseChange, ChangeLine, Check, Thread, _qual, rel_path
 
@@ -75,7 +76,7 @@ def _block(x: _Ctx, local: str, lo: int | None, hi: int | None, focus: set[int])
     fc = x.texts.get(local)
     if fc is None:
         return []
-    b, a = fc.before.splitlines(), fc.after.splitlines()
+    b, a = linediff.lines(fc.before), linediff.lines(fc.after)
     blocks = [op for op in _opcodes(fc.before, fc.after) if op[0] != "equal"
               and (lo is None or (op[3] + 1 <= hi and max(op[4], op[3] + 1) >= lo))]
     pick = next((op for op in blocks if any(op[3] < f <= max(op[4], op[3] + 1) for f in focus)), None) if focus \

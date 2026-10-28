@@ -25,7 +25,7 @@ MAX_LISTED = 40                       # a thread's files listed in the prompt
 _TICKS = re.compile(r"`[^`]+`")
 _CL = re.compile(r"\bCL ?\d+\b")
 _SENT = re.compile(r"(?<=[.?!])\s+")
-_COUNT = re.compile(r"\s*\(\d+\)\s*$")       # a listed file's changed-function count, copied into a pick
+_COUNT = re.compile(r"\s*\((?:\d+|declarations)\)\s*$")     # a listed file's changed-function count, copied into a pick
 
 SYSTEM = ("You are a senior C/C++ reviewer explaining a change to other reviewers. Use only what you are given. Reply "
           'with one JSON object: {"threads": [{"id", "name", "purpose", "cites", "files", "modules"}], "whole", '
@@ -64,7 +64,8 @@ class _Out(BaseModel):
 
 
 def prompt(reading: Reading, ss: StorySet, cls: dict[int, str], files: dict[str, list[tuple[str, int]]] | None = None) -> str:
-    """`files`: each thread's changed files with their changed functions, most first (reading.thread_files)."""
+    """`files`: each thread's changed files with their changed functions, most first (reading.thread_files); a header
+    with none (its story changes declarations only) is listed as "(declarations)"."""
     by = {s.id: s for s in ss.stories}
     lines = ["THREADS (id | open checks | CLs | stories: id title: purpose):"]
     for t in reading.threads:
@@ -73,7 +74,8 @@ def prompt(reading: Reading, ss: StorySet, cls: dict[int, str], files: dict[str,
         fs = (files or {}).get(t.id, [])
         if fs:
             more = f" +{len(fs) - MAX_LISTED} more" if len(fs) > MAX_LISTED else ""
-            lines.append("  files (changed functions): " + ", ".join(f"{p} ({n})" for p, n in fs[:MAX_LISTED]) + more)
+            listed = ", ".join(f"{p} ({n or 'declarations'})" for p, n in fs[:MAX_LISTED])
+            lines.append("  files (changed functions): " + listed + more)
     lines.append("CONNECTIONS (a | b | kind | text | facts):")
     lines += [f"{k.a} | {k.b} | {k.kind} | {k.text} | {' '.join(k.facts) or '-'}" for k in reading.connections]
     used = sorted({c for t in reading.threads for c in t.cls})

@@ -5,7 +5,6 @@ flow narratives (`Flow.what`) and the change intent (`About.intent`).
 """
 from __future__ import annotations
 
-import difflib
 import fnmatch
 import functools
 import posixpath
@@ -22,10 +21,11 @@ from codetortoise.cltext import first_line
 from codetortoise.clusters import altered_access, cluster_change
 from codetortoise.config import AnalysisConfig
 from codetortoise.detectors.base import SEVERITY_RANK, Finding
-from codetortoise.diffmap import DiffMap
+from codetortoise.diffmap import DiffMap, FunctionChange
 from codetortoise.facts.model import CallEdge, Facts, FieldAccess, Function
 from codetortoise.impact import Edge, ImpactModel
 from codetortoise.layers import LayerModel
+from codetortoise.linediff import opcodes as _opcodes
 from codetortoise.sinks import why_text
 from codetortoise.vcs.model import ChangeSet
 
@@ -303,10 +303,11 @@ def _cmp(c: CallEdge) -> str:
     return ", ".join(f"{c.compared_names[x]} ({x})" if x in c.compared_names else x for x in c.compared)
 
 
-@functools.lru_cache(maxsize=128)
-def _opcodes(before: str, after: str) -> tuple:
-    """A file's line diff, once: every changed function of the file is counted against it."""
-    return tuple(difflib.SequenceMatcher(None, before.splitlines(), after.splitlines(), autojunk=False).get_opcodes())
+def _change_kind(status: str, ch: FunctionChange | None) -> str:
+    """A changed node's kind: added or removed as the impact model found it, else the diff map's signature change."""
+    if status in ("added", "removed"):
+        return status
+    return "signature" if ch is not None and ch.kind == "signature_changed" else "modified"
 
 
 def _count(before: str, after: str, lo: int | None = None, hi: int | None = None) -> tuple[int, int]:
@@ -747,7 +748,6 @@ def _render(x: _Ctx, impacts: list[Impact], flows: list[Flow], chosen: list[str]
     for i in impacts:
         if i.severity == "warn":
             warn[i.node] += 1
-    kind_of = {"body_modified": "modified", "signature_changed": "signature", "added": "added", "removed": "removed"}
     texts = {f.local: f for f in c.cs.files}
     shown = [i.model_copy() for i in impacts if i.node in sel]
     for i in shown:
@@ -768,7 +768,7 @@ def _render(x: _Ctx, impacts: list[Impact], flows: list[Flow], chosen: list[str]
             add = rem = 0
             if fc is not None:
                 add, rem = _count(fc.before, fc.after, fn.start_line, fn.end_line)
-            change = NodeChange(kind=kind_of.get(ch.kind if ch else "", "modified"), add=add, rem=rem)
+            change = NodeChange(kind=_change_kind(n.status, ch), add=add, rem=rem)
         callers = {s_ for s_ in x.callers.get(nid, ()) if s_ not in sel and not x.is_test(s_)}
         callees = {d for d in x.callees.get(nid, ()) if d not in sel and not x.is_test(d)}
         h = (home or {}).get(nid)
@@ -937,7 +937,7 @@ def drift_kind(expected: str, actual: str) -> Literal["ahead", "behind", "missin
 
 def build_about(c: BoardContext) -> About:
     files = c.cs.files
-    fn_count = len(c.dm.functions)
+    fn_count = len(c.impact.changed)
     descs = "; ".join(f"CL {m.cl}: {first_line(m.description)}" for m in c.cs.cls if first_line(m.description))
     intent = (f"{fn_count} function(s) changed in {len(files)} file(s). " + (descs + "." if descs else "")).strip()
     why = [AboutWhy(severity=f.severity, text=f.title, finding=f.id) for f in c.findings[:4]]

@@ -1,9 +1,9 @@
 """Pieces, links, cards and the change overview (spec 2026-10-05-two-tier-stories §3)."""
 from test_stories import W, _edit, _mech, _world
 
-from codetortoise.board import analyse
+from codetortoise.board import _Ctx, analyse
 from codetortoise.diffmap import TypeChange
-from codetortoise.pieces import CARD_CHARS, build_pieces, change_overview
+from codetortoise.pieces import CARD_CHARS, _fn_text, build_pieces, change_overview, node_cl
 from codetortoise.vcs.model import ClMeta, FileChange, PerClText
 
 
@@ -70,6 +70,57 @@ def test_a_function_in_a_file_two_cls_touched_belongs_to_the_cl_that_wrote_it():
     assert [(p.cl, [c.impact.nodes[n].label for n in p.nodes]) for p in ps.pieces] == [(11, ["first"]), (12, ["second"])]
 
 
+def _lines_above(c, name, n):
+    """Move function `name` down `n` rows in the facts, as `n` lines put above it in its file do."""
+    for fx in (*c.before, *c.after):
+        for fn in fx.functions:
+            if fn.name == name:
+                fn.start_line, fn.end_line = fn.start_line + n, fn.end_line + n
+
+
+def test_below_a_form_feed_line_a_function_belongs_to_the_cl_whose_diff_adds_its_lines():
+    c = _world([("first", "x.c", ["\f", "a = 0;"], ["\f", "a = 0;", "first_more();"]), _edit("second", "x.c")])
+    f = c.cs.files[0]
+    mid = f.after.replace("\tsecond_more();\n", "")              # CL 11 adds first's line, CL 12 adds second's
+    f.per_cl = [PerClText(cl=11, before=f.before, after=mid), PerClText(cl=12, before=mid, after=f.after)]
+    c.cs.cls = [ClMeta(cl=11, status="pending"), ClMeta(cl=12, status="pending")]
+    ps = _pieces(c)
+    assert [(p.cl, [c.impact.nodes[n].label for n in p.nodes]) for p in ps.pieces] == [(11, ["first"]), (12, ["second"])]
+
+
+def test_a_comment_above_a_function_below_a_form_feed_line_is_not_one_of_its_lines():
+    c = _world([("second", "x.c", ["a = 0;"], ["second_more();", "a = 0;"])])
+    f = c.cs.files[0]
+    above = "\f\n/* Reset the counter{}. */\n"
+    base = above.format("") + f.before
+    mid = above.format(" and the total") + f.before
+    final = above.format(" and the total") + f.after
+    f.before, f.after = base, final                         # CL 11 rewords the comment, CL 12 adds the line to the body
+    f.per_cl = [PerClText(cl=11, before=base, after=mid), PerClText(cl=12, before=mid, after=final)]
+    c.cs.cls = [ClMeta(cl=11, status="pending"), ClMeta(cl=12, status="pending")]
+    _lines_above(c, "second", 2)
+    assert node_cl(_Ctx(c), "N1") == 12
+
+
+def test_a_header_names_cl_is_the_one_whose_diff_touches_it_below_a_form_feed_line():
+    c = _world([])
+    h = f"{W}/inc/config.h"
+    base = "\f\n#define OPT_A 1\n"
+    mid = base + "#define OPT_B 2\n"                        # CL 11 adds the line below OPT_A's, CL 12 changes OPT_A's
+    final = mid.replace("OPT_A 1", "OPT_A 5")
+    c.cs.files.append(FileChange(depot="//d" + h, local=h, action="edit", before=base, after=final,
+                                 per_cl=[PerClText(cl=11, before=base, after=mid), PerClText(cl=12, before=mid, after=final)]))
+    c.cs.cls = [ClMeta(cl=11, status="pending"), ClMeta(cl=12, status="pending")]
+    c.dm.types.append(TypeChange(file=h, depot="//d" + h, name="OPT_A", kind="macro_changed"))
+    (d,) = [p for p in _pieces(c).pieces if p.kind == "declarations"]
+    assert (d.names, d.cl) == (["OPT_A"], 12)
+
+
+def test_the_text_a_declarations_piece_searches_is_the_functions_own_lines_below_a_form_feed_line():
+    c = _world([("early", "src/a.c", ["\f", "a = 0;"], ["\f", "a = 0;", "early_more();"]), _edit("late", "src/a.c")])
+    assert _fn_text(_Ctx(c), "N2") == "void late(void)\n{\n\ta = 0;\n\tlate_more();\n}"
+
+
 def test_a_changed_header_is_a_declarations_piece_linked_to_the_code_using_it():
     c = _world([("use_flag", "src/use.c", ["a = 0;"], ["a = CFG_FLAG;"]), _edit("other", "lib/other.c")])
     h = f"{W}/inc/config.h"
@@ -82,6 +133,24 @@ def test_a_changed_header_is_a_declarations_piece_linked_to_the_code_using_it():
     use = ps.node_piece[next(n for n, x in c.impact.nodes.items() if x.label == "use_flag")]
     assert [(lk.type, lk.count) for lk in ps.links if {lk.a, lk.b} == {d.id, use}] == [("uses", 1)]
     assert "changed: CFG_FLAG" in d.card and "inc/config.h (+1 −0)" in d.card
+
+
+def test_a_declarations_piece_is_linked_to_the_piece_defining_its_function_apart_from_those_calling_it():
+    c = _world([("alpha", "src/alpha.c", ["a = 0;"], ["a = 1;"]),
+                ("caller_one", "src/use/one.c", ["alpha();"], ["alpha(); x();"]),
+                ("caller_two", "src/use/two.c", ["alpha();"], ["alpha(); y();"])],
+               calls=[("caller_one", "caller_two")])
+    h = f"{W}/inc/alpha.h"
+    c.cs.files.append(FileChange(depot="//d" + h, local=h, action="edit", before="int alpha(void);\n",
+                                 after="int alpha(int v);\n"))
+    c.dm.types.append(TypeChange(file=h, depot="//d" + h, name="alpha", kind="decl_changed"))
+    ps = _pieces(c)
+    (d,) = [p for p in ps.pieces if p.kind == "declarations"]
+
+    def piece_of(label):
+        return ps.node_piece[next(n for n, x in c.impact.nodes.items() if x.label == label)]
+    assert ("defines", 1) in {(lk.type, lk.count) for lk in ps.links if {lk.a, lk.b} == {d.id, piece_of("alpha")}}
+    assert not [lk for lk in ps.links if lk.type == "defines" and piece_of("caller_one") in (lk.a, lk.b)]
 
 
 def test_repeated_edits_and_tests_are_pieces_of_their_own():

@@ -74,7 +74,7 @@ def test_heuristic_field_users_restricted_to_record_includers(tmp_path):
     before = [extract_tu(TuRequest(file=a, args=args, variant="before", unsaved={a: A_BEFORE}))]
     after = [extract_tu(TuRequest(file=a, args=args, variant="after", unsaved={a: A_AFTER}))]
     cfg = AnalysisConfig(module_min_files=1)
-    im = build_impact(before, after, dm, TuSelection(selected=[a]), idx, None, cfg)
+    im = build_impact(before, after, cs, TuSelection(selected=[a]), idx, None, cfg)
     users = {im.nodes[e.src].label for e in im.edges if im.nodes[e.dst].label == "A::count" and e.src != im.changed[0]}
     assert users == {"peek"}  # other.c's B::count is a different record
     (f,) = [f for f in run_detectors(DetectorContext(before, after, dm, im, cfg)) if f.kind == "field_mutation"]
@@ -193,7 +193,7 @@ def test_a_header_shift_above_a_union_leaves_its_untouched_fields_alone(tmp_path
     before = [extract_tu(TuRequest(file=cp, args=args, variant="before", unsaved={hp: SHIFT_H, cp: SHIFT_C_BEFORE}))]
     after = [extract_tu(TuRequest(file=cp, args=args, variant="after", unsaved={hp: h_after, cp: SHIFT_C_AFTER}))]
     cfg = AnalysisConfig(module_min_files=1)
-    im = build_impact(before, after, dm, TuSelection(selected=[cp]), None, None, cfg)
+    im = build_impact(before, after, cs, TuSelection(selected=[cp]), None, None, cfg)
     assert [im.nodes[n].label for n in im.changed] == ["set"]
     moved = [(im.nodes[e.src].label, im.nodes[e.dst].label, e.status) for e in im.edges
              if e.kind in ("reads", "writes") and e.status != "unchanged"]

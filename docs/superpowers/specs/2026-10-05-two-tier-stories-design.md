@@ -102,8 +102,9 @@ node's line. The same change always gives the same pieces with the same ids.
 
 A link joins two pieces with a type and a count: `call` (changed code in one calls code in the other), `field` (both
 change access to a field), `sub` (same substitution), `uses` (a declaration piece's header is included by, and its
-changed names are used in, the other piece), `name` (the pieces' functions share a name prefix of at least 2 tokens,
-`reftable_stack_…`). The count is the number of edges. A link's strength is its count; no other weighting.
+changed names are used in, the other piece), `defines` (a declaration piece's header is included by the other piece,
+which holds a changed function the header declares), `name` (the pieces' functions share a name prefix of at least 2
+tokens, `reftable_stack_…`). The count is the number of edges. A link's strength is its count; no other weighting.
 
 ### 3.4 Evidence cards
 
@@ -149,7 +150,7 @@ change), written as a procedure the model follows in order:
    it most (most links); other targets' stories that touch it name it under "related".
 2. Within each target, find the purposes: what each CL description says it does, and what each new-code piece adds.
 3. Place every piece in the purpose it serves. New code goes with the edits that call it. A declaration piece goes
-   with the story that uses its changes most.
+   with the story that defines what it declares (a `defines` link), else with the story that uses its changes most.
 4. Join pieces from different CLs only when a link joins them, or when both CL descriptions state the same purpose
    (quote both, exactly as written).
 5. A story with more than 12 pieces or 40 changed functions must be split along its weakest links into purposes.
@@ -177,8 +178,8 @@ failure as its reason, and the rest of the answer stands:
 
 - Piece and evidence ids exist; every piece is placed exactly once (a second placement is dropped).
 - A story holds pieces of one target, except a `shared_code` placement of a shared piece.
-- A piece from a different CL than the story's first piece needs a `call`, `field`, `sub` or `uses` link to a piece
-  already in the story, or two `quote` strings each found verbatim in one of the two CLs' descriptions.
+- A piece from a different CL than the story's first piece needs a `call`, `field`, `sub`, `uses` or `defines` link to a
+  piece already in the story, or two `quote` strings each found verbatim in one of the two CLs' descriptions.
 - Title, purpose and notes keep the house style (`_titled`, `_styled`); a failing title falls back to the rules'
   title for that story, the placements stand.
 
@@ -248,7 +249,8 @@ When `llm.strong` is absent, unreachable, out of budget, or a chunk fails, its p
 - Pieces join when a `call` link with count ≥ 2 or a `field` link joins them, within one target and one CL.
 - A group containing a flow's cause is a behaviour story, riskiest first; the rest are "Other changes" named by
   directory; repeated edits and tests as today.
-- A declaration piece joins the group that uses its changes most (`uses` count); none: its own story.
+- A declaration piece joins the group that defines what it declares (`defines` count), else the group that uses its
+  changes most (`uses` count); none: its own story.
 - A finding without nodes goes to the story of the piece its file belongs to; none: no story (it stays in the rail's
   Findings list and on the Whole change page).
 - No directory-only merges across targets or CLs. Over `max_stories`, "Other changes" merge only within a target and

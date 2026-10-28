@@ -151,3 +151,13 @@ def test_a_rerun_that_only_rewrote_ai_text_reuses_the_account():
     ctx.snippets["N2"] = "int uart_send(void) { return -3; }"     # the code changed: ask again
     write_accounts(fake_llm(respond), ctx, details, {"S1": StoryReading(story="S1")}, cache)
     assert len(asked) == 2
+
+
+def test_a_where_file_hashes_as_it_did_before_declarations_were_listed_so_stored_accounts_keep_their_cache():
+    from codetortoise.llm.account import account_key
+    from codetortoise.reading import WhereFile, WhereFn
+    where = WhereFile(path="drv/uart.c", depot="//d/drv/uart.c", cls=[101],
+                      functions=[WhereFn(node="N2", label="uart_send", add=2, rem=1, cl=101, line=7)])
+    old = {"path": "drv/uart.c", "depot": "//d/drv/uart.c",
+           "functions": [{"node": "N2", "label": "uart_send", "add": 2, "rem": 1, "cl": 101, "line": 7}], "cls": [101]}
+    assert repr([old]) in account_key(_ctx(), _detail("S1"), StoryReading(story="S1", where=[where]))

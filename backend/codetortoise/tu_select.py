@@ -1,6 +1,8 @@
 """Chooses which translation units get precise (clang) analysis, within a budget."""
 from __future__ import annotations
 
+from collections.abc import Collection
+
 from pydantic import BaseModel, Field
 
 from codetortoise.config import AnalysisConfig
@@ -16,6 +18,7 @@ class TuSelection(BaseModel):
     hops: dict[str, int] = Field(default_factory=dict)
     header_fanout: dict[str, int] = Field(default_factory=dict)
     over_budget: int = 0
+    ts_only: list[str] = Field(default_factory=list)   # changed sources over the budget: read by tree-sitter only
 
 
 def select_tus(dm: DiffMap, index: SymbolIndex, cdb: CompileDb, cfg: AnalysisConfig) -> TuSelection:
@@ -30,11 +33,13 @@ def select_tus(dm: DiffMap, index: SymbolIndex, cdb: CompileDb, cfg: AnalysisCon
         refs[path] = refs.get(path, 0) + 1
 
     sel = TuSelection()
+    changed: set[str] = set()
     for f in dm.changed_files:
         if f in tus or not is_header(f):
             # changed sources without a compile-DB entry (other variants, new files) still get parsed,
             # borrowing flags from the nearest entry (Toolchain.args_for)
             add(f, 0, force=True)
+            changed.add(f)
         else:
             includers = index.transitive_includers(f)
             sel.header_fanout[f] = sum(1 for p in includers if p in tus)
@@ -58,31 +63,29 @@ def select_tus(dm: DiffMap, index: SymbolIndex, cdb: CompileDb, cfg: AnalysisCon
         for row in index.member_refs(member)[: cfg.heuristic_fanin_cap]:
             add(row.path, 1)
 
-    ranked = sorted(hop, key=lambda p: (hop[p], -refs[p], p))
+    # changed sources first (those the diff map found changes in before the rest), then by hop and references
+    edited = {c.file for c in dm.functions} | {t.file for t in dm.types}
+    ranked = sorted(hop, key=lambda p: (p not in changed, p not in edited, hop[p], -refs[p], p))
     sel.selected = ranked[: cfg.tu_budget]
     sel.hops = {p: hop[p] for p in sel.selected}
     sel.over_budget = max(0, len(ranked) - cfg.tu_budget)
+    sel.ts_only = [p for p in ranked[cfg.tu_budget:] if p in changed]
     return sel
 
 
-def field_follow_up(dm: DiffMap, after: list[Facts], index: SymbolIndex, cdb: CompileDb, sel: TuSelection,
+def field_follow_up(changed: Collection[str], after: list[Facts], index: SymbolIndex, cdb: CompileDb, sel: TuSelection,
                     cfg: AnalysisConfig) -> list[str]:
     """Second selection round, after clang facts exist for the changed TUs.
 
     Tree-sitter only sees `x->f = ...` writes; clang also sees writes through local aliases. For every field a
-    changed function writes (per clang), add not-yet-parsed TUs that reference a same-named member and can see
-    the record's declaration, so its readers get precise facts. Bounded by the remaining TU budget.
+    changed function (a usr in `changed`, from attribution.changed_functions) writes, add not-yet-parsed TUs that
+    reference a same-named member and can see the record's declaration, so its readers get precise facts. Bounded by
+    the remaining TU budget.
     """
-    ranges: dict[str, list[tuple[int, int]]] = {}
-    for c in dm.functions:
-        if c.after_lines:
-            ranges.setdefault(c.file, []).append(c.after_lines)
-    changed_usrs = {f.usr for facts in after for f in facts.functions
-                    if any(f.start_line <= hi and lo <= f.end_line for lo, hi in ranges.get(f.file, []))}
     written: dict[str, str] = {}
     for facts in after:
         for a in facts.fields:
-            if a.fn in changed_usrs and a.mode != "read" and a.root_kind != "local":
+            if a.fn in changed and a.mode != "read" and a.root_kind != "local":
                 written.setdefault(a.field_name, a.record_file)
     tus, have = set(cdb.files()), set(sel.selected)
     extra: dict[str, None] = {}

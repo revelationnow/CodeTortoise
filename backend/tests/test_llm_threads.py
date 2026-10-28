@@ -132,6 +132,14 @@ def test_the_prompt_lists_each_threads_files_with_their_changed_functions_capped
     assert '"files"' in llm.prompts[0] and '"modules"' in llm.prompts[0]
 
 
+def test_the_prompt_lists_a_declarations_only_header_as_declarations_not_as_zero_functions():
+    r, ss = _reading()
+    llm = ScriptedLlm(lambda s, u: GOOD)
+    write_threads(llm, None, None, r, ss, {}, files={"T1": [("drv/uart.c", 2), ("inc/w.h", 0)]})
+    line = next(x for x in llm.prompts[0].splitlines() if x.startswith("  files (changed functions): "))
+    assert line == "  files (changed functions): drv/uart.c (2), inc/w.h (declarations)"
+
+
 def test_an_accepted_pick_sets_the_threads_key_files_and_modules():
     r, ss = _reading()
     r.threads[0].modules = ["drv/"]
@@ -177,3 +185,11 @@ def test_a_pick_copying_a_files_changed_function_count_still_names_that_file():
     notes, _ = write_threads(ScriptedLlm(lambda s, u: _with_picks(T1=(["drv/uart.c (2)", "main.c(1)"], ["drv/"]))), None,
                              None, r, ss, {}, files={"T1": FILES["T1"]})
     assert notes == [] and r.threads[0].files == ["drv/uart.c", "main.c"]
+
+
+def test_a_pick_copying_declarations_after_a_header_still_names_that_header():
+    r, ss = _reading()
+    answer = _with_picks(T1=(["drv/uart.c (2)", "inc/w.h (declarations)"], ["drv/", "inc/"]))
+    notes, _ = write_threads(ScriptedLlm(lambda s, u: answer), None, None, r, ss, {},
+                             files={"T1": [("drv/uart.c", 2), ("inc/w.h", 0)]})
+    assert notes == [] and r.threads[0].files == ["drv/uart.c", "inc/w.h"]

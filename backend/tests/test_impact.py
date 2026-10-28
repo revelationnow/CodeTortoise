@@ -52,10 +52,10 @@ def test_heuristic_fan_in_is_capped(analysed, fx):
     after = [f for f in a.after if f.tu.file in uart]
     idx = SymbolIndex(fx.root.parent / "cap.db")
     idx.build(fx.root)
-    open_im = build_impact(before, after, a.dm, only_uart, idx, a.layers, AnalysisConfig(module_min_files=1))
+    open_im = build_impact(before, after, a.cs, only_uart, idx, a.layers, AnalysisConfig(module_min_files=1))
     labels = {n.label for n in open_im.nodes.values() if n.confidence == "heuristic"}
     assert {"logger_write", "logger_flush"} <= labels
-    capped = build_impact(before, after, a.dm, only_uart, idx, a.layers,
+    capped = build_impact(before, after, a.cs, only_uart, idx, a.layers,
                           AnalysisConfig(module_min_files=1, heuristic_fanin_cap=1))
     assert "logger_flush" not in {n.label for n in capped.nodes.values()}
     assert capped.capped == {"uart_send": 2}
@@ -74,10 +74,10 @@ def _call(caller, name, file, line):
 
 def test_calls_known_only_by_name_reach_the_function_of_that_name():
     from codetortoise.config import AnalysisConfig
-    from codetortoise.diffmap import DiffMap, FunctionChange
     from codetortoise.facts.model import Facts, FieldAccess, TuInfo
     from codetortoise.impact import build_impact
     from codetortoise.tu_select import TuSelection
+    from codetortoise.vcs.model import ChangeSet
 
     hal = Facts(tu=TuInfo(file="/w/hal.c", variant="after"),
                 functions=[_fn("c:@F@hal_write", "hal_write", "/w/hal.c", 1),
@@ -93,10 +93,9 @@ def test_calls_known_only_by_name_reach_the_function_of_that_name():
                  functions=[_fn("ts:/w/tool.c#main", "main", "/w/tool.c", 1)],
                  calls=[_call("ts:/w/tool.c#main", "hal_write", "/w/tool.c", 2)])
     hal.calls.append(_call("c:@F@hal_write", "probe", "/w/hal.c", 3))
-    dm = DiffMap(functions=[FunctionChange(file="/w/hal.c", depot="//hal.c", qualname="hal_write", name="hal_write",
-                                           kind="body_modified", before_lines=(1, 6), after_lines=(1, 6))])
-    im = build_impact([], [hal, dsp, drv, tool], dm, TuSelection(selected=["/w/hal.c", "/w/dsp.c", "/w/drv.c", "/w/tool.c"]),
-                      None, None, AnalysisConfig(module_min_files=1))
+    im = build_impact([], [hal, dsp, drv, tool], ChangeSet(cls=[], files=[]),
+                      TuSelection(selected=["/w/hal.c", "/w/dsp.c", "/w/drv.c", "/w/tool.c"]), None, None,
+                      AnalysisConfig(module_min_files=1))
     edges = {(im.nodes[e.src].key, e.kind, im.nodes[e.dst].key): e.confidence for e in im.edges}
     assert edges[("c:@F@drv_run", "call", "c:@F@hal_write")] == "heuristic"
     assert edges[("ts:/w/tool.c#main", "call", "c:@F@hal_write")] == "heuristic"
@@ -113,10 +112,10 @@ def test_the_impact_model_names_its_shared_sinks_and_the_blast_radius_skips_them
     a = analysed
     assert a.impact.sinks == {}                         # the fixture's fields have few users
     cfg = AnalysisConfig(module_min_files=1)
-    plain = build_impact(a.before, a.after, a.dm, a.sel, None, a.layers, cfg)
+    plain = build_impact(a.before, a.after, a.cs, a.sel, None, a.layers, cfg)
     data = lambda im: {im.nodes[b.node].label for b in im.blast if b.via == "data"}    # noqa: E731
     assert "uart_errors" in data(plain)
-    im = build_impact(a.before, a.after, a.dm, a.sel, None, a.layers, cfg, marked=["Uart::errors"])
+    im = build_impact(a.before, a.after, a.cs, a.sel, None, a.layers, cfg, marked=["Uart::errors"])
     assert [(s.label, s.why) for s in im.sinks.values()] == [("Uart::errors", "marked")]
     assert "uart_errors" not in data(im)
 
@@ -142,5 +141,58 @@ def test_name_matches_over_the_cap_count_each_function_once(analysed):
             return {f"/x/{i}.c" for i in range(3)}
 
     a = analysed
-    im = build_impact(a.before, a.after, a.dm, a.sel, Index(), a.layers, AnalysisConfig(module_min_files=1))
+    im = build_impact(a.before, a.after, a.cs, a.sel, Index(), a.layers, AnalysisConfig(module_min_files=1))
     assert im.capped_fields["Uart::errors"] == 3 and "Uart::errors" not in im.capped    # callers' names stay apart
+
+
+SPLIT_C = """int first(void) { return 1; }
+int alpha(int v)
+{
+#ifdef OPT_A
+  if (v == 1) { return 2; }
+  else
+  {
+#endif
+    v++;
+    return 0;
+#ifdef OPT_A
+  }
+#endif
+}
+""" + "".join(f"int g{i}(int v) {{ if (v) {{ return v + {i}; }} return {i}; }}\n" for i in range(6))
+
+
+def test_an_edit_inside_a_function_whose_braces_an_ifdef_splits_marks_that_function_and_no_other(tmp_path):
+    from codetortoise.config import AnalysisConfig
+    from codetortoise.facts.clang_extractor import TuRequest, extract_tu
+    from codetortoise.impact import build_impact
+    from codetortoise.tu_select import TuSelection
+    from codetortoise.vcs.model import ChangeSet, ClMeta, FileChange
+
+    c = tmp_path / "a.c"
+    c.write_text(SPLIT_C)
+    p = str(c.resolve())
+    after = SPLIT_C.replace("v++;", "v += 2;")
+    cs = ChangeSet(cls=[ClMeta(cl=1, status="pending")],
+                   files=[FileChange(depot="//d/a.c", local=p, action="edit", before=SPLIT_C, after=after)])
+    before_f = [extract_tu(TuRequest(file=p, args=["-xc"], variant="before", unsaved={p: SPLIT_C}))]
+    after_f = [extract_tu(TuRequest(file=p, args=["-xc"], variant="after", unsaved={p: after}))]
+    im = build_impact(before_f, after_f, cs, TuSelection(selected=[p]), None, None, AnalysisConfig(module_min_files=1))
+    assert [(im.nodes[n].label, im.nodes[n].status) for n in im.changed] == [("alpha", "changed")]
+
+
+def test_an_edit_in_a_file_no_parse_reached_marks_no_same_named_function_elsewhere():
+    from codetortoise.config import AnalysisConfig
+    from codetortoise.facts.model import Facts, TuInfo
+    from codetortoise.impact import build_impact
+    from codetortoise.tu_select import TuSelection
+    from codetortoise.vcs.model import ChangeSet, ClMeta, FileChange
+
+    beta = _fn("c:b.c@F@beta", "beta", "/w/b.c", 1, is_static=True)
+    cs = ChangeSet(cls=[ClMeta(cl=1, status="pending")], files=[
+        FileChange(depot="//d/a.c", local="/w/a.c", action="edit", before="int beta(void) { return 1; }\n",
+                   after="int beta(void) { return 2; }\n")])
+    im = build_impact([Facts(tu=TuInfo(file="/w/b.c", variant="before"), functions=[beta])],
+                      [Facts(tu=TuInfo(file="/w/b.c", variant="after"), functions=[beta])], cs,
+                      TuSelection(selected=["/w/b.c"]), None, None, AnalysisConfig(module_min_files=1))
+    assert im.changed == []            # a.c's beta was never parsed, and b.c's beta is another function

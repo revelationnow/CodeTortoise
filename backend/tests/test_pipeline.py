@@ -1,6 +1,8 @@
+import pytest
 from helpers import make_services
 
 from codetortoise.health import run_health
+from codetortoise.paths import canon
 from codetortoise.pipeline import run_review
 from codetortoise.vcs.gitfixture import GitFixtureSource
 from codetortoise.vcs.model import ChangeSet, ClMeta, FileChange
@@ -253,14 +255,15 @@ def test_facts_stage_parses_field_follow_up_tus(fx, tmp_path, monkeypatch):
     logger = str((fx.root / "service/logger.c").resolve())
     seen = {}
 
-    def fake_follow_up(dm, after, index, cdb, sel, cfg):
+    def fake_follow_up(changed, after, index, cdb, sel, cfg):
+        seen["changed"] = sorted(changed)
         seen["after_files"] = [f.tu.file.split("/")[-1] for f in after]
         return [logger]
 
     monkeypatch.setattr(pipeline, "field_follow_up", fake_follow_up)
     rid = svc.store.create_review("t", "owner", [101])
     run_review(rid, svc)
-    assert seen["after_files"] == ["uart.c"]
+    assert seen["after_files"] == ["uart.c"] and seen["changed"] == ["c:@F@uart_send"]      # what attribution found
     sel = svc.store.get_blob(rid, "selection")
     assert logger in sel["selected"] and sel["hops"][logger] == 1
     parsed = {f["tu"]["file"].split("/")[-1] for f in svc.store.get_blob(rid, "facts_before")}
@@ -783,3 +786,120 @@ def test_when_no_account_survives_and_some_calls_failed_the_reading_is_degraded(
     st = next(s for s in svc.store.list_stages(rid) if s["name"] == "reading")
     assert st["status"] == "degraded" and "; 0 story account(s)" in st["message"]
     assert "1 story account(s) not written: RuntimeError: timed out" in st["message"]
+
+
+def test_changed_sources_over_the_tu_budget_are_read_by_tree_sitter_and_the_stage_says_so(fx, tmp_path):
+    from helpers import make_config
+
+    from codetortoise.services import build_services
+    svc = build_services(make_config(fx, tmp_path, analysis={"module_min_files": 1, "workers": 1, "tu_budget": 1}))
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    st = stages(svc, rid)
+    assert st["tu_select"] == "degraded" and st["facts"] == "degraded" and st["impact"] == "ok"
+    msg = next(s["message"] for s in svc.store.list_stages(rid) if s["name"] == "tu_select")
+    assert "1 changed source file(s) over the TU budget, read by tree-sitter only: //fixture/" in msg
+    # clang parses the selected file before and after; tree-sitter reads the other in both variants
+    facts_msg = next(s["message"] for s in svc.store.list_stages(rid) if s["name"] == "facts")
+    assert facts_msg == "4 parse(s): 2 precise, 2 tree-sitter fallback; most common problem (2): over the TU budget"
+    im = svc.store.get_blob(rid, "impact")
+    assert sorted(im["nodes"][n]["label"] for n in im["changed"]) == ["hal_write", "uart_send"]
+
+
+class WithDelta(GitFixtureSource):
+    """The fixture's CLs, and `service/delta.c` with one function, `delta`, which the same change adds or deletes."""
+    def __init__(self, repo, action):
+        super().__init__(repo)
+        self.action = action
+
+    def load(self, cls):
+        cs = super().load(cls)
+        text = "int delta(int x)\n{\n    return x + 1;\n}\n"
+        adds = self.action == "add"
+        cs.files.append(FileChange(depot="//fixture/service/delta.c", local=canon(str(self.repo / "service/delta.c")),
+                                   action=self.action, before="" if adds else text, after=text if adds else ""))
+        return cs
+
+
+@pytest.mark.parametrize("action", ["add", "delete"])
+def test_a_new_or_deleted_source_over_the_tu_budget_is_parsed_by_clang_so_the_stage_does_not_degrade(fx, tmp_path, action):
+    from helpers import make_config
+
+    from codetortoise.services import build_services
+    svc = build_services(make_config(fx, tmp_path, analysis={"module_min_files": 1, "workers": 1, "tu_budget": 1}),
+                         source=WithDelta(fx.root, action))
+    rid = svc.store.create_review("t", "owner", [101])
+    run_review(rid, svc)
+    sel = svc.store.get_blob(rid, "selection")
+    assert [p.split("/")[-1] for p in sel["selected"]] == ["uart.c"]      # delta.c sorts after it: the file past the budget
+    assert stages(svc, rid)["tu_select"] == "ok" and sel["ts_only"] == []   # build_requests parses it whatever the budget
+    im = svc.store.get_blob(rid, "impact")
+    assert sorted(im["nodes"][n]["label"] for n in im["changed"]) == ["delta", "uart_send"]
+
+
+@pytest.mark.parametrize("action", ["add", "delete"])
+def test_only_the_over_budget_edit_is_read_by_tree_sitter_beside_a_new_or_deleted_source(fx, tmp_path, action):
+    from helpers import make_config
+
+    from codetortoise.services import build_services
+    svc = build_services(make_config(fx, tmp_path, analysis={"module_min_files": 1, "workers": 1, "tu_budget": 1}),
+                         source=WithDelta(fx.root, action))
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    msgs = {s["name"]: s["message"] for s in svc.store.list_stages(rid)}
+    assert msgs["tu_select"].endswith("read by tree-sitter only: //fixture/driver/uart.c")      # delta.c is not named too
+    # clang parses regs.c and delta.c; tree-sitter reads uart.c before and after, and delta.c is not read a second time
+    assert msgs["facts"] == "5 parse(s): 3 precise, 2 tree-sitter fallback; most common problem (2): over the TU budget"
+    im = svc.store.get_blob(rid, "impact")
+    assert sorted(im["nodes"][n]["label"] for n in im["changed"]) == ["delta", "hal_write", "uart_send"]
+
+
+class IfdefEdit:
+    """One edit, inside a function an #ifdef this configuration never takes holds."""
+    def __init__(self, path):
+        self.path = path
+
+    def load(self, cls):
+        before = "int alpha(void) { return 1; }\n#ifdef NEVER_SET\nint beta(void) { return 2; }\n#endif\n"
+        return ChangeSet(cls=[ClMeta(cl=1, status="pending")],
+                         files=[FileChange(depot="//fixture/driver/uart.c", local=self.path, action="edit",
+                                           before=before, after=before.replace("return 2;", "return 3;"))])
+
+
+def test_a_changed_function_no_parse_covers_degrades_the_impact_stage_and_is_named(fx, tmp_path):
+    svc = make_services(fx, tmp_path, source=IfdefEdit(str((fx.root / "driver" / "uart.c").resolve())))
+    rid = svc.store.create_review("t", "owner", [1])
+    run_review(rid, svc)
+    assert stages(svc, rid)["impact"] == "degraded"
+    msg = next(s["message"] for s in svc.store.list_stages(rid) if s["name"] == "impact")
+    assert "1 changed function(s) in no parse" in msg and msg.endswith(": beta")
+
+
+class SplitEdit:
+    """A change whose old version tree-sitter cannot read one function of (an #ifdef splits its braces)."""
+    def __init__(self, path):
+        self.path = path
+
+    def load(self, cls):
+        from test_cparse import HEAD, SPLIT, tail
+        return ChangeSet(cls=[ClMeta(cl=1, status="pending")],
+                         files=[FileChange(depot="//fixture/driver/uart.c", local=self.path, action="edit",
+                                           before=HEAD + SPLIT + tail(6),
+                                           after=HEAD + SPLIT.replace("v++;", "v += 2;") + tail(5))])
+
+
+def test_the_diffmap_stage_says_which_files_it_flattened_and_names_functions_it_may_have_misread(fx, tmp_path, monkeypatch):
+    from codetortoise import cparse, diffmap
+    path = str((fx.root / "driver" / "uart.c").resolve())
+    svc = make_services(fx, tmp_path, source=SplitEdit(path))
+    rid = svc.store.create_review("t", "owner", [1])
+    run_review(rid, svc)
+    msg = next(s["message"] for s in svc.store.list_stages(rid) if s["name"] == "diffmap")
+    assert stages(svc, rid)["diffmap"] == "ok"
+    assert msg.endswith("; 1 file(s) read with one branch of each #if to find their functions")
+    monkeypatch.setattr(diffmap, "parse_source", lambda path, text, flatten="never": cparse.parse_source(path, text))
+    rid = svc.store.create_review("t", "owner", [1])
+    run_review(rid, svc)
+    msg = next(s["message"] for s in svc.store.list_stages(rid) if s["name"] == "diffmap")
+    assert stages(svc, rid)["diffmap"] == "degraded"
+    assert msg.endswith("; 1 function(s) the parser may have misread, shown as added or removed: alpha")

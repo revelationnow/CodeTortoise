@@ -64,7 +64,7 @@ export const OPEN_SITES = 200;
 const REASONS: Record<string, string> = {
   starts_purpose: "starts the story", same_feature: "same feature", caller_of_new_code: "calls the new code",
   same_fix: "same fix", same_refactor: "same refactor", shared_code: "code shared with another target",
-  declaration_used: "declares what the story uses", split_too_big: "split from a larger story",
+  declaration_used: "declares what the story defines or uses", split_too_big: "split from a larger story",
   linked: "calls or shares data with the rest", tests: "tests of this target", repeated: "the same edit repeated",
 };
 export function reasonText(reason: string): string {

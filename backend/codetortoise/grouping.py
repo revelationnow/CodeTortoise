@@ -46,8 +46,8 @@ class StoryPlan(BaseModel):
 
 def rules_plan(ps: PieceSet, only: list[str] | None = None, prefix: str = "r") -> list[PlannedStory]:
     """§6: pieces join when a `call` link of at least 2 or a `field` link joins them, within one target and one CL;
-    a declaration piece joins the group using its changes most; tests and repeated edits group per target (and
-    substitution). `only` limits it to some pieces (a chunk tier 1 could not do)."""
+    a declaration piece joins the group defining what it declares, else the group using its changes most; tests and
+    repeated edits group per target (and substitution). `only` limits it to some pieces (a chunk tier 1 could not do)."""
     want = set(only) if only is not None else {p.id for p in ps.pieces}
     pieces = [p for p in ps.pieces if p.id in want]
     by_id = {p.id: p for p in pieces}
@@ -86,23 +86,25 @@ def rules_plan(ps: PieceSet, only: list[str] | None = None, prefix: str = "r") -
         if p.kind != "declarations":
             groups[find(p.id)].append(p.id)
     for d in (p for p in pieces if p.kind == "declarations"):
-        uses: dict[str, int] = defaultdict(int)
+        weight: dict[str, dict[str, int]] = {"defines": defaultdict(int), "uses": defaultdict(int)}
         for lk in ps.links_of(d.id):
             other = lk.b if lk.a == d.id else lk.a
-            if lk.type == "uses" and other in by_id and by_id[other].kind in code:
-                uses[find(other)] += lk.count
-        if uses:
-            into = max(uses, key=lambda g: (uses[g], -rank[g]))
+            if lk.type in weight and other in by_id and by_id[other].kind in code:
+                weight[lk.type][find(other)] += lk.count
+        typ = "defines" if weight["defines"] else "uses"
+        got = weight[typ]
+        if got:
+            into = max(got, key=lambda g: (got[g], -rank[g]))
             groups[into].append(d.id)
             user = max((o for o in groups[into] if o in by_id and by_id[o].kind in code),
-                       key=lambda o: (sum(lk.count for lk in ps.links_of(d.id) if lk.type == "uses" and o in (lk.a, lk.b)),
+                       key=lambda o: (sum(lk.count for lk in ps.links_of(d.id) if lk.type == typ and o in (lk.a, lk.b)),
                                       -rank[o]))
             why[d.id] = ("declaration_used", [user])
         else:
             groups[d.id].append(d.id)
     out = []
     for i, (_, ids) in enumerate(sorted(groups.items(), key=lambda kv: rank[kv[1][0]])):
-        ids = sorted(ids, key=rank.get)
+        ids = sorted(ids, key=lambda p: (by_id[p].kind == "declarations", rank[p]))   # a header comes after the code it joined
         places = []
         for j, pid in enumerate(ids):
             reason, ev = why.get(pid, ("starts_purpose", []))
