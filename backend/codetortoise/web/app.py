@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +17,7 @@ from pydantic import BaseModel, Field
 from codetortoise import boardstore, filestore
 from codetortoise.health import HealthReport
 from codetortoise.impact import ImpactModel, Node
+from codetortoise.init_config import scan
 from codetortoise.llm import ondemand, request_log, tortoise
 from codetortoise.names import cited, names, neighbours
 from codetortoise.paths import canon
@@ -27,7 +29,7 @@ from codetortoise.swarm import SwarmError
 from codetortoise.tidy import tidy
 from codetortoise.vcs.p4runner import P4Error, P4Runner
 from codetortoise.vcs.source import SourceBinary, SourceNotAllowed, SourceTooLarge
-from codetortoise.workspaces import Registry, Workspace
+from codetortoise.workspaces import Conflict, Invalid, Registry, Workspace
 
 COOKIE = "ct_session"
 STATIC = Path(__file__).parent / "static"
@@ -86,6 +88,35 @@ class SwarmPostIn(BaseModel):
 
 class KeysIn(BaseModel):
     keys: list[str]
+
+
+class WorkspaceIn(BaseModel):
+    """A workspace as the Workspaces page sends it (spec 2026-10-31 §9)."""
+    name: str
+    vcs: Literal["p4", "git"] = "p4"
+    p4port: str | None = None
+    client: str | None = None
+    p4user: str
+    root: str
+    compile_commands: str = "auto"       # "auto", a path, or several (one per line)
+    build_root: str | None = None
+    swarm_url: str | None = None
+    settings: str = ""                   # YAML: tortoise.yaml's toolchain, targets and analysis keys
+
+    def fields(self) -> dict:
+        """The workspaces table's columns: blanks unset, the root normalised, the compile database as JSON."""
+        def opt(v: str | None) -> str | None:
+            return (v.strip() or None) if v is not None else None
+        paths = [line.strip() for line in self.compile_commands.splitlines() if line.strip()]
+        cc = "auto" if paths in ([], ["auto"]) else paths[0] if len(paths) == 1 else paths
+        return {"name": self.name.strip(), "vcs": self.vcs, "p4port": opt(self.p4port), "client": opt(self.client),
+                "p4user": self.p4user.strip(), "root": os.path.normpath(self.root.strip()) if self.root.strip() else "",
+                "compile_commands": json.dumps(cc), "build_root": opt(self.build_root),
+                "swarm_url": opt(self.swarm_url), "settings": self.settings}
+
+
+class DetectIn(BaseModel):
+    root: str
 
 
 RERUNNING = "the review is being re-run"
@@ -599,6 +630,82 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
     def unmark_sink(label: str, o: Owned = Depends(owned)):
         set_mark(store, sink_label(label), False, bundle(o.ws).scope)
         return sinks_view(o.ws)
+
+    # ---- workspaces (spec 2026-10-31 §8) ----------------------------------------------
+    def ws_row(ws: Workspace, logins: dict[str, str]) -> dict:
+        """A workspace as the Workspaces page lists it; its owner also gets its fields, to edit."""
+        mine = logins.get(ws.server) == ws.owner
+        out = {**ws_ref(ws), "client": ws.cfg.workspace.client, "vcs": ws.cfg.workspace.vcs, "ready": ws.ready,
+               "reason": ws.reason, "seed": ws.seed, "is_owner": mine}
+        row = store.get_workspace(ws.id) if mine else None
+        if row is not None:
+            cc = json.loads(row["compile_commands"])
+            out["fields"] = {**{k: row[k] for k in ("name", "vcs", "p4port", "client", "p4user", "root", "build_root",
+                                                     "swarm_url", "settings")},
+                             "compile_commands": "\n".join(cc) if isinstance(cc, list) else cc}
+        return out
+
+    def adder(logins: dict[str, str] = Depends(logins_of)) -> dict[str, str]:
+        """Adding a workspace takes owner rights on at least one (§7; everyone signed in, with project 3)."""
+        if not any(logins.get(w.server) == w.owner for w in reg.all()):
+            raise HTTPException(403, "only the owner of a workspace adds workspaces")
+        return logins
+
+    def checked(ws: Workspace, logins: dict[str, str]) -> dict:
+        return {**ws_row(ws, logins), "checks": [c.model_dump() for c in ws.checks]}
+
+    def saved(change: Callable[[], Workspace], logins: dict[str, str]) -> dict:
+        try:
+            return checked(change(), logins)
+        except Invalid as e:
+            raise HTTPException(422, str(e)) from e
+        except Conflict as e:
+            raise HTTPException(409, str(e)) from e
+
+    @app.get("/api/workspaces")
+    def list_workspaces(logins: dict[str, str] = Depends(logins_of)):
+        """The workspaces on the session's servers."""
+        return [ws_row(w, logins) for w in reg.all() if w.server in logins]
+
+    @app.post("/api/workspaces")
+    def add_workspace(body: WorkspaceIn, logins: dict[str, str] = Depends(adder)):
+        """Saved even when its checks fail; the answer carries them (§11)."""
+        if len(body.settings) > 100_000:
+            raise HTTPException(422, "settings: at most 100000 characters")
+        by = next(logins[w.server] for w in reg.all() if logins.get(w.server) == w.owner)
+        return saved(lambda: reg.add(body.fields(), by), logins)
+
+    @app.post("/api/workspaces/detect")
+    def detect(body: DetectIn, _: dict[str, str] = Depends(adder)):
+        """What `codetortoise init` finds at a root, to fill the add form: P4CONFIG's server, client and user, the
+        client's Root, the compile databases."""
+        if not os.path.isabs(body.root):
+            raise HTTPException(422, "root: a full path on this host")
+        p4_bin = reg.base.workspace.p4_bin if reg.base.workspace is not None else "p4"
+
+        def client_root(port: str, client: str) -> str | None:
+            recs = P4Runner(port, client, p4_bin, timeout=30, cwd=body.root).run("client", "-o", client)
+            return recs[0].get("Root") if recs else None
+        s = scan(Path(body.root), client_root=client_root)
+        notes = ([] if Path(body.root).is_dir() else [f"{body.root} is not a folder on this host"]) + s.notes
+        return {"root": str(s.root), "p4port": s.values["p4port"], "client": s.values["client"],
+                "p4user": s.values["owner"], "compile_commands": [str(p) for p in s.compile_dbs],
+                "client_root": s.client_root, "notes": notes}
+
+    @app.put("/api/workspaces/{wid}")
+    def edit_workspace(body: WorkspaceIn, o: Owned = Depends(owned)):
+        """New fields, a new bundle swapped in; refused for the seed and while its queue has work (§6)."""
+        if len(body.settings) > 100_000:
+            raise HTTPException(422, "settings: at most 100000 characters")
+        return saved(lambda: reg.edit(o.ws.id, body.fields()), o.logins)
+
+    @app.delete("/api/workspaces/{wid}")
+    def remove_workspace(o: Owned = Depends(owned)):
+        try:
+            reg.remove(o.ws.id)
+        except Conflict as e:
+            raise HTTPException(409, str(e)) from e
+        return {"ok": True}
 
     # ---- AI on demand (spec 2026-10-03) ---------------------------------------
     @app.post("/api/reviews/{rid}/explain", status_code=202)
