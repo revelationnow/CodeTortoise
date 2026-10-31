@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ReviewRow } from "../api";
-import { chipCounts, filterReviews, highlight } from "./reviewFilter";
+import { chipCounts, filterReviews, highlight, pickOrder, workspaceChips } from "./reviewFilter";
 
 const LOCAL = { id: 1, name: "fw", server: "local" }, SECOND = { id: 2, name: "dsp", server: "second:1666" };
 const row = (id: number, title: string, cls: number[], status: string, risk: ReviewRow["risk"], by = "amy", workspace = LOCAL) =>
@@ -45,5 +45,28 @@ describe("review search", () => {
       { text: "Detach", hit: true }, { text: "ed ", hit: false }, { text: "HEAD", hit: true }, { text: " caching", hit: false }]);
     expect(highlight("upstream 24", "")).toEqual([{ text: "upstream 24", hit: false }]);
     expect(highlight("a.b(c)", "(c")).toEqual([{ text: "a.b", hit: false }, { text: "(c", hit: true }, { text: ")", hit: false }]);
+  });
+});
+
+describe("reviews from several workspaces (spec 2026-10-31 §9)", () => {
+  const two = [...rows, row(5, "dsp one", [9], "done", "high", "amy", SECOND)];
+
+  it("has a chip per workspace, with its count, only when the rows come from several", () => {
+    expect(workspaceChips(rows)).toEqual([]);
+    expect(workspaceChips(two)).toEqual([{ id: 2, name: "dsp", count: 1 }, { id: 1, name: "fw", count: 4 }]);
+  });
+
+  it("filters by the workspace chip and counts the other chips inside it", () => {
+    expect(ids(filterReviews(two, "", "all", AMY, 2))).toEqual([5]);
+    expect(ids(filterReviews(two, "", "high", AMY, 1))).toEqual([1, 2]);
+    expect(chipCounts(two, AMY, 2)).toEqual({ all: 1, high: 1, running: 0, mine: 0 });
+    expect(chipCounts(two, AMY)).toEqual({ all: 5, high: 3, running: 2, mine: 2 });
+  });
+
+  it("lists New review's workspaces with the last used first, then by name", () => {
+    const owned = [{ id: 1, name: "fw" }, { id: 2, name: "dsp" }, { id: 3, name: "sensor" }];
+    expect(pickOrder(owned, 3).map((w) => w.id)).toEqual([3, 2, 1]);
+    expect(pickOrder(owned, null).map((w) => w.id)).toEqual([2, 1, 3]);
+    expect(pickOrder(owned, 99).map((w) => w.id)).toEqual([2, 1, 3]);           // a workspace removed since
   });
 });

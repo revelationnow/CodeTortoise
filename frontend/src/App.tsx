@@ -8,6 +8,7 @@ import { accountLabel } from "./lib/signin";
 import Health from "./pages/Health";
 import Login from "./pages/Login";
 import Reviews from "./pages/Reviews";
+import Workspaces from "./pages/Workspaces";
 import Workspace from "./workspace/Workspace";
 
 /** One workspace per review: moving to another review starts it afresh, so nothing of the last one (an error, its
@@ -29,10 +30,11 @@ function HealthRoute() {
   return <Health key={id} wid={Number(id)} />;
 }
 
-/** `/health` was the one workspace's Health page; each workspace has its own now (spec 2026-10-31 §8). */
+/** `/health` was the one workspace's Health page (spec 2026-10-31 §8): the owner of one workspace gets its Health page, the
+ * owner of several the Workspaces page. */
 function ToHealth() {
-  const first = useMe()?.owner_of[0];
-  return <Navigate to={first === undefined ? "/" : `/workspaces/${first}`} replace />;
+  const owned = useMe()?.owner_of ?? [];
+  return <Navigate to={owned.length === 1 ? `/workspaces/${owned[0]}` : owned.length ? "/workspaces" : "/"} replace />;
 }
 
 const MeContext = createContext<Me | null>(null);
@@ -70,7 +72,7 @@ export default function App() {
           {me && (
             <nav>
               <Link to="/">Reviews</Link>
-              {me.owner_of.length > 0 && <Link to="/health">Health</Link>}
+              {me.owner_of.length > 0 && <Link to="/workspaces">Workspaces</Link>}
               {/* the account menu (spec 2026-10-31 §9): a line per sign-in, and signing in to another server; shut again on
                   each move */}
               <details className="account" key={location.pathname}>
@@ -92,6 +94,7 @@ export default function App() {
           <Route path="/" element={<Reviews />} />
           <Route path="/new" element={<Navigate to="/" replace />} />
           <Route path="/health" element={<ToHealth />} />
+          <Route path="/workspaces" element={<Workspaces />} />
           <Route path="/workspaces/:id" element={<HealthRoute />} />
           <Route path="/r/:id/*" element={<ReviewRoute />} />
           <Route path="/w/:id/*" element={<ToReview />} />

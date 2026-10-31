@@ -148,10 +148,10 @@ test.describe("phone", () => {
   test("landing fits the screen and the menu holds the links", async ({ page }) => {
     await login(page);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
-    await expect(page.getByRole("link", { name: "Health" })).toBeHidden();
+    await expect(page.getByRole("link", { name: "Workspaces" })).toBeHidden();
     await page.getByRole("button", { name: "Menu" }).click();
-    await expect(page.getByRole("link", { name: "Health" })).toBeVisible();
-    await page.getByRole("link", { name: "Health" }).click();
-    await expect(page.getByRole("heading", { name: /Health/ })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Workspaces" })).toBeVisible();
+    await page.getByRole("link", { name: "Workspaces" }).click();
+    await expect(page.getByRole("heading", { name: "Workspaces" })).toBeVisible();
   });
 });

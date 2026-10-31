@@ -39,6 +39,8 @@ export const keys = {
   nbView: "ct.ws.nb.view",
   /** The ⋯ menu's Single-key shortcuts: J, K and F act on the Flows tab and in the stepper unless a false is stored. */
   shortcuts: "ct.ws.shortcuts",
+  /** The workspace New review last started a review in: its picker lists it first (spec 2026-10-31 §9). */
+  lastWorkspace: "ct.lastWorkspace",
 };
 
 /* Typed readers: a value of the wrong shape (another app version, an extension, a manual edit) falls back to the

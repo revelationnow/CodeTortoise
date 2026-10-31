@@ -17,15 +17,34 @@ function chipOk(r: ReviewRow, chip: Chip, who: Who) {
     || (chip === "mine" && mine(r, who));
 }
 
-/** Rows matching every word of the query (title, CL number, author, status) and the chip. */
-export function filterReviews(rows: ReviewRow[], query: string, chip: Chip, who: Who): ReviewRow[] {
-  const ws = words(query.replace(/\bcl\s+(\d+)/gi, "cl$1"));
-  return rows.filter((r) => chipOk(r, chip, who) && ws.every((w) => haystack(r).includes(w)));
+/** Rows matching every word of the query (title, CL number, author, status), the chip, and the workspace chip (null: any). */
+export function filterReviews(rows: ReviewRow[], query: string, chip: Chip, who: Who, ws: number | null = null): ReviewRow[] {
+  const qs = words(query.replace(/\bcl\s+(\d+)/gi, "cl$1"));
+  return rows.filter((r) => (ws === null || r.workspace?.id === ws) && chipOk(r, chip, who) && qs.every((w) => haystack(r).includes(w)));
 }
 
-export function chipCounts(rows: ReviewRow[], who: Who): Record<Chip, number> {
-  const n = (c: Chip) => rows.filter((r) => chipOk(r, c, who)).length;
+/** Each chip's count among the rows of the workspace chip pressed (null: all rows). */
+export function chipCounts(rows: ReviewRow[], who: Who, ws: number | null = null): Record<Chip, number> {
+  const pool = ws === null ? rows : rows.filter((r) => r.workspace?.id === ws);
+  const n = (c: Chip) => pool.filter((r) => chipOk(r, c, who)).length;
   return { all: n("all"), high: n("high"), running: n("running"), mine: n("mine") };
+}
+
+/** A chip per workspace the rows come from, by name, with its count (spec 2026-10-31 §9); none when they all come from one. */
+export function workspaceChips(rows: ReviewRow[]): { id: number; name: string; count: number }[] {
+  const by = new Map<number, { id: number; name: string; count: number }>();
+  for (const r of rows) {
+    if (!r.workspace) continue;
+    const c = by.get(r.workspace.id) ?? { id: r.workspace.id, name: r.workspace.name, count: 0 };
+    c.count++;
+    by.set(c.id, c);
+  }
+  return by.size > 1 ? [...by.values()].sort((a, b) => a.name.localeCompare(b.name)) : [];
+}
+
+/** New review's workspaces (spec 2026-10-31 §9): the last used first, then by name. */
+export function pickOrder<T extends { id: number; name: string }>(owned: T[], last: number | null): T[] {
+  return [...owned].sort((a, b) => Number(b.id === last) - Number(a.id === last) || a.name.localeCompare(b.name));
 }
 
 /** Title split into parts, marking every case-insensitive occurrence of any query word. */

@@ -20,6 +20,11 @@ export interface WorkspaceRow extends WorkspaceRef {
   client: string | null; vcs: "p4" | "git"; ready: boolean; reason: string | null; seed: boolean; is_owner: boolean;
   fields?: WorkspaceFields;
 }
+/** What `codetortoise init` finds at a root (spec 2026-10-31 §8): P4CONFIG's server, client and user, the compile databases. */
+export interface Detected {
+  root: string; p4port: string | null; client: string | null; p4user: string | null; compile_commands: string[];
+  client_root: string | null; notes: string[];
+}
 export interface ReviewRow {
   id: number; title: string; created_by: string; created_at: string;
   status: string; risk: "low" | "medium" | "high" | null; cls: number[];
@@ -138,6 +143,11 @@ export const api = {
   logout: () => call("POST", "/api/logout"),
   /** The workspaces on the session's servers (spec 2026-10-31 §8). */
   workspaces: () => call<WorkspaceRow[]>("GET", "/api/workspaces"),
+  /** Saved even when its checks fail; the answer carries them (spec 2026-10-31 §11). */
+  addWorkspace: (body: WorkspaceFields) => call<WorkspaceRow & { checks: HealthCheck[] }>("POST", "/api/workspaces", body),
+  editWorkspace: (wid: number, body: WorkspaceFields) => call<WorkspaceRow & { checks: HealthCheck[] }>("PUT", `/api/workspaces/${wid}`, body),
+  removeWorkspace: (wid: number) => call("DELETE", `/api/workspaces/${wid}`),
+  detect: (root: string) => call<Detected>("POST", "/api/workspaces/detect", { root }),
   health: (wid: number) => call<Health>("GET", `/api/workspaces/${wid}/health`),
   rebuildIndex: (wid: number) => call("POST", `/api/workspaces/${wid}/index/rebuild`),
   reviews: () => call<ReviewRow[]>("GET", "/api/reviews"),

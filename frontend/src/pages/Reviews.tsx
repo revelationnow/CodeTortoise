@@ -1,22 +1,27 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, errorText, type ReviewRow } from "../api";
+import { api, errorText, type ReviewRow, type WorkspaceRow } from "../api";
 import { useMe } from "../App";
+import { keys, load as loadPref, save as savePref } from "../board/prefs";
 import HeadlinePill from "../components/HeadlinePill";
 import Logo from "../components/Logo";
-import { ago, type Chip, chipCounts, filterReviews, highlight, parseCls } from "../lib/reviewFilter";
+import { ago, type Chip, chipCounts, filterReviews, highlight, parseCls, pickOrder, workspaceChips } from "../lib/reviewFilter";
 
 const CHIPS: [Chip, string][] = [["all", "All"], ["high", "High risk"], ["running", "Running"], ["mine", "Mine"]];
 const RISK_DOT: Record<string, string> = { high: "#ff4d6d", medium: "#ffb020", low: "#16a34a" };   // same as the risk pills
 const LIVE = new Set(["queued", "running"]);
 
-/** Landing page (spec §12): start a review on the left (owner), searchable reviews on the right. */
+/** Landing page (spec §12): start a review on the left (owner), searchable reviews on the right. With reviews from several
+ * workspaces, each row names its workspace and chips filter by workspace (spec 2026-10-31 §9). */
 export default function Reviews() {
   const me = useMe();
   const [rows, setRows] = useState<ReviewRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [chip, setChip] = useState<Chip>("all");
+  const [ws, setWs] = useState<number | null>(null);                     // the workspace chip pressed, if any
+  const [owned, setOwned] = useState<WorkspaceRow[] | null>(null);        // New review's workspaces, the last used first
+  const owner = !!me?.owner_of.length;                                   // owns a workspace: starts reviews (spec 2026-10-31 §7)
 
   useEffect(() => {
     let stop = false;
@@ -24,6 +29,11 @@ export default function Reviews() {
     load();
     return () => { stop = true; };
   }, []);
+  useEffect(() => {
+    if (!owner) return;
+    api.workspaces().then((all) => setOwned(pickOrder(all.filter((w) => w.is_owner), loadPref<number | null>(keys.lastWorkspace, null))))
+      .catch(() => setOwned([]));                          // the server then takes the only one, or says to choose
+  }, [owner]);
   const live = !!rows?.some((r) => LIVE.has(r.status));
   useEffect(() => {                                       // keep running reviews fresh without a reload
     if (!live) return;
@@ -32,14 +42,15 @@ export default function Reviews() {
   }, [live]);
 
   const who = useMemo(() => Object.fromEntries((me?.logins ?? []).map((l) => [l.server, l.user])), [me]);
-  const shown = useMemo(() => (rows ? filterReviews(rows, query, chip, who) : []), [rows, query, chip, who]);
-  const counts = useMemo(() => chipCounts(rows ?? [], who), [rows, who]);
-  const owner = !!me?.owner_of.length;                     // owns a workspace: starts reviews (spec 2026-10-31 §7)
+  const wsChips = useMemo(() => workspaceChips(rows ?? []), [rows]);
+  const wsOn = wsChips.some((c) => c.id === ws) ? ws : null;             // a chip that went away filters nothing
+  const shown = useMemo(() => (rows ? filterReviews(rows, query, chip, who, wsOn) : []), [rows, query, chip, who, wsOn]);
+  const counts = useMemo(() => chipCounts(rows ?? [], who, wsOn), [rows, who, wsOn]);
 
   return (
     <main className="home-page">
       <section className="rv-hello">
-        {me && owner ? <StartReview wid={me.owner_of.length === 1 ? me.owner_of[0] : undefined} /> : (
+        {me && owner ? <StartReview owned={owned} only={me.owner_of.length === 1 ? me.owner_of[0] : undefined} /> : (
           <>
             <Logo size={72} />
             <h1>Hi {[...new Set((me?.logins ?? []).map((l) => l.user))].join(", ")}</h1>
@@ -64,6 +75,15 @@ export default function Reviews() {
             </button>
           ))}
         </div>
+        {wsChips.length > 0 && (
+          <div className="rv-chips" role="group" aria-label="Filter by workspace">
+            {wsChips.map((c) => (
+              <button key={c.id} className={wsOn === c.id ? "on" : ""} aria-pressed={wsOn === c.id} onClick={() => setWs(wsOn === c.id ? null : c.id)}>
+                {c.name} <span>{c.count}</span>
+              </button>
+            ))}
+          </div>
+        )}
         {error && <p className="error" role="alert">{error}</p>}
         {!rows && !error && <p className="muted">Loading…</p>}
         {rows && rows.length === 0 && <p className="muted rv-empty">No reviews yet{owner ? " — start one on the left." : "."}</p>}
@@ -72,6 +92,7 @@ export default function Reviews() {
             <Link key={r.id} to={`/r/${r.id}`} className="rv-row">
               <span className="dot" style={{ background: r.risk ? RISK_DOT[r.risk] : "var(--line)" }} />
               <b>{highlight(r.title, query).map((p, i) => (p.hit ? <mark key={i}>{p.text}</mark> : <span key={i}>{p.text}</span>))}</b>
+              {wsChips.length > 0 && r.workspace && <span className="rv-ws">{r.workspace.name}</span>}
               <span className="cls">{r.cls.map((c) => <span key={c} className="cl">{c}</span>)}</span>
               <span className="sp" />
               {r.headline ? <HeadlinePill h={r.headline} className="rv-headline" />
@@ -81,7 +102,7 @@ export default function Reviews() {
             </Link>
           ))}
         </div>
-        {rows && rows.length > 0 && (query || chip !== "all") && (
+        {rows && rows.length > 0 && (query || chip !== "all" || wsOn !== null) && (
           <p className="rv-count">{shown.length} of {rows.length} reviews{query ? " · Esc clears" : ""}</p>
         )}
       </section>
@@ -89,20 +110,26 @@ export default function Reviews() {
   );
 }
 
-function StartReview({ wid }: { wid?: number }) {
+/** New review (spec 2026-10-31 §9): with several workspaces owned, a picker of them (the last used first); `only`: the one
+ * workspace owned, while the list loads. */
+function StartReview({ owned, only }: { owned: WorkspaceRow[] | null; only?: number }) {
   const [text, setText] = useState("");
   const [title, setTitle] = useState("");
+  const [picked, setPicked] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
   const cls = parseCls(text);
+  const choices = owned ?? [];
+  const target = choices.length > 1 ? picked ?? choices[0].id : choices[0]?.id ?? only;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);                                // a new attempt clears the last refusal, so a repeat is told again
     try {
-      const r = await api.createReview(cls, title.trim() || undefined, wid);
+      const r = await api.createReview(cls, title.trim() || undefined, target);
+      if (target !== undefined) savePref(keys.lastWorkspace, target);
       navigate(`/r/${r.id}`);
     } catch (err) {
       setError(errorText(err, "The review could not be started."));
@@ -115,6 +142,14 @@ function StartReview({ wid }: { wid?: number }) {
       <Logo size={72} />
       <h1>Review a change</h1>
       <p>Shelved or submitted changelists, one or several; they're stacked in CL order.</p>
+      {choices.length > 1 && (
+        <>
+          <label htmlFor="rv-workspace">Workspace</label>
+          <select id="rv-workspace" value={target} onChange={(e) => setPicked(Number(e.target.value))}>
+            {choices.map((w) => <option key={w.id} value={w.id}>{w.name}{w.ready ? "" : " (not ready)"}</option>)}
+          </select>
+        </>
+      )}
       <label>Changelists (shelved or submitted)
         <textarea rows={2} value={text} onChange={(e) => setText(e.target.value)} placeholder="12345 12346" />
       </label>
