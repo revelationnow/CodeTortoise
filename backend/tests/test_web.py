@@ -1,10 +1,11 @@
 import pytest
 from fastapi.testclient import TestClient
-from helpers import make_services
+from helpers import make_app, make_services
 
 from codetortoise import boardstore
 from codetortoise.pipeline import JobRunner, run_review
-from codetortoise.web.app import create_app, make_authenticator
+from codetortoise.web.app import make_authenticator
+from codetortoise.workspaces import Registry
 
 
 class InlineRunner(JobRunner):
@@ -40,7 +41,7 @@ def env(fx, tmp_path):
     svc = make_services(fx, tmp_path)
     swarm = FakeSwarm()
     svc.swarm_override = lambda: swarm
-    app = create_app(svc, InlineRunner(svc), make_authenticator(svc))
+    app = make_app(svc, InlineRunner(svc))
     return svc, app, swarm
 
 
@@ -54,7 +55,7 @@ def test_auth_required_and_me(env):
     _, app, _ = env
     assert TestClient(app).get("/api/reviews").status_code == 401
     c = login(app, "owner")
-    assert c.get("/api/me").json() == {"user": "owner", "is_owner": True, "swarm_ready": True}
+    assert c.get("/api/me").json() == {"logins": [{"server": "local", "user": "owner"}], "owner_of": [1]}
     c.post("/api/logout")
     assert c.get("/api/me").status_code == 401
 
@@ -123,16 +124,18 @@ def test_health(env):
     svc, app, _ = env
     owner = login(app, "owner")
     svc.cfg.workspace.p4_sources = {"p4port": "P4CONFIG file /w/.p4config"}   # as load_config records it
-    h = owner.get("/api/health").json()
-    assert h["ready"] is True
+    wid = owner.get("/api/me").json()["owner_of"][0]
+    h = owner.get(f"/api/workspaces/{wid}/health").json()
+    assert h["ready"] is True and h["index_building"] is False
     assert h["p4_sources"] == {"p4port": "P4CONFIG file /w/.p4config"}
     assert {c["name"] for c in h["checks"]} >= {"workspace root", "compile_commands", "libclang"}
+    assert login(app, "bob").get(f"/api/workspaces/{wid}/health").status_code == 403
 
 
 def test_review_creation_blocked_when_not_ready(fx, tmp_path):
     svc = make_services(fx, tmp_path)
     svc.cdb.entries.clear()  # hard check fails: empty compile DB
-    app = create_app(svc, InlineRunner(svc), make_authenticator(svc))
+    app = make_app(svc, InlineRunner(svc))
     owner = login(app, "owner")
     assert owner.post("/api/reviews", json={"cls": [101]}).status_code == 409
 
@@ -147,8 +150,8 @@ def test_spa_fallback_and_api_404(env):
 def test_p4_authenticator_rejects_without_runner(fx, tmp_path):
     svc = make_services(fx, tmp_path)
     svc.cfg.auth.mode = "p4"
-    auth = make_authenticator(svc)
-    assert auth("bob", "pw") is None
+    auth = make_authenticator(Registry.single(svc, InlineRunner(svc)))
+    assert auth("local", "bob", "pw") is None                  # a git workspace's server: nothing checks the password
 
 
 def test_owner_login_requests_host_unlocked_ticket_for_swarm(fx, tmp_path):
@@ -161,9 +164,8 @@ def test_owner_login_requests_host_unlocked_ticket_for_swarm(fx, tmp_path):
             calls.append((user, all_hosts))
             return "TICKET"
 
-    svc.p4 = P4()
-    auth = make_authenticator(svc)
-    assert auth("owner", "pw") == "TICKET" and auth("bob", "pw") == "TICKET"
+    auth = make_authenticator(Registry.single(svc, InlineRunner(svc)), runner_for=lambda server: P4())
+    assert auth("local", "owner", "pw") == "TICKET" and auth("local", "bob", "pw") == "TICKET"
     assert calls == [("owner", True), ("bob", False)]
 
 
@@ -178,8 +180,7 @@ def test_expired_p4_password_is_explained_but_other_failures_stay_generic(fx, tm
                 raise P4Error("p4 login failed: Your password has expired, please change your password.")
             raise P4Error("p4 login failed: User carol doesn't exist.")
 
-    svc.p4 = P4()
-    app = create_app(svc, InlineRunner(svc), make_authenticator(svc))
+    app = make_app(svc, InlineRunner(svc), runner_for=lambda server: P4())
     c = TestClient(app)
     r = c.post("/api/login", json={"user": "bob", "password": "x"})
     assert r.status_code == 401 and "expired" in r.json()["detail"] and "p4 passwd" in r.json()["detail"]
@@ -329,11 +330,11 @@ def test_board_stored_before_file_tags_gets_them_on_load(env):
 def test_session_cookie_is_secure_only_when_https_is_configured(fx, tmp_path):
     from pathlib import Path
     svc = make_services(fx, tmp_path)
-    plain = TestClient(create_app(svc, InlineRunner(svc), make_authenticator(svc)))
+    plain = TestClient(make_app(svc, InlineRunner(svc)))
     r = plain.post("/api/login", json={"user": "anoop", "password": "x"})
     assert "secure" not in r.headers["set-cookie"].lower()
     svc.cfg.server.tls_cert, svc.cfg.server.tls_key = Path("/c.pem"), Path("/c.key")
-    tls = TestClient(create_app(svc, InlineRunner(svc), make_authenticator(svc)))
+    tls = TestClient(make_app(svc, InlineRunner(svc)))
     r = tls.post("/api/login", json={"user": "anoop", "password": "x"})
     assert "secure" in r.headers["set-cookie"].lower()
 
@@ -655,17 +656,21 @@ def test_the_request_log_downloads_as_a_zip_and_the_calls_say_how_many_requests_
     assert c.get(f"/api/reviews/{rid}/ai/requests.zip?call={call + 1}").status_code == 404
 
 
+SINKS = "/api/workspaces/1/sinks"
+
+
 def test_the_owner_marks_and_unmarks_shared_sinks_for_every_review(env):
     svc, app, _ = env
     owner, bob = login(app, "owner"), login(app, "bob")
-    assert TestClient(app).get("/api/sinks").status_code == 401
-    assert bob.get("/api/sinks").json() == {"threshold": 20, "patterns": [], "marked": []}
-    assert bob.put("/api/sinks/Uart%3A%3Aerrors").status_code == 403
-    assert owner.put("/api/sinks/Uart%3A%3Aerrors").json()["marked"] == ["Uart::errors"]
-    assert owner.put("/api/sinks/log_t%3A%3Abuf").json()["marked"] == ["Uart::errors", "log_t::buf"]
-    assert bob.delete("/api/sinks/log_t%3A%3Abuf").status_code == 403
-    assert owner.delete("/api/sinks/log_t%3A%3Abuf").json()["marked"] == ["Uart::errors"]
-    assert svc.store.kv_get("sink_marks") == ["Uart::errors"]
+    assert TestClient(app).get(SINKS).status_code == 401
+    assert bob.get(SINKS).status_code == 403                       # the owner's (spec 2026-10-31 §7)
+    assert owner.get(SINKS).json() == {"threshold": 20, "patterns": [], "marked": []}
+    assert bob.put(f"{SINKS}/Uart%3A%3Aerrors").status_code == 403
+    assert owner.put(f"{SINKS}/Uart%3A%3Aerrors").json()["marked"] == ["Uart::errors"]
+    assert owner.put(f"{SINKS}/log_t%3A%3Abuf").json()["marked"] == ["Uart::errors", "log_t::buf"]
+    assert bob.delete(f"{SINKS}/log_t%3A%3Abuf").status_code == 403
+    assert owner.delete(f"{SINKS}/log_t%3A%3Abuf").json()["marked"] == ["Uart::errors"]
+    assert svc.store.kv_get("sink_marks") == ["Uart::errors"]     # a bundle built on its own keeps its one entry
     rid = owner.post("/api/reviews", json={"cls": [101, 102]}).json()["id"]
     sinks = owner.get(f"/api/reviews/{rid}/reading").json()["sinks"]
     assert [(h["label"], h["why"]) for h in sinks] == [("Uart::errors", "marked")]
@@ -675,8 +680,8 @@ def test_the_owner_marks_and_unmarks_shared_sinks_for_every_review(env):
 def test_a_label_with_a_slash_or_percent_is_stored_as_given(env):
     _, app, _ = env
     owner = login(app, "owner")
-    assert owner.put("/api/sinks/a%2Fb%3A%3Ac%25d").json()["marked"] == ["a/b::c%d"]
-    assert owner.put("/api/sinks/" + "x" * 301).status_code == 422
+    assert owner.put(f"{SINKS}/a%2Fb%3A%3Ac%25d").json()["marked"] == ["a/b::c%d"]
+    assert owner.put(f"{SINKS}/" + "x" * 301).status_code == 422
 
 
 def test_a_reading_stored_before_causes_is_served_without_causes_not_with_none_to_check(env):

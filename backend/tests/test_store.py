@@ -69,16 +69,35 @@ def test_comments(store):
         store.add_comment(rid, "bob", "x", "bogus", {})
 
 
-def test_sessions(store):
-    tok = store.create_session("bob")
-    assert store.session_user(tok) == "bob"
-    assert store.session_user("nope") is None and store.session_user(None) is None
+def test_a_session_holds_one_sign_in_per_server(store):
+    tok = store.open_session()
+    assert store.session_logins(tok) == {}
+    store.add_login(tok, "local", "amy")
+    store.add_login(tok, "second:1666", "bob")
+    store.add_login(tok, "local", "carol")                         # signing in there again replaces it
+    assert store.session_logins(tok) == {"local": "carol", "second:1666": "bob"}
+    assert store.session_logins("nope") is None and store.session_logins(None) is None
     past = (datetime.now(UTC) - timedelta(days=1)).isoformat()
     store._exec("UPDATE sessions SET expires_at=?", (past,))
-    assert store.session_user(tok) is None
-    tok2 = store.create_session("amy")
+    assert store.session_logins(tok) is None                       # expired
+    tok2 = store.open_session()
+    store.add_login(tok2, "local", "amy")
     store.delete_session(tok2)
-    assert store.session_user(tok2) is None
+    assert store.session_logins(tok2) is None
+    assert store._all("SELECT * FROM session_logins WHERE server='local' AND user='amy'") == []
+
+
+def test_sign_ins_from_before_per_server_sign_in_end(tmp_path):
+    db = sqlite3.connect(tmp_path / "old.db")
+    db.execute("CREATE TABLE sessions(token_hash TEXT PRIMARY KEY, user TEXT, created_at TEXT, expires_at TEXT)")
+    db.execute("INSERT INTO sessions VALUES('h', 'amy', '2026-10-30', '2099-01-01')")
+    db.commit()
+    db.close()
+    store = Store(tmp_path / "old.db")
+    assert store._all("SELECT * FROM sessions") == []               # people sign in again (spec 2026-10-31 §12)
+    tok = store.open_session()
+    store.add_login(tok, "local", "amy")
+    assert Store(tmp_path / "old.db").session_logins(tok) == {"local": "amy"}   # a later start keeps new ones
 
 
 def test_swarm_posts_and_kv(store):

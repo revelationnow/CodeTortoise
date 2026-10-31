@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS comments(id INTEGER PRIMARY KEY AUTOINCREMENT, review
   author TEXT, body TEXT, anchor_kind TEXT, anchor_json TEXT, resolved INTEGER DEFAULT 0,
   created_at TEXT, edited_at TEXT);
 CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY, user TEXT, created_at TEXT, expires_at TEXT);
+CREATE TABLE IF NOT EXISTS session_logins(token_hash TEXT, server TEXT, user TEXT, signed_in_at TEXT,
+  PRIMARY KEY(token_hash, server));
 CREATE TABLE IF NOT EXISTS swarm_posts(review_id INTEGER, cl INTEGER, kind TEXT, swarm_id TEXT, posted_at TEXT);
 CREATE TABLE IF NOT EXISTS kv(key TEXT PRIMARY KEY, json TEXT);
 CREATE TABLE IF NOT EXISTS llm_calls(id INTEGER PRIMARY KEY AUTOINCREMENT, review_id INTEGER, user TEXT, purpose TEXT,
@@ -86,6 +88,8 @@ class Store:
         self._lock = threading.RLock()
         with self._lock:
             self._db.execute("PRAGMA journal_mode=WAL")
+            had_logins = self._db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='session_logins'").fetchone() is not None
             self._db.executescript(_SCHEMA)
             cols = {r[1] for r in self._db.execute("PRAGMA table_info(comments)")}
             if "ai_meta" not in cols:                # databases made before @tortoise
@@ -96,6 +100,9 @@ class Store:
             reviews = {r[1] for r in self._db.execute("PRAGMA table_info(reviews)")}
             if "workspace_id" not in reviews:        # databases made before workspaces (spec 2026-10-31 §12)
                 self._db.execute("ALTER TABLE reviews ADD COLUMN workspace_id INTEGER")
+            if not had_logins:                       # sign-ins from before per-server sign-in end (spec 2026-10-31 §12)
+                with self._db:
+                    self._db.execute("DELETE FROM sessions")
 
     def _exec(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         with self._lock, self._db:
@@ -355,23 +362,31 @@ class Store:
         """A run starts every reader over (§6.5)."""
         self._exec("DELETE FROM read_ticks WHERE review_id=?", (rid,))
 
-    # ---- sessions --------------------------------------------------------
-    def create_session(self, user: str, ttl_days: int = 7) -> str:
+    # ---- sessions: one sign-in per Perforce server (spec 2026-10-31 §5) ---------------
+    def open_session(self, ttl_days: int = 7) -> str:
+        """A browser session with no sign-in yet; its token is the cookie's value."""
         token = secrets.token_urlsafe(32)
         now = datetime.now(UTC)
         self._exec("INSERT INTO sessions VALUES(?,?,?,?)",
-                   (_hash(token), user, now.isoformat(), (now + timedelta(days=ttl_days)).isoformat()))
+                   (_hash(token), None, now.isoformat(), (now + timedelta(days=ttl_days)).isoformat()))
         return token
 
-    def session_user(self, token: str | None) -> str | None:
+    def add_login(self, token: str, server: str, user: str) -> None:
+        """The session's sign-in on `server`; signing in there again replaces it."""
+        self._exec("INSERT OR REPLACE INTO session_logins VALUES(?,?,?,?)", (_hash(token), server, user, _now()))
+
+    def session_logins(self, token: str | None) -> dict[str, str] | None:
+        """server -> user for a live session; None without one (or when it has expired)."""
         if not token:
             return None
-        rows = self._all("SELECT user, expires_at FROM sessions WHERE token_hash=?", (_hash(token),))
+        rows = self._all("SELECT expires_at FROM sessions WHERE token_hash=?", (_hash(token),))
         if not rows or datetime.fromisoformat(rows[0]["expires_at"]) < datetime.now(UTC):
             return None
-        return rows[0]["user"]
+        got = self._all("SELECT server, user FROM session_logins WHERE token_hash=? ORDER BY server", (_hash(token),))
+        return {r["server"]: r["user"] for r in got}
 
     def delete_session(self, token: str) -> None:
+        self._exec("DELETE FROM session_logins WHERE token_hash=?", (_hash(token),))
         self._exec("DELETE FROM sessions WHERE token_hash=?", (_hash(token),))
 
     # ---- swarm posts & kv ------------------------------------------------

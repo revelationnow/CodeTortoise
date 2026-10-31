@@ -3,11 +3,10 @@ import json
 
 import httpx
 import pytest
-from helpers import make_services
+from helpers import make_app, make_services
 from test_web import InlineRunner, login
 
 from codetortoise.llm.client import LlmClient
-from codetortoise.web.app import create_app, make_authenticator
 
 UART = "//fixture/driver/uart.c"
 
@@ -52,7 +51,7 @@ def world(fx, tmp_path):
         svc.cfg.analysis.sink_fields = list(sinks)
         for k, v in budget.items():
             setattr(svc.cfg.llm.budget, k, v)
-        app = create_app(svc, InlineRunner(svc), make_authenticator(svc))
+        app = make_app(svc, InlineRunner(svc))
         owner = login(app, "owner")
         rid = owner.post("/api/reviews", json={"cls": [101, 102]}).json()["id"]
         return svc, app, rid
@@ -147,7 +146,7 @@ def test_limits_no_llm_edits_and_its_own_replies(world, fx, tmp_path):
     assert len(_reply_to(bob, rid, q["id"])) == 1                            # editing never asks again
     assert bob.patch(f"/api/comments/{r['id']}", json={"body": "x"}).status_code == 403
     plain = make_services(fx, tmp_path / "plain")
-    app2 = create_app(plain, InlineRunner(plain), make_authenticator(plain))
+    app2 = make_app(plain, InlineRunner(plain))
     o2 = login(app2, "owner")
     rid2 = o2.post("/api/reviews", json={"cls": [101]}).json()["id"]
     q2 = _ask(o2, rid2, "@tortoise hello")
@@ -256,7 +255,7 @@ def test_a_restart_ends_pending_answers_and_running_calls(world):
     svc.store.set_ai_reply(r["id"], "thinking…", {"pending": True, "round": 2, "of": 6, "read": ["callers of uart_send"],
                                                   "files": [], "calls": 1, "error": None})
     svc.ledger.reserve(rid, "bob", "mention", str(r["id"]))           # a call in flight when the server stopped
-    create_app(svc, InlineRunner(svc), make_authenticator(svc))       # the server starts again
+    make_app(svc, InlineRunner(svc))       # the server starts again
     after = svc.store.get_comment(r["id"])
     assert after["ai_meta"]["pending"] is False and after["body"] == (
         "I couldn't answer: CodeTortoise restarted before the answer was finished. Ask again.")

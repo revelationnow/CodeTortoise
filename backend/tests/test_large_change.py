@@ -68,14 +68,13 @@ def test_nodes_with_neighbours_off_the_board_say_how_many(large):
 
 @pytest.fixture(scope="module")
 def api(tmp_path_factory):
+    from helpers import make_app
     from test_web import InlineRunner, login
-
-    from codetortoise.web.app import create_app, make_authenticator
     d = tmp_path_factory.mktemp("largeapi")
     fx = build_large_fixture(d)
     svc = make_services(fx, d / "data")
     svc.build_index()
-    app = create_app(svc, InlineRunner(svc), make_authenticator(svc))
+    app = make_app(svc, InlineRunner(svc))
     owner = login(app, "owner")
     rid = owner.post("/api/reviews", json={"cls": fx.cls}).json()["id"]
     return svc, owner, rid
@@ -95,11 +94,10 @@ def test_the_api_serves_the_overview_and_each_cluster_board(api):
 
 
 def test_the_small_fixture_has_no_overview(fx, tmp_path):
+    from helpers import make_app
     from test_web import InlineRunner, login
-
-    from codetortoise.web.app import create_app, make_authenticator
     svc = make_services(fx, tmp_path)
-    client = login(create_app(svc, InlineRunner(svc), make_authenticator(svc)), "owner")
+    client = login(make_app(svc, InlineRunner(svc)), "owner")
     rid = client.post("/api/reviews", json={"cls": [101, 102]}).json()["id"]
     assert client.get(f"/api/reviews/{rid}/board").status_code == 200
     assert client.get(f"/api/reviews/{rid}/overview").status_code == 404
@@ -135,10 +133,10 @@ def test_explaining_a_flow_updates_the_cluster_board_that_holds_it(tmp_path_fact
     import json
 
     import httpx
+    from helpers import make_app
     from test_web import InlineRunner, login
 
     from codetortoise.llm.client import LlmClient
-    from codetortoise.web.app import create_app, make_authenticator
 
     def handler(req):
         if req.method == "GET":
@@ -153,7 +151,7 @@ def test_explaining_a_flow_updates_the_cluster_board_that_holds_it(tmp_path_fact
     svc = make_services(fx, d / "data", llm=llm)
     svc.cfg.llm.upfront_flows = 0
     svc.build_index()
-    owner = login(create_app(svc, InlineRunner(svc), make_authenticator(svc)), "owner")
+    owner = login(make_app(svc, InlineRunner(svc)), "owner")
     rid = owner.post("/api/reviews", json={"cls": fx.cls}).json()["id"]
     c3 = owner.get(f"/api/reviews/{rid}/overview").json()["clusters"][2]["id"]
     fl = owner.get(f"/api/reviews/{rid}/board", params={"cluster": c3}).json()["flows"][0]

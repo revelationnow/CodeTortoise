@@ -4,28 +4,30 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from codetortoise import boardstore, filestore
-from codetortoise.health import run_health
+from codetortoise.health import HealthReport
 from codetortoise.impact import ImpactModel, Node
 from codetortoise.llm import ondemand, request_log, tortoise
 from codetortoise.names import cited, names, neighbours
 from codetortoise.paths import canon
-from codetortoise.pipeline import JobRunner
 from codetortoise.provenance import tag_board
 from codetortoise.reading import Check, Reading, headline_from, with_marks
 from codetortoise.services import Services
 from codetortoise.sinks import marks, set_mark
 from codetortoise.swarm import SwarmError
 from codetortoise.tidy import tidy
-from codetortoise.vcs.p4runner import P4Error
+from codetortoise.vcs.p4runner import P4Error, P4Runner
 from codetortoise.vcs.source import SourceBinary, SourceNotAllowed, SourceTooLarge
+from codetortoise.workspaces import Registry, Workspace
 
 COOKIE = "ct_session"
 STATIC = Path(__file__).parent / "static"
@@ -38,11 +40,13 @@ class LoginRejected(Exception):
 
 
 class LoginIn(BaseModel):
+    server: str | None = None        # the Perforce server to sign in to (spec 2026-10-31 §7); may be left out with one
     user: str
     password: str = ""
 
 
 class ReviewIn(BaseModel):
+    workspace_id: int | None = None  # may be left out on a server of one workspace
     cls: list[int] = Field(min_length=1)
     title: str | None = None
 
@@ -87,49 +91,134 @@ class KeysIn(BaseModel):
 RERUNNING = "the review is being re-run"
 
 
-def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
-    """authenticate(user, password) -> ticket str on success, None on failure."""
+class SignInRequired(Exception):
+    """A review on a Perforce server the session has no sign-in on (spec 2026-10-31 §7): 401 naming the server, so the
+    UI can offer that server's sign-in."""
+
+    def __init__(self, server: str):
+        super().__init__(server)
+        self.server = server
+
+
+@dataclass
+class Access:
+    """A review, its workspace and the session's sign-in on that workspace's server: who acts inside it (§7)."""
+    review: dict
+    ws: Workspace
+    user: str
+
+    @property
+    def rid(self) -> int:
+        return self.review["id"]
+
+    @property
+    def is_owner(self) -> bool:
+        return self.user == self.ws.owner
+
+
+@dataclass
+class Owned:
+    """A workspace, acted on by its owner (§7)."""
+    ws: Workspace
+    user: str
+    logins: dict[str, str]
+
+
+def create_app(reg: Registry, authenticate) -> FastAPI:
+    """authenticate(server, user, password) -> ticket str on success, None on failure."""
     app = FastAPI(title="CodeTortoise")
-    store, cfg = svc.store, svc.cfg
-    # work a stopped server left unfinished: answers can't resume, so end them (spec 2026-10-03 §5)
+    app.state.registry = reg
+    store = reg.store
+    # work a stopped server left unfinished: answers can't resume, so end them (spec 2026-10-03 §5); once per server
     store.end_pending_ai_replies("I couldn't answer: CodeTortoise restarted before the answer was finished. Ask again.")
-    if svc.ledger:
-        svc.ledger.fail_running()
-        svc.ledger.prune()                         # logged requests past llm.request_log_days
-    state = {"ready": run_health(svc).ready}
+    reg.ledger.fail_running()
+    reg.ledger.prune()                         # logged requests past llm.request_log_days
 
-    def user_of(request: Request) -> str:
-        user = store.session_user(request.cookies.get(COOKIE))
-        if user is None:
+    @app.exception_handler(SignInRequired)
+    async def sign_in_required(request: Request, e: SignInRequired):
+        return JSONResponse({"detail": "sign in required", "server": e.server}, status_code=401)
+
+    def logins_of(request: Request) -> dict[str, str]:
+        """The session's sign-ins, server -> user."""
+        got = store.session_logins(request.cookies.get(COOKIE))
+        if not got:
             raise HTTPException(401, "login required")
-        return user
+        return got
 
-    def owner_of(user: str = Depends(user_of)) -> str:
-        if user != cfg.owner:
-            raise HTTPException(403, "owner only")
-        return user
-
-    def review_or_404(rid: int) -> dict:
+    def in_review(rid: int, logins: dict[str, str] = Depends(logins_of)) -> Access:
+        """The review, read as the session's sign-in on its workspace's server (§7)."""
         r = store.get_review(rid)
-        if r is None:
+        ws = reg.for_review(r) if r is not None else None
+        if ws is None:
             raise HTTPException(404, "review not found")
-        return r
+        user = logins.get(ws.server)
+        if user is None:
+            raise SignInRequired(ws.server)
+        return Access(r, ws, user)
 
-    # ---- auth --------------------------------------------------------------
+    def owner_in_review(a: Access = Depends(in_review)) -> Access:
+        if not a.is_owner:
+            raise HTTPException(403, "owner only")
+        return a
+
+    def owned(wid: int, logins: dict[str, str] = Depends(logins_of)) -> Owned:
+        """A workspace its owner acts on: 404 off the session's servers, 403 for anyone else (§7)."""
+        ws = reg.get(wid)
+        if ws is None or ws.server not in logins:
+            raise HTTPException(404, "workspace not found")
+        if logins[ws.server] != ws.owner:
+            raise HTTPException(403, "owner only")
+        return Owned(ws, logins[ws.server], logins)
+
+    def bundle(ws: Workspace) -> Services:
+        """A workspace's bundle (waited for while it is still being built, right after startup); 409 with the reason
+        while it has none."""
+        reg.settle(ws)
+        if ws.svc is None:
+            raise HTTPException(409, f"the workspace {ws.name} is not loaded: {ws.reason}")
+        return ws.svc
+
+    def ready(ws: Workspace) -> Services:
+        """A workspace's bundle when its checks pass; 409 with the reason otherwise (§11)."""
+        reg.settle(ws)
+        if not ws.ready:
+            raise HTTPException(409, f"the workspace {ws.name} is not ready: {ws.reason}; see its Health")
+        return ws.svc
+
+    def ws_ref(ws: Workspace) -> dict:
+        return {"id": ws.id, "name": ws.name, "server": ws.server}
+
+    # ---- sign-in: one per Perforce server (spec 2026-10-31 §7) ----------------------
+    @app.get("/api/servers")
+    def servers(request: Request):
+        """The Perforce servers of all workspaces, each with the session's user there or null; open to the sign-in
+        page."""
+        logins = store.session_logins(request.cookies.get(COOKIE)) or {}
+        return [{"server": s, "user": logins.get(s)} for s in reg.servers()]
+
     @app.post("/api/login")
-    def login(body: LoginIn, response: Response):
+    def login(body: LoginIn, request: Request, response: Response):
+        known = reg.servers()
+        server = body.server if body.server is not None else (known[0] if len(known) == 1 else None)
+        if server is None:
+            raise HTTPException(422, "choose a Perforce server")
+        if server not in known:
+            raise HTTPException(422, f"no workspace is on {server}")
         try:
-            ticket = authenticate(body.user, body.password)
+            ticket = authenticate(server, body.user, body.password)
         except LoginRejected as e:
             raise HTTPException(401, str(e)) from e
         if ticket is None:
             raise HTTPException(401, "invalid credentials")
-        if body.user == cfg.owner:
-            svc.owner_ticket = ticket
-        token = store.create_session(body.user)
+        if body.user in reg.owners(server):
+            reg.keep_ticket(server, body.user, ticket)
+        token = request.cookies.get(COOKIE)
+        if store.session_logins(token) is None:
+            token = store.open_session()
+        store.add_login(token, server, body.user)
         response.set_cookie(COOKIE, token, httponly=True, samesite="lax", max_age=7 * 86400,
-                            secure=cfg.server.tls_cert is not None)
-        return {"user": body.user, "is_owner": body.user == cfg.owner}
+                            secure=reg.base.server.tls_cert is not None)
+        return {"server": server, "user": body.user}
 
     @app.post("/api/logout")
     def logout(request: Request, response: Response):
@@ -140,19 +229,25 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         return {"ok": True}
 
     @app.get("/api/me")
-    def me(user: str = Depends(user_of)):
-        return {"user": user, "is_owner": user == cfg.owner, "swarm_ready": svc.swarm() is not None}
+    def me(logins: dict[str, str] = Depends(logins_of)):
+        """The session's sign-ins and the workspaces it owns (§8)."""
+        return {"logins": [{"server": s, "user": u} for s, u in sorted(logins.items())],
+                "owner_of": sorted(w.id for w in reg.all() if logins.get(w.server) == w.owner)}
 
-    # ---- health / index -------------------------------------------------------
-    @app.get("/api/health")
-    def health(_: str = Depends(owner_of)):
-        rep = run_health(svc, deep=True)
-        state["ready"] = rep.ready
-        return {**rep.model_dump(), "index_building": runner.index_building}
+    # ---- a workspace's health, index and shared sinks (owner; spec 2026-10-31 §8) -----
+    @app.get("/api/workspaces/{wid}/health")
+    def health(o: Owned = Depends(owned)):
+        """Its checks run again, with a sample parse per toolchain group (its Health page)."""
+        rep = reg.recheck(o.ws, deep=True)
+        if rep is None:                              # no bundle: what stops it is the one check shown
+            rep = HealthReport(checks=[{"name": "workspace", "ok": False, "hard": True, "detail": o.ws.reason or ""}],
+                               ready=False)
+        return {**rep.model_dump(), "index_building": o.ws.runner.index_building if o.ws.runner else False}
 
-    @app.post("/api/index/rebuild")
-    def rebuild_index(_: str = Depends(owner_of)):
-        runner.submit_index()
+    @app.post("/api/workspaces/{wid}/index/rebuild")
+    def rebuild_index(o: Owned = Depends(owned)):
+        bundle(o.ws)
+        o.ws.runner.submit_index()
         return {"queued": True}
 
     # ---- reviews ------------------------------------------------------------
@@ -177,35 +272,50 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
             return None
 
     @app.get("/api/reviews")
-    def list_reviews(_: str = Depends(user_of)):
-        out = store.list_reviews()
-        for r in out:
+    def list_reviews(logins: dict[str, str] = Depends(logins_of)):
+        """The reviews on the session's servers, each with its workspace (§8)."""
+        out = []
+        for r in store.list_reviews():
+            ws = reg.for_review(r)
+            if ws is None or ws.server not in logins:
+                continue
+            r["workspace"] = ws_ref(ws)
             r["headline"] = review_headline(r["id"])
+            out.append(r)
         return out
 
     @app.post("/api/reviews")
-    def create_review(body: ReviewIn, user: str = Depends(owner_of)):
-        if not state["ready"]:
-            raise HTTPException(409, "startup checks failing; see Health")
+    def create_review(body: ReviewIn, logins: dict[str, str] = Depends(logins_of)):
+        """A review in a workspace, by its owner; refused while the workspace isn't ready (§8, §11)."""
+        wid = body.workspace_id
+        if wid is None:
+            every = reg.all()
+            if len(every) != 1:
+                raise HTTPException(422, "choose a workspace")
+            wid = every[0].id
+        o = owned(wid, logins)
+        ready(o.ws)
         title = body.title or "CLs " + ", ".join(str(c) for c in sorted(set(body.cls)))
-        rid = store.create_review(title, user, body.cls)
-        runner.submit_review(rid)
+        rid = store.create_review(title, o.user, body.cls, workspace_id=o.ws.id)
+        o.ws.runner.submit_review(rid)
         return store.get_review(rid)
 
     @app.get("/api/reviews/{rid}")
-    def get_review(rid: int, _: str = Depends(user_of)):
-        return {"review": review_or_404(rid), "cls": store.list_cls(rid), "stages": store.list_stages(rid)}
+    def get_review(rid: int, a: Access = Depends(in_review)):
+        """The review, its CLs and stages, its workspace, and who the session is inside it (§8)."""
+        return {"review": a.review, "cls": store.list_cls(rid), "stages": store.list_stages(rid),
+                "workspace": ws_ref(a.ws), "viewer": {"user": a.user, "is_owner": a.is_owner}}
 
     @app.post("/api/reviews/{rid}/rerun")
-    def rerun(rid: int, fresh: bool = False, _: str = Depends(owner_of)):
-        """Run the review again; `fresh` asks the strong model for new stories instead of reusing a brief."""
-        review_or_404(rid)
-        runner.submit_review(rid, fresh=fresh)
+    def rerun(rid: int, fresh: bool = False, a: Access = Depends(owner_in_review)):
+        """Run the review again; `fresh` asks the strong model for new stories instead of reusing a brief. Refused while
+        its workspace isn't ready (§11)."""
+        ready(a.ws)
+        a.ws.runner.submit_review(rid, fresh=fresh)
         return {"queued": True}
 
     @app.get("/api/reviews/{rid}/events")
-    async def events(rid: int, request: Request, _: str = Depends(user_of)):
-        review_or_404(rid)
+    async def events(rid: int, request: Request, a: Access = Depends(in_review)):
 
         async def gen():
             last = None
@@ -221,17 +331,15 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         return StreamingResponse(gen(), media_type="text/event-stream")
 
     @app.get("/api/reviews/{rid}/overview")
-    def overview(rid: int, _: str = Depends(user_of)):
+    def overview(rid: int, a: Access = Depends(in_review)):
         """A split review's overview (spec 2026-10-03-large-change-boards §4); 404 for a review shown as one board."""
-        review_or_404(rid)
         ov = boardstore.overview(store, rid)
         if ov is None:
             raise HTTPException(404, "this review is shown as one board")
         return ov.model_dump()
 
     @app.get("/api/reviews/{rid}/board")
-    def board(rid: int, cluster: str | None = None, _: str = Depends(user_of)):
-        review_or_404(rid)
+    def board(rid: int, cluster: str | None = None, a: Access = Depends(in_review)):
         b = boardstore.board(store, rid, cluster)
         if b is None:
             if cluster:
@@ -247,18 +355,16 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
     NO_STORIES = "this review has no stories: re-run it"
 
     @app.get("/api/reviews/{rid}/stories")
-    def stories(rid: int, _: str = Depends(user_of)):
+    def stories(rid: int, a: Access = Depends(in_review)):
         """The review told as stories (spec 2026-10-04-change-stories §2); 404 for a review run before them."""
-        review_or_404(rid)
         ss = boardstore.stories(store, rid)
         if ss is None:
             raise HTTPException(404, NO_STORIES)
         return ss.model_dump()
 
     @app.get("/api/reviews/{rid}/stories/{sid}")
-    def story(rid: int, sid: str, _: str = Depends(user_of)):
+    def story(rid: int, sid: str, a: Access = Depends(in_review)):
         """One story: its board (every node it mentions) and its graph."""
-        review_or_404(rid)
         d = boardstore.story(store, rid, sid)
         if d is None:
             if boardstore.stories(store, rid) is None:
@@ -276,9 +382,8 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
     NO_CHECK = "That check no longer exists after the re-run."
 
     @app.get("/api/reviews/{rid}/reading")
-    def reading(rid: int, _: str = Depends(user_of)):
+    def reading(rid: int, a: Access = Depends(in_review)):
         """Threads, connections, To check and the marks on it (spec 2026-10-07-review-reading §10.4)."""
-        review_or_404(rid)
         view = reading_view(rid)
         if view is None:
             raise HTTPException(404, NO_READING)
@@ -306,41 +411,36 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         return by_key
 
     @app.post("/api/reviews/{rid}/checks/marks")
-    def mark_checks(rid: int, body: KeysIn, user: str = Depends(user_of)):
+    def mark_checks(rid: int, body: KeysIn, a: Access = Depends(in_review)):
         """All look fine (spec 2026-10-16 §4.3): every key or none."""
-        review_or_404(rid)
         keys = list(dict.fromkeys(body.keys))                # a key given twice is marked once
         by_key = known_checks_or_404(rid, keys)
-        return {"marked": store.set_marks(rid, user, [(key, by_key[key].source_line) for key in keys])}
+        return {"marked": store.set_marks(rid, a.user, [(key, by_key[key].source_line) for key in keys])}
 
     @app.post("/api/reviews/{rid}/checks/unmarks")
-    def unmark_checks(rid: int, body: KeysIn, _: str = Depends(user_of)):
+    def unmark_checks(rid: int, body: KeysIn, a: Access = Depends(in_review)):
         """Reopen several places at once, as a Flows row's Reopen does: every key or none."""
-        review_or_404(rid)
         known_checks_or_404(rid, body.keys)
         store.clear_marks(rid, body.keys)
         return {"ok": True}
 
     @app.post("/api/reviews/{rid}/checks/{key:path}/mark")
-    def mark_check(rid: int, key: str, user: str = Depends(user_of)):
-        review_or_404(rid)
+    def mark_check(rid: int, key: str, a: Access = Depends(in_review)):
         k = check_or_404(rid, key)
-        store.set_tick(rid, user, "check", k.key)          # Looks fine is also read, for the one who says it
-        return store.set_mark(rid, k.key, user, k.source_line)
+        store.set_tick(rid, a.user, "check", k.key)          # Looks fine is also read, for the one who says it
+        return store.set_mark(rid, k.key, a.user, k.source_line)
 
     @app.delete("/api/reviews/{rid}/checks/{key:path}/mark")
-    def unmark_check(rid: int, key: str, _: str = Depends(user_of)):
-        review_or_404(rid)
+    def unmark_check(rid: int, key: str, a: Access = Depends(in_review)):
         store.clear_mark(rid, key)
         return {"ok": True}
 
     # ---- the reading plan (spec 2026-10-07-review-reading-phase2 §6) --------
     @app.get("/api/reviews/{rid}/ticks")
-    def ticks(rid: int, user: str = Depends(user_of)):
-        review_or_404(rid)
+    def ticks(rid: int, a: Access = Depends(in_review)):
         if not store.has_blob(rid, "reading"):
             return {"stories": [], "checks": []}
-        return store.list_ticks(rid, user)
+        return store.list_ticks(rid, a.user)
 
     def tick_or_404(rid: int, kind: str, key: str) -> None:
         raw = store.get_blob(rid, "reading") or {}          # the stored keys alone: no need to build the whole model
@@ -349,24 +449,21 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
             raise HTTPException(404, "That story or check is not in this review's reading.")
 
     @app.put("/api/reviews/{rid}/ticks/{kind}/{key:path}")
-    def tick(rid: int, kind: Literal["story", "check"], key: str, user: str = Depends(user_of)):
-        review_or_404(rid)
+    def tick(rid: int, kind: Literal["story", "check"], key: str, a: Access = Depends(in_review)):
         tick_or_404(rid, kind, key)
-        store.set_tick(rid, user, kind, key)
+        store.set_tick(rid, a.user, kind, key)
         return {"ok": True}
 
     @app.delete("/api/reviews/{rid}/ticks/{kind}/{key:path}")
-    def untick(rid: int, kind: Literal["story", "check"], key: str, user: str = Depends(user_of)):
-        review_or_404(rid)
+    def untick(rid: int, kind: Literal["story", "check"], key: str, a: Access = Depends(in_review)):
         tick_or_404(rid, kind, key)
-        store.clear_tick(rid, user, kind, key)
+        store.clear_tick(rid, a.user, kind, key)
         return {"ok": True}
 
     @app.get("/api/reviews/{rid}/locate")
     def locate(rid: int, node: str | None = None, flow: str | None = None, finding: str | None = None,
-               _: str = Depends(user_of)):
+               a: Access = Depends(in_review)):
         """The cluster to open for a node, flow or finding (null for a review shown as one board), and its story."""
-        review_or_404(rid)
         ss = boardstore.stories(store, rid)
         sid = None
         if ss is not None:
@@ -400,10 +497,9 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         return im, store.get_blob(rid, "node_files") or {}, boardstore.stories(store, rid)
 
     @app.get("/api/reviews/{rid}/names")
-    def node_names(rid: int, _: str = Depends(user_of)):
+    def node_names(rid: int, a: Access = Depends(in_review)):
         """A name for every node the UI can show (spec 2026-10-04-review-workspace §4.2): changed code, nodes on any
         board or story, findings' nodes and the nodes cited in flow, story, finding and summary text."""
-        review_or_404(rid)
         im = store.get_blob(rid, "impact") or {}               # as stored: only the nodes named are built, not the graph
         ss = boardstore.stories(store, rid)
         ids, texts = boardstore.shown_nodes(store, rid, ss)
@@ -419,20 +515,18 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
 
     @app.get("/api/reviews/{rid}/nodes/{nid}/neighbours")
     def node_neighbours(rid: int, nid: str, limit: int = 20, callers: int | None = None, callees: int | None = None,
-                        _: str = Depends(user_of)):
+                        a: Access = Depends(in_review)):
         """A node's callers and callees, the most affected first (spec 2026-10-04-review-workspace §4.3)."""
-        review_or_404(rid)
         im, depot_of, ss = shown(rid)
-        out = neighbours(im, nid, depot_of, ss.node_story if ss else {}, root=canon(str(cfg.workspace.root)), limit=limit,
-                         callers=callers, callees=callees)
+        out = neighbours(im, nid, depot_of, ss.node_story if ss else {}, root=canon(str(a.ws.cfg.workspace.root)),
+                         limit=limit, callers=callers, callees=callees)
         if out is None:
             raise HTTPException(404, f"no node {nid} in this review")
         return out
 
     @app.get("/api/reviews/{rid}/source")
-    def source(rid: int, path: str, side: Literal["before", "after"] = "after", _: str = Depends(user_of)):
+    def source(rid: int, path: str, side: Literal["before", "after"] = "after", a: Access = Depends(in_review)):
         """A file's text for the board: changed files from the change set, others from the base workspace."""
-        review_or_404(rid)
         f = filestore.one(store, rid, path)
         if f is not None:
             rev = (f.get("base_rev") or "base") if side == "before" else "changed"
@@ -441,7 +535,7 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         cached = store.get_blob(rid, key)
         if cached is None:
             try:
-                sf = svc.source.read(path)
+                sf = bundle(a.ws).source.read(path)
             except SourceNotAllowed as e:
                 raise HTTPException(403, str(e)) from e
             except SourceBinary as e:
@@ -455,104 +549,98 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         return cached
 
     @app.get("/api/reviews/{rid}/findings")
-    def findings(rid: int, _: str = Depends(user_of)):
-        review_or_404(rid)
-        root = canon(str(cfg.workspace.root))                     # text read by people; titles stay as stored (anchors)
+    def findings(rid: int, a: Access = Depends(in_review)):
+        root = canon(str(a.ws.cfg.workspace.root))               # text read by people; titles stay as stored (anchors)
         return [f.model_copy(update={"summary": tidy(f.summary, root),
                                      "evidence": [e.model_copy(update={"text": tidy(e.text, root)}) for e in f.evidence]})
                 .model_dump() for f in store.list_findings(rid)]
 
     @app.patch("/api/reviews/{rid}/findings/{fid}")
-    def finding_state(rid: int, fid: str, body: FindingStateIn, _: str = Depends(owner_of)):
+    def finding_state(rid: int, fid: str, body: FindingStateIn, a: Access = Depends(owner_in_review)):
         if not store.set_finding_state(rid, fid, body.state):
             raise HTTPException(404, "finding not found")
         return {"ok": True}
 
     @app.get("/api/reviews/{rid}/files")
-    def files(rid: int, _: str = Depends(user_of)):
+    def files(rid: int, a: Access = Depends(in_review)):
         """The changed files without their text (a file's text comes with /file, when it is shown)."""
-        review_or_404(rid)
         return filestore.listing(store, rid)
 
     @app.get("/api/reviews/{rid}/file")
-    def changed_file(rid: int, path: str, _: str = Depends(user_of)):
+    def changed_file(rid: int, path: str, a: Access = Depends(in_review)):
         """A changed file's text before and after, and each CL's, with who wrote each line of a file several CLs edit
         (phase 2 §4)."""
-        review_or_404(rid)
         f = filestore.one(store, rid, path)
         if f is None:
             raise HTTPException(404, f"{path} is not a changed file of this review")
         lines = store.get_blob(rid, "lines") or {}
         return {**f, "lines": lines[path]} if path in lines else f
 
-    # ---- shared sinks (spec 2026-10-09-shared-sinks §6) -----------------------
-    def sinks_view() -> dict:
-        return {"threshold": cfg.analysis.sink_threshold, "patterns": cfg.analysis.sink_fields, "marked": marks(store)}
+    # ---- shared sinks (spec 2026-10-09-shared-sinks §6), per workspace (spec 2026-10-31 §5) ----
+    def sinks_view(ws: Workspace) -> dict:
+        an = ws.cfg.analysis
+        return {"threshold": an.sink_threshold, "patterns": an.sink_fields, "marked": marks(store, bundle(ws).scope)}
 
     def sink_label(label: str) -> str:
         if not label.strip() or len(label) > 300:
             raise HTTPException(422, "a field's label, as record::field")
         return label
 
-    @app.get("/api/sinks")
-    def sinks(_: str = Depends(user_of)):
-        return sinks_view()
+    @app.get("/api/workspaces/{wid}/sinks")
+    def sinks(o: Owned = Depends(owned)):
+        return sinks_view(o.ws)
 
-    @app.put("/api/sinks/{label:path}")
-    def mark_sink(label: str, _: str = Depends(owner_of)):
-        set_mark(store, sink_label(label), True)
-        return sinks_view()
+    @app.put("/api/workspaces/{wid}/sinks/{label:path}")
+    def mark_sink(label: str, o: Owned = Depends(owned)):
+        set_mark(store, sink_label(label), True, bundle(o.ws).scope)
+        return sinks_view(o.ws)
 
-    @app.delete("/api/sinks/{label:path}")
-    def unmark_sink(label: str, _: str = Depends(owner_of)):
-        set_mark(store, sink_label(label), False)
-        return sinks_view()
+    @app.delete("/api/workspaces/{wid}/sinks/{label:path}")
+    def unmark_sink(label: str, o: Owned = Depends(owned)):
+        set_mark(store, sink_label(label), False, bundle(o.ws).scope)
+        return sinks_view(o.ws)
 
     # ---- AI on demand (spec 2026-10-03) ---------------------------------------
     @app.post("/api/reviews/{rid}/explain", status_code=202)
-    def explain(rid: int, body: ExplainIn, user: str = Depends(user_of)):
-        review_or_404(rid)
+    def explain(rid: int, body: ExplainIn, a: Access = Depends(in_review)):
+        svc = bundle(a.ws)
         if svc.llm is None or svc.ledger is None:
             raise HTTPException(409, "no LLM is configured")
-        if store.get_review(rid)["status"] not in TERMINAL:
+        if a.review["status"] not in TERMINAL:
             raise HTTPException(409, RERUNNING)
         try:
             ondemand.check_target(svc, rid, body.kind, body.target)
         except ondemand.NotFound as e:
             raise HTTPException(404, str(e)) from e
-        same = next((j for j in runner.ai_jobs.get(rid, []) if j["status"] == "running" and j["kind"] == body.kind
+        same = next((j for j in reg.pool.jobs.get(rid, []) if j["status"] == "running" and j["kind"] == body.kind
                      and j["target"] == body.target), None)
         if same:                                       # someone is already asking: share that answer, pay once
             return same
-        reason = svc.ledger.check(rid, user)
+        reason = svc.ledger.check(rid, a.user)
         if reason:
             raise HTTPException(429, reason)
-        return runner.submit_ai(rid, user, body.kind, body.target,
-                                lambda: ondemand.explain(svc, rid, user, body.kind, body.target))
+        return a.ws.runner.submit_ai(rid, a.user, body.kind, body.target,
+                                     lambda: ondemand.explain(svc, rid, a.user, body.kind, body.target))
 
     @app.get("/api/reviews/{rid}/ai")
-    def ai_view(rid: int, user: str = Depends(user_of)):
-        review_or_404(rid)
+    def ai_view(rid: int, a: Access = Depends(in_review)):
+        svc, cfg, ledger = a.ws.svc, a.ws.cfg, reg.ledger
         b = cfg.llm.budget
-        u = svc.ledger.usage(rid) if svc.ledger else {"used": 0, "budget": b.per_review, "by_person": {},
-                                                      "by_purpose": {}, "calls": [],
-                                                      "tier1": {"used": 0, "budget": b.tier1_per_review}}
+        u = ledger.usage(rid)
         u.pop("calls", None)                           # polled while work is pending; the list is /ai/calls
-        rounds = svc.ledger.rounds(rid) if svc.ledger else b.per_mention
-        strong = cfg.llm.strong.model if svc.strong is not None and cfg.llm.strong else None
-        return {**u, "llm": svc.llm is not None, "strong": strong, "me_today": svc.ledger.person_today(user) if svc.ledger else 0,
-                "me_limit": b.per_person_daily, "per_mention": rounds, "is_owner": user == cfg.owner,
-                "jobs": runner.ai_jobs.get(rid, []), "file_summaries": store.get_blob(rid, "file_summaries") or {}}
+        strong = cfg.llm.strong.model if svc is not None and svc.strong is not None and cfg.llm.strong else None
+        return {**u, "llm": svc is not None and svc.llm is not None, "strong": strong,
+                "me_today": ledger.person_today(a.user), "me_limit": b.per_person_daily,
+                "per_mention": ledger.rounds(rid), "is_owner": a.is_owner, "jobs": reg.pool.jobs.get(rid, []),
+                "file_summaries": store.get_blob(rid, "file_summaries") or {}}
 
     @app.get("/api/reviews/{rid}/ai/calls")
-    def ai_calls(rid: int, _: str = Depends(user_of)):
-        review_or_404(rid)
-        return svc.ledger.usage(rid)["calls"] if svc.ledger else []
+    def ai_calls(rid: int, a: Access = Depends(in_review)):
+        return reg.ledger.usage(rid)["calls"]
 
     @app.get("/api/reviews/{rid}/ai/requests.zip")
-    def ai_requests(rid: int, call: int | None = None, _: str = Depends(user_of)):
+    def ai_requests(rid: int, call: int | None = None, a: Access = Depends(in_review)):
         """The review's logged AI requests, one JSON file per request (spec 2026-10-08-llm-robustness §8.2)."""
-        review_or_404(rid)
         got = request_log.rows(store, rid, call)
         if not got:
             raise HTTPException(404, "no requests logged")
@@ -561,40 +649,41 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
                         headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
     @app.put("/api/reviews/{rid}/ai/budget")
-    def ai_budget(rid: int, body: BudgetIn, user: str = Depends(owner_of)):
-        review_or_404(rid)
-        svc.ledger.raise_budget(rid, body.budget, user)
-        return {"budget": svc.ledger.budget(rid)}
+    def ai_budget(rid: int, body: BudgetIn, a: Access = Depends(owner_in_review)):
+        reg.ledger.raise_budget(rid, body.budget, a.user)
+        return {"budget": reg.ledger.budget(rid)}
 
     @app.put("/api/reviews/{rid}/ai/rounds")
-    def ai_rounds(rid: int, body: RoundsIn, user: str = Depends(owner_of)):
-        review_or_404(rid)
-        svc.ledger.set_rounds(rid, body.rounds, user)
-        return {"rounds": svc.ledger.rounds(rid)}
+    def ai_rounds(rid: int, body: RoundsIn, a: Access = Depends(owner_in_review)):
+        reg.ledger.set_rounds(rid, body.rounds, a.user)
+        return {"rounds": reg.ledger.rounds(rid)}
 
     # ---- comments ----------------------------------------------------------
     @app.get("/api/reviews/{rid}/comments")
-    def comments(rid: int, _: str = Depends(user_of)):
-        review_or_404(rid)
+    def comments(rid: int, a: Access = Depends(in_review)):
         return store.list_comments(rid)
 
     @app.post("/api/reviews/{rid}/comments")
-    def add_comment(rid: int, body: CommentIn, user: str = Depends(user_of)):
-        review_or_404(rid)
+    def add_comment(rid: int, body: CommentIn, a: Access = Depends(in_review)):
         if body.parent_id is not None:
             parent = store.get_comment(body.parent_id)
             if parent is None or parent["review_id"] != rid:
                 raise HTTPException(400, "bad parent_id")
-        c = store.add_comment(rid, user, body.body, body.anchor_kind, body.anchor, body.parent_id)
-        if tortoise.mentions(body.body) and user != tortoise.AUTHOR:
-            ask_tortoise(rid, user, c)
+        c = store.add_comment(rid, a.user, body.body, body.anchor_kind, body.anchor, body.parent_id)
+        if tortoise.mentions(body.body) and a.user != tortoise.AUTHOR:
+            ask_tortoise(a, c)
         return c
 
-    def ask_tortoise(rid: int, user: str, question: dict) -> None:
+    def ask_tortoise(a: Access, question: dict) -> None:
         """Post tortoise's reply in the question's thread and answer it as a job (spec 2026-10-03 §5)."""
+        rid, user, svc = a.rid, a.user, a.ws.svc
         root = question["parent_id"] or question["id"]
         reply = store.add_comment(rid, tortoise.AUTHOR, "thinking…", question["anchor_kind"], question["anchor"], root)
         base = {"pending": False, "read": [], "files": [], "calls": 0}
+        if svc is None:
+            why = f"the workspace {a.ws.name} is not loaded: {a.ws.reason}"
+            store.set_ai_reply(reply["id"], f"I can't answer: {why}.", {**base, "error": why})
+            return
         if svc.llm is None or svc.ledger is None:
             store.set_ai_reply(reply["id"], "I can't answer: no AI is configured for CodeTortoise.",
                                {**base, "error": "no LLM"})
@@ -609,31 +698,34 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
             return
         store.set_ai_reply(reply["id"], "thinking…", {**base, "pending": True, "round": 0,
                                                       "of": svc.ledger.rounds(rid)})
-        runner.submit_ai(rid, user, "mention", str(reply["id"]),
-                         lambda: tortoise.answer(svc, rid, user, question, reply["id"]))
+        a.ws.runner.submit_ai(rid, user, "mention", str(reply["id"]),
+                              lambda: tortoise.answer(svc, rid, user, question, reply["id"]))
 
-    @app.patch("/api/comments/{cid}")
-    def edit_comment(cid: int, body: CommentPatch, user: str = Depends(user_of)):
+    def comment_access(cid: int, logins: dict[str, str] = Depends(logins_of)) -> tuple[dict, Access]:
+        """A comment and its review, read as the session's sign-in on that review's server."""
         c = store.get_comment(cid)
         if c is None:
             raise HTTPException(404, "comment not found")
-        if body.body is not None and c["author"] != user:
+        return c, in_review(c["review_id"], logins)
+
+    @app.patch("/api/comments/{cid}")
+    def edit_comment(cid: int, body: CommentPatch, got: tuple[dict, Access] = Depends(comment_access)):
+        c, a = got
+        if body.body is not None and c["author"] != a.user:
             raise HTTPException(403, "only the author can edit")
         return store.update_comment(cid, body=body.body, resolved=body.resolved)
 
     @app.delete("/api/comments/{cid}")
-    def delete_comment(cid: int, user: str = Depends(user_of)):
-        c = store.get_comment(cid)
-        if c is None:
-            raise HTTPException(404, "comment not found")
-        if c["author"] != user and user != cfg.owner:
+    def delete_comment(cid: int, got: tuple[dict, Access] = Depends(comment_access)):
+        c, a = got
+        if c["author"] != a.user and not a.is_owner:
             raise HTTPException(403, "only the author or owner can delete")
         store.delete_comment(cid)
         return {"ok": True}
 
     # ---- swarm ---------------------------------------------------------------
-    def swarm_client():
-        client = svc.swarm()
+    def swarm_client(a: Access):
+        client = bundle(a.ws).swarm()
         if client is None:
             raise HTTPException(409, "Swarm not configured or owner not logged in")
         return client
@@ -645,24 +737,24 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         return row
 
     @app.post("/api/reviews/{rid}/cls/{cl}/swarm/refresh")
-    def swarm_refresh(rid: int, cl: int, _: str = Depends(owner_of)):
+    def swarm_refresh(rid: int, cl: int, a: Access = Depends(owner_in_review)):
         cl_row(rid, cl)
         try:
-            data = swarm_client().get_review_for_change(cl)
+            data = swarm_client(a).get_review_for_change(cl)
         except SwarmError as e:
             raise HTTPException(502, str(e)) from e
         store.set_cl_swarm(rid, cl, data)
         return data
 
     @app.post("/api/reviews/{rid}/cls/{cl}/swarm/create")
-    def swarm_create(rid: int, cl: int, _: str = Depends(owner_of)):
+    def swarm_create(rid: int, cl: int, a: Access = Depends(owner_in_review)):
         row = cl_row(rid, cl)
         if row["status"] != "pending":
             raise HTTPException(409, "only pending (shelved) CLs can get a new Swarm review")
         if row.get("swarm"):
             raise HTTPException(409, "CL already has a Swarm review")
         try:
-            data = swarm_client().create_review(cl, row.get("description") or f"CL {cl}")
+            data = swarm_client(a).create_review(cl, row.get("description") or f"CL {cl}")
         except SwarmError as e:
             raise HTTPException(502, str(e)) from e
         store.set_cl_swarm(rid, cl, data)
@@ -670,17 +762,17 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
         return data
 
     @app.post("/api/reviews/{rid}/cls/{cl}/swarm/post")
-    def swarm_post(rid: int, cl: int, body: SwarmPostIn, _: str = Depends(owner_of)):
+    def swarm_post(rid: int, cl: int, body: SwarmPostIn, a: Access = Depends(owner_in_review)):
         row = cl_row(rid, cl)
         if not row.get("swarm"):
             raise HTTPException(409, "CL has no Swarm review")
         if any(p["kind"] == "summary" for p in store.swarm_posts(rid, cl)) and not body.confirm_repeat:
             raise HTTPException(409, "summary already posted; resend with confirm_repeat")
         sb = store.get_blob(rid, "storyboard") or {}
-        link = f"{cfg.server.public_url.rstrip('/')}/r/{rid}"
+        link = f"{reg.base.server.public_url.rstrip('/')}/r/{rid}"
         text = f"CodeTortoise review (risk: {sb.get('risk', 'n/a')}): {sb.get('summary', '')}\n\nFull storyboard: {link}"
         try:
-            cid = swarm_client().post_comment(row["swarm"]["id"], text)
+            cid = swarm_client(a).post_comment(row["swarm"]["id"], text)
         except SwarmError as e:
             raise HTTPException(502, str(e)) from e
         store.record_swarm_post(rid, cl, "summary", cid)
@@ -702,15 +794,19 @@ def create_app(svc: Services, runner: JobRunner, authenticate) -> FastAPI:
     return app
 
 
-def make_authenticator(svc: Services):
-    if svc.cfg.auth.mode == "dev":
-        return lambda user, password: "" if user else None
+def make_authenticator(reg: Registry, runner_for: Callable[[str], P4Runner | None] | None = None):
+    """authenticate(server, user, password) -> a ticket, or None. `runner_for(server)` is what runs `p4 login` there
+    (default: the registry's, from one of that server's Perforce workspaces; none for a git workspace's server)."""
+    if reg.base.auth.mode == "dev":
+        return lambda server, user, password: "" if user else None
+    runner_for = runner_for or reg.login_runner
 
-    def p4_auth(user: str, password: str) -> str | None:
-        if svc.p4 is None or not user:
+    def p4_auth(server: str, user: str, password: str) -> str | None:
+        p4 = runner_for(server)
+        if p4 is None or not user:
             return None
         try:
-            return svc.p4.login_check(user, password, all_hosts=user == svc.cfg.owner)
+            return p4.login_check(user, password, all_hosts=user in reg.owners(server))
         except P4Error as e:
             if "expired" in str(e).lower():
                 raise LoginRejected("Your Perforce password has expired. Change it with `p4 passwd`, then sign in "

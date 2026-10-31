@@ -4,12 +4,11 @@ import re
 
 import httpx
 import pytest
-from helpers import make_services
+from helpers import make_app, make_services
 from test_web import InlineRunner, login
 
 from codetortoise.config import LlmBudget
 from codetortoise.llm.client import LlmClient
-from codetortoise.web.app import create_app, make_authenticator
 
 CITES = [f"N{i}" for i in range(1, 40)] + [f"F{i}" for i in range(1, 10)]
 
@@ -50,7 +49,7 @@ def ai(fx, tmp_path):
     svc.cfg.llm.upfront_flows = 1                                      # the fixture has 3 flows: leave 2 for later
     svc.cfg.llm.upfront_stories = 1                                    # and 2 stories: leave 1
     svc.cfg.llm.upfront_findings = 1                                   # and several high findings: leave the rest
-    app = create_app(svc, InlineRunner(svc), make_authenticator(svc))
+    app = make_app(svc, InlineRunner(svc))
     owner = login(app, "owner")
     rid = owner.post("/api/reviews", json={"cls": [101, 102]}).json()["id"]
     return svc, app, owner, rid, seen
@@ -135,7 +134,7 @@ def test_bad_targets_and_no_llm(ai, fx, tmp_path):
     assert owner.post(f"/api/reviews/{rid}/explain", json={"kind": "flow", "target": "FL99"}).status_code == 404
     assert owner.post(f"/api/reviews/{rid}/explain", json={"kind": "file", "target": "//fixture/nope.c"}).status_code == 404
     plain = make_services(fx, tmp_path / "p")
-    app2 = create_app(plain, InlineRunner(plain), make_authenticator(plain))
+    app2 = make_app(plain, InlineRunner(plain))
     o2 = login(app2, "owner")
     rid2 = o2.post("/api/reviews", json={"cls": [101]}).json()["id"]
     assert o2.post(f"/api/reviews/{rid2}/explain", json={"kind": "finding", "target": "F1"}).status_code == 409
@@ -152,7 +151,7 @@ def test_the_ai_view_reports_limits_and_calls(ai):
     assert [c["purpose"] for c in calls] == ["verdict", "flow", "story", "finding", "summary", "story_account",
                                              "story_account"]
     assert all(c["prompt_tokens"] == 1000 for c in calls)
-    h = owner.get("/api/health").json()                               # + layer naming, once per index
+    h = owner.get("/api/workspaces/1/health").json()                  # + layer naming, once per index
     assert h["ai"]["calls_today"] == 8 and h["ai"]["limits"] == {"per_review": 200, "per_person_daily": 100,
                                                                  "per_mention": 6, "tier1_per_review": 40}
 
@@ -295,7 +294,7 @@ def test_an_answer_for_a_review_that_changed_meanwhile_is_dropped(ai, monkeypatc
 def test_asking_for_an_item_already_being_explained_joins_that_job(ai):
     svc, app, owner, rid, _ = ai
     runner = InlineRunner(svc)
-    app2 = create_app(svc, runner, make_authenticator(svc))
+    app2 = make_app(svc, runner)
     bob = login(app2, "bob")
     flow = owner.get(f"/api/reviews/{rid}/board").json()["flows"][-1]["id"]
     running = {"id": 7, "user": "carol", "kind": "flow", "target": flow, "status": "running", "error": None}
