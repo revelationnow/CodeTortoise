@@ -67,3 +67,30 @@ def test_llm_log_prints_one_line_per_request_and_writes_the_files(tmp_path, caps
     assert one["request"] == {"model": "big"} and one["response"] == {"choices": []} and one["truncated"] is True
     assert main(["llm-log", "--config", cfg, str(rid), "--call", str(call + 1)]) == 0
     assert capsys.readouterr().out.strip() == f"no requests logged for review {rid}"
+
+
+def test_tools_work_on_the_workspace_named_else_the_seed(tmp_path, capsys):
+    from codetortoise.store import Store
+    assert main(["fixture-demo", "--dir", str(tmp_path), "--port", "9999"]) == 0
+    cfg = str(tmp_path / "tortoise.yaml")
+    assert main(["index", "--config", cfg]) == 0
+    assert (tmp_path / "data" / "workspaces" / "1" / "symbols.db").exists()        # the seed's own folder
+    assert main(["fixture-demo", "--dir", str(tmp_path / "b"), "--port", "9999"]) == 0
+    store = Store(tmp_path / "data" / "tortoise.db")
+    store.add_workspace({"name": "b", "vcs": "git", "p4port": None, "client": None, "p4user": "demo",
+                         "root": str(tmp_path / "b" / "ws"), "compile_commands": json.dumps("auto"), "build_root": None,
+                         "swarm_url": None, "settings": ""}, "ui", "demo")
+    capsys.readouterr()
+    assert main(["index", "--config", cfg, "--workspace", "b"]) == 0
+    assert (tmp_path / "data" / "workspaces" / "2" / "symbols.db").exists()
+    assert main(["index", "--config", cfg, "--workspace", "nope"]) == 2
+    assert "no workspace named nope (there are: b, ws)" in capsys.readouterr().err
+    assert main(["review", "--config", cfg, "--workspace", "b", "101"]) == 0
+    assert store.get_review(1)["workspace_id"] == 2
+
+
+def test_serve_without_a_workspace_names_both_ways_in(tmp_path, capsys):
+    (tmp_path / "tortoise.yaml").write_text("auth: {mode: dev}\n")
+    assert main(["serve", "--config", str(tmp_path / "tortoise.yaml")]) == 2
+    err = capsys.readouterr().err
+    assert "`workspace:` section" in err and "data folder" in err

@@ -29,28 +29,23 @@ def plain_http_warning(server: ServerConfig) -> str | None:
             "network unencrypted. Set server.tls_cert/tls_key, or bind 127.0.0.1.")
 
 
-def _services(config: str):
-    from codetortoise.services import build_services
-    cfg = load_config(Path(config))
-    if cfg.workspace is None:
-        raise ConfigError("tortoise.yaml names no workspace")
-    return build_services(cfg)
+def _workspace(args):
+    """The workspace a tool works on (spec 2026-10-31 §10): --workspace, else the seed, else the only one."""
+    from codetortoise.workspaces import Registry
+    return Registry.open(load_config(Path(args.config))).tool_workspace(args.workspace)
 
 
 def cmd_serve(args) -> int:
     import uvicorn
 
-    from codetortoise.pipeline import JobRunner
     from codetortoise.web.app import create_app, make_authenticator
-    svc = _services(args.config)
-    runner = JobRunner(svc)
-    runner.start()
-    if svc.index.generation() == 0:
-        runner.submit_index()
-    app = create_app(svc, runner, make_authenticator(svc))
-    if svc.cfg.auth.mode == "dev":
+    from codetortoise.workspaces import Registry
+    reg = Registry.open(load_config(Path(args.config)))
+    reg.load()                                       # bundles build in the background; a broken one never stops us
+    app = create_app(reg, make_authenticator(reg))
+    if reg.base.auth.mode == "dev":
         logging.warning("auth.mode=dev: any username logs in without a password. Do not expose this server.")
-    srv = svc.cfg.server
+    srv = reg.base.server
     warning = plain_http_warning(srv)
     if warning:
         print(f"WARNING: {warning}", file=sys.stderr)
@@ -62,7 +57,7 @@ def cmd_serve(args) -> int:
 
 
 def cmd_index(args) -> int:
-    svc = _services(args.config)
+    svc = _workspace(args).svc
     n = svc.build_index(full=args.full)
     print(f"indexed {n} files (generation {svc.index.generation()})")
     return 0
@@ -70,8 +65,9 @@ def cmd_index(args) -> int:
 
 def cmd_review(args) -> int:
     from codetortoise.pipeline import run_review
-    svc = _services(args.config)
-    rid = svc.store.create_review(args.title or f"CLs {args.cls}", svc.cfg.owner, args.cls)
+    ws = _workspace(args)
+    svc = ws.svc
+    rid = svc.store.create_review(args.title or f"CLs {args.cls}", ws.owner, args.cls, workspace_id=ws.id)
     run_review(rid, svc)
     for s in svc.store.list_stages(rid):
         print(f"{s['name']:<11} {s['status']:<9} {s['message']}")
@@ -86,7 +82,7 @@ def cmd_review(args) -> int:
 
 def cmd_stories_check(args) -> int:
     from codetortoise.stories_check import stories_check
-    svc = _services(args.config)
+    svc = _workspace(args).svc
     try:
         return stories_check(svc, args.review, args.runs)
     except ValueError as e:
@@ -135,7 +131,7 @@ def cmd_init(args) -> int:
 def cmd_check_parse(args) -> int:
     from codetortoise.facts.clang_extractor import TuRequest
     from codetortoise.facts.runner import run_extraction
-    svc = _services(args.config)
+    svc = _workspace(args).svc
     tc = svc.toolchain
     tc.prepare()
     file = str(Path(args.file).resolve())
@@ -218,15 +214,18 @@ def main(argv: list[str] | None = None) -> int:
     s.set_defaults(fn=cmd_serve)
     s = sub.add_parser("index", help="bring the symbol index up to date (only changed files are parsed again)")
     s.add_argument("--config", required=True)
+    s.add_argument("--workspace", help="the workspace's name (default: the one in tortoise.yaml, else the only one)")
     s.add_argument("--full", action="store_true", help="parse every file again")
     s.set_defaults(fn=cmd_index)
     s = sub.add_parser("review", help="run a review headless and print findings")
     s.add_argument("--config", required=True)
+    s.add_argument("--workspace", help="the workspace's name (default: the one in tortoise.yaml, else the only one)")
     s.add_argument("--title")
     s.add_argument("cls", nargs="+", type=int)
     s.set_defaults(fn=cmd_review)
     s = sub.add_parser("stories-check", help="run tier 1's stories N times on a review and print how often they agree")
     s.add_argument("--config", required=True)
+    s.add_argument("--workspace", help="the workspace's name (default: the one in tortoise.yaml, else the only one)")
     s.add_argument("review", type=int)
     s.add_argument("--runs", type=int, default=3)
     s.set_defaults(fn=cmd_stories_check)
@@ -245,6 +244,7 @@ def main(argv: list[str] | None = None) -> int:
     s.set_defaults(fn=cmd_init)
     s = sub.add_parser("check-parse", help="show how one file is parsed, and why it fails if it does")
     s.add_argument("--config", required=True)
+    s.add_argument("--workspace", help="the workspace's name (default: the one in tortoise.yaml, else the only one)")
     s.add_argument("file")
     s.set_defaults(fn=cmd_check_parse)
     s = sub.add_parser("fetch-libclang", help="install a newer libclang from the official LLVM release")
