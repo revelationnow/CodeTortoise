@@ -12,6 +12,12 @@ from codetortoise.impact import ImpactModel, SinkInfo
 MARKS_KEY = "sink_marks"          # the store's kv row: the owner's marked labels, for every review of the workspace
 
 
+def marks_key(scope: str = "") -> str:
+    """The marks' kv row: one per workspace on a server of many (spec 2026-10-31 §5); a bundle on its own keeps the
+    single row it had."""
+    return f"{MARKS_KEY}:{scope}" if scope else MARKS_KEY
+
+
 def find_sinks(im: ImpactModel, threshold: int, patterns: list[str], marked: Collection[str]) -> dict[str, SinkInfo]:
     """Field node id -> why it is a sink: the owner marked its label, a pattern matches it, or more than `threshold`
     unchanged functions read or write it. Only clang's own accesses count; a match by member name alone never does
@@ -45,14 +51,14 @@ def why_text(s: Any) -> str:
     return {"threshold": f"{s.users} functions", "listed": "in tortoise.yaml", "marked": "marked"}[s.why]
 
 
-def marks(store: Any) -> list[str]:
-    got = store.kv_get(MARKS_KEY)
+def marks(store: Any, scope: str = "") -> list[str]:
+    got = store.kv_get(marks_key(scope))
     return sorted(x for x in got if isinstance(x, str)) if isinstance(got, list) else []
 
 
-def set_mark(store: Any, label: str, on: bool) -> list[str]:
-    """Mark or unmark `label` for every review from the next run; the marks after."""
-    cur = set(marks(store))
+def set_mark(store: Any, label: str, on: bool, scope: str = "") -> list[str]:
+    """Mark or unmark `label` for every review of the workspace from the next run; the marks after."""
+    cur = set(marks(store, scope))
     cur = cur | {label} if on else cur - {label}
-    store.kv_put(MARKS_KEY, sorted(cur))
+    store.kv_put(marks_key(scope), sorted(cur))
     return sorted(cur)

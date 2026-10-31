@@ -6,6 +6,7 @@ import logging
 import queue
 import threading
 import traceback
+from collections import Counter
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -275,7 +276,7 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
 
     def impact():
         im = build_impact(ctx["before"], ctx["after"], ctx["cs"], ctx["sel"], svc.index, ctx.get("layers"), cfg.analysis,
-                          marked=sink_marks(store))
+                          marked=sink_marks(store, svc.scope))
         ctx["impact"] = im
         store.put_blob(rid, "impact", im)
         msg = (f"{len(im.nodes)} node(s), {len(im.edges)} edge(s), blast {len(im.blast)}"
@@ -611,34 +612,46 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
             stage(name, fn)
 
 
-class JobRunner:
-    """Single background worker: reviews and index rebuilds run one at a time."""
+class AiPool:
+    """The AI worker pool and its job registry, shared by every workspace's queue so `llm.concurrency` stays a
+    server-wide limit (spec 2026-10-31 §6). Review ids are global, so jobs are kept by review."""
 
-    def __init__(self, svc: Services):
+    def __init__(self, workers: int):
+        self.executor = ThreadPoolExecutor(max(1, workers), thread_name_prefix="tortoise-ai")
+        self.jobs: dict[int, list[dict]] = {}
+        self.ids: dict[int, int] = {}
+        self.lock = threading.Lock()
+
+
+class JobRunner:
+    """A workspace's background worker: its reviews and index rebuilds run one at a time."""
+
+    def __init__(self, svc: Services, pool: AiPool | None = None):
         self.svc = svc
         self._q: queue.Queue = queue.Queue()
         self._thread = threading.Thread(target=self._loop, daemon=True, name="tortoise-jobs")
         self.index_building = False
-        # AI jobs (explanations, @tortoise) run beside reviews, not behind them
-        self._ai = ThreadPoolExecutor(max(1, svc.cfg.llm.concurrency), thread_name_prefix="tortoise-ai")
-        self.ai_jobs: dict[int, list[dict]] = {}
-        self._ai_ids: dict[int, int] = {}
-        self._ai_lock = threading.Lock()
+        # AI jobs (explanations, @tortoise) run beside reviews, not behind them, in the pool every workspace shares
+        self.pool = pool if pool is not None else AiPool(svc.cfg.llm.concurrency)
+        self.ai_jobs = self.pool.jobs
+        self._pending: Counter[str] = Counter()          # jobs queued or running, by kind
+        self._pending_lock = threading.Lock()
 
     def submit_ai(self, rid: int, user: str, kind: str, target: str, fn: Callable[[], None]) -> dict:
         """Queue one AI job for review `rid`; its status ("running", "done", "failed", "refused") is kept in
         `ai_jobs` for the review's AI view."""
-        with self._ai_lock:
+        with self.pool.lock:
             jobs = self.ai_jobs.setdefault(rid, [])
-            self._ai_ids[rid] = self._ai_ids.get(rid, 0) + 1       # never reused, though only the last 50 are kept
-            job = {"id": self._ai_ids[rid], "user": user, "kind": kind, "target": target, "status": "running", "error": None}
+            self.pool.ids[rid] = self.pool.ids.get(rid, 0) + 1    # never reused, though only the last 50 are kept
+            job = {"id": self.pool.ids[rid], "user": user, "kind": kind, "target": target, "status": "running",
+                   "error": None}
             jobs.append(job)
             del jobs[:-50]
         self._dispatch_ai(job, fn)
         return job
 
     def _dispatch_ai(self, job: dict, fn: Callable[[], None]) -> None:
-        self._ai.submit(self._run_ai, job, fn)
+        self.pool.executor.submit(self._run_ai, job, fn)
 
     @staticmethod
     def _run_ai(job: dict, fn: Callable[[], None]) -> None:
@@ -658,11 +671,26 @@ class JobRunner:
     def start(self) -> None:
         self._thread.start()
 
+    def _count(self, kind: str, n: int) -> None:
+        with self._pending_lock:
+            self._pending[kind] += n
+
+    def busy(self) -> str | None:
+        """Why this workspace's bundle can't be replaced now (an edit swaps it, spec 2026-10-31 §6), or None."""
+        with self._pending_lock:
+            if self._pending["review"]:
+                return "a review is running in this workspace; try again when it finishes"
+            if self._pending["index"]:
+                return "the symbol index is being built in this workspace; try again when it finishes"
+        return None
+
     def submit_review(self, rid: int, fresh: bool = False) -> None:
         self.svc.store.set_review_status(rid, "queued")
+        self._count("review", 1)
         self._q.put(("review", (rid, fresh)))
 
     def submit_index(self) -> None:
+        self._count("index", 1)
         self._q.put(("index", None))
 
     def stop(self) -> None:
@@ -684,3 +712,4 @@ class JobRunner:
                 log.error("job %s failed: %s", job, traceback.format_exc())
             finally:
                 self.index_building = False
+                self._count(kind, -1)

@@ -31,20 +31,23 @@ def unmarshal_all(data: bytes) -> list[dict]:
 
 class P4Runner:
     def __init__(self, p4port: str, client: str | None, p4_bin: str = "p4", timeout: float = 120,
-                 cwd: str | Path | None = None):
+                 cwd: str | Path | None = None, user: str | None = None):
         self.p4port = p4port
         self.client = client
         self.p4_bin = p4_bin
         self.timeout = timeout
         # p4 runs from the workspace, so it also reads the P4CONFIG file there (P4CHARSET, P4TICKETS, P4TRUST, ...)
         self.cwd = str(cwd) if cwd else None
+        # the user reads run as, passed explicitly so workspaces of different users don't share P4USER (spec
+        # 2026-10-31 §6); a sign-in passes its own
+        self.user = user
 
     def _base(self, user: str | None = None) -> list[str]:
         cmd = [self.p4_bin, "-p", self.p4port]
         if self.client:
             cmd += ["-c", self.client]
-        if user:
-            cmd += ["-u", user]
+        if user or self.user:
+            cmd += ["-u", user or self.user]
         return cmd
 
     def run(self, command: str, *args: str) -> list[dict]:

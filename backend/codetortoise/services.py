@@ -5,6 +5,7 @@ import os
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from codetortoise import layers as layers_mod
 from codetortoise.config import Config
@@ -27,13 +28,14 @@ class LayersProvider:
     """Layer model cached per symbol-index generation (in memory and in the store)."""
 
     def __init__(self, cfg: Config, index: SymbolIndex, store: Store, llm: LlmClient | None,
-                 ledger: Ledger | None = None):
-        self.cfg, self.index, self.store, self.llm, self.ledger = cfg, index, store, llm, ledger
+                 ledger: Ledger | None = None, scope: str = ""):
+        self.cfg, self.index, self.store, self.llm, self.ledger, self.scope = cfg, index, store, llm, ledger, scope
         self._lock = threading.Lock()
         self._model: LayerModel | None = None
 
     def _key(self) -> str:
-        return f"layers:v{layers_mod.ALGORITHM_VERSION}:{self.cfg.workspace.root}:{self.index.generation()}"
+        where = self.scope or self.cfg.workspace.root
+        return f"layers:v{layers_mod.ALGORITHM_VERSION}:{where}:{self.index.generation()}"
 
     def get(self) -> LayerModel | None:
         with self._lock:
@@ -74,6 +76,7 @@ class Services:
     ledger: Ledger | None = None                  # every AI call goes through it (spec 2026-10-03 §2)
     strong: LlmClient | None = None               # tier 1: forms stories and reviews their risks (spec 2026-10-05)
     swarm_override: Callable[[], SwarmClient | None] | None = field(default=None, repr=False)
+    scope: str = ""                              # keys its store entries on a server of many (spec 2026-10-31 §5)
 
     def build_index(self, full: bool = False) -> int:
         """Bring the symbol index up to date (incremental unless `full`), resolving #includes with the compile DB's
@@ -86,7 +89,7 @@ class Services:
     def remember_stripped(self, flags: list[str]) -> None:
         """Flags libclang rejected: skipped for all later parses of this workspace (persisted)."""
         self.toolchain.strip.update(flags)
-        self.store.kv_put(f"strip_flags:{self.cfg.workspace.root}", sorted(self.toolchain.strip))
+        self.store.kv_put(strip_flags_key(self.cfg.workspace.root, self.scope), sorted(self.toolchain.strip))
 
     def swarm(self) -> SwarmClient | None:
         if self.swarm_override is not None:
@@ -94,6 +97,12 @@ class Services:
         if not self.cfg.swarm.url or self.owner_ticket is None:
             return None
         return SwarmClient(self.cfg.swarm.url, self.cfg.owner, self.owner_ticket)
+
+
+def strip_flags_key(root: Path | str, scope: str = "") -> str:
+    """The kv row of the flags libclang rejected in a workspace: by its scope on a server of many (spec 2026-10-31 §5),
+    by its root for a bundle on its own."""
+    return f"strip_flags:{scope or root}"
 
 
 def make_llm(cfg: Config) -> LlmClient | None:
@@ -114,23 +123,30 @@ def make_strong(cfg: Config) -> LlmClient | None:
 
 
 def build_services(cfg: Config, llm: LlmClient | None = None, source: Source | None = None,
-                   strong: LlmClient | None = None) -> Services:
+                   strong: LlmClient | None = None, *, store: Store | None = None, ledger: Ledger | None = None,
+                   home: Path | None = None, scope: str = "") -> Services:
+    """A workspace's bundle (spec 2026-10-31 §6). A server of many passes what its workspaces share (`store`,
+    `ledger`), the workspace's own folder (`home`: its symbol index and toolchain files) and the scope keying its store
+    entries; without them the bundle stands alone, as a single-workspace server's did."""
     data = cfg.server.data_dir
     data.mkdir(parents=True, exist_ok=True)
-    store = Store(data / "tortoise.db")
-    index = SymbolIndex(data / "symbols.db")
+    home = home if home is not None else data
+    store = store if store is not None else Store(data / "tortoise.db")
+    index = SymbolIndex(home / "symbols.db")
     cdb = load_databases(cfg.workspace.compile_commands, cfg.workspace.root, cfg.workspace.build_root)
-    tc = Toolchain(cfg.toolchain, cdb, data / "toolchain", root=cfg.workspace.root)
-    tc.strip.update(store.kv_get(f"strip_flags:{cfg.workspace.root}") or [])
+    tc = Toolchain(cfg.toolchain, cdb, home / "toolchain", root=cfg.workspace.root, data_dir=data)
+    tc.strip.update(store.kv_get(strip_flags_key(cfg.workspace.root, scope)) or [])
     llm = llm if llm is not None else make_llm(cfg)
     p4 = None
     if source is None:
         if cfg.workspace.vcs == "git":
             source = GitFixtureSource(cfg.workspace.root)
         else:
-            p4 = P4Runner(cfg.workspace.p4port or "", cfg.workspace.client, cfg.workspace.p4_bin, cwd=cfg.workspace.root)
+            p4 = P4Runner(cfg.workspace.p4port or "", cfg.workspace.client, cfg.workspace.p4_bin,
+                          cwd=cfg.workspace.root, user=cfg.owner or None)
             source = P4Source(p4)
-    ledger = Ledger(store, cfg.llm.budget, cfg.llm.request_log, cfg.llm.request_log_days)
+    ledger = ledger if ledger is not None else Ledger(store, cfg.llm.budget, cfg.llm.request_log,
+                                                      cfg.llm.request_log_days)
     return Services(cfg=cfg, store=store, source=source, index=index, cdb=cdb, toolchain=tc, llm=llm,
-                    layers=LayersProvider(cfg, index, store, llm, ledger), p4=p4, ledger=ledger,
-                    strong=strong if strong is not None else make_strong(cfg))
+                    layers=LayersProvider(cfg, index, store, llm, ledger, scope), p4=p4, ledger=ledger,
+                    strong=strong if strong is not None else make_strong(cfg), scope=scope)

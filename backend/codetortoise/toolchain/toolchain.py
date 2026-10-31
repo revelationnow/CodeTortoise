@@ -14,7 +14,7 @@ from codetortoise.config import ToolchainConfig, ToolchainOverride
 from codetortoise.paths import canon
 from codetortoise.toolchain.compile_db import CompileDb, CompileEntry, sanitize_args
 from codetortoise.toolchain.driver import DriverInfo, query_driver, target_flags
-from codetortoise.toolchain.libclang import LibclangChoice, LibclangInfo, find_libclang, load_libclang
+from codetortoise.toolchain.libclang import LibclangChoice, LibclangInfo, find_libclang, library_info
 
 _CXX_EXTS = {".cc", ".cpp", ".cxx", ".c++", ".hpp", ".hh", ".hxx"}
 
@@ -76,7 +76,8 @@ class Toolchain:
     """Turns compile entries into libclang arguments, per file: each file's own compiler is queried (once per
     toolchain group and language) for its built-in include paths and macros, and its target is made explicit."""
 
-    def __init__(self, cfg: ToolchainConfig, cdb: CompileDb, work_dir: Path, root: Path | None = None):
+    def __init__(self, cfg: ToolchainConfig, cdb: CompileDb, work_dir: Path, root: Path | None = None,
+                 data_dir: Path | None = None):
         self.cfg = cfg
         self.cdb = cdb
         self.work_dir = Path(work_dir)
@@ -85,16 +86,18 @@ class Toolchain:
         self.libclang: LibclangInfo | None = None
         self._groups: dict[tuple, Group] = {}
         self._machines: dict[str, str | None] = {}
-        self.data_dir = self.work_dir.parent          # where fetch-libclang puts libraries
-        self.choice: LibclangChoice | None = None    # the library this process loads
+        # where fetch-libclang puts libraries: the server's data folder (a workspace's own folder sits below it)
+        self.data_dir = Path(data_dir) if data_dir is not None else self.work_dir.parent
+        self.choice: LibclangChoice | None = None    # the library this workspace parses with by default
         self.samples: dict[tuple, str] = {}          # Health's sample parse per group, once per process
 
     def prepare(self) -> None:
-        """Idempotent: loads this process's library (the default choice). Groups that need another library are parsed
-        in worker processes that load it; compilers are queried lazily, per group."""
+        """Idempotent: chooses and describes this workspace's default library (loading it here when the process has no
+        other). Every parse runs in worker processes that load the request's library; compilers are queried lazily,
+        per group."""
         if self.libclang is None:
             self.choice = find_libclang(self.cfg, data_dir=self.data_dir)
-            self.libclang = load_libclang(self.choice.path)
+            self.libclang = library_info(self.choice.path)
 
     # ---- per file
     def _override(self, file: str) -> ToolchainOverride | None:

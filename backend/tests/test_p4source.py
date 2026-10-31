@@ -262,3 +262,15 @@ def test_p4_runs_from_the_workspace_so_it_reads_the_p4config_file_too(monkeypatc
     P4Runner("p4:1666", "ws", cwd=tmp_path).run("info")
     P4Runner("p4:1666", "ws", cwd=tmp_path).login_check("bob", "pw")
     assert seen == [str(tmp_path), str(tmp_path)]
+
+
+def test_reads_run_as_the_workspaces_user_and_a_sign_in_as_whoever_signs_in(monkeypatch):
+    import subprocess
+    seen = []
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **k: seen.append(cmd) or Completed(b""))
+    r = P4Runner("p4:1666", "ws", user="amy")
+    r.run("info")
+    r.print_text("//depot/a.c#1")
+    r.login_check("bob", "pw")
+    assert seen[0][:7] == seen[1][:7] == ["p4", "-p", "p4:1666", "-c", "ws", "-u", "amy"]
+    assert seen[2][:7] == ["p4", "-p", "p4:1666", "-c", "ws", "-u", "bob"]

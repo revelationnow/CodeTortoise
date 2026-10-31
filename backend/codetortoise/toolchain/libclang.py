@@ -6,18 +6,22 @@ import glob as globmod
 import hashlib
 import importlib.metadata
 import io
+import multiprocessing as mp
 import os
 import platform
 import re
 import shutil
 import tarfile
+import threading
 import urllib.request
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
 import clang.cindex as ci
 
 _loaded: LibclangInfo | None = None
+_lock = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -94,6 +98,21 @@ def load_libclang(path: str | None) -> LibclangInfo:
     _tolerate_unknown_kinds()
     _loaded = LibclangInfo(path=lib_path, version=_version(), vendor=bool(path))
     return _loaded
+
+
+def library_info(path: str | None) -> LibclangInfo:
+    """The library a workspace parses with, described: loaded here when this process has none yet (or has this one);
+    else described from a worker process, since a process loads one libclang and workspaces may each choose another
+    (spec 2026-10-31 §6). Every parse already runs in worker processes that load the request's library."""
+    with _lock:
+        if _loaded is None:
+            return load_libclang(path)
+        same = _loaded.path == path if path else not _loaded.vendor
+    if same:
+        return _loaded
+    method = "forkserver" if "forkserver" in mp.get_all_start_methods() else "spawn"
+    with ProcessPoolExecutor(max_workers=1, mp_context=mp.get_context(method)) as pool:
+        return pool.submit(load_libclang, path).result(timeout=120)
 
 
 # ---------------------------------------------------------------- choosing a library
