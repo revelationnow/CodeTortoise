@@ -1,9 +1,10 @@
 """tortoise.yaml configuration."""
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field
@@ -19,6 +20,7 @@ class ServerConfig(BaseModel):
 
 
 class WorkspaceConfig(BaseModel):
+    name: str | None = None          # what the UI calls it (spec 2026-10-31 §4); default: its client's, or its root folder's
     vcs: Literal["p4", "git"] = "p4"
     p4port: str | None = None
     client: str | None = None
@@ -131,9 +133,9 @@ class AnalysisConfig(BaseModel):
 
 
 class Config(BaseModel):
-    owner: str = ""                  # defaults to P4USER (P4CONFIG file, then environment)
+    owner: str = ""                  # the seed workspace's owner; defaults to P4USER (P4CONFIG file, then environment)
     server: ServerConfig = Field(default_factory=ServerConfig)
-    workspace: WorkspaceConfig
+    workspace: WorkspaceConfig | None = None   # the seed workspace (spec 2026-10-31 §4); none: the stored ones alone
     toolchain: ToolchainConfig = Field(default_factory=ToolchainConfig)
     swarm: SwarmConfig = Field(default_factory=SwarmConfig)
     llm: LlmConfig = Field(default_factory=LlmConfig)
@@ -148,7 +150,8 @@ class ConfigError(ValueError):
 
 def load_config(path: Path, env: Mapping[str, str] | None = None) -> Config:
     """Read tortoise.yaml. Missing `owner`, `workspace.p4port` and `workspace.client` come from Perforce's own settings:
-    the P4CONFIG file found from the workspace root, then P4USER/P4PORT/P4CLIENT in the environment (`env`)."""
+    the P4CONFIG file found from the workspace root, then P4USER/P4PORT/P4CLIENT in the environment (`env`). A file
+    with no `workspace` section holds the server-wide settings alone (spec 2026-10-31 §4)."""
     from codetortoise.vcs.p4settings import p4_settings
     path = Path(path)
     try:
@@ -161,21 +164,42 @@ def load_config(path: Path, env: Mapping[str, str] | None = None) -> Config:
         raise ConfigError(str(e)) from e
     base = path.parent
     ws = cfg.workspace
-    ws.root = (base / ws.root).resolve() if not ws.root.is_absolute() else ws.root
-    p4 = p4_settings(ws.root, env)
-    wanted = [("owner", cfg, "owner", "P4USER")]
-    if ws.vcs == "p4":
-        wanted += [("workspace.p4port", ws, "p4port", "P4PORT"), ("workspace.client", ws, "client", "P4CLIENT")]
-    for label, obj, attr, var in wanted:
-        if getattr(obj, attr):
-            ws.p4_sources[attr] = "tortoise.yaml"
-            continue
-        value = p4.get(var)
-        if not value:
-            where = f"the P4CONFIG file {p4.file}" if p4.file else "no P4CONFIG file was found"
-            raise ConfigError(f"{label} is not set: not in tortoise.yaml, {where}, and {var} is not in the environment")
-        setattr(obj, attr, value)
-        ws.p4_sources[attr] = p4.source(var) or ""
+    if ws is not None:
+        ws.root = (base / ws.root).resolve() if not ws.root.is_absolute() else ws.root
+        p4 = p4_settings(ws.root, env)
+        wanted = [("owner", cfg, "owner", "P4USER")]
+        if ws.vcs == "p4":
+            wanted += [("workspace.p4port", ws, "p4port", "P4PORT"), ("workspace.client", ws, "client", "P4CLIENT")]
+        for label, obj, attr, var in wanted:
+            if getattr(obj, attr):
+                ws.p4_sources[attr] = "tortoise.yaml"
+                continue
+            value = p4.get(var)
+            if not value:
+                where = f"the P4CONFIG file {p4.file}" if p4.file else "no P4CONFIG file was found"
+                raise ConfigError(f"{label} is not set: not in tortoise.yaml, {where}, and {var} is not in the environment")
+            setattr(obj, attr, value)
+            ws.p4_sources[attr] = p4.source(var) or ""
+        _resolve_paths(cfg, base)
+    if not cfg.server.data_dir.is_absolute():
+        cfg.server.data_dir = (base / cfg.server.data_dir).resolve()
+    srv = cfg.server
+    if (srv.tls_cert is None) != (srv.tls_key is None):
+        raise ConfigError("server.tls_cert and server.tls_key must be set together")
+    if srv.tls_cert is not None and srv.tls_key is not None:
+        srv.tls_cert = srv.tls_cert if srv.tls_cert.is_absolute() else (base / srv.tls_cert).resolve()
+        srv.tls_key = srv.tls_key if srv.tls_key.is_absolute() else (base / srv.tls_key).resolve()
+        for name, f in (("tls_cert", srv.tls_cert), ("tls_key", srv.tls_key)):
+            if not f.is_file():
+                raise ConfigError(f"server.{name}: no such file: {f}")
+    return cfg
+
+
+def _resolve_paths(cfg: Config, base: Path) -> None:
+    """The workspace's and the toolchain's relative paths, made absolute against `base` (tortoise.yaml's folder, or a
+    workspace's root); a program or library given by its bare name stays a name."""
+    ws = cfg.workspace
+
     def rel(p: Path) -> Path:
         return p if p.is_absolute() else (base / p).resolve()
     if isinstance(ws.compile_commands, list):
@@ -192,15 +216,51 @@ def load_config(path: Path, env: Mapping[str, str] | None = None) -> Config:
     for o in tc.overrides:
         o.compile_commands = rel(o.compile_commands) if o.compile_commands is not None else None
         o.libclang, o.clang = rel_name(o.libclang), rel_name(o.clang)
-    if not cfg.server.data_dir.is_absolute():
-        cfg.server.data_dir = (base / cfg.server.data_dir).resolve()
-    srv = cfg.server
-    if (srv.tls_cert is None) != (srv.tls_key is None):
-        raise ConfigError("server.tls_cert and server.tls_key must be set together")
-    if srv.tls_cert is not None and srv.tls_key is not None:
-        srv.tls_cert = srv.tls_cert if srv.tls_cert.is_absolute() else (base / srv.tls_cert).resolve()
-        srv.tls_key = srv.tls_key if srv.tls_key.is_absolute() else (base / srv.tls_key).resolve()
-        for name, f in (("tls_cert", srv.tls_cert), ("tls_key", srv.tls_key)):
-            if not f.is_file():
-                raise ConfigError(f"server.{name}: no such file: {f}")
+
+
+SETTINGS_KEYS = ("toolchain", "targets", "analysis")
+
+
+def valid_name(name: str) -> bool:
+    """A workspace's name (spec 2026-10-31 §5): 1–40 characters, no /."""
+    return 1 <= len(name) <= 40 and "/" not in name
+
+
+def seed_name(cfg: Config) -> str:
+    """The seed workspace's name (spec 2026-10-31 §4): `workspace.name`, else its client's, else its root folder's."""
+    ws = cfg.workspace
+    return ws.name or ws.client or ws.root.name
+
+
+def parse_settings(text: str | None) -> dict:
+    """A workspace's Advanced settings: tortoise.yaml's `toolchain`, `targets` and `analysis` keys, as YAML text."""
+    try:
+        got = yaml.safe_load(text or "") or {}
+    except yaml.YAMLError as e:
+        raise ConfigError(f"settings: not YAML: {e}") from e
+    if not isinstance(got, dict):
+        raise ConfigError("settings: a mapping of toolchain, targets and analysis")
+    extra = sorted(str(k) for k in got if k not in SETTINGS_KEYS)
+    if extra:
+        raise ConfigError(f"settings: only toolchain, targets and analysis belong here, not {', '.join(extra)}")
+    return got
+
+
+def effective_config(base: Config, row: Mapping[str, Any]) -> Config:
+    """A stored workspace's configuration (spec 2026-10-31 §4): `server`, `llm` and `auth` from tortoise.yaml; `analysis`
+    the file's, overlaid with the workspace's own; `workspace`, `toolchain`, `targets` and `swarm` the workspace's.
+    Relative paths in it are relative to the workspace's root."""
+    s = parse_settings(row.get("settings"))
+    raw = {"owner": row["p4user"], "server": base.server.model_dump(), "llm": base.llm.model_dump(),
+           "auth": base.auth.model_dump(), "analysis": {**base.analysis.model_dump(), **(s.get("analysis") or {})},
+           "workspace": {"name": row["name"], "vcs": row["vcs"], "p4port": row["p4port"], "client": row["client"],
+                         "root": row["root"], "compile_commands": json.loads(row["compile_commands"]),
+                         "build_root": row["build_root"],
+                         "p4_bin": base.workspace.p4_bin if base.workspace is not None else "p4"},
+           "toolchain": s.get("toolchain") or {}, "targets": s.get("targets") or [], "swarm": {"url": row["swarm_url"]}}
+    try:
+        cfg = Config.model_validate(raw)
+    except Exception as e:  # pydantic.ValidationError
+        raise ConfigError(str(e)) from e
+    _resolve_paths(cfg, Path(row["root"]))
     return cfg

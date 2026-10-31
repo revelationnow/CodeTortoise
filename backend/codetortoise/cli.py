@@ -31,7 +31,10 @@ def plain_http_warning(server: ServerConfig) -> str | None:
 
 def _services(config: str):
     from codetortoise.services import build_services
-    return build_services(load_config(Path(config)))
+    cfg = load_config(Path(config))
+    if cfg.workspace is None:
+        raise ConfigError("tortoise.yaml names no workspace")
+    return build_services(cfg)
 
 
 def cmd_serve(args) -> int:

@@ -1,6 +1,9 @@
+import json
+from pathlib import Path
+
 import pytest
 
-from codetortoise.config import ConfigError, load_config
+from codetortoise.config import ConfigError, effective_config, load_config, parse_settings, seed_name, valid_name
 
 
 def write(tmp_path, text):
@@ -148,3 +151,72 @@ def test_shared_sink_settings_default_to_a_threshold_of_20_and_no_patterns():
     a = AnalysisConfig()
     assert (a.sink_threshold, a.sink_fields) == (20, [])
     assert AnalysisConfig.model_validate({"sink_threshold": 0, "sink_fields": ["log_t::*"]}).sink_fields == ["log_t::*"]
+
+
+def test_a_file_without_a_workspace_holds_the_server_settings_alone(tmp_path):
+    cfg = load_config(write(tmp_path, "server:\n  port: 9000\nauth:\n  mode: dev\n"))
+    assert cfg.workspace is None and cfg.server.port == 9000
+    assert cfg.server.data_dir == (tmp_path / ".tortoise").resolve()
+
+
+def test_the_seed_is_named_by_workspace_name_else_its_client_else_its_root_folder(tmp_path):
+    named = load_config(write(tmp_path, """
+owner: amy
+workspace: {name: firmware, vcs: p4, p4port: "p4:1666", client: amy-ws, root: ws, compile_commands: auto}
+"""))
+    assert seed_name(named) == "firmware"
+    by_client = load_config(write(tmp_path, """
+owner: amy
+workspace: {vcs: p4, p4port: "p4:1666", client: amy-ws, root: ws, compile_commands: auto}
+"""))
+    assert seed_name(by_client) == "amy-ws"
+    by_folder = load_config(write(tmp_path, """
+owner: amy
+workspace: {vcs: git, root: projects/fw, compile_commands: auto}
+"""))
+    assert seed_name(by_folder) == "fw"
+
+
+def test_names_are_1_to_40_characters_without_a_slash():
+    assert valid_name("fw") and valid_name("x" * 40) and valid_name("dsp tools")
+    assert not valid_name("") and not valid_name("x" * 41) and not valid_name("a/b")
+
+
+ROW = {"name": "sensor", "vcs": "p4", "p4port": "ssl:p4b:1666", "client": "amy-sensor", "p4user": "amy",
+       "root": "/work/sensor", "compile_commands": json.dumps("build/compile_commands.json"), "build_root": None,
+       "swarm_url": "https://swarm.example.com", "settings": ""}
+
+
+def test_a_workspace_takes_server_llm_and_auth_from_the_file_and_overlays_analysis(tmp_path):
+    base = load_config(write(tmp_path, """
+server: {port: 9000}
+llm: {model: big}
+auth: {mode: dev}
+analysis: {workers: 2, sink_threshold: 20}
+"""))
+    cfg = effective_config(base, {**ROW, "settings": "analysis: {sink_threshold: 5}\n"
+                                                     "toolchain: {clang: tools/clang}\n"
+                                                     "targets: [{match: 'dsp/**', name: dsp}]\n"})
+    assert (cfg.server.port, cfg.llm.model, cfg.auth.mode) == (9000, "big", "dev")
+    assert (cfg.analysis.workers, cfg.analysis.sink_threshold) == (2, 5)
+    assert (cfg.owner, cfg.workspace.name, cfg.workspace.client) == ("amy", "sensor", "amy-sensor")
+    assert cfg.workspace.compile_commands == Path("/work/sensor/build/compile_commands.json")   # relative to its root
+    assert cfg.toolchain.clang == "/work/sensor/tools/clang" and cfg.targets[0].name == "dsp"
+    assert cfg.swarm.url == "https://swarm.example.com"
+    assert base.analysis.sink_threshold == 20                       # the file's own settings are untouched
+
+
+def test_workspace_settings_take_toolchain_targets_and_analysis_only():
+    assert parse_settings("") == {} and parse_settings(None) == {}
+    with pytest.raises(ConfigError, match="server"):
+        parse_settings("server: {port: 1}")
+    with pytest.raises(ConfigError, match="not YAML"):
+        parse_settings("toolchain: [")
+    with pytest.raises(ConfigError, match="mapping"):
+        parse_settings("- a")
+
+
+def test_a_bad_value_in_a_workspaces_settings_is_a_config_error(tmp_path):
+    base = load_config(write(tmp_path, "auth: {mode: dev}\n"))
+    with pytest.raises(ConfigError):
+        effective_config(base, {**ROW, "settings": "analysis: {workers: many}"})
