@@ -17,7 +17,11 @@ from codetortoise.vcs.model import ClMeta
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS reviews(id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, created_by TEXT,
-  created_at TEXT, status TEXT, risk TEXT);
+  created_at TEXT, status TEXT, risk TEXT, workspace_id INTEGER);
+CREATE TABLE IF NOT EXISTS workspaces(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE,
+  vcs TEXT NOT NULL, p4port TEXT, client TEXT, p4user TEXT NOT NULL, root TEXT NOT NULL UNIQUE,
+  compile_commands TEXT NOT NULL, build_root TEXT, swarm_url TEXT, settings TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL, created_by TEXT, created_at TEXT, updated_at TEXT);
 CREATE TABLE IF NOT EXISTS review_cls(review_id INTEGER, cl INTEGER, status TEXT, user TEXT,
   description TEXT, swarm_json TEXT, PRIMARY KEY(review_id, cl));
 CREATE TABLE IF NOT EXISTS stages(review_id INTEGER, name TEXT, status TEXT, message TEXT,
@@ -53,6 +57,9 @@ CREATE TABLE IF NOT EXISTS read_ticks(review_id INTEGER, user TEXT, kind TEXT, k
 """
 
 ANCHOR_KINDS = {"line", "function", "finding", "chapter", "review", "story", "flow", "file", "check"}
+# a workspace's own columns (spec 2026-10-31 §5): compile_commands is JSON ("auto", a path or a list), settings YAML
+WORKSPACE_FIELDS = ("name", "vcs", "p4port", "client", "p4user", "root", "compile_commands", "build_root", "swarm_url",
+                    "settings")
 
 
 def _now() -> str:
@@ -86,6 +93,9 @@ class Store:
             calls = {r[1] for r in self._db.execute("PRAGMA table_info(llm_calls)")}
             if "model" not in calls:                 # databases made before the request log
                 self._db.execute("ALTER TABLE llm_calls ADD COLUMN model TEXT")
+            reviews = {r[1] for r in self._db.execute("PRAGMA table_info(reviews)")}
+            if "workspace_id" not in reviews:        # databases made before workspaces (spec 2026-10-31 §12)
+                self._db.execute("ALTER TABLE reviews ADD COLUMN workspace_id INTEGER")
 
     def _exec(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         with self._lock, self._db:
@@ -96,9 +106,9 @@ class Store:
             return [dict(r) for r in self._db.execute(sql, params).fetchall()]
 
     # ---- reviews ---------------------------------------------------------
-    def create_review(self, title: str, created_by: str, cls: list[int]) -> int:
-        cur = self._exec("INSERT INTO reviews(title, created_by, created_at, status, risk) VALUES(?,?,?,?,?)",
-                         (title, created_by, _now(), "queued", None))
+    def create_review(self, title: str, created_by: str, cls: list[int], workspace_id: int | None = None) -> int:
+        cur = self._exec("INSERT INTO reviews(title, created_by, created_at, status, risk, workspace_id) "
+                         "VALUES(?,?,?,?,?,?)", (title, created_by, _now(), "queued", None, workspace_id))
         rid = int(cur.lastrowid)
         for cl in sorted(set(cls)):
             self._exec("INSERT INTO review_cls(review_id, cl, status) VALUES(?,?,?)", (rid, cl, "unknown"))
@@ -115,6 +125,43 @@ class Store:
     def get_review(self, rid: int) -> dict | None:
         rows = self._all("SELECT * FROM reviews WHERE id=?", (rid,))
         return self._with_cls(rows[0]) if rows else None
+
+    def adopt_reviews(self, wid: int) -> int:
+        """Reviews made before workspaces belong to the seed (spec 2026-10-31 §12); how many there were."""
+        return self._exec("UPDATE reviews SET workspace_id=? WHERE workspace_id IS NULL", (wid,)).rowcount
+
+    def review_count(self, wid: int) -> int:
+        return self._all("SELECT COUNT(*) AS n FROM reviews WHERE workspace_id=?", (wid,))[0]["n"]
+
+    # ---- workspaces (spec 2026-10-31 §5) -----------------------------------------
+    def add_workspace(self, fields: dict, source: str, created_by: str) -> int:
+        """A new workspace (`source` "config" for the seed, "ui" for one added on the Workspaces page); a name or root
+        another has raises sqlite3.IntegrityError."""
+        now = _now()
+        cols = WORKSPACE_FIELDS + ("source", "created_by", "created_at", "updated_at")
+        cur = self._exec(f"INSERT INTO workspaces({', '.join(cols)}) VALUES({', '.join('?' * len(cols))})",
+                         tuple(fields.get(k) for k in WORKSPACE_FIELDS) + (source, created_by, now, now))
+        return int(cur.lastrowid)
+
+    def update_workspace(self, wid: int, fields: dict) -> None:
+        sets = ", ".join(f"{k}=?" for k in WORKSPACE_FIELDS)
+        self._exec(f"UPDATE workspaces SET {sets}, updated_at=? WHERE id=?",
+                   tuple(fields.get(k) for k in WORKSPACE_FIELDS) + (_now(), wid))
+
+    def delete_workspace(self, wid: int) -> None:
+        self._exec("DELETE FROM workspaces WHERE id=?", (wid,))
+
+    def get_workspace(self, wid: int) -> dict | None:
+        rows = self._all("SELECT * FROM workspaces WHERE id=?", (wid,))
+        return rows[0] if rows else None
+
+    def list_workspaces(self) -> list[dict]:
+        return self._all("SELECT * FROM workspaces ORDER BY name")
+
+    def seed_workspace(self) -> dict | None:
+        """The workspace registered from tortoise.yaml."""
+        rows = self._all("SELECT * FROM workspaces WHERE source='config' ORDER BY id")
+        return rows[0] if rows else None
 
     def set_review_status(self, rid: int, status: str, risk: str | None = None) -> None:
         if risk is None:
@@ -357,3 +404,7 @@ class Store:
 
     def kv_put(self, key: str, obj: Any) -> None:
         self._exec("INSERT OR REPLACE INTO kv VALUES(?,?)", (key, _dump(obj)))
+
+    def kv_delete_scope(self, scope: str) -> None:
+        """Every entry kept for one workspace: its keys hold `:<scope>` as a whole segment (spec 2026-10-31 §5)."""
+        self._exec("DELETE FROM kv WHERE key LIKE ? OR key LIKE ?", (f"%:{scope}", f"%:{scope}:%"))

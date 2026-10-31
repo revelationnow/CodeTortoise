@@ -1,3 +1,4 @@
+import sqlite3
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -150,3 +151,52 @@ def test_comments_can_be_anchored_to_a_check(store):
     rid = store.create_review("t", "a", [1])
     c = store.add_comment(rid, "bob", "is this fine?", "check", {"key": "caller|a.c|f|g"})
     assert c["anchor_kind"] == "check" and c["anchor"] == {"key": "caller|a.c|f|g"}
+
+
+WS = {"name": "fw", "vcs": "git", "p4port": None, "client": None, "p4user": "amy", "root": "/w/fw",
+      "compile_commands": '"auto"', "build_root": None, "swarm_url": None, "settings": ""}
+
+
+def test_workspaces_are_stored_with_unique_names_and_roots_and_ids_never_repeat(store):
+    a = store.add_workspace(WS, "config", "amy")
+    b = store.add_workspace({**WS, "name": "dsp", "root": "/w/dsp"}, "ui", "amy")
+    assert [w["name"] for w in store.list_workspaces()] == ["dsp", "fw"]
+    assert store.get_workspace(a)["source"] == "config" and store.seed_workspace()["id"] == a
+    assert store.get_workspace(b)["created_by"] == "amy"
+    with pytest.raises(sqlite3.IntegrityError):
+        store.add_workspace({**WS, "root": "/w/other"}, "ui", "amy")             # the name is taken
+    with pytest.raises(sqlite3.IntegrityError):
+        store.add_workspace({**WS, "name": "other"}, "ui", "amy")                # the root is taken
+    store.update_workspace(b, {**WS, "name": "dsp2", "root": "/w/dsp"})
+    assert store.get_workspace(b)["name"] == "dsp2"
+    store.delete_workspace(b)
+    assert store.get_workspace(b) is None
+    assert store.add_workspace({**WS, "name": "new", "root": "/w/new"}, "ui", "amy") > b
+
+
+def test_reviews_belong_to_a_workspace_and_older_ones_are_adopted(store):
+    wid = store.add_workspace(WS, "config", "amy")
+    old = store.create_review("t", "amy", [1])                                  # made before workspaces
+    new = store.create_review("t", "amy", [2], workspace_id=wid)
+    assert store.get_review(old)["workspace_id"] is None and store.get_review(new)["workspace_id"] == wid
+    assert store.adopt_reviews(wid) == 1 and store.get_review(old)["workspace_id"] == wid
+    assert store.adopt_reviews(wid) == 0 and store.review_count(wid) == 2
+
+
+def test_a_database_made_before_workspaces_gets_the_column(tmp_path):
+    db = sqlite3.connect(tmp_path / "old.db")
+    db.execute("CREATE TABLE reviews(id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, created_by TEXT, "
+               "created_at TEXT, status TEXT, risk TEXT)")
+    db.execute("INSERT INTO reviews(title, created_by, status) VALUES('t', 'amy', 'done')")
+    db.commit()
+    db.close()
+    store = Store(tmp_path / "old.db")
+    assert store.get_review(1)["workspace_id"] is None
+
+
+def test_a_workspaces_store_entries_go_with_it(store):
+    keys = ["strip_flags:ws1", "sink_marks:ws1", "layers:v3:ws1:4", "sink_marks:ws12", "sink_marks", "strip_flags:/w/ws1"]
+    for key in keys:
+        store.kv_put(key, [1])
+    store.kv_delete_scope("ws1")
+    assert [k for k in keys if store.kv_get(k) is not None] == ["sink_marks:ws12", "sink_marks", "strip_flags:/w/ws1"]
