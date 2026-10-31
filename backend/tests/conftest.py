@@ -26,6 +26,12 @@ def fx(tmp_path_factory):
 
 
 @pytest.fixture(scope="session")
+def fx_b(tmp_path_factory):
+    """A second fixture workspace, for a server hosting two."""
+    return build_fixture(tmp_path_factory.mktemp("fixture_b"))
+
+
+@pytest.fixture(scope="session")
 def fx_source(fx):
     return GitFixtureSource(fx.root)
 
