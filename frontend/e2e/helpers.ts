@@ -10,6 +10,9 @@ export const STRONG = "http://127.0.0.1:8795";
 export const LARGE = "http://127.0.0.1:8796";
 /** The server whose tortoise.yaml lists Stats::* as shared sinks (e2e/serve-sinks.sh): its Coverage has the Show/Hide line. */
 export const SINKS = "http://127.0.0.1:8794";
+/** One server for two workspaces (e2e/serve-multi.sh): the fixture as `ws` on `local`; e2e/multi-workspace.spec.ts adds a
+ * second copy as `second` on second:1666. */
+export const MULTI = "http://127.0.0.1:8793";
 
 export async function login(page: Page, user = "demo") {
   await page.goto("/login");

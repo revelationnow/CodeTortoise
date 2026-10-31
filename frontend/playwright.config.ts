@@ -15,5 +15,7 @@ export default defineConfig({
     { command: "bash e2e/serve-large.sh", url: "http://127.0.0.1:8796/api/me", timeout: 120_000, reuseExistingServer: false },
     // shared sinks (e2e/workspace-sinks.spec.ts): the fixture with Stats::* listed as sinks, marks of its own
     { command: "bash e2e/serve-sinks.sh", url: "http://127.0.0.1:8794/api/me", timeout: 120_000, reuseExistingServer: false },
+    // one server, two workspaces (e2e/multi-workspace.spec.ts): the fixture as the seed, a second copy to add in the UI
+    { command: "bash e2e/serve-multi.sh", url: "http://127.0.0.1:8793/api/me", timeout: 120_000, reuseExistingServer: false },
   ],
 });
