@@ -41,6 +41,9 @@ uv run --project backend codetortoise serve --config /tmp/tortoise-demo/tortoise
 
 Headless run, which prints the findings: `uv run --project backend codetortoise review --config /tmp/tortoise-demo/tortoise.yaml 101 102`
 
+One server hosts any number of workspaces: the one in `tortoise.yaml` is the first, and its owner adds more on the
+**Workspaces** page (see [More workspaces on one server](#5-more-workspaces-on-one-server)).
+
 ## Connecting to an existing Perforce server
 
 CodeTortoise never changes your depot or workspace. It reads changelists (shelved or submitted) and the files around
@@ -93,8 +96,9 @@ servers, and `P4TICKETS` only if the service keeps its ticket in a dedicated fil
 
 ### 3. Write tortoise.yaml
 
-`tortoise.yaml` tells CodeTortoise who owns it, which workspace to read, how your code is compiled and how to serve
-the app. Relative paths are resolved against the folder that holds the file.
+`tortoise.yaml` tells CodeTortoise how to serve the app and, for its first workspace, who owns it, which workspace to
+read and how your code is compiled. Relative paths are resolved against the folder that holds the file. More
+workspaces are added in the app (see [More workspaces on one server](#5-more-workspaces-on-one-server)).
 
 #### Start with `codetortoise init`
 
@@ -158,11 +162,12 @@ server:
   host: 0.0.0.0                     # 127.0.0.1 to keep it local
   port: 8765
   public_url: "https://codetortoise.example.com"   # what shared links and Swarm summaries point to
-  data_dir: /var/lib/codetortoise   # SQLite database, symbol index, toolchain cache
+  data_dir: /var/lib/codetortoise   # SQLite database; workspaces/<id>/ holds each workspace's symbol index and toolchain cache
   # tls_cert: /etc/codetortoise/ct.pem   # both set: serve HTTPS directly (plain HTTP on a network address
   # tls_key: /etc/codetortoise/ct.key    #   is allowed but warned about at startup and in a banner)
 workspace:
   vcs: p4
+  name: main                        # optional: its name in the app (default: the client's name; git: the root folder's name)
   p4port: ssl:perforce.example.com:1666   # optional with P4CONFIG or P4PORT
   client: anoop-main-ws             # optional with P4CONFIG or P4CLIENT
   root: /work/main                  # must equal the client's Root (or one of its AltRoots); symlinks are fine
@@ -220,7 +225,7 @@ A **shared sink** is a field like a log buffer, a trace ring or a statistics cou
 new write to it says nothing about its users. A review leaves its users out: no To check rows, no notes on other
 functions, no flows, no story links, and no AI judgement. The overview's folded **Coverage** section lists the sinks it
 hid and why; each viewer can **Show** them. The owner can also mark a field as a sink (or unmark it) from a finding, a
-To check row, a field's declaration note or the Health page; marks apply to every review from its next run.
+To check row, a field's declaration note or the workspace's Health page; marks apply to every review of that workspace from its next run.
 
 ### 4. Index, check, run
 
@@ -232,19 +237,54 @@ uv run --project backend codetortoise review --config tortoise.yaml 12345   # op
 uv run --project backend codetortoise serve --config tortoise.yaml
 ```
 
-Open the **Health** page as the owner. Reviews can only be created when the hard checks pass: workspace root,
+Open **Workspaces**, then your workspace's **Health**, as the owner. Reviews can only be created when the hard checks pass: workspace root,
 `p4 client` (Root matches), `compile_commands`, and libclang. The LLM endpoint, the driver query and Swarm are warnings
 only. After a restart, the owner signs in once in the browser; that sign-in also gives CodeTortoise the owner's Swarm
 access (the ticket is kept in memory only).
 
 Colleagues open the shared link and sign in with their own Perforce credentials. The app checks them with
-`p4 login -p` and then discards the ticket; passwords are never stored. Only the owner can start reviews.
+`p4 login -p` and then discards the ticket; passwords are never stored. Only a workspace's owner can start reviews in it.
 
 The symbol index finds callers and includers outside the files under review. By default it covers the files in
 `compile_commands.json` and the workspace headers they include, so a large workspace with a small build stays small.
 Later runs of `codetortoise index` (and the Health page's "Rebuild index") only parse files whose size or
 modification time changed; `--full` parses everything again. Results are written as they're parsed, so memory stays
 flat however large the workspace is.
+
+### 5. More workspaces on one server
+
+One `codetortoise serve` hosts reviews for any number of workspaces, on one Perforce server or several. The workspace in
+`tortoise.yaml` is the first: its name is `workspace.name`, else the client's name (a git workspace: the root folder's
+name), the app shows it as "set in tortoise.yaml", and it is edited only there. The file's `server`, `llm`, `auth` and
+`analysis` apply to every workspace.
+
+To add one, open **Workspaces** as the owner of any workspace and press **Add workspace**:
+
+- **Name**, **Perforce server (P4PORT)**, **Client** and **User**. The user is who its Perforce reads run as, and its
+  owner: whoever signs in to that Perforce server as that user owns the workspace, starts its reviews and opens its
+  Health page.
+- **Root on this host**: the synced workspace on this machine. **Fill from root** reads the server, client, user and
+  compile databases found there, the way `codetortoise init` does.
+- **Compile database** (`auto`, or one path per line), **Swarm URL**, and under **Advanced** a build root and the
+  `toolchain`, `targets` and `analysis` keys of `tortoise.yaml`, as YAML (its `analysis` keys override the file's).
+
+A workspace is saved even when its checks fail: it shows as not ready, with the reason, and once the host is fixed,
+**Recheck** on its Health page runs the checks again. A workspace that isn't ready keeps its finished reviews readable
+and refuses new reviews and re-runs until its checks pass. Each workspace has its own folder, `<data_dir>/workspaces/<id>/`,
+with its symbol index and toolchain cache, and its own shared-sink marks and Swarm URL. An edit is refused while one of
+its reviews runs, and a workspace can be removed only while it has no reviews.
+
+Sign-in is per Perforce server. With workspaces on several servers, the sign-in page has a **Perforce server** picker,
+and the menu under your name lists each sign-in ("`<server>` as `<user>`") with **Sign in to another server**. A link to
+a review on a server you aren't signed in to asks you to sign in there, then opens the review.
+
+On the command line, `index`, `review`, `stories-check` and `check-parse` take `--workspace NAME`; without it they use
+the workspace in `tortoise.yaml`, or the only one there is. `serve` also starts from a file without a `workspace:`
+section when its data folder already holds a workspace.
+
+Upgrading a single-workspace server: the first start on its data folder gives the existing reviews and shared-sink marks
+to the workspace in `tortoise.yaml`, ends the old sign-ins (everyone signs in again), and rebuilds that workspace's
+symbol index once, in its new folder.
 
 ### Compile database
 
@@ -322,13 +362,15 @@ Compilers that are neither GCC- nor clang-compatible (IAR, TI `cl6x`, Green Hill
 
 ### Access and protections
 
-- Everything shown is read **as the owner**. The owner's ticket must have `read` (not just `list`) on every depot path
+- Everything shown is read **as the owner** of the review's workspace. The owner's ticket must have `read` (not just `list`) on every depot path
   the changelists touch and on the workspace's view. Without it, files appear as warnings and context code can't be
   fetched.
-- **Viewers see what the owner's workspace can see.** Anyone who can sign in can open any review and fetch any
-  synced file in the base workspace. Their own Perforce protections are not applied to what they read. If you host
-  code that is restricted to a subset of users, run a separate instance per audience, with a workspace whose view
-  contains only what that audience may read.
+- **Viewers see what the owner's workspace can see.** Anyone who can sign in to a Perforce server can open every
+  review of every workspace on that server and fetch any synced file in those workspaces; a review on another server
+  needs a sign-in on that server. Their own Perforce protections are not yet applied to what they read (per-file access
+  is planned). If you host code that is restricted to a subset of users, run a separate instance per audience, or put it
+  in a workspace on a Perforce server that only that audience can sign in to, with a view that contains only what that
+  audience may read.
 - Only paths that map into the base workspace are served. Wildcards, revision specifiers and paths outside the client
   view are refused (HTTP 403), binary files are refused (415), and files over 2 MiB are refused (413).
 - Restricted changelists can be reviewed only if the owner can `describe` them.
