@@ -2,25 +2,29 @@
 import type { ReviewRow } from "../api";
 
 export type Chip = "all" | "high" | "running" | "mine";
+/** The session's user on each Perforce server it is signed in to (spec 2026-10-31 §7). */
+export type Who = Record<string, string>;
 const RUNNING = new Set(["queued", "running"]);
 
 const words = (q: string) => q.toLowerCase().split(/\s+/).filter(Boolean);
 const haystack = (r: ReviewRow) =>
   [r.title, r.created_by, r.status, ...r.cls.map((c) => `${c} cl ${c} cl${c}`)].join(" ").toLowerCase();
+/** Made by the session's sign-in on the review's own server: the same name on another server is someone else. */
+const mine = (r: ReviewRow, who: Who) => !!r.workspace && who[r.workspace.server] === r.created_by;
 
-function chipOk(r: ReviewRow, chip: Chip, user: string | null) {
+function chipOk(r: ReviewRow, chip: Chip, who: Who) {
   return chip === "all" || (chip === "high" && r.risk === "high") || (chip === "running" && RUNNING.has(r.status))
-    || (chip === "mine" && r.created_by === user);
+    || (chip === "mine" && mine(r, who));
 }
 
 /** Rows matching every word of the query (title, CL number, author, status) and the chip. */
-export function filterReviews(rows: ReviewRow[], query: string, chip: Chip, user: string | null): ReviewRow[] {
+export function filterReviews(rows: ReviewRow[], query: string, chip: Chip, who: Who): ReviewRow[] {
   const ws = words(query.replace(/\bcl\s+(\d+)/gi, "cl$1"));
-  return rows.filter((r) => chipOk(r, chip, user) && ws.every((w) => haystack(r).includes(w)));
+  return rows.filter((r) => chipOk(r, chip, who) && ws.every((w) => haystack(r).includes(w)));
 }
 
-export function chipCounts(rows: ReviewRow[], user: string | null): Record<Chip, number> {
-  const n = (c: Chip) => rows.filter((r) => chipOk(r, c, user)).length;
+export function chipCounts(rows: ReviewRow[], who: Who): Record<Chip, number> {
+  const n = (c: Chip) => rows.filter((r) => chipOk(r, c, who)).length;
   return { all: n("all"), high: n("high"), running: n("running"), mine: n("mine") };
 }
 

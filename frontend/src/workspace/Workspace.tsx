@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api";
+import { useRefreshMe } from "../App";
 import { keys, load, save } from "../board/prefs";
 import Resizer from "../board/Resizer";
 import AiPill, { Usage } from "../components/AiPill";
 import HeadlinePill from "../components/HeadlinePill";
+import SignInForm from "../components/SignInForm";
 import { useSources } from "../board/useSources";
 import Stages from "../components/Stages";
 import { AiProvider, useAi } from "../lib/ai";
@@ -12,6 +14,7 @@ import { threadLabel } from "../reading/checks";
 import { causeOfCheck, loadHidden, loadOutline, nextOpen, openCount, type OutlineView, progressLine, saveHidden, saveOutline, shown } from "../reading/causes";
 import { progress, progressText } from "../reading/plan";
 import type { CheckKind } from "../reading/types";
+import { ViewerContext, viewerOf } from "../viewer";
 import { type Address, at, href, type Item, type Open, type Place, readAddress, type Tab } from "./address";
 import { type Folds, useWs, type Ws, WsContext } from "./context";
 import Crumbs, { PhoneBar } from "./Crumbs";
@@ -46,6 +49,8 @@ export default function Workspace() {
   const location = useLocation();
   const navigate = useNavigate();
   const data = useReview(id);
+  const refreshMe = useRefreshMe();
+  const viewer = useMemo(() => viewerOf(data.detail), [data.detail]);   // who the session is in this review (spec 2026-10-31 §8)
   const screen = useScreen();
   const sources = useSources(id, data.files);
   const [drawer, setDrawer] = useState(false);
@@ -133,29 +138,37 @@ export default function Workspace() {
   const anchored = r && hash && addr.place.kind === "whole" && !addr.place.view ? indexFor(hash) : null;
   const level = addr.open ? "detail" : addr.place.kind === "whole" && !addr.place.view && !page ? "rail" : "item";
 
+  if (data.signIn)                                         // its server has no sign-in in this session: the form, in place (§9)
+    return (
+      <main className="login-wrap">
+        <SignInForm fixed={data.signIn} onDone={() => Promise.all([refreshMe(), data.loadDetail()])} />
+      </main>
+    );
   if (data.error) return <main className="page error"><div role="alert">{data.error}</div></main>;
   if (!d || old) return <main className="page muted">Loading…</main>;
   if (anchored) return <Navigate replace to={href(root, at(anchored))} />;
   return (
     <AiProvider value={data.ai}>
-      <WsContext.Provider value={ws}>
-        <main className={`ws ${screen} level-${level}${drawer ? " drawer" : ""}`}>
-          <Head onMenu={() => setDrawer(!drawer)} drawer={drawer} />
-          <div className={`ws-body${addr.open ? " with-detail" : ""}`}>
-            {(screen !== "phone" || level === "rail") && (r === null      // the old rail only for a review run before the reading
-              ? <Rail show={hash} onPick={() => setDrawer(false)} hidden={screen === "tablet" && !drawer} />
-              : <Outline onPick={() => setDrawer(false)} hidden={screen === "tablet" && !drawer} />)}
-            {drawer && <div className="ws-scrim" onClick={() => setDrawer(false)} aria-hidden />}
-            {(screen !== "phone" || level === "item") && (
-              <section className="ws-centre" aria-label="Centre">
-                {screen === "phone" ? <PhoneBar {...phoneBar(trail)} /> : <Crumbs items={trail} />}
-                <Centre />
-              </section>
-            )}
-            {addr.open && d && data.ready && r !== undefined && (screen !== "phone" || level === "detail") && <Detail key={"cause" in addr.open ? `c:${addr.open.cause}` : JSON.stringify(addr.open)} />}
-          </div>
-        </main>
-      </WsContext.Provider>
+      <ViewerContext.Provider value={viewer}>
+        <WsContext.Provider value={ws}>
+          <main className={`ws ${screen} level-${level}${drawer ? " drawer" : ""}`}>
+            <Head onMenu={() => setDrawer(!drawer)} drawer={drawer} />
+            <div className={`ws-body${addr.open ? " with-detail" : ""}`}>
+              {(screen !== "phone" || level === "rail") && (r === null      // the old rail only for a review run before the reading
+                ? <Rail show={hash} onPick={() => setDrawer(false)} hidden={screen === "tablet" && !drawer} />
+                : <Outline onPick={() => setDrawer(false)} hidden={screen === "tablet" && !drawer} />)}
+              {drawer && <div className="ws-scrim" onClick={() => setDrawer(false)} aria-hidden />}
+              {(screen !== "phone" || level === "item") && (
+                <section className="ws-centre" aria-label="Centre">
+                  {screen === "phone" ? <PhoneBar {...phoneBar(trail)} /> : <Crumbs items={trail} />}
+                  <Centre />
+                </section>
+              )}
+              {addr.open && d && data.ready && r !== undefined && (screen !== "phone" || level === "detail") && <Detail key={"cause" in addr.open ? `c:${addr.open.cause}` : JSON.stringify(addr.open)} />}
+            </div>
+          </main>
+        </WsContext.Provider>
+      </ViewerContext.Provider>
     </AiProvider>
   );
 }
@@ -168,7 +181,7 @@ function phoneBar(trail: Crumb[]): { back: Crumb; title: string; handle?: string
 }
 
 function Head({ onMenu, drawer }: { onMenu: () => void; drawer: boolean }) {
-  const ws = useWs(), ai = useAi(), d = ws.data, r = d.detail!.review;
+  const ws = useWs(), ai = useAi(), d = ws.data, r = d.detail!.review, where = d.detail!.workspace;
   const box = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(loadHeadH);          // null: as tall as its content
   const under = useCallback(() => (box.current?.getBoundingClientRect().bottom ?? 50) + 6, []);
@@ -195,6 +208,7 @@ function Head({ onMenu, drawer }: { onMenu: () => void; drawer: boolean }) {
         <button className="ws-menu" aria-label="Review contents" aria-expanded={drawer} title="Show the review's contents"
                 onClick={onMenu}>☰</button>
         <h1><Link to={ws.base} state={{ page: true }} title="Go to the whole change">{r.title}</Link></h1>
+        <span className="ws-where" title={`Workspace ${where.name} on ${where.server}`}>{where.name}</span>
         {d.reading ? <HeadlinePill h={d.reading.headline} />
           : d.reading === null && r.risk && <span className={`bd-pill ${r.risk}`}>{r.risk.toUpperCase()} RISK</span>}
         {rd && d.ticks && <span className="ws-progress">{line}</span>}

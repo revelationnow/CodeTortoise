@@ -37,6 +37,14 @@ h4 { font-size: 15px; font-weight: 650; color: var(--ink); margin: 20px 0 6px; }
 .topbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 24px; padding: 10px 24px; border-bottom: 1px solid var(--line); background: var(--surface); }
 .topbar nav { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-left: auto; }
 .topbar nav a, .topbar nav button { white-space: nowrap; }
+/* the account menu (spec 2026-10-31 §9): a line per sign-in, and signing in to another server */
+.topbar .account { position: relative; }
+.topbar .account summary { cursor: pointer; color: var(--muted); white-space: nowrap; list-style: none; }
+.topbar .account summary::-webkit-details-marker { display: none; }
+.topbar .account summary::after { content: " ▾"; font-size: 11px; }
+.topbar .account ul { position: absolute; right: 0; top: calc(100% + 8px); z-index: 30; min-width: 240px; margin: 0; padding: 6px 0;
+  list-style: none; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 28px rgba(0, 0, 0, .14); }
+.topbar .account li { padding: 5px 14px; white-space: nowrap; }
 .theme-switch { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .theme-switch button { border: 0; border-radius: 0; padding: 3px 9px; background: var(--surface); color: var(--muted); }
 .theme-switch button.on { background: var(--accent); color: var(--surface); }
@@ -171,6 +179,8 @@ button.go:disabled { opacity: .55; }
 
 /* ---- health ---- */
 .hc-title { display: flex; align-items: center; gap: 10px; }
+.hc-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 12px; }
+.hc-head h1 { margin: 0; }
 .hc-pill { font-size: 12px; font-weight: 700; padding: 3px 12px; border-radius: 99px; }
 .hc-pill.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
 .hc-pill.bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); }
@@ -198,6 +208,8 @@ button.go:disabled { opacity: .55; }
   .topbar nav { display: none; width: 100%; flex-direction: column; align-items: flex-start; gap: 10px; padding: 6px 0 4px; }
   .topbar.open nav { display: flex; }
   .topbar .theme-switch { order: 3; }
+  .topbar .account ul { position: static; min-width: 0; border: 0; box-shadow: none; padding: 4px 0 0; }
+  .topbar .account li { padding: 3px 0; white-space: normal; overflow-wrap: anywhere; }
 }
 
 /* read by screen readers only */

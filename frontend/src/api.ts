@@ -1,17 +1,39 @@
 export type Severity = "info" | "low" | "medium" | "high";
 export type StageStatus = "pending" | "running" | "ok" | "degraded" | "failed" | "skipped";
 
-export interface Me { user: string; is_owner: boolean; swarm_ready: boolean }
+/** A sign-in: the session's user on one Perforce server (spec 2026-10-31 §7). */
+export interface Login { server: string; user: string }
+/** The session (spec 2026-10-31 §8): one sign-in per Perforce server, and the workspaces it owns. Inside a review, who the
+ * session is comes from the review's `viewer` instead (viewer.ts). */
+export interface Me { logins: Login[]; owner_of: number[] }
+/** A Perforce server some workspace is on, and the session's user there (null: not signed in to it). */
+export interface ServerRow { server: string; user: string | null }
+/** The workspace a review belongs to. */
+export interface WorkspaceRef { id: number; name: string; server: string }
+/** A workspace's settings as its owner edits them (spec 2026-10-31 §9); `compile_commands` is "auto", a path, or one per line. */
+export interface WorkspaceFields {
+  name: string; vcs: "p4" | "git"; p4port: string | null; client: string | null; p4user: string; root: string;
+  compile_commands: string; build_root: string | null; swarm_url: string | null; settings: string;
+}
+/** A workspace as the Workspaces page lists it (spec 2026-10-31 §8); `fields` only for its owner. */
+export interface WorkspaceRow extends WorkspaceRef {
+  client: string | null; vcs: "p4" | "git"; ready: boolean; reason: string | null; seed: boolean; is_owner: boolean;
+  fields?: WorkspaceFields;
+}
 export interface ReviewRow {
   id: number; title: string; created_by: string; created_at: string;
   status: string; risk: "low" | "medium" | "high" | null; cls: number[];
   /** What to act on (spec 2026-10-07-review-reading §5.4); null: run before the reading existed. */
   headline?: Headline | null;
+  /** Its workspace (spec 2026-10-31 §8); not on the answer to a review just created. */
+  workspace?: WorkspaceRef;
 }
 export interface Stage { name: string; status: StageStatus; message: string; started_at: string | null; finished_at: string | null }
 export interface SwarmInfo { id: number; state: string; state_label?: string; url: string; votes: Record<string, number>; author?: string }
 export interface ClRow { review_id: number; cl: number; status: string; user: string | null; description: string | null; swarm: SwarmInfo | null }
-export interface ReviewDetail { review: ReviewRow; cls: ClRow[]; stages: Stage[] }
+/** A review, its CLs and stages, its workspace, and who the session is inside it: its sign-in on the review's server
+ * (spec 2026-10-31 §8). */
+export interface ReviewDetail { review: ReviewRow; cls: ClRow[]; stages: Stage[]; workspace: WorkspaceRef; viewer: { user: string; is_owner: boolean } }
 
 export interface Evidence { text: string; file: string | null; line: number | null; severity: Severity }
 export interface Cited { text: string; cites: string[]; verified: boolean }
@@ -76,7 +98,8 @@ import type { FileLines, Headline, Mark, Reading } from "./reading/types";
 export type { Headline, Mark, Reading } from "./reading/types";
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) { super(message); }
+  /** `server`: the Perforce server to sign in to, on a 401 for a review there (spec 2026-10-31 §7). */
+  constructor(public status: number, message: string, public server: string | null = null) { super(message); }
 }
 
 /** What to tell the reader of a call that failed: the error's own words, or `fallback` when it has none. A refusal can come
@@ -94,21 +117,33 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!res.ok) {
-    let msg = res.statusText;
-    try { msg = (await res.json()).detail ?? msg; } catch { /* not json */ }
-    throw new ApiError(res.status, typeof msg === "string" ? msg : JSON.stringify(msg));
+    let msg = res.statusText, server: string | null = null;
+    try {
+      const body = await res.json();
+      msg = body.detail ?? msg;
+      if (typeof body.server === "string") server = body.server;
+    } catch { /* not json */ }
+    throw new ApiError(res.status, typeof msg === "string" ? msg : JSON.stringify(msg), server);
   }
   return res.json() as Promise<T>;
 }
 
 export const api = {
   me: () => call<Me>("GET", "/api/me"),
-  login: (user: string, password: string) => call<{ user: string; is_owner: boolean }>("POST", "/api/login", { user, password }),
+  /** The Perforce servers of all workspaces, with the session's user on each (the sign-in form's picker). */
+  servers: () => call<ServerRow[]>("GET", "/api/servers"),
+  /** Sign in to `server` (null: the only one there is), adding to the session's sign-ins. */
+  login: (server: string | null, user: string, password: string) =>
+    call<Login>("POST", "/api/login", { server: server ?? undefined, user, password }),
   logout: () => call("POST", "/api/logout"),
-  health: () => call<Health>("GET", "/api/health"),
-  rebuildIndex: () => call("POST", "/api/index/rebuild"),
+  /** The workspaces on the session's servers (spec 2026-10-31 §8). */
+  workspaces: () => call<WorkspaceRow[]>("GET", "/api/workspaces"),
+  health: (wid: number) => call<Health>("GET", `/api/workspaces/${wid}/health`),
+  rebuildIndex: (wid: number) => call("POST", `/api/workspaces/${wid}/index/rebuild`),
   reviews: () => call<ReviewRow[]>("GET", "/api/reviews"),
-  createReview: (cls: number[], title?: string) => call<ReviewRow>("POST", "/api/reviews", { cls, title }),
+  /** A review in workspace `workspace_id` (left out: the only workspace there is). */
+  createReview: (cls: number[], title?: string, workspace_id?: number) =>
+    call<ReviewRow>("POST", "/api/reviews", { workspace_id, cls, title }),
   review: (id: number) => call<ReviewDetail>("GET", `/api/reviews/${id}`),
   rerun: (id: number, fresh = false) => call("POST", `/api/reviews/${id}/rerun${fresh ? "?fresh=true" : ""}`),
   board: (id: number, cluster?: string | null) =>
@@ -159,8 +194,9 @@ export const api = {
   explain: (id: number, kind: AiKind, target: string) => call<AiJob>("POST", `/api/reviews/${id}/explain`, { kind, target }),
   raiseBudget: (id: number, budget: number) => call<{ budget: number }>("PUT", `/api/reviews/${id}/ai/budget`, { budget }),
   setRounds: (id: number, rounds: number) => call<{ rounds: number }>("PUT", `/api/reviews/${id}/ai/rounds`, { rounds }),
-  /** Shared sinks (spec 2026-10-09 §6): the rules, and the owner's marks for every review from the next run. */
-  sinks: () => call<SinkRules>("GET", "/api/sinks"),
-  markSink: (label: string) => call<SinkRules>("PUT", `/api/sinks/${encodeURIComponent(label)}`),
-  unmarkSink: (label: string) => call<SinkRules>("DELETE", `/api/sinks/${encodeURIComponent(label)}`),
+  /** A workspace's shared sinks (spec 2026-10-09 §6; per workspace since spec 2026-10-31 §5): the rules, and its owner's marks for
+   * every review of it from the next run. */
+  sinks: (wid: number) => call<SinkRules>("GET", `/api/workspaces/${wid}/sinks`),
+  markSink: (wid: number, label: string) => call<SinkRules>("PUT", `/api/workspaces/${wid}/sinks/${encodeURIComponent(label)}`),
+  unmarkSink: (wid: number, label: string) => call<SinkRules>("DELETE", `/api/workspaces/${wid}/sinks/${encodeURIComponent(label)}`),
 };

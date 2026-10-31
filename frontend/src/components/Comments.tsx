@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { api, type AnchorKind, type Comment, errorText } from "../api";
-import { useMe } from "../App";
+import { useViewer } from "../viewer";
 import { useAi } from "../lib/ai";
 import { aiAvailability } from "../lib/aiState";
 import { insertMention, mentionOptions, mentionQuery, TORTOISE } from "../lib/mention";
@@ -90,7 +90,7 @@ function Thread({ root, replies, reviewId, onChange }: { root: Comment; replies:
 }
 
 function CommentView({ c, onChange }: { c: Comment; onChange: Reload }) {
-  const me = useMe();
+  const me = useViewer();
   const usage = useAi();
   const act = useFailure(onChange);                  // a delete or an edit that was refused
   const [editing, setEditing] = useState(false);

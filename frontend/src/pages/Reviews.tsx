@@ -31,16 +31,18 @@ export default function Reviews() {
     return () => window.clearInterval(t);
   }, [live]);
 
-  const shown = useMemo(() => (rows ? filterReviews(rows, query, chip, me?.user ?? null) : []), [rows, query, chip, me]);
-  const counts = useMemo(() => chipCounts(rows ?? [], me?.user ?? null), [rows, me]);
+  const who = useMemo(() => Object.fromEntries((me?.logins ?? []).map((l) => [l.server, l.user])), [me]);
+  const shown = useMemo(() => (rows ? filterReviews(rows, query, chip, who) : []), [rows, query, chip, who]);
+  const counts = useMemo(() => chipCounts(rows ?? [], who), [rows, who]);
+  const owner = !!me?.owner_of.length;                     // owns a workspace: starts reviews (spec 2026-10-31 §7)
 
   return (
     <main className="home-page">
       <section className="rv-hello">
-        {me?.is_owner ? <StartReview /> : (
+        {me && owner ? <StartReview wid={me.owner_of.length === 1 ? me.owner_of[0] : undefined} /> : (
           <>
             <Logo size={72} />
-            <h1>Hi {me?.user}</h1>
+            <h1>Hi {[...new Set((me?.logins ?? []).map((l) => l.user))].join(", ")}</h1>
             <p>These are the reviews shared on this CodeTortoise. Open one to explore its call flows, side effects and
               changed code, and leave comments where you see something.</p>
           </>
@@ -64,7 +66,7 @@ export default function Reviews() {
         </div>
         {error && <p className="error" role="alert">{error}</p>}
         {!rows && !error && <p className="muted">Loading…</p>}
-        {rows && rows.length === 0 && <p className="muted rv-empty">No reviews yet{me?.is_owner ? " — start one on the left." : "."}</p>}
+        {rows && rows.length === 0 && <p className="muted rv-empty">No reviews yet{owner ? " — start one on the left." : "."}</p>}
         <div className="rv-list">
           {shown.map((r) => (
             <Link key={r.id} to={`/r/${r.id}`} className="rv-row">
@@ -87,7 +89,7 @@ export default function Reviews() {
   );
 }
 
-function StartReview() {
+function StartReview({ wid }: { wid?: number }) {
   const [text, setText] = useState("");
   const [title, setTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -100,7 +102,7 @@ function StartReview() {
     setBusy(true);
     setError(null);                                // a new attempt clears the last refusal, so a repeat is told again
     try {
-      const r = await api.createReview(cls, title.trim() || undefined);
+      const r = await api.createReview(cls, title.trim() || undefined, wid);
       navigate(`/r/${r.id}`);
     } catch (err) {
       setError(errorText(err, "The review could not be started."));

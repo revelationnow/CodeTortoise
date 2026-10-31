@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
-import { useMe } from "../App";
+import { useViewer } from "../viewer";
 import Comments from "../components/Comments";
 import AiText from "../components/AiText";
 import Explain from "../components/Explain";
@@ -23,7 +23,7 @@ const VERDICT = { hazard: "Hazard", needs_review: "Needs review", no_hazard: "No
  * evidence (each line opening the diff at that line) and comments. `head` is the caller's title row; `ids` prefixes
  * the sections' ids, so a page and the panel can each show a finding. */
 export default function FindingBody({ fid, head, ids }: { fid: string; head: ReactNode; ids: string }) {
-  const ws = useWs(), d = ws.data, me = useMe(), ai = useAi();
+  const ws = useWs(), d = ws.data, me = useViewer(), ai = useAi();
   const f = d.findings.find((x) => x.id === fid)!;
   const sid = d.stories?.finding_story[fid] ?? null, st = sid ? d.stories!.stories.find((s) => s.id === sid) : null;
   const first = f.nodes.find((x) => d.names[x]) ?? f.nodes[0] ?? null;

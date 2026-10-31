@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, errorText } from "../api";
-import { useMe } from "../App";
+import { useViewer } from "../viewer";
 import { driftSummary } from "../board/drift";
 import { useAi } from "../lib/ai";
 import { holdsFocus } from "../lib/focus";
@@ -23,7 +23,7 @@ const said = (message: string) => (message.trim() ? `: ${message}` : "");
  * refuses is told in a panel of its own, whose message is an alert and which takes focus only from ⋯ or the page (the answer
  * may come when the reader is writing a comment). Escape gives focus back to ⋯ only while the panel holds it. */
 export default function ReviewMenu({ under }: { under: () => number }) {
-  const ws = useWs(), d = ws.data, me = useMe(), ai = useAi();
+  const ws = useWs(), d = ws.data, me = useViewer(), ai = useAi();
   const [open, setOpen] = useState(false);
   const [panel, setPanel] = useState<"drift" | "notes" | "help" | "rerun" | null>(null);
   const [failed, setFailed] = useState("");                  // why the last re-run did not start

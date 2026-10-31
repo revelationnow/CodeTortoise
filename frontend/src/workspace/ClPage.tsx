@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, errorText } from "../api";
-import { useMe } from "../App";
+import { useViewer } from "../viewer";
 import { SeverityBadge } from "../components/Badges";
 import Markdown from "../components/Markdown";
 import { descriptionParts, plainTitle } from "../lib/markdown";
@@ -15,7 +15,7 @@ import { Ticks } from "./NameText";
 /** A changelist (spec 2026-10-04-review-workspace §3.4): its description, its Swarm review, its files, and the stories
  * and findings drawn from it. */
 export default function ClPage({ cl }: { cl: number }) {
-  const ws = useWs(), d = ws.data, me = useMe();
+  const ws = useWs(), d = ws.data, me = useViewer();
   const [msg, setMsg] = useState<{ text: string; failed?: boolean } | null>(null);
   const c = d.detail!.cls.find((x) => x.cl === cl)!;
   const { title, body: rest } = descriptionParts(c.description ?? "");

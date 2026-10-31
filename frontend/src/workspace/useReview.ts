@@ -26,9 +26,13 @@ export function useReview(id: number) {
   const [ticks, setTicks] = useState<ReadTicks | null>(null);                          // the reader's own (phase 2 §6)
   const [reload, setReload] = useState(0);                // story pages and cluster graphs fetch again: new results, AI text
   const [error, setError] = useState<string | null>(null);
+  const [signIn, setSignIn] = useState<string | null>(null);   // the server to sign in to before this review opens (spec 2026-10-31 §9)
 
-  const fail = useCallback((e: unknown) => setError(errorText(e, "The review could not be loaded.")), []);
-  const loadDetail = useCallback(() => api.review(id).then(setDetail).catch(fail), [id, fail]);
+  const fail = useCallback((e: unknown) => {
+    if (e instanceof ApiError && e.status === 401 && e.server) setSignIn(e.server);   // a review on a server the session isn't signed in to
+    else setError(errorText(e, "The review could not be loaded."));
+  }, []);
+  const loadDetail = useCallback(() => api.review(id).then((d) => { setSignIn(null); setDetail(d); }).catch(fail), [id, fail]);
   const loadComments = useCallback(() => api.comments(id).then(setComments), [id]);
   const loadFindings = useCallback(() => api.findings(id).then(setFindings), [id]);
   const loadStories = useCallback(() => api.stories(id).then(setStories, (e) => setStories(missing(null)(e))), [id]);
@@ -92,9 +96,9 @@ export function useReview(id: number) {
 
   // the findings so far ([] until they come), and whether they came: a finding's page waits for them
   return useMemo(() => ({ id, detail, board, overview, stories, findings: findings ?? NONE, findingsLoaded: findings !== undefined,
-                         files, comments, names, reading, ticks, about, reload, error,
+                         files, comments, names, reading, ticks, about, reload, error, signIn,
                          ready, ai, story, loadDetail, loadComments, loadFindings, loadReading, loadTicks, tick }),
-                 [id, detail, board, overview, stories, findings, files, comments, names, reading, ticks, about, reload, error, ready, ai,
+                 [id, detail, board, overview, stories, findings, files, comments, names, reading, ticks, about, reload, error, signIn, ready, ai,
                   story, loadDetail, loadComments, loadFindings, loadReading, loadTicks, tick]);
 }
 

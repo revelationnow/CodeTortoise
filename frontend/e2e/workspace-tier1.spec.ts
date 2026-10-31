@@ -128,7 +128,7 @@ test.describe("stories formed by a strong model", () => {
 
   test("Health says plainly when code goes to a model off the network", async ({ page }) => {
     await login(page);
-    await page.route("**/api/health*", async (route) => {
+    await page.route("**/api/workspaces/*/health*", async (route) => {
       const real = await (await route.fetch()).json();
       real.checks = real.checks.map((c: { name: string; detail: string }) => c.name === "strong model endpoint"
         ? { ...c, detail: "https://models.example.com/v1 (big); code from reviewed changes is sent to models.example.com" } : c);
