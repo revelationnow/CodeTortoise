@@ -371,6 +371,17 @@ class Store:
                    (_hash(token), None, now.isoformat(), (now + timedelta(days=ttl_days)).isoformat()))
         return token
 
+    def renew_session(self, token: str | None, ttl_days: int = 7) -> str:
+        """A new token for the session `token` names, carrying its sign-ins, with a new expiry; the old token ends. A
+        sign-in never joins a token the browser already held, so one planted there gains nothing from it."""
+        carried = self.session_logins(token) or {}
+        new = self.open_session(ttl_days)
+        for server, user in carried.items():
+            self.add_login(new, server, user)
+        if token:
+            self.delete_session(token)
+        return new
+
     def add_login(self, token: str, server: str, user: str) -> None:
         """The session's sign-in on `server`; signing in there again replaces it."""
         self._exec("INSERT OR REPLACE INTO session_logins VALUES(?,?,?,?)", (_hash(token), server, user, _now()))

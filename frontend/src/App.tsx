@@ -56,7 +56,8 @@ export default function App() {
   }, [location.pathname]);
 
   if (me === undefined) return <div className="page muted">Loading…</div>;
-  if (me === null && location.pathname !== "/login")
+  // a review's page asks for its own server's sign-in in place (spec 2026-10-31 §9), even with no session at all
+  if (me === null && location.pathname !== "/login" && !location.pathname.startsWith("/r/"))
     return <Navigate to={`/login?next=${encodeURIComponent(location.pathname)}`} replace />;
   const here = location.pathname === "/login" ? "/" : location.pathname + location.search;
 

@@ -789,3 +789,26 @@ def test_all_look_fine_reads_the_reading_once_and_marks_a_repeated_key_once(env,
     out = owner.post(f"/api/reviews/{rid}/checks/marks", json={"keys": [k1, k0, k1, k0]}).json()
     assert [m["key"] for m in out["marked"]] == [k1, k0] and len(calls) == 1
     assert svc.store.list_ticks(rid, "owner")["checks"].count(k1) == 1
+
+
+def test_a_perforce_server_that_cannot_be_reached_says_so_at_sign_in(fx, tmp_path):
+    """Spec 2026-10-31 §11: sign-in to a server that is down fails with Perforce's message, not as a wrong password;
+    p4 that cannot run says so too (final review I1)."""
+    from codetortoise.vcs.p4runner import P4Error
+    svc = make_services(fx, tmp_path)
+    svc.cfg.auth.mode = "p4"
+
+    class P4:
+        def login_check(self, user, password, all_hosts=False):
+            if user == "bob":
+                raise P4Error("p4 login failed: Perforce client error:\n\tConnect to server failed; check $P4PORT.\n"
+                              "\tTCP connect to p4:1666 failed.")
+            raise P4Error("p4 login: [Errno 2] No such file or directory: 'p4'")
+
+    app = make_app(svc, InlineRunner(svc), runner_for=lambda server: P4())
+    c = TestClient(app)
+    r = c.post("/api/login", json={"user": "bob", "password": "x"})
+    assert r.status_code == 401 and "Connect to server failed" in r.json()["detail"], r.text
+    assert r.json()["detail"].startswith("Could not sign in to local: ")
+    r = c.post("/api/login", json={"user": "carol", "password": "x"})
+    assert r.status_code == 401 and "No such file or directory" in r.json()["detail"], r.text

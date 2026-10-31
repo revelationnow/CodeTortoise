@@ -73,4 +73,39 @@ test.describe.serial("one server, two workspaces", () => {
     await page.locator(".topbar .account summary").click();
     await expect(page.locator(".topbar .account")).toContainText("second:1666 as demo");
   });
+
+  test("a link opened with no session at all asks for its review's server in place, then opens where it pointed", async ({ page }) => {
+    expect(deep, "the first test made the review").not.toBe("");
+    await page.goto(deep);                               // a new browser: no session (final review I2)
+    await expect(page.getByText("Sign in to second:1666 to open this review")).toBeVisible();
+    await expect(page.getByLabel("Perforce server"), "the review names its server: no picker").toHaveCount(0);
+    await page.getByLabel("P4 user").fill("demo");
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page.getByRole("heading", { name: /^CL 102 · / })).toBeVisible({ timeout: 30_000 });
+    expect(new URL(page.url()).pathname, "the same address, not the Reviews page").toBe(deep);
+    await page.locator(".topbar .account summary").click();
+    await expect(page.locator(".topbar .account")).toContainText("second:1666 as demo");
+  });
+
+  test("the owner of the workspace in tortoise.yaml removes one saved on a server nobody signs in to", async ({ page }) => {
+    test.setTimeout(120_000);                            // the add runs its checks (final review I5)
+    await login(page);                                   // demo on local: the seed's owner
+    const rows: { seed: boolean; fields: { root: string } }[] = await (await page.request.get("/api/workspaces")).json();
+    const root = rows.find((w) => w.seed)!.fields.root.replace(/\/ws$/, "/typo");
+    await page.getByRole("link", { name: "Workspaces" }).click();
+    await page.getByRole("button", { name: "Add workspace" }).click();
+    const form = page.getByRole("form", { name: "Add workspace" });
+    await form.getByLabel("Name", { exact: true }).fill("typo");
+    await form.getByLabel("Perforce server (P4PORT)").fill("tpyo:1666");
+    await form.getByLabel("Client", { exact: true }).fill("typo");
+    await form.getByLabel("User", { exact: true }).fill("nobody");
+    await form.getByLabel("Root on this host").fill(root);
+    await form.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(page.locator(".wsp-saved")).toContainText("typo is saved but not ready", { timeout: 60_000 });
+    const row = page.locator(".wsp-row", { has: page.locator("b", { hasText: /^typo$/ }) });
+    await expect(row, "listed to the seed's owner, though no one is signed in to its server").toBeVisible();
+    page.once("dialog", (d) => d.accept());
+    await row.getByRole("button", { name: "Remove" }).click();
+    await expect(row).toHaveCount(0);
+  });
 });

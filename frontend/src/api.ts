@@ -18,6 +18,8 @@ export interface WorkspaceFields {
 /** A workspace as the Workspaces page lists it (spec 2026-10-31 §8); `fields` only for its owner. */
 export interface WorkspaceRow extends WorkspaceRef {
   client: string | null; vcs: "p4" | "git"; ready: boolean; reason: string | null; seed: boolean; is_owner: boolean;
+  /** May edit or remove it: its owner, or the owner of the seed (one saved with a server or user nobody can sign in as). */
+  can_manage: boolean;
   fields?: WorkspaceFields;
 }
 /** What `codetortoise init` finds at a root (spec 2026-10-31 §8): P4CONFIG's server, client and user, the compile databases. */

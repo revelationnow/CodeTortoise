@@ -176,8 +176,15 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
             raise HTTPException(401, "login required")
         return got
 
-    def in_review(rid: int, logins: dict[str, str] = Depends(logins_of)) -> Access:
-        """The review, read as the session's sign-in on its workspace's server (§7)."""
+    def in_review(rid: int, request: Request) -> Access:
+        """The review, read as the session's sign-in on its workspace's server (§7). Without that sign-in — or with no
+        session at all, as for a link opened in a new browser — the 401 names the server, so its sign-in opens in place
+        (§9)."""
+        return review_access(rid, store.session_logins(request.cookies.get(COOKIE)) or {})
+
+    def review_access(rid: int, logins: dict[str, str]) -> Access:
+        """The review as the sign-ins `logins` may read it: 404 when it doesn't exist, 401 naming its server without a
+        sign-in there."""
         r = store.get_review(rid)
         ws = reg.for_review(r) if r is not None else None
         if ws is None:
@@ -200,6 +207,19 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
         if logins[ws.server] != ws.owner:
             raise HTTPException(403, "owner only")
         return Owned(ws, logins[ws.server], logins)
+
+    def hosts(logins: dict[str, str]) -> bool:
+        """Signed in as the owner of the seed, the workspace tortoise.yaml names: the owner of this server."""
+        seed = reg.seed()
+        return seed is not None and logins.get(seed.server) == seed.owner
+
+    def managed(wid: int, logins: dict[str, str] = Depends(logins_of)) -> Owned:
+        """Edit or remove a workspace: its owner (§7), or the owner of the seed, so that one saved with a server or user
+        nobody can sign in as (§11) can still be fixed or removed."""
+        ws = reg.get(wid)
+        if ws is not None and hosts(logins):
+            return Owned(ws, logins.get(ws.server, ""), logins)
+        return owned(wid, logins)
 
     def bundle(ws: Workspace) -> Services:
         """A workspace's bundle (waited for while it is still being built, right after startup); 409 with the reason
@@ -243,9 +263,7 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
             raise HTTPException(401, "invalid credentials")
         if body.user in reg.owners(server):
             reg.keep_ticket(server, body.user, ticket)
-        token = request.cookies.get(COOKIE)
-        if store.session_logins(token) is None:
-            token = store.open_session()
+        token = store.renew_session(request.cookies.get(COOKIE))     # a new token at each sign-in (no fixation)
         store.add_login(token, server, body.user)
         response.set_cookie(COOKIE, token, httponly=True, samesite="lax", max_age=7 * 86400,
                             secure=reg.base.server.tls_cert is not None)
@@ -633,11 +651,13 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
 
     # ---- workspaces (spec 2026-10-31 §8) ----------------------------------------------
     def ws_row(ws: Workspace, logins: dict[str, str]) -> dict:
-        """A workspace as the Workspaces page lists it; its owner also gets its fields, to edit."""
+        """A workspace as the Workspaces page lists it; whoever may edit it (its owner, or the seed's) also gets its
+        fields."""
         mine = logins.get(ws.server) == ws.owner
+        manage = mine or hosts(logins)
         out = {**ws_ref(ws), "client": ws.cfg.workspace.client, "vcs": ws.cfg.workspace.vcs, "ready": ws.ready,
-               "reason": ws.reason, "seed": ws.seed, "is_owner": mine}
-        row = store.get_workspace(ws.id) if mine else None
+               "reason": ws.reason, "seed": ws.seed, "is_owner": mine, "can_manage": manage}
+        row = store.get_workspace(ws.id) if manage else None
         if row is not None:
             cc = json.loads(row["compile_commands"])
             out["fields"] = {**{k: row[k] for k in ("name", "vcs", "p4port", "client", "p4user", "root", "build_root",
@@ -664,8 +684,8 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
 
     @app.get("/api/workspaces")
     def list_workspaces(logins: dict[str, str] = Depends(logins_of)):
-        """The workspaces on the session's servers."""
-        return [ws_row(w, logins) for w in reg.all() if w.server in logins]
+        """The workspaces on the session's servers; the owner of the seed gets every one, to fix or remove."""
+        return [ws_row(w, logins) for w in reg.all() if w.server in logins or hosts(logins)]
 
     @app.post("/api/workspaces")
     def add_workspace(body: WorkspaceIn, logins: dict[str, str] = Depends(adder)):
@@ -693,14 +713,14 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
                 "client_root": s.client_root, "notes": notes}
 
     @app.put("/api/workspaces/{wid}")
-    def edit_workspace(body: WorkspaceIn, o: Owned = Depends(owned)):
+    def edit_workspace(body: WorkspaceIn, o: Owned = Depends(managed)):
         """New fields, a new bundle swapped in; refused for the seed and while its queue has work (§6)."""
         if len(body.settings) > 100_000:
             raise HTTPException(422, "settings: at most 100000 characters")
         return saved(lambda: reg.edit(o.ws.id, body.fields()), o.logins)
 
     @app.delete("/api/workspaces/{wid}")
-    def remove_workspace(o: Owned = Depends(owned)):
+    def remove_workspace(o: Owned = Depends(managed)):
         try:
             reg.remove(o.ws.id)
         except Conflict as e:
@@ -813,7 +833,7 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
         c = store.get_comment(cid)
         if c is None:
             raise HTTPException(404, "comment not found")
-        return c, in_review(c["review_id"], logins)
+        return c, review_access(c["review_id"], logins)
 
     @app.patch("/api/comments/{cid}")
     def edit_comment(cid: int, body: CommentPatch, got: tuple[dict, Access] = Depends(comment_access)):
@@ -918,5 +938,22 @@ def make_authenticator(reg: Registry, runner_for: Callable[[str], P4Runner | Non
             if "expired" in str(e).lower():
                 raise LoginRejected("Your Perforce password has expired. Change it with `p4 passwd`, then sign in "
                                     "again.") from e
-            return None
+            if _unreachable(str(e)):
+                raise LoginRejected(f"Could not sign in to {server}: {_p4_message(str(e))}") from e
+            return None                              # a wrong password or user: never says which (no user lookup)
     return p4_auth
+
+
+def _unreachable(msg: str) -> bool:
+    """A failure of the Perforce server or of this host, not of the credentials (spec 2026-10-31 §11): p4 could not
+    run or timed out, or could not connect to the server."""
+    low = msg.lower()
+    return msg.startswith("p4 login: ") or any(s in low for s in ("connect to server failed", "tcp connect to",
+                                                                  "ssl connect to", "the authenticity of"))
+
+
+def _p4_message(msg: str) -> str:
+    """Perforce's message, on one line, without our own prefix."""
+    for prefix in ("p4 login failed: ", "p4 login: "):
+        msg = msg.removeprefix(prefix)
+    return " ".join(msg.split())

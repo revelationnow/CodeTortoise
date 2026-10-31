@@ -202,3 +202,27 @@ def test_a_tool_works_on_the_named_workspace_else_the_seed_else_the_only_one(fx,
         Registry.open(bare).tool_workspace(None)
     with pytest.raises(ConfigError, match=rf"no workspace named nope \(there are: b, {fx.root.name}\)"):
         Registry.open(bare).tool_workspace("nope")
+
+
+def test_a_git_workspace_is_refused_outside_dev_mode(fx, fx_b, tmp_path):
+    """In p4 mode a git workspace labelled with a real server would serve any file under its root to whoever signs in
+    there (final review C1); it is a dev-mode fixture (spec 2026-10-31 §5). The seed in tortoise.yaml is the host's own."""
+    reg = server(fx, tmp_path, auth={"mode": "p4"})
+    reg.load()
+    with pytest.raises(Invalid, match="dev mode"):
+        reg.add(fields(fx_b.root, p4port="p4:1666"), "owner")
+    assert [w.name for w in reg.all()] == [fx.root.name]          # nothing stored
+    p4 = reg.add(fields(fx_b.root, vcs="p4", p4port="p4:1666", client="b"), "owner")
+    with pytest.raises(Invalid, match="dev mode"):
+        reg.edit(p4.id, fields(fx_b.root, p4port="p4:1666"))      # nor does an edit make one
+
+
+def test_sign_in_never_runs_from_a_root_that_is_not_there(fx, fx_b, tmp_path):
+    """A Perforce workspace saved with a missing root (§11) must not lock everyone out of its server (final review
+    I1): p4 runs from the root of one whose root is a folder, else from no folder of ours."""
+    reg = server(fx, tmp_path)
+    reg.load()
+    reg.add(fields(tmp_path / "gone", name="a", vcs="p4", p4port="p4:1666", client="a"), "owner")
+    assert reg.login_runner("p4:1666").cwd is None
+    reg.add(fields(fx_b.root, name="b", vcs="p4", p4port="p4:1666", client="b"), "owner")
+    assert reg.login_runner("p4:1666").cwd == str(fx_b.root)

@@ -287,11 +287,15 @@ class Registry:
 
     def login_runner(self, server: str) -> P4Runner | None:
         """What runs `p4 login` for `server`: from the root of one of its Perforce workspaces, so that folder's
-        P4CONFIG settings (P4CHARSET, P4TRUST) apply; None when it has none (a git workspace's server, §5)."""
-        ws = next((w for w in self.all() if w.server == server and w.cfg.workspace.vcs == "p4"), None)
-        if ws is None:
+        P4CONFIG settings (P4CHARSET, P4TRUST) apply; None when it has none (a git workspace's server, §5). A workspace
+        saved with a root that isn't there (§11) never stops sign-in to its server: a ready one is taken first, then any
+        whose root is a folder, else p4 runs from no folder of ours."""
+        p4 = [w for w in self.all() if w.server == server and w.cfg.workspace.vcs == "p4"]
+        if not p4:
             return None
-        return P4Runner(server, None, ws.cfg.workspace.p4_bin, cwd=ws.cfg.workspace.root)
+        there = [w for w in p4 if os.path.isdir(w.cfg.workspace.root)]
+        ws = next((w for w in there if w.ready), there[0] if there else None)
+        return P4Runner(server, None, (ws or p4[0]).cfg.workspace.p4_bin, cwd=ws.cfg.workspace.root if ws else None)
 
     # ---- adding, editing, removing (§8, §11) --------------------------------------------
     def add(self, fields: dict, by: str) -> Workspace:
@@ -377,6 +381,10 @@ class Registry:
             raise Invalid("user: the Perforce user its reads run as")
         if fields["vcs"] == "p4" and not (fields.get("p4port") and fields.get("client")):
             raise Invalid("a Perforce workspace needs its server (P4PORT) and its client")
+        # a git workspace is a dev-mode fixture (§5): in p4 mode it would serve any file under its root to whoever
+        # signs in to the server it is labelled with
+        if fields["vcs"] == "git" and self.base.auth.mode != "dev":
+            raise Invalid("version control: a git workspace is for dev mode only (auth.mode: dev)")
         clash = self._taken(fields["name"], fields["root"], wid)
         if clash:
             raise Conflict(clash)

@@ -272,7 +272,9 @@ A workspace is saved even when its checks fail: it shows as not ready, with the 
 **Recheck** on its Health page runs the checks again. A workspace that isn't ready keeps its finished reviews readable
 and refuses new reviews and re-runs until its checks pass. Each workspace has its own folder, `<data_dir>/workspaces/<id>/`,
 with its symbol index and toolchain cache, and its own shared-sink marks and Swarm URL. An edit is refused while one of
-its reviews runs, and a workspace can be removed only while it has no reviews.
+its reviews runs, and a workspace can be removed only while it has no reviews. The owner of the workspace in
+`tortoise.yaml` sees every workspace on the **Workspaces** page and can edit or remove any of them, so one saved with a
+server or user nobody can sign in as is fixed there. A git workspace (the bundled fixture) can be added only in dev mode.
 
 Sign-in is per Perforce server. With workspaces on several servers, the sign-in page has a **Perforce server** picker,
 and the menu under your name lists each sign-in ("`<server>` as `<user>`") with **Sign in to another server**. A link to
@@ -371,6 +373,10 @@ Compilers that are neither GCC- nor clang-compatible (IAR, TI `cl6x`, Green Hill
   is planned). If you host code that is restricted to a subset of users, run a separate instance per audience, or put it
   in a workspace on a Perforce server that only that audience can sign in to, with a view that contains only what that
   audience may read.
+- **Workspace owners act on this host.** Adding or editing a workspace points the server at folders and compile
+  databases on this machine and, under **Advanced**, at the compilers and libclang it runs or loads for that workspace,
+  all as the service user, which holds every Perforce server's access. Anyone who owns a workspace can add others and
+  make their users owners, so give workspaces only to people you would trust with that account.
 - Only paths that map into the base workspace are served. Wildcards, revision specifiers and paths outside the client
   view are refused (HTTP 403), binary files are refused (415), and files over 2 MiB are refused (413).
 - Restricted changelists can be reviewed only if the owner can `describe` them.

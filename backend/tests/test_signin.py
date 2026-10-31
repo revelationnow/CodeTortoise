@@ -103,3 +103,29 @@ def test_a_workspace_that_isnt_ready_refuses_new_reviews_and_reruns_but_its_revi
         "the workspace b is not ready: compile_commands: no compile database found (auto); see its Health")
     assert c.post(f"/api/reviews/{rid}/rerun").status_code == 409
     assert c.get(f"/api/reviews/{rid}/stories").status_code == 200
+
+
+def test_a_review_link_opened_with_no_session_names_its_server(two):
+    """A visitor with no session at all is told the review's server too, so its sign-in opens in place (spec
+    2026-10-31 §9; final review I2)."""
+    app, reg, b = two
+    both = sign_in(sign_in(TestClient(app), "local", "owner"), "second:1666", "owner")
+    there = both.post("/api/reviews", json={"workspace_id": b.id, "cls": [101]}).json()["id"]
+    for path in ("", "/stories", "/comments"):
+        r = TestClient(app).get(f"/api/reviews/{there}{path}")
+        assert r.status_code == 401 and r.json() == {"detail": "sign in required", "server": "second:1666"}, path
+    assert TestClient(app).get("/api/reviews").status_code == 401        # the list still needs a sign-in
+
+
+def test_each_sign_in_gets_a_new_session_token_that_carries_the_others(two):
+    """A token planted in a browser before a sign-in gains nothing from it (session fixation; final review I4)."""
+    app, reg, b = two
+    c = sign_in(TestClient(app), "local", "amy")
+    first = c.cookies.get("ct_session")
+    sign_in(c, "second:1666", "owner")
+    assert c.cookies.get("ct_session") != first
+    assert c.get("/api/me").json()["logins"] == [{"server": "local", "user": "amy"},
+                                                 {"server": "second:1666", "user": "owner"}]
+    planted = TestClient(app)
+    planted.cookies.set("ct_session", first)
+    assert planted.get("/api/me").status_code == 401             # the old token signs nobody in

@@ -40,7 +40,7 @@ export default function Workspaces() {
               {w.seed && <span className="muted small">set in tortoise.yaml</span>}
             </div>
             {!w.ready && w.reason && <div className="wsp-reason mono small">{w.reason}</div>}
-            {w.is_owner && <Actions w={w} onEdit={() => edit(w.id)} onChanged={load} />}
+            {(w.is_owner || w.can_manage) && <Actions w={w} onEdit={() => edit(w.id)} onChanged={load} />}
             {open === w.id && w.fields && (
               <WorkspaceForm initial={fromFields(w.fields)} verb="Save" submit={(body) => api.editWorkspace(w.id, body)} onDone={done}
                              onCancel={() => setOpen(null)} />
@@ -68,7 +68,8 @@ function SavedNote({ w, signedIn }: { w: Checked; signedIn: boolean }) {
   );
 }
 
-/** An owner's tools on one workspace: its Health page and Rebuild index, and for one added here, Edit and Remove. */
+/** An owner's tools on one workspace: its Health page and Rebuild index, and for one added here, Edit and Remove — which
+ * the owner of the seed also gets on every workspace, so one saved with a server or user nobody signs in as is fixed. */
 function Actions({ w, onEdit, onChanged }: { w: WorkspaceRow; onEdit: () => void; onChanged: () => void }) {
   const [msg, setMsg] = useState<{ text: string; failed?: boolean } | null>(null);
   const run = (act: () => Promise<unknown>, ok: string | null, failed: string) => {   // a new press clears the last answer
@@ -81,11 +82,13 @@ function Actions({ w, onEdit, onChanged }: { w: WorkspaceRow; onEdit: () => void
   };
   return (
     <div className="wsp-acts">
-      <Link to={`/workspaces/${w.id}`}>Health</Link>
-      <button onClick={() => run(() => api.rebuildIndex(w.id), "Index rebuild queued", "The index rebuild could not be queued.")}>
-        Rebuild index</button>
-      {!w.seed && <button onClick={onEdit}>Edit</button>}
-      {!w.seed && <button onClick={remove}>Remove</button>}
+      {w.is_owner && <Link to={`/workspaces/${w.id}`}>Health</Link>}
+      {w.is_owner && (
+        <button onClick={() => run(() => api.rebuildIndex(w.id), "Index rebuild queued", "The index rebuild could not be queued.")}>
+          Rebuild index</button>
+      )}
+      {w.can_manage && !w.seed && <button onClick={onEdit}>Edit</button>}
+      {w.can_manage && !w.seed && <button onClick={remove}>Remove</button>}
       {msg && <span className={msg.failed ? "error" : "muted"} role={msg.failed ? "alert" : "status"}>{msg.text}</span>}
     </div>
   );
