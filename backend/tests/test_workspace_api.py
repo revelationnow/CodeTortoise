@@ -1,5 +1,6 @@
 """The Workspaces page's API (spec 2026-10-31 §8, §9, §11)."""
 import json
+import threading
 
 import pytest
 from fastapi.testclient import TestClient
@@ -204,3 +205,41 @@ def test_a_workspace_with_reviews_keeps_its_perforce_server(app, fx_b, tmp_path)
     assert amy.put(f"/api/workspaces/{c['id']}", json=body(tmp_path, name="c", p4user="amy", p4port="second:1666")).status_code \
         == 200                                                   # one with no reviews moves
     assert owner.put(f"/api/workspaces/{b['id']}", json=moved).status_code == 200
+
+
+@pytest.mark.parametrize("ask", ["start", "rerun", "rebuild"])
+def test_a_request_waiting_for_its_workspace_to_load_holds_up_no_edit_of_it(fx, fx_b, tmp_path, ask):
+    """Starting a review, re-running one and Rebuild index wait for a bundle being built outside the workspace's guard,
+    so no edit of it waits behind them (review of branch minors, M3); then they act on the bundle loaded last."""
+    svc = make_services(fx, tmp_path / "data")
+    app = make_app(svc, Recorded(svc))
+    reg, owner = app.state.registry, login(app, "owner")
+    wid = owner.post("/api/workspaces", json=body(fx_b.root)).json()["id"]
+    rid = owner.post("/api/reviews", json={"cls": [101], "workspace_id": wid}).json()["id"]
+    builds, waiting, settle = [], threading.Event(), reg.settle
+    reg.spawn = builds.append                                    # a bundle builds when the test says
+    assert owner.put(f"/api/workspaces/{wid}", json=body(fx_b.root, swarm_url="https://sw")).status_code == 200
+
+    def waits(ws, timeout=120.0):
+        waiting.set()
+        settle(ws, timeout)
+    reg.settle = waits
+    url = {"start": "/api/reviews", "rerun": f"/api/reviews/{rid}/rerun",
+           "rebuild": f"/api/workspaces/{wid}/index/rebuild"}[ask]
+    got = {}
+    asked = threading.Thread(target=lambda: got.update(r=owner.post(url, json={"cls": [101], "workspace_id": wid})))
+    asked.start()
+    assert waiting.wait(10)
+    edit = threading.Thread(target=lambda: login(app, "owner").put(f"/api/workspaces/{wid}", json=body(fx_b.root)))
+    edit.start()
+    edit.join(5)
+    try:
+        assert not edit.is_alive()                               # not held behind the request's wait
+    finally:
+        for build in builds[::-1]:                               # the last edit's bundle first
+            build()
+        asked.join(10)
+        edit.join(10)
+    assert got["r"].status_code == 200, got["r"].text
+    if ask != "rebuild":
+        assert reg.get(wid).runner.reviews == [got["r"].json()["id"] if ask == "start" else rid]

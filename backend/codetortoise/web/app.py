@@ -222,17 +222,19 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
             return Owned(ws, logins.get(ws.server, ""), logins)
         return owned(wid, logins)
 
-    def bundle(ws: Workspace) -> Services:
-        """A workspace's bundle (waited for while it is still being built, right after startup); 409 with the reason
-        while it has none."""
-        reg.settle(ws)
+    def bundle(ws: Workspace, wait: bool = True) -> Services:
+        """A workspace's bundle (waited for while it is still being built, right after startup, unless `wait` is False:
+        under its guard); 409 with the reason while it has none."""
+        if wait:
+            reg.settle(ws)
         if ws.svc is None:
             raise HTTPException(409, f"the workspace {ws.name} is not loaded: {ws.reason}")
         return ws.svc
 
-    def ready(ws: Workspace) -> Services:
-        """A workspace's bundle when its checks pass; 409 with the reason otherwise (§11)."""
-        reg.settle(ws)
+    def ready(ws: Workspace, wait: bool = True) -> Services:
+        """A workspace's bundle when its checks pass; 409 with the reason otherwise (§11). Waited for as bundle() is."""
+        if wait:
+            reg.settle(ws)
         if not ws.ready:
             raise HTTPException(409, f"the workspace {ws.name} is not ready: {ws.reason}; see its Health")
         return ws.svc
@@ -296,9 +298,10 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
 
     @app.post("/api/workspaces/{wid}/index/rebuild")
     def rebuild_index(wid: int, o: Owned = Depends(owned)):
+        reg.settle(o.ws)                             # waited for without its guard (review of branch minors, M3)
         with reg.guard(wid):                         # into its queue as it is once no edit of it runs (final review M2)
             o = owned(wid, o.logins)
-            bundle(o.ws)
+            bundle(o.ws, wait=False)
             o.ws.runner.submit_index()
         return {"queued": True}
 
@@ -345,10 +348,12 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
             if len(every) != 1:
                 raise HTTPException(422, "choose a workspace")
             wid = every[0].id
-        owned(wid, logins)                           # 404 or 403 before waiting on it
-        with reg.guard(wid):                         # no edit or remove of it until the review is queued (final review M2)
+        # 404 or 403 first, then waited for without its guard (review of branch minors, M3); under it, no edit or remove
+        # of it until the review is queued (final review M2)
+        reg.settle(owned(wid, logins).ws)
+        with reg.guard(wid):
             o = owned(wid, logins)                   # as it is now
-            ready(o.ws)
+            ready(o.ws, wait=False)
             title = body.title or "CLs " + ", ".join(str(c) for c in sorted(set(body.cls)))
             rid = store.create_review(title, o.user, body.cls, workspace_id=o.ws.id)
             o.ws.runner.submit_review(rid)
@@ -364,9 +369,10 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
     def rerun(rid: int, fresh: bool = False, a: Access = Depends(owner_in_review)):
         """Run the review again; `fresh` asks the strong model for new stories instead of reusing a brief. Refused while
         its workspace isn't ready (§11)."""
+        reg.settle(a.ws)                             # waited for without its guard (review of branch minors, M3)
         with reg.guard(a.ws.id):                     # into its queue as it is once no edit of it runs (final review M2)
             ws = reg.get(a.ws.id) or a.ws            # a workspace with reviews is never removed
-            ready(ws)
+            ready(ws, wait=False)
             ws.runner.submit_review(rid, fresh=fresh)
         return {"queued": True}
 
