@@ -108,4 +108,35 @@ test.describe.serial("one server, two workspaces", () => {
     await row.getByRole("button", { name: "Remove" }).click();
     await expect(row).toHaveCount(0);
   });
+
+  test("an owner who adds one on a server they aren't signed in to is told where its checks show", async ({ page, browser }) => {
+    test.setTimeout(120_000);
+    await login(page);                                   // demo on local: the seed's owner, who sees every workspace
+    const rows: { seed: boolean; fields: { root: string } }[] = await (await page.request.get("/api/workspaces")).json();
+    const base = rows.find((w) => w.seed)!.fields.root.replace(/\/ws$/, "");
+    const mine = await page.request.post("/api/workspaces", { data: { name: "amys", vcs: "git", p4user: "amy", root: `${base}/amys` } });
+    expect(mine.ok(), "amy owns a workspace on local, so she may add workspaces").toBe(true);
+    const context = await browser.newContext({ baseURL: MULTI });
+    const amy = await context.newPage();
+    await login(amy, "amy");
+    await amy.getByRole("link", { name: "Workspaces" }).click();
+    await amy.getByRole("button", { name: "Add workspace" }).click();
+    const form = amy.getByRole("form", { name: "Add workspace" });
+    await form.getByLabel("Name", { exact: true }).fill("third");
+    await form.getByLabel("Version control").selectOption("git");
+    await form.getByLabel("Perforce server (P4PORT)").fill("third:1666");
+    await form.getByLabel("User", { exact: true }).fill("amy");
+    await form.getByLabel("Root on this host").fill(`${base}/third`);
+    await form.getByRole("button", { name: "Add", exact: true }).click();
+    // the list leaves out a workspace on a server she isn't signed in to, so the note can't follow its checks: it says
+    // where they show, not that they are running (final review of branch minors, M2)
+    const saved = amy.locator(".wsp-saved");
+    await expect(saved).toContainText("third is saved; its checks run in the background.");
+    await expect(saved).toContainText("Sign in to third:1666 to see them and start reviews in it.");
+    await expect(saved).not.toContainText("running");
+    await context.close();
+    const all: { id: number; name: string }[] = await (await page.request.get("/api/workspaces")).json();
+    for (const name of ["third", "amys"])
+      expect((await page.request.delete(`/api/workspaces/${all.find((w) => w.name === name)!.id}`)).ok()).toBe(true);
+  });
 });

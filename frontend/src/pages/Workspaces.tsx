@@ -24,7 +24,7 @@ export default function Workspaces() {
     setSaved(w); setOpen(null); setRows((now) => now?.map((r) => (r.id === w.id ? w : r)) ?? now); load();
   };
   const edit = (to: number | "new") => { setSaved(null); setOpen(to); };
-  const note = saved && (rows?.find((w) => w.id === saved.id) ?? saved);   // the saved one as the list has it now
+  const listed = saved && rows?.find((w) => w.id === saved.id);           // the saved one as the list has it now
 
   return (
     <main className="page">
@@ -32,7 +32,7 @@ export default function Workspaces() {
         <h1>Workspaces</h1>
         {!!me?.owner_of.length && open !== "new" && <button onClick={() => edit("new")}>Add workspace</button>}
       </div>
-      {note && <SavedNote w={note} signedIn={!!me?.logins.some((l) => l.server === note.server)} />}
+      {saved && <SavedNote w={listed || saved} listed={!!listed} signedIn={!!me?.logins.some((l) => l.server === saved.server)} />}
       {open === "new" && <WorkspaceForm initial={EMPTY} verb="Add" submit={api.addWorkspace} onDone={done} onCancel={() => setOpen(null)} />}
       {error && <p className="error" role="alert">{error}</p>}
       {!rows && !error && <p className="muted">Loading…</p>}
@@ -59,19 +59,22 @@ export default function Workspaces() {
   );
 }
 
-/** What an add or an edit answered (§11: saved even when its checks fail) — followed in the list while its bundle loads
- * — and the sign-in its server still needs. */
-function SavedNote({ w, signedIn }: { w: WorkspaceRow; signedIn: boolean }) {
+/** What an add or an edit answered (§11: saved even when its checks fail) — followed in the list while its bundle loads,
+ * when the list shows it — and the sign-in its server still needs. */
+function SavedNote({ w, listed, signedIn }: { w: WorkspaceRow; listed: boolean; signedIn: boolean }) {
   const failed = (w.checks ?? []).filter((c) => c.hard && !c.ok);
   const loading = w.reason === LOADING;
+  const unseen = loading && !listed;                    // on a server the session isn't signed in to: its checks show there
   return (
     <div className={`banner wsp-saved${w.ready || loading ? "" : " warn"}`} role="status">
-      {w.ready ? `${w.name} is ready.` : loading ? `${w.name} is saved; its checks are running…`
+      {w.ready ? `${w.name} is ready.`
+        : unseen ? `${w.name} is saved; its checks run in the background.`
+        : loading ? `${w.name} is saved; its checks are running…`
         : `${w.name} is saved but not ready: ${w.reason}. Fix it on this host, then press Recheck on its Health page.`}
       {failed.length > 0 && <ul className="small">{failed.map((c) => <li key={c.name}><b>{c.name}</b>: {c.detail}</li>)}</ul>}
       {!signedIn && (
-        <p><Link to={`/login?server=${encodeURIComponent(w.server)}&next=/workspaces`}>Sign in to {w.server}</Link> to see it and
-          start reviews in it.</p>
+        <p><Link to={`/login?server=${encodeURIComponent(w.server)}&next=/workspaces`}>Sign in to {w.server}</Link> to see
+          {unseen ? " them" : " it"} and start reviews in it.</p>
       )}
     </div>
   );
