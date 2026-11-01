@@ -1,7 +1,11 @@
 """A workspace's bundle on a server of many (spec 2026-10-31 §6): shared store, ledger and AI pool; its own folder and
 store-entry keys; its own libclang even when the process loaded another."""
+import shutil
+import subprocess
 import threading
+import time
 
+import pytest
 from helpers import make_config, make_services
 
 from codetortoise.config import ToolchainConfig
@@ -60,6 +64,23 @@ def test_the_library_this_process_has_is_described_in_place(monkeypatch):
     vendor = lc.LibclangInfo(path="/v/libclang.so.19", version="clang version 19", vendor=True)
     monkeypatch.setattr(lc, "_loaded", vendor)
     assert lc.library_info("/v/libclang.so.19") is vendor
+
+
+def test_describing_a_library_whose_loading_hangs_gives_up_at_the_timeout(monkeypatch, tmp_path):
+    """The worker that loads it is ended, so the wait is the timeout and not the hang (final review M10 of spec
+    2026-10-31)."""
+    cc = shutil.which("cc")
+    if cc is None:
+        pytest.skip("no C compiler to build a library that hangs")
+    (tmp_path / "hang.c").write_text("#include <unistd.h>\n__attribute__((constructor)) static void h(void) { sleep(30); }\n")
+    lib = tmp_path / "libclang.so.99"
+    subprocess.run([cc, "-shared", "-fPIC", "-o", str(lib), str(tmp_path / "hang.c")], check=True)
+    monkeypatch.setattr(lc, "_loaded", lc.LibclangInfo(path="/b/libclang.so", version="clang version 1", vendor=False))
+    monkeypatch.setattr(lc, "LIBRARY_INFO_TIMEOUT", 1.0)
+    start = time.monotonic()
+    with pytest.raises(TimeoutError, match=f"libclang {lib} took over 1 s to load"):
+        lc.library_info(str(lib))
+    assert time.monotonic() - start < 15
 
 
 def test_a_toolchain_that_picks_another_library_than_the_process_has_still_prepares(monkeypatch, tmp_path):

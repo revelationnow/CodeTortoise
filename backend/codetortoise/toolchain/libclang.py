@@ -15,7 +15,6 @@ import tarfile
 import threading
 import urllib.request
 from collections.abc import Callable
-from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -101,6 +100,9 @@ def load_libclang(path: str | None) -> LibclangInfo:
     return _loaded
 
 
+LIBRARY_INFO_TIMEOUT = 120.0     # seconds a worker may take to load and describe a library
+
+
 def library_info(path: str | None) -> LibclangInfo:
     """The library a workspace parses with, described: loaded here when this process has none yet (or has this one);
     else described from a worker process, since a process loads one libclang and workspaces may each choose another
@@ -112,8 +114,13 @@ def library_info(path: str | None) -> LibclangInfo:
     if same:
         return _loaded
     method = "forkserver" if "forkserver" in mp.get_all_start_methods() else "spawn"
-    with ProcessPoolExecutor(max_workers=1, mp_context=mp.get_context(method)) as pool:
-        return pool.submit(load_libclang, path).result(timeout=120)
+    # leaving a multiprocessing pool ends its worker, so a library whose loading hangs costs the timeout, not the hang
+    # (final review M10 of spec 2026-10-31)
+    with mp.get_context(method).Pool(1) as pool:
+        try:
+            return pool.apply_async(load_libclang, (path,)).get(timeout=LIBRARY_INFO_TIMEOUT)
+        except mp.TimeoutError:
+            raise TimeoutError(f"libclang {path} took over {LIBRARY_INFO_TIMEOUT:.0f} s to load") from None
 
 
 # ---------------------------------------------------------------- choosing a library
