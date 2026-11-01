@@ -351,13 +351,18 @@ each folder gcc names when asked where it looks (`gcc -print-search-dirs`): no o
 `cc1plus` or `specs` file there, since a specs file can have gcc load any program. All of these must belong to you or
 root, and no one else may write to them. Two exceptions:
 - Your own private group may write. That is a group named after you with no other members, whether listed in it or
-  having it as their own group: the default on Debian and Ubuntu.
+  having it as their own group: the default on Debian and Ubuntu. An access list (ACL) that names others takes that
+  away, and so does one the server can't read; NFSv4 access lists aren't read.
 - Others may write to a folder with the sticky bit set, like `/tmp`, since that bit keeps them from renaming or
   removing what isn't theirs. It doesn't keep them from adding a file gcc looks for, so a folder gcc searches gets no
   such exception.
 
-Otherwise the Health page names the file or folder and the command that fixes it, such as `chmod o-w /opt/tools`; fix
-it and press Recheck. On most machines `/usr` and `/opt` belong to root alone, so nothing there is refused.
+Otherwise the Health page names the file or folder and the command that fixes it, such as `chmod o-w /opt/tools/bin`.
+For a compiler installed in a folder of its own inside a toolchain folder, it also gives the command that fixes all
+of it at once, such as `chmod -R go-w /opt/tools`. For a folder another account owns, moving the toolchain to a folder
+only you and root can change is the other way. Fix it and press Recheck. The server's log says each refusal once as
+well, so a toolchain refused after an upgrade shows there before anyone opens the Health page. On most machines `/usr`
+and `/opt` belong to root alone, so nothing there is refused.
 
 The workspace in tortoise.yaml isn't held to any of this, and its own folder never counts as a toolchain folder; a
 workspace added in the UI can't overlap one. Two things aren't checked: the shared libraries a compiler or libclang

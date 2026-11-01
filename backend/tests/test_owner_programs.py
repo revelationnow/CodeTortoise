@@ -1,13 +1,16 @@
 """Programs and libraries a workspace's settings or compile database could have the server run or load (final review
 I3 of spec 2026-10-31): a workspace added in the UI runs compilers and loads libclang only from the toolchain folders
 tortoise.yaml lists, judged by where a path really leads; tortoise.yaml's own workspace is not held to them."""
+import errno
 import grp
 import json
+import logging
 import os
 import pwd
 import shutil
 import stat
 import subprocess
+from pathlib import Path
 
 import pytest
 from test_toolchain_review_fixes import _compiler, _ws
@@ -193,7 +196,8 @@ def test_a_path_another_account_owns_is_one_it_can_change(tmp_path):
     owner = pwd.getpwuid(os.geteuid()).pw_name
     assert changeable(str(tmp_path / "f")) is None
     assert changeable(str(tmp_path / "f"), me=os.geteuid() + 1) \
-        == f"{tmp_path / 'f'} belongs to {owner}, who can change it (`sudo chown root {tmp_path / 'f'}` fixes it)"
+        == f"{tmp_path / 'f'} belongs to {owner}, who can change it (`sudo chown root {tmp_path / 'f'}` fixes it; or " \
+           "move the toolchain to a folder only you and root can change)"
 
 
 def _gcc(path, log, install, programs, libraries):
@@ -356,7 +360,8 @@ def test_a_link_another_account_owns_is_one_it_can_swap(tmp_path):
     owner = pwd.getpwuid(os.geteuid()).pw_name
     assert changeable(str(tmp_path / "l")) is None
     assert changeable(str(tmp_path / "l"), me=os.geteuid() + 1) \
-        == f"{tmp_path / 'l'} belongs to {owner}, who can change it (`sudo chown -h root {tmp_path / 'l'}` fixes it)"
+        == f"{tmp_path / 'l'} belongs to {owner}, who can change it (`sudo chown -h root {tmp_path / 'l'}` fixes it; or " \
+           "move the toolchain to a folder only you and root can change)"
 
 
 def test_a_library_anyone_can_change_is_not_loaded_for_a_workspace_added_in_the_ui(tmp_path):
@@ -413,3 +418,109 @@ def test_a_folder_on_the_way_is_named_though_the_rest_cant_be_read(tmp_path):
         assert changeable(str(d / "x" / "specs"), create=True) == f"anyone can change {d} (`chmod o-w {d}` fixes it)"
     finally:
         (d / "x").chmod(0o755)
+
+
+def test_another_accounts_home_is_never_to_be_given_to_root(tmp_path, monkeypatch):
+    """`chown root` of a person's home would take it from them: the fix there is to move the toolchain (final review
+    of branch deferred-minors, M5)."""
+    home = tmp_path / "home"
+    home.mkdir()
+    home.chmod(0o755)
+    st = home.stat()
+    monkeypatch.setattr(tcmod.pwd, "getpwuid",
+                        lambda uid: pwd.struct_passwd(("amy", "x", uid, st.st_gid, "", str(home), "/bin/sh")))
+    assert changeable(str(home), me=os.geteuid() + 1) \
+        == f"{home} is the home of amy, who can change it (move the toolchain to a folder only you and root can change)"
+
+
+def test_a_fix_inside_a_toolchains_own_folder_says_how_to_fix_all_of_it_at_once(tmp_path):
+    """A toolchain unpacked with loose modes has many folders gcc looks in: the reason also gives the one command that
+    fixes the whole toolchain, so the host isn't walked through one folder per Recheck (final review of branch
+    deferred-minors, recommendation). Its folder is the one above the compiler's, inside a toolchain folder."""
+    opt = tmp_path / "opt"
+    cc = _compiler(opt / "tc" / "bin" / "gcc", tmp_path / "runs.log")
+    bin_ = opt / "tc" / "bin"
+    bin_.chmod(0o777)
+    assert _runs(tmp_path, cc, [str(opt)]) == \
+        (False, f"compiler {cc} is not run: anyone can change {bin_} (`chmod o-w {bin_}` fixes it; "
+                f"`chmod -R go-w {opt / 'tc'}` fixes the whole toolchain)")
+    bin_.chmod(0o755)
+    opt.chmod(0o777)                                             # above the toolchain's own folder: that one alone
+    assert _runs(tmp_path, cc, [str(opt)]) == \
+        (False, f"compiler {cc} is not run: anyone can change {opt} (`chmod o-w {opt}` fixes it)")
+    opt.chmod(0o755)
+    f = opt / "tc" / "bin" / "gcc"
+    owner = pwd.getpwuid(os.geteuid()).pw_name
+    assert changeable(str(f), me=os.geteuid() + 1, tree=str(opt / "tc")) \
+        == f"{f} belongs to {owner}, who can change it (`sudo chown root {f}` fixes it; `sudo chown -R root " \
+           f"{opt / 'tc'}` fixes the whole toolchain; or move the toolchain to a folder only you and root can change)"
+
+
+def _private_group_or_skip():
+    me, mine = pwd.getpwuid(os.geteuid()), grp.getgrgid(os.getegid())
+    if not (mine.gr_gid == me.pw_gid and mine.gr_name == me.pw_name and set(mine.gr_mem) <= {me.pw_name}):
+        pytest.skip("the account has no private group")
+
+
+def test_an_access_list_that_cant_be_read_is_taken_as_one_that_lets_others_write(tmp_path, monkeypatch):
+    """Only "none here" and "not supported here" mean a folder has no access list (ACL); any other error reading one
+    fails closed (final review of branch deferred-minors, M6)."""
+    _private_group_or_skip()
+    d = tmp_path / "d"
+    d.mkdir()
+    d.chmod(0o775)
+
+    def unreadable(path, name, follow_symlinks=True):
+        raise PermissionError(errno.EACCES, "Permission denied", path)
+    monkeypatch.setattr(os, "getxattr", unreadable)
+    assert changeable(str(d)) == f"the access list (ACL) of {d} can't be read (Permission denied): it may let others " \
+                                 f"change it (`chmod g-w {d}` fixes it)"
+    assert changeable(str(d / "specs"), create=True) == f"the access list (ACL) of {d} can't be read (Permission " \
+                                                        f"denied): it may let others add {d / 'specs'} (`chmod g-w {d}` fixes it)"
+    for code in (errno.ENODATA, errno.EOPNOTSUPP):
+        def none(path, name, follow_symlinks=True, code=code):
+            raise OSError(code, os.strerror(code), path)
+        monkeypatch.setattr(os, "getxattr", none)
+        assert changeable(str(d)) is None
+
+
+def test_a_group_parsing_with_its_toolchains_own_library_shows_its_compilers_refusal(tmp_path):
+    """Its library parses without the compiler, but a compiler the toolchain folders' rule refuses is said on the
+    Health page all the same (final review of branch deferred-minors); queries a setting turns off stay quiet there, as
+    before."""
+    clang, lib = _toolchain(tmp_path / "opt" / "vendor")
+    _compiler(Path(clang), tmp_path / "runs.log")
+    vendor, bin_ = tmp_path / "opt" / "vendor", tmp_path / "opt" / "vendor" / "bin"
+    bin_.chmod(0o777)
+    tc, file = _toolchain_for(tmp_path, clang, [str(tmp_path / "opt")])
+    tc.args_for(file)
+    [g] = tc.groups()
+    assert g.libclang.path == lib
+    assert g.error == f"compiler {clang} is not run: anyone can change {bin_} (`chmod o-w {bin_}` fixes it; " \
+                      f"`chmod -R go-w {vendor}` fixes the whole toolchain)"
+    bin_.chmod(0o755)
+    tc.again()
+    tc.args_for(file)
+    assert tc.groups()[0].error is None
+    bin_.chmod(0o777)
+    tc, file = _toolchain_for(tmp_path, clang, [str(tmp_path / "opt")], query_compilers="off")
+    tc.args_for(file)
+    assert tc.groups()[0].error is None
+
+
+def test_a_refusal_is_logged_once_per_compiler_and_per_library(tmp_path, caplog):
+    """A toolchain that ran before an upgrade and is refused after it shows in the log, not only on a Health page
+    someone has to open; once per process (final review of branch deferred-minors, recommendation)."""
+    clang, lib = _toolchain(tmp_path / "opt" / "vendor")
+    _compiler(Path(clang), tmp_path / "runs.log")
+    for d in ("bin", "lib"):
+        (tmp_path / "opt" / "vendor" / d).chmod(0o777)
+    with caplog.at_level(logging.WARNING, logger="codetortoise.toolchain.toolchain"):
+        for _ in range(2):
+            tc, file = _toolchain_for(tmp_path, clang, [str(tmp_path / "opt")])
+            tc.args_for(file)
+            tc.again()
+            tc.args_for(file)
+    said = [r.getMessage() for r in caplog.records]
+    assert len([m for m in said if f"compiler {clang} is not run" in m]) == 1, said
+    assert len([m for m in said if f"libclang {lib} (" in m]) == 1, said

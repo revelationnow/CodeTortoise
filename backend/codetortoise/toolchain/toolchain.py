@@ -1,10 +1,12 @@
 """Toolchain: turns compile-DB entries into libclang args that work for the vendor cross toolchain."""
 from __future__ import annotations
 
+import errno
 import fnmatch
 import functools
 import grp
 import hashlib
+import logging
 import os
 import pwd
 import re
@@ -23,6 +25,7 @@ from codetortoise.toolchain.driver import DriverInfo, query_driver, target_flags
 from codetortoise.toolchain.libclang import LibclangChoice, LibclangInfo, find_libclang, library_info
 
 _CXX_EXTS = {".cc", ".cpp", ".cxx", ".c++", ".hpp", ".hh", ".hxx"}
+log = logging.getLogger(__name__)
 
 
 # Macros that describe the *compiler* rather than the target. Importing the driver's values would make
@@ -79,13 +82,14 @@ def _explicit_target(args: list[str]) -> bool:
     return any(a.startswith("--target=") or a == "-target" for a in args)
 
 
-def changeable(path: str, me: int | None = None, create: bool = False) -> str | None:
+def changeable(path: str, me: int | None = None, create: bool = False, tree: str | None = None) -> str | None:
     """Who besides root and this server's account (`me`) can change what `path` leads to — the file, a folder on the
     way, or a link followed on the way, where a program could be swapped in — and how to stop them; None when no one
     can. A folder others may write to but whose sticky bit keeps them from renaming what isn't theirs counts as safe,
     and a group may write only when it is the account's own private group (the owner's choice, 2026-11-01: final review
     I3 of spec 2026-10-31). With `create`, `path` need not be there: then no one else may add it either, and the folder
-    it would go in must be closed to them, sticky or not."""
+    it would go in must be closed to them, sticky or not. `tree`, the folder a toolchain is installed in, adds the
+    command that fixes all of it to the fix for what lies in it."""
     me = os.geteuid() if me is None else me
     todo = path.split("/") if os.path.isabs(path) else [*os.getcwd().split("/"), *path.split("/")]
     at, links, missing, failed = "/", 0, None, None
@@ -121,17 +125,29 @@ def changeable(path: str, me: int | None = None, create: bool = False) -> str | 
     except OSError as e:                         # who could change what was passed still comes first
         failed = f"{e.filename or path} can't be checked ({e.strerror})"
     if missing is not None:
-        why = _adds(at, missing, path, me)
+        why = _adds(at, missing, path, me, tree)
         if why:
             return why
     for entry, st in reversed(passed):           # the file first, then the folders and links on the way to it
-        why = _who(entry, st, me)
+        why = _who(entry, st, me, tree)
         if why:
             return why
     return failed
 
 
-def _adds(folder: str, missing: str, path: str, me: int) -> str | None:
+_MOVE = "move the toolchain to a folder only you and root can change"
+
+
+def _fix(command: str, path: str, tree: str | None, whole: str) -> str:
+    """How to stop others: `command` for `path` itself and, for a path inside a toolchain's folder `tree`, `whole` run
+    on `tree` for all of it, so the host isn't walked through one folder per Recheck (final review of branch
+    deferred-minors)."""
+    if tree is not None and within(path, tree):
+        return f"`{command}` fixes it; `{whole} {tree}` fixes the whole toolchain"
+    return f"`{command}` fixes it"
+
+
+def _adds(folder: str, missing: str, path: str, me: int, tree: str | None = None) -> str | None:
     """Who besides root and `me` can add `missing`, on the way to `path`, to `folder`: a sticky bit doesn't stop them
     adding what isn't there (its owner is judged with the folders on the way)."""
     try:
@@ -141,38 +157,58 @@ def _adds(folder: str, missing: str, path: str, me: int) -> str | None:
     if st.st_mode & stat.S_IWOTH:
         # a shared folder such as /tmp stays open to all: a folder of root's in its place stops them
         fix = f"`sudo mkdir {missing}` stops that" if st.st_mode & stat.S_ISVTX and missing != path \
-            else f"`chmod o-w {folder}` fixes it"
+            else _fix(f"chmod o-w {folder}", folder, tree, "chmod -R go-w")
         return f"anyone can add {missing} ({fix})"
-    if st.st_mode & stat.S_IWGRP and not _own_group(st.st_gid, me):
-        return f"the group {_name(grp.getgrgid, st.st_gid)} can add {missing} (`chmod g-w {folder}` fixes it)"
-    if st.st_mode & stat.S_IWGRP and _listed_others(folder):
-        return f"an access list (ACL) on {folder} can let others add {missing} (`chmod g-w {folder}` fixes it)"
+    if st.st_mode & stat.S_IWGRP:
+        fix = _fix(f"chmod g-w {folder}", folder, tree, "chmod -R go-w")
+        if not _own_group(st.st_gid, me):
+            return f"the group {_name(grp.getgrgid, st.st_gid)} can add {missing} ({fix})"
+        try:
+            if _listed_others(folder):
+                return f"an access list (ACL) on {folder} can let others add {missing} ({fix})"
+        except OSError as e:
+            return f"the access list (ACL) of {folder} can't be read ({e.strerror}): it may let others add {missing} ({fix})"
     return None
 
 
-def _who(path: str, st: os.stat_result, me: int) -> str | None:
+def _who(path: str, st: os.stat_result, me: int, tree: str | None = None) -> str | None:
     """Who besides root and `me` can change the one entry `path` (its lstat `st`), and how to stop them."""
     if st.st_uid not in (0, me):
-        h = " -h" if stat.S_ISLNK(st.st_mode) else ""
-        return f"{path} belongs to {_name(pwd.getpwuid, st.st_uid)}, who can change it (`sudo chown{h} root {path}` fixes it)"
+        try:
+            owner = pwd.getpwuid(st.st_uid)
+        except KeyError:
+            owner = None
+        name = owner.pw_name if owner is not None else str(st.st_uid)
+        if owner is not None and os.path.normpath(owner.pw_dir) == path:   # theirs to keep (final review of branch
+            return f"{path} is the home of {name}, who can change it ({_MOVE})"  # deferred-minors, M5)
+        fix = _fix(f"sudo chown{' -h' if stat.S_ISLNK(st.st_mode) else ''} root {path}", path, tree, "sudo chown -R root")
+        return f"{path} belongs to {name}, who can change it ({fix}; or {_MOVE})"
     if stat.S_ISLNK(st.st_mode) or stat.S_ISDIR(st.st_mode) and st.st_mode & stat.S_ISVTX:
         return None                              # a link's own mode means nothing; a sticky folder, see changeable
     if st.st_mode & stat.S_IWOTH:
-        return f"anyone can change {path} (`chmod o-w {path}` fixes it)"
-    if st.st_mode & stat.S_IWGRP and not _own_group(st.st_gid, me):
-        return f"the group {_name(grp.getgrgid, st.st_gid)} can change {path} (`chmod g-w {path}` fixes it)"
-    if st.st_mode & stat.S_IWGRP and _listed_others(path):
-        return f"an access list (ACL) on {path} can let others change it (`chmod g-w {path}` fixes it)"
+        return f"anyone can change {path} ({_fix(f'chmod o-w {path}', path, tree, 'chmod -R go-w')})"
+    if st.st_mode & stat.S_IWGRP:
+        fix = _fix(f"chmod g-w {path}", path, tree, "chmod -R go-w")
+        if not _own_group(st.st_gid, me):
+            return f"the group {_name(grp.getgrgid, st.st_gid)} can change {path} ({fix})"
+        try:
+            if _listed_others(path):
+                return f"an access list (ACL) on {path} can let others change it ({fix})"
+        except OSError as e:
+            return f"the access list (ACL) of {path} can't be read ({e.strerror}): it may let others change it ({fix})"
     return None
 
 
 def _listed_others(path: str) -> bool:
     """Whether `path` has an access list (ACL) beyond its mode, whose group bits are then the most it lets the users
-    and groups it names do."""
+    and groups it names do. Only "none here" and "not supported here" mean it has none; another error reading it is
+    raised, so the check fails closed (final review of branch deferred-minors, M6)."""
     try:
         os.getxattr(path, "system.posix_acl_access", follow_symlinks=False)
-    except OSError:
-        return False
+    except OSError as e:
+        if e.errno in (errno.ENODATA, errno.ENOTSUP, errno.EOPNOTSUPP):
+            return False
+        raise
     return True
 
 
@@ -194,7 +230,16 @@ def _private_group(gid: int, uid: int, minute: int) -> bool:
     return all(a.pw_gid != gid or a.pw_uid == uid for a in pwd.getpwall())
 
 
-_UNJUDGED = object()                             # not_run: no verdict since again()
+_UNJUDGED = object()                             # refusal: no verdict since again()
+_said: set[str] = set()                          # refusals the log has had, by compiler or library: once per process
+
+
+def _say(what: str, why: str) -> None:
+    """Log a refusal once per process (final review of branch deferred-minors): after an upgrade a toolchain that ran
+    before loses its include paths and macros, and the log says so before anyone opens a Health page."""
+    if what not in _said:
+        _said.add(what)
+        log.warning("a workspace added in the UI: %s; its Health page says the same", why)
 
 
 def _dirs(said: str) -> list[str]:
@@ -272,14 +317,21 @@ class Toolchain:
         branch deferred-minors), and how to stop them; None when no one can, and for tortoise.yaml's workspace."""
         if self.folders is None:
             return None
-        why = changeable(driver)
+        tree = self._tree(driver)
+        why = changeable(driver, tree=tree)
         if why:
             return why
         for path in self._looks_for(driver):
-            why = changeable(path, create=True)
+            why = changeable(path, create=True, tree=tree)
             if why:
                 return f"it looks for {path}, and {why}"
         return None
+
+    def _tree(self, driver: str) -> str | None:
+        """The folder a compiler's toolchain is installed in, for a fix text that fixes all of it at once: the one above
+        the compiler's own folder (/opt/tc for /opt/tc/bin/gcc), when it lies inside a toolchain folder and isn't one."""
+        top = os.path.dirname(os.path.dirname(os.path.realpath(driver)))
+        return top if any(within(top, f) and top != f for f in self.folders) else None
 
     def _looks_for(self, driver: str) -> list[str]:
         """Where `driver` looks for what a query runs or reads, from the folders it names when asked
@@ -313,18 +365,26 @@ class Toolchain:
         if self.choice is not None and self.choice.passed and self._default() != self.choice:
             self.libclang = None                         # prepare() chooses and describes it again
         for key, g in list(self._groups.items()):
-            changed = g.refused and g.error != self.not_run(g.compiler)
+            own = g.libclang is not None and g.libclang.vendor       # judged as args_for judges it
+            changed = g.refused and g.error != (self.refusal(g.compiler) if own else self.not_run(g.compiler))
             if changed:
                 g.error, g.refused = None, False
             if g.libclang is not None and g.libclang.passed:
-                lib = find_libclang(self.cfg, compiler=g.compiler, override=key[3], data_dir=self.data_dir,
-                                    refuses=self._refuses)
+                lib = self._find(compiler=g.compiler, override=key[3])
                 changed, g.libclang = changed or lib != g.libclang, lib
             if changed:
                 self.samples.pop(key, None)
 
     def _default(self) -> LibclangChoice:
-        return find_libclang(self.cfg, data_dir=self.data_dir, refuses=self._refuses)
+        return self._find()
+
+    def _find(self, **kw) -> LibclangChoice:
+        """find_libclang for this workspace: a library it passes over is said in the log once (final review of branch
+        deferred-minors)."""
+        choice = find_libclang(self.cfg, data_dir=self.data_dir, refuses=self._refuses, **kw)
+        for p in choice.passed:
+            _say(p, f"libclang {p} is passed over")
+        return choice
 
     def prepare(self) -> None:
         """Idempotent: chooses and describes this workspace's default library (loading it here when the process has no
@@ -356,22 +416,35 @@ class Toolchain:
 
     def not_run(self, driver: str) -> str | None:
         """Why `driver` must not be run (toolchain.query_compilers, server.toolchain_folders, who else can change it),
-        or None. Who else can change it is judged once per compiler until the Health page looks again (again()); a run
-        judges it afresh as it starts (_exe)."""
+        or None."""
         mode = self.cfg.query_compilers
         if mode == "off":
             return "compiler queries are off (toolchain.query_compilers: off)"
         if not self.listed(driver):
-            return (f"compiler {driver} is outside the toolchain folders and is not run "
-                    "(server.toolchain_folders in tortoise.yaml lists them)")
+            return self.refusal(driver)
         if mode == "outside_workspace" and self.root and os.path.realpath(driver).startswith(self.root + "/"):
             return (f"compiler {driver} is inside the workspace and is not run "
                     "(set toolchain.query_compilers: all to allow it)")
-        verdict = self._verdicts.get(driver, _UNJUDGED)  # read once: again() may forget them meanwhile
-        if verdict is _UNJUDGED:
-            why = self._unsafe(driver)
-            verdict = self._verdicts[driver] = f"compiler {driver} is not run: {why}" if why else None
-        return verdict
+        return self.refusal(driver)
+
+    def refusal(self, driver: str) -> str | None:
+        """Why the toolchain folders keep `driver` from running: it lies outside them, or someone besides root and
+        this server's account can change it; None when compiler queries are off, and for tortoise.yaml's workspace. The
+        log says it once per compiler. Who else can change it is judged once per compiler until the Health page looks
+        again (again()); a run judges it afresh as it starts (_exe)."""
+        if self.folders is None or self.cfg.query_compilers == "off":
+            return None
+        if not self.listed(driver):
+            why = (f"compiler {driver} is outside the toolchain folders and is not run "
+                   "(server.toolchain_folders in tortoise.yaml lists them)")
+        else:
+            why = self._verdicts.get(driver, _UNJUDGED)  # read once: again() may forget them meanwhile
+            if why is _UNJUDGED:
+                unsafe = self._unsafe(driver)
+                why = self._verdicts[driver] = f"compiler {driver} is not run: {unsafe}" if unsafe else None
+        if why:
+            _say(driver, why)
+        return why
 
     def _machine(self, driver: str) -> str | None:
         if driver in self._machines:                     # asked once: every compile entry comes here
@@ -397,8 +470,7 @@ class Toolchain:
         lib_override = ov.libclang if ov else None
         key = (driver, target, flags, lib_override)
         if key not in self._groups:
-            lib = find_libclang(self.cfg, compiler=driver, override=lib_override, data_dir=self.data_dir,
-                                refuses=self._refuses)
+            lib = self._find(compiler=driver, override=lib_override)
             self._groups[key] = Group(compiler=driver, target=target, flags=flags, libclang=lib)
         return self._groups[key]
 
@@ -442,7 +514,10 @@ class Toolchain:
             # target headers (<bin>/../target/<arch>/include and the like) the way the compiler does
             args += ["-ccc-install-dir", os.path.dirname(os.path.realpath(g.compiler))]
         # a toolchain's own library still takes the compiler's include paths when it may run (wrappers and config
-        # files add some), but not its macros: the library defines them itself
+        # files add some), but not its macros: the library defines them itself. A compiler the toolchain folders
+        # refuse is said on the Health page all the same (final review of branch deferred-minors)
+        if own and not g.error and (why := self.refusal(g.compiler)):
+            g.error, g.refused = why, True
         info = None if own and self.not_run(g.compiler) else self._query(g, lang)
         rd = self.cfg.resource_dir or g.libclang.resource_dir or (info.resource_dir if info else None)
         if rd:
