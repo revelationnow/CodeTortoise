@@ -7,3 +7,8 @@ import os
 
 def canon(path: str) -> str:
     return os.path.realpath(os.path.abspath(path))
+
+
+def within(path: str, folder: str) -> bool:
+    """Whether `path` is `folder` or lies below it, both as given (pass real paths to judge where files really are)."""
+    return path == folder or path.startswith(folder.rstrip("/") + "/")

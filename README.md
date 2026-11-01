@@ -337,8 +337,9 @@ A workspace added in the UI runs compilers and loads libclang only from the fold
 (default `/usr` and `/opt`), plus the libraries `fetch-libclang` installs. A path counts by where it really leads, links
 followed, and that real file is what runs or loads. A compiler elsewhere isn't run, and the Health page says why; a
 library elsewhere is passed over for the next one in the order below. The workspace in tortoise.yaml isn't held to
-these folders. List only folders whose contents you control, never one that holds a workspace or files synced from a
-depot.
+these folders, and its own folder never counts as one of them; a workspace added in the UI can't overlap one. List only
+folders that hold programs you installed and that no one else can write to: anyone who can add a file there can have
+the server run it.
 
 libclang only parses, so one upstream library handles every standard target (ARM, AArch64, RISC-V, x86, MIPS,
 PowerPC). A newer library knows more recent flags. The library for a group is, in order: an override's or
@@ -388,8 +389,9 @@ Compilers that are neither GCC- nor clang-compatible (IAR, TI `cl6x`, Green Hill
   loads (`toolchain.clang`, `libclang`, `search_paths` and `query_compilers`, and an override's `clang` and `libclang`)
   are set only by the owner of the workspace in tortoise.yaml; another owner editing a workspace keeps what is there.
   Whatever its settings or compile databases name, a workspace added in the UI runs compilers and loads libclang only
-  from `server.toolchain_folders` (see [Toolchains and libclang](#toolchains-and-libclang)). A server started without a
-  workspace in tortoise.yaml has no such owner, so these settings can't be set in the UI there.
+  from `server.toolchain_folders`, and its folder can't overlap one (see
+  [Toolchains and libclang](#toolchains-and-libclang)). A server started without a workspace in tortoise.yaml has no
+  such owner, so these settings can't be set in the UI there.
 - Only paths that map into the base workspace are served. Wildcards, revision specifiers and paths outside the client
   view are refused (HTTP 403), binary files are refused (415), and files over 2 MiB are refused (413).
 - Restricted changelists can be reviewed only if the owner can `describe` them.

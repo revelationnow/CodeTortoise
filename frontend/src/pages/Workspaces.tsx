@@ -162,7 +162,7 @@ function WorkspaceForm({ initial, verb, submit, onDone, onCancel }: {
           <div className="hint">tortoise.yaml's toolchain, targets and analysis keys, as YAML. Only the owner of the
             workspace in tortoise.yaml changes the keys that name programs (clang, libclang, search_paths,
             query_compilers, and an override's clang and libclang). Compilers run, and libclang loads, only from the
-            server's toolchain folders.</div>
+            server's toolchain folders, which a workspace's root can't overlap.</div>
         </div>
       </details>
       {error && <div className="error" role="alert">{error}</div>}

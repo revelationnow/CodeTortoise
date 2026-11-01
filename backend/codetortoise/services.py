@@ -124,19 +124,21 @@ def make_strong(cfg: Config) -> LlmClient | None:
 
 def build_services(cfg: Config, llm: LlmClient | None = None, source: Source | None = None,
                    strong: LlmClient | None = None, *, store: Store | None = None, ledger: Ledger | None = None,
-                   home: Path | None = None, scope: str = "", folders: Iterable[str] | None = None) -> Services:
+                   home: Path | None = None, scope: str = "", folders: Iterable[str] | None = None,
+                   outside: Iterable[str] = ()) -> Services:
     """A workspace's bundle (spec 2026-10-31 §6). A server of many passes what its workspaces share (`store`,
     `ledger`), the workspace's own folder (`home`: its symbol index and toolchain files) and the scope keying its store
     entries; without them the bundle stands alone, as a single-workspace server's did. `folders`: the only folders the
     workspace's toolchain runs compilers and loads libclang from (server.toolchain_folders, for a workspace added in
-    the UI: final review I3)."""
+    the UI: final review I3), less the `outside` ones."""
     data = cfg.server.data_dir
     data.mkdir(parents=True, exist_ok=True)
     home = home if home is not None else data
     store = store if store is not None else Store(data / "tortoise.db")
     index = SymbolIndex(home / "symbols.db")
     cdb = load_databases(cfg.workspace.compile_commands, cfg.workspace.root, cfg.workspace.build_root)
-    tc = Toolchain(cfg.toolchain, cdb, home / "toolchain", root=cfg.workspace.root, data_dir=data, folders=folders)
+    tc = Toolchain(cfg.toolchain, cdb, home / "toolchain", root=cfg.workspace.root, data_dir=data, folders=folders,
+                   outside=outside)
     tc.strip.update(store.kv_get(strip_flags_key(cfg.workspace.root, scope)) or [])
     llm = llm if llm is not None else make_llm(cfg)
     p4 = None

@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from codetortoise.config import ToolchainConfig, ToolchainOverride
-from codetortoise.paths import canon
+from codetortoise.paths import canon, within
 from codetortoise.toolchain.compile_db import CompileDb, CompileEntry, sanitize_args
 from codetortoise.toolchain.driver import DriverInfo, query_driver, target_flags
 from codetortoise.toolchain.libclang import LibclangChoice, LibclangInfo, find_libclang, library_info
@@ -78,7 +78,7 @@ class Toolchain:
     toolchain group and language) for its built-in include paths and macros, and its target is made explicit."""
 
     def __init__(self, cfg: ToolchainConfig, cdb: CompileDb, work_dir: Path, root: Path | None = None,
-                 data_dir: Path | None = None, folders: Iterable[str] | None = None):
+                 data_dir: Path | None = None, folders: Iterable[str] | None = None, outside: Iterable[str] = ()):
         self.cfg = cfg
         self.cdb = cdb
         self.work_dir = Path(work_dir)
@@ -94,13 +94,15 @@ class Toolchain:
         # which isn't held to them (final review I3 of spec 2026-10-31)
         self.folders = None if folders is None else \
             [os.path.realpath(f) for f in [*folders, str(self.data_dir / "libclang")]]
+        self.outside = [os.path.realpath(o) for o in outside]    # never toolchain folders: tortoise.yaml's workspace
         self._allowed = self._within if self.folders is not None else None    # what find_libclang may load
         self.choice: LibclangChoice | None = None    # the library this workspace parses with by default
         self.samples: dict[tuple, str] = {}          # Health's sample parse per group, once per process
 
     def _within(self, real: str) -> bool:
         """Whether the real path `real` lies in a toolchain folder (always, for tortoise.yaml's workspace)."""
-        return self.folders is None or any(real == f or real.startswith(f.rstrip("/") + "/") for f in self.folders)
+        return self.folders is None or (any(within(real, f) for f in self.folders)
+                                        and not any(within(real, o) for o in self.outside))
 
     def listed(self, path: str) -> bool:
         """Whether `path` really lies in a toolchain folder, links followed the way the system follows them."""

@@ -16,7 +16,7 @@ from codetortoise.config import Config, ConfigError, effective_config, seed_name
 from codetortoise.health import Check, HealthReport, run_health
 from codetortoise.llm.client import LlmClient
 from codetortoise.llm.ledger import Ledger
-from codetortoise.paths import canon
+from codetortoise.paths import canon, within
 from codetortoise.pipeline import AiPool, JobRunner
 from codetortoise.services import Services, build_services, make_llm, make_strong, strip_flags_key
 from codetortoise.sinks import MARKS_KEY, marks_key
@@ -181,6 +181,9 @@ class Registry:
                 except ConfigError as e2:
                     raise ConfigError(f"the stored workspace {row['name']}: {e2}") from e2
                 reason = f"its settings do not load: {e}"
+        overlap = None if seed else self._overlap(row["root"])
+        if overlap and reason == LOADING:
+            reason = f"its root {overlap}: change its root or the toolchain folders"
         ws = Workspace(id=row["id"], name=row["name"], server=server_of(row["p4port"]), owner=row["p4user"],
                        seed=seed, cfg=cfg, reason=reason)
         if reason != LOADING:
@@ -212,7 +215,8 @@ class Registry:
         (§11). An empty symbol index is built when the bundle first loads (§6)."""
         try:
             svc = build_services(ws.cfg, self.llm, strong=self.strong, store=self.store, ledger=self.ledger,
-                                 home=self.home(ws.id), scope=scope_of(ws.id), folders=self.folders(ws))
+                                 home=self.home(ws.id), scope=scope_of(ws.id), folders=self.folders(ws),
+                                 outside=self.outside())
         except Exception as e:  # a missing root, an unreadable compile database: shown, never fatal
             ws.reason = f"could not load: {type(e).__name__}: {e}"
             log.warning("workspace %s: %s", ws.name, ws.reason)
@@ -262,6 +266,22 @@ class Registry:
         server.toolchain_folders for one added in the UI; None (as configured) for tortoise.yaml's own (final review
         I3)."""
         return None if ws.seed else self.base.server.toolchain_folders
+
+    def outside(self) -> list[str]:
+        """Folders that never count as toolchain folders: tortoise.yaml's workspace's, whose files are synced from its
+        depot (a workspace added in the UI can't overlap a toolchain folder at all)."""
+        return [str(self.base.workspace.root)] if self.base.workspace is not None else []
+
+    def _overlap(self, root: str) -> str | None:
+        """How `root` and a toolchain folder overlap, if they do: a workspace added in the UI there would make its synced
+        files toolchains that such workspaces run (final review I3)."""
+        real = os.path.realpath(root)
+        for f in self.base.server.toolchain_folders:
+            t = os.path.realpath(f)
+            if within(real, t) or within(t, real):
+                return (f"{root} and the toolchain folder {f} overlap; toolchain folders (server.toolchain_folders in "
+                        "tortoise.yaml) hold only programs the host installs")
+        return None
 
     def seed(self) -> Workspace | None:
         return next((w for w in self.all() if w.seed), None)
@@ -383,6 +403,9 @@ class Registry:
             raise Invalid("name: 1–40 characters, no /")
         if not os.path.isabs(fields["root"]):
             raise Invalid("root: a full path on this host")
+        overlap = self._overlap(fields["root"])
+        if overlap:
+            raise Invalid(f"root: {overlap}")
         if not fields.get("p4user"):
             raise Invalid("user: the Perforce user its reads run as")
         if fields["vcs"] == "p4" and not (fields.get("p4port") and fields.get("client")):
@@ -422,6 +445,7 @@ class Registry:
         if ws.reason != LOADING:
             raise ConfigError(f"the workspace {ws.name}: {ws.reason}")
         ws.svc = build_services(ws.cfg, self.llm, strong=self.strong, store=self.store, ledger=self.ledger,
-                                home=self.home(ws.id), scope=scope_of(ws.id), folders=self.folders(ws))
+                                home=self.home(ws.id), scope=scope_of(ws.id), folders=self.folders(ws),
+                                outside=self.outside())
         ws.reason = None
         return ws

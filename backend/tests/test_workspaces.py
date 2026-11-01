@@ -192,8 +192,7 @@ def test_sign_in_runs_p4_from_a_perforce_workspace_on_that_server(fx, fx_b, tmp_
 
 def test_only_workspaces_added_in_the_ui_are_held_to_the_toolchain_folders(fx, fx_b, tmp_path):
     """A workspace added in the UI runs compilers only from tortoise.yaml's toolchain folders; tortoise.yaml's own
-    workspace is not held to them, and a workspace saved at a toolchain folder changes neither (final review I3), in
-    the server and in a command-line tool alike."""
+    workspace is not held to them (final review I3), in the server and in a command-line tool alike."""
     opt = tmp_path / "opt"
     (opt / "bin").mkdir(parents=True)
     listed, elsewhere = str(opt / "bin" / "cc"), str(tmp_path / "elsewhere" / "bin" / "cc")
@@ -201,13 +200,51 @@ def test_only_workspaces_added_in_the_ui_are_held_to_the_toolchain_folders(fx, f
     reg = server(fx, tmp_path, server=folders)
     reg.load()
     b = reg.add(fields(fx_b.root), "owner")
-    reg.add(fields(opt, name="at-opt"), "owner")
     assert b.svc.toolchain.not_run(listed) is None
     assert "outside the toolchain folders" in (b.svc.toolchain.not_run(elsewhere) or "")
     assert reg.seed().svc.toolchain.not_run(elsewhere) is None and reg.seed().svc.toolchain.not_run(listed) is None
     tool = Registry.open(make_config(fx, tmp_path / "data", server=folders)).tool_workspace("b").svc.toolchain
     assert "outside the toolchain folders" in (tool.not_run(elsewhere) or "")
     assert make_config(fx, tmp_path / "data").server.toolchain_folders == ["/usr", "/opt"]
+
+
+def test_a_workspace_added_in_the_ui_cannot_overlap_a_toolchain_folder(fx, fx_b, tmp_path):
+    """Its synced files would count as toolchains that every workspace added in the UI may run (final review I3)."""
+    team = tmp_path / "opt" / "team"
+    (team / "ws").mkdir(parents=True)
+    reg = server(fx, tmp_path, server={"data_dir": str(tmp_path / "data"), "toolchain_folders": [str(team)]})
+    reg.load()
+    for i, root in enumerate((team / "ws", team, team.parent)):   # inside one, one, around one
+        with pytest.raises(Invalid, match=f"root: .*the toolchain folder {team}"):
+            reg.add(fields(root, name=f"t{i}"), "owner")
+    b = reg.add(fields(fx_b.root), "owner")
+    with pytest.raises(Invalid, match="toolchain folder"):
+        reg.edit(b.id, fields(team / "ws"))
+
+
+def test_a_stored_workspace_that_overlaps_a_toolchain_folder_loads_not_ready(fx, fx_b, tmp_path):
+    """One stored before its folder was listed waits, with the reason, until its root or the list changes."""
+    reg = server(fx, tmp_path)
+    reg.load()
+    reg.add(fields(fx_b.root), "owner")
+    again = server(fx, tmp_path, server={"data_dir": str(tmp_path / "data"), "toolchain_folders": [str(fx_b.root)]})
+    again.load()
+    b = next(w for w in again.all() if w.name == "b")
+    assert "toolchain folder" in (b.reason or "") and b.svc is None
+
+
+def test_the_seeds_folder_never_counts_as_a_toolchain_folder(fx, fx_b, tmp_path):
+    """tortoise.yaml's workspace may sit in a toolchain folder, but its synced files still don't run for a workspace
+    added in the UI (final review I3)."""
+    opt = tmp_path / "opt"
+    folders = {"data_dir": str(tmp_path / "data"), "toolchain_folders": [str(opt), str(fx.root.parent)]}
+    reg = server(fx, tmp_path, server=folders)
+    reg.load()
+    b = reg.add(fields(fx_b.root), "owner")
+    assert "outside the toolchain folders" in (b.svc.toolchain.not_run(str(fx.root / "tools" / "cc")) or "")
+    assert b.svc.toolchain.not_run(str(opt / "bin" / "cc")) is None
+    tool = Registry.open(make_config(fx, tmp_path / "data", server=folders)).tool_workspace("b").svc.toolchain
+    assert "outside the toolchain folders" in (tool.not_run(str(fx.root / "tools" / "cc")) or "")
 
 
 def test_a_tool_works_on_the_named_workspace_else_the_seed_else_the_only_one(fx, fx_b, tmp_path):
