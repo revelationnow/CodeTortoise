@@ -83,6 +83,14 @@ server: {host: 0.0.0.0, tls_cert: certs/ct.pem, tls_key: certs/ct.key}
     assert cfg.server.tls_key == (tmp_path / "certs/ct.key").resolve()
 
 
+def test_settings_analysis_is_a_mapping():
+    """It is laid over tortoise.yaml's analysis keys, so a number or a list says so, not a server error (final review
+    M1 of spec 2026-10-31)."""
+    for text in ("analysis: 5", "analysis: [workers]"):
+        with pytest.raises(ConfigError, match="analysis: a mapping"):
+            parse_settings(text)
+
+
 def test_toolchain_folders_resolve_relative_to_the_config(tmp_path):
     cfg = load_config(write(tmp_path, """
 owner: a

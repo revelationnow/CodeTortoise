@@ -251,6 +251,8 @@ def parse_settings(text: str | None) -> dict:
     extra = sorted(str(k) for k in got if k not in SETTINGS_KEYS)
     if extra:
         raise ConfigError(f"settings: only toolchain, targets and analysis belong here, not {', '.join(extra)}")
+    if got.get("analysis") is not None and not isinstance(got["analysis"], dict):
+        raise ConfigError("settings: analysis: a mapping of tortoise.yaml's analysis keys")
     return got
 
 
