@@ -139,4 +139,47 @@ test.describe.serial("one server, two workspaces", () => {
     for (const name of ["third", "amys"])
       expect((await page.request.delete(`/api/workspaces/${all.find((w) => w.name === name)!.id}`)).ok()).toBe(true);
   });
+
+  test("a list answer asked for before a save never rolls the saved row back", async ({ page }) => {
+    test.setTimeout(120_000);
+    await login(page);                                   // demo on local: the seed's owner
+    const rows: { seed: boolean; fields: { root: string } }[] = await (await page.request.get("/api/workspaces")).json();
+    const base = rows.find((w) => w.seed)!.fields.root.replace(/\/ws$/, "");
+    const late = await page.request.post("/api/workspaces", { data: { name: "late", vcs: "git", p4user: "demo", root: `${base}/late` } });
+    expect(late.ok()).toBe(true);
+    const id = (await late.json()).id;
+    await expect.poll(async () => (await (await page.request.get("/api/workspaces")).json())
+      .find((w: { id: number }) => w.id === id).reason).not.toBe("loading");
+    await page.getByRole("link", { name: "Workspaces" }).click();
+    const named = (name: string) => page.locator(".wsp-row", { has: page.locator("b", { hasText: new RegExp(`^${name}$`) }) });
+    await expect(named("late")).toBeVisible();
+
+    // the first list request from here on answers with the list as it was asked for, but only once the save is in
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    let held: Promise<void> | null = null;
+    await page.route("**/api/workspaces", async (route) => {
+      if (route.request().method() !== "GET" || held) return route.fallback();
+      held = (async () => {
+        const before = await route.fetch();
+        await gate;
+        await route.fulfill({ response: before });
+      })();
+      await held;
+    });
+    await named("ws").getByRole("button", { name: "Rebuild index" }).click();       // which loads the list again
+    await expect.poll(() => held !== null).toBe(true);
+    await named("late").getByRole("button", { name: "Edit" }).click();
+    const form = page.getByRole("form", { name: "Edit late" });
+    await form.getByLabel("Name", { exact: true }).fill("later");
+    await form.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(named("later")).toBeVisible();
+    release();
+    await held;
+    await page.waitForTimeout(1000);                     // the old answer has landed: it must change nothing
+    await expect(named("later")).toBeVisible();
+    await expect(named("late")).toHaveCount(0);
+    await expect(page.locator(".wsp-saved")).toHaveText(/^later is saved/);
+    expect((await page.request.delete(`/api/workspaces/${id}`)).ok()).toBe(true);
+  });
 });

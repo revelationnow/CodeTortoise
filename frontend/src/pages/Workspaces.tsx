@@ -1,4 +1,4 @@
-import { type ChangeEvent, type FormEvent, useEffect, useState } from "react";
+import { type ChangeEvent, type FormEvent, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, errorText, type HealthCheck, LOADING, type WorkspaceFields, type WorkspaceRow } from "../api";
 import { useMe } from "../App";
@@ -15,8 +15,12 @@ export default function Workspaces() {
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<number | "new" | null>(null);          // the workspace whose form is open, or a new one
   const [saved, setSaved] = useState<Checked | null>(null);               // what the last add or edit answered
-  const load = () => api.workspaces().then((w) => { setRows(w); setError(null); })
-    .catch((e) => setError(errorText(e, "The workspaces could not be loaded.")));
+  const asked = useRef(0);       // only the newest list request lands: an older one, answered late, would undo a save
+  const load = () => {
+    const mine = ++asked.current;
+    return api.workspaces().then((w) => { if (mine === asked.current) { setRows(w); setError(null); } })
+      .catch((e) => { if (mine === asked.current) setError(errorText(e, "The workspaces could not be loaded.")); });
+  };
   useEffect(() => { load(); }, []);
   const loading = !!rows?.some((w) => w.reason === LOADING);   // a bundle being built: its row follows it
   useEffect(() => (loading ? pollLoop(load, 1500) : undefined), [loading]);
