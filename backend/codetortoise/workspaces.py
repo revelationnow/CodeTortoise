@@ -69,6 +69,10 @@ class Workspace:
     reason: str | None = LOADING      # why it isn't ready; None when it is
     checks: list[Check] = field(default_factory=list)
     loaded: threading.Event = field(default_factory=threading.Event, repr=False, compare=False)   # set once it built
+    # left by an edit until its bundle loads, a Recheck's included: the stopped queue whose index build ends before
+    # this one's starts, and whether the index is to be rebuilt for its new settings
+    after: JobRunner | None = field(default=None, repr=False, compare=False)
+    reindex: bool = False
 
     @property
     def ready(self) -> bool:
@@ -202,11 +206,11 @@ class Registry:
             ws.loaded.set()                              # nothing to build until its owner edits it
         return ws
 
-    def _start(self, ws: Workspace, after: JobRunner | None = None, reindex: bool = False) -> None:
+    def _start(self, ws: Workspace) -> None:
         """Build its bundle in the background: a slow Perforce server or a deep glob holds no request, and its row
         shows it loading until its checks have run (final review M11)."""
         if ws.reason == LOADING:
-            self.spawn(lambda: self._build(ws, after, reindex))
+            self.spawn(lambda: self._build(ws))
 
     def settle(self, ws: Workspace, timeout: float = 120.0) -> None:
         """Wait while a workspace's bundle is still being built (right after startup), so a request then is answered
@@ -214,16 +218,16 @@ class Registry:
         if ws.reason == LOADING:
             ws.loaded.wait(timeout)
 
-    def _build(self, ws: Workspace, after: JobRunner | None = None, reindex: bool = False) -> None:
+    def _build(self, ws: Workspace) -> None:
         try:
-            self._load(ws, after, reindex)
+            self._load(ws)
         finally:
             ws.loaded.set()
 
-    def _load(self, ws: Workspace, after: JobRunner | None = None, reindex: bool = False) -> None:
+    def _load(self, ws: Workspace) -> None:
         """Build a workspace's bundle and start its queue; a failure keeps the workspace, not ready, with the reason
-        (§11). Its symbol index is built when the bundle first loads, or with `reindex` (§6). `after`: the stopped queue
-        of the bundle it replaces, whose index build ends before this one's starts."""
+        (§11). Its symbol index is built when the bundle first loads, or for an edit's new settings (§6), once the queue
+        the edit stopped has ended."""
         svc = runner = None
         try:
             svc = build_services(ws.cfg, self.llm, strong=self.strong, store=self.store, ledger=self.ledger,
@@ -233,7 +237,7 @@ class Registry:
         except Exception as e:  # a missing root, an unreadable compile database: shown, never fatal
             ws.reason = f"could not load: {type(e).__name__}: {e}"
             log.warning("workspace %s: %s", ws.name, ws.reason)
-        if runner is not None and after is not None and not after.join(STOP_WAIT):
+        if runner is not None and ws.after is not None and not ws.after.join(STOP_WAIT):
             log.warning("workspace %s: the queue it replaces still runs after %.0f s", ws.name, STOP_WAIT)
         with self._lock:
             kept = self._ws.get(ws.id) is ws             # not removed or replaced while it was building
@@ -249,8 +253,9 @@ class Registry:
             return
         if runner is None:
             return
-        if reindex or svc.index.generation() == 0:
+        if ws.reindex or svc.index.generation() == 0:
             runner.submit_index()
+        ws.after, ws.reindex = None, False
         self._check(ws)
 
     def _check(self, ws: Workspace, report: HealthReport | None = None) -> HealthReport:
@@ -387,10 +392,14 @@ class Registry:
             ws = self._record(self.store.get_workspace(wid))
             with self._lock:
                 self._ws[wid] = ws
-            if old.runner is not None:
-                old.runner.stop()                            # its index build ends early (final review M3)
-            # a new root or compile database: the index catches up once the old queue's build has ended
-            self._start(ws, after=old.runner, reindex=True)
+                stale = old.runner                           # attached before the swap, if at all
+            if stale is not None:
+                stale.stop()                                 # its index build ends early (final review M3)
+            # a new root or compile database: the index catches up, once the build stopped here has ended — or the one
+            # an earlier edit stopped, while that edit's bundle is still building (review of branch minors, M1) — and
+            # even when the bundle first fails to load and a Recheck loads it (M7)
+            ws.after, ws.reindex = stale or old.after, True
+            self._start(ws)
         return ws
 
     def remove(self, wid: int) -> None:

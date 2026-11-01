@@ -429,3 +429,66 @@ def test_moving_the_seed_to_another_perforce_server_with_reviews_is_logged(fx, t
         server(fx, tmp_path, workspace=moved).load()
     assert ("the workspace in tortoise.yaml moved from the Perforce server local to second:1666: its 1 review(s) now "
             "show to those signed in there") in caplog.text
+
+
+def test_two_quick_edits_never_run_two_index_builds_of_the_workspace_at_once(fx, fx_b, tmp_path, monkeypatch):
+    """A second save while the first one's bundle still builds waits, too, for the index build the first one stopped
+    (final review of branch minors, M1)."""
+    real = Services.build_index
+    running, most, started, ending = [], [0], threading.Event(), threading.Event()
+    lock = threading.Lock()
+
+    def build_index(svc, full=False, cancel=None):              # b's index: long, and a while to end once stopped
+        if Path(svc.cfg.workspace.root) != fx_b.root:
+            return real(svc, full=full, cancel=cancel)
+        with lock:
+            running.append(svc)
+            most[0] = max(most[0], len(running))
+        started.set()
+        try:
+            cancel.wait(30)
+            ending.wait(30)
+        finally:
+            with lock:
+                running.remove(svc)
+        return 0
+    monkeypatch.setattr(Services, "build_index", build_index)
+    later = []
+    reg = Registry.open(make_config(fx, tmp_path / "data"), spawn=later.append)     # real queues; bundles built later
+    reg.load()
+    later.pop()()
+    b = reg.add(fields(fx_b.root), "owner")
+    later.pop()()
+    assert started.wait(10)
+    reg.edit(b.id, fields(fx_b.root, name="b2"))                # stops that build; its own bundle builds later
+    last = reg.edit(b.id, fields(fx_b.root, name="b3"))          # saved again before that bundle has built
+    first, second = later
+    t = threading.Thread(target=second)
+    t.start()
+    time.sleep(0.3)
+    assert most[0] == 1 and last.runner is None                  # it waits for the stopped build to end
+    ending.set()
+    t.join(30)
+    first()                                                      # replaced meanwhile: it starts no queue
+    assert most[0] == 1 and last.runner is not None and reg.get(b.id) is last
+    for w in reg.all():
+        w.runner.stop()
+
+
+def test_a_recheck_that_loads_an_edited_workspace_builds_the_index_its_edit_asked_for(fx, fx_b, tmp_path, monkeypatch):
+    """An edit whose bundle could not load, then a Recheck once the host is fixed: the index catches up with the new
+    settings (final review of branch minors, M7)."""
+    reg = server(fx, tmp_path)
+    reg.load()
+    b = reg.add(fields(fx_b.root), "owner")
+    assert b.svc.index.generation() == 1
+    real = workspaces.build_services
+
+    def broken(*a, **k):
+        raise OSError("compile database unreadable")
+    monkeypatch.setattr(workspaces, "build_services", broken)
+    edited = reg.edit(b.id, fields(fx_b.root, name="b2"))
+    assert edited.reason.startswith("could not load")
+    monkeypatch.setattr(workspaces, "build_services", real)
+    reg.recheck(edited)
+    assert edited.ready and edited.svc.index.generation() == 2
