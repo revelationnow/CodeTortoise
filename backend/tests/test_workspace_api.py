@@ -187,3 +187,20 @@ def test_a_workspace_removed_meanwhile_is_404_to_what_waited_on_it(fx, fx_b, tmp
         r = ask(wid)
         assert r.status_code == 404 and r.json()["detail"] == "workspace not found", r.text
     assert reg.store.list_reviews() == []
+
+
+def test_a_workspace_with_reviews_keeps_its_perforce_server(app, fx_b, tmp_path):
+    """Its reviews were made on that server's code; moved, they would show to those signed in to another one (final
+    review M4). The owner of the workspace in tortoise.yaml may move it, as they move that one in the file."""
+    owner = login(app, "owner")
+    b = owner.post("/api/workspaces", json=body(fx_b.root, p4user="amy")).json()
+    c = owner.post("/api/workspaces", json=body(tmp_path, name="c", p4user="amy")).json()
+    amy = login(app, "amy")
+    assert amy.post("/api/reviews", json={"cls": [101], "workspace_id": b["id"]}).status_code == 200
+    moved = body(fx_b.root, p4user="amy", p4port="second:1666")
+    r = amy.put(f"/api/workspaces/{b['id']}", json=moved)
+    assert r.status_code == 409 and r.json()["detail"].startswith("the workspace b has 1 review(s) on local: it keeps"), r.text
+    assert amy.put(f"/api/workspaces/{b['id']}", json=body(fx_b.root, p4user="amy", swarm_url="https://sw")).status_code == 200
+    assert amy.put(f"/api/workspaces/{c['id']}", json=body(tmp_path, name="c", p4user="amy", p4port="second:1666")).status_code \
+        == 200                                                   # one with no reviews moves
+    assert owner.put(f"/api/workspaces/{b['id']}", json=moved).status_code == 200

@@ -30,7 +30,7 @@ from codetortoise.swarm import SwarmError
 from codetortoise.tidy import tidy
 from codetortoise.vcs.p4runner import P4Error, P4Runner
 from codetortoise.vcs.source import SourceBinary, SourceNotAllowed, SourceTooLarge
-from codetortoise.workspaces import Conflict, Invalid, Registry, Workspace
+from codetortoise.workspaces import Conflict, Invalid, Registry, Workspace, server_of
 
 COOKIE = "ct_session"
 STATIC = Path(__file__).parent / "static"
@@ -691,6 +691,16 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
                                      "override's clang and libclang, name programs this server runs or loads: only the "
                                      "owner of the workspace in tortoise.yaml sets them")
 
+    def stays(row: dict, p4port: str | None, logins: dict[str, str]) -> None:
+        """A workspace with reviews keeps its Perforce server: they were made on that server's code, and moved they
+        would show to those signed in to another (final review M4). The owner of the seed may move it, as they move
+        the seed in tortoise.yaml."""
+        was = server_of(row["p4port"])
+        if server_of(p4port) != was and not hosts(logins) and (n := store.review_count(row["id"])):
+            raise HTTPException(409, f"the workspace {row['name']} has {n} review(s) on {was}: it keeps its Perforce "
+                                     "server, so they stay with those signed in there (the owner of the workspace in "
+                                     "tortoise.yaml can move it)")
+
     def saved(change: Callable[[], Workspace], logins: dict[str, str]) -> dict:
         try:
             return checked(change(), logins)
@@ -737,9 +747,12 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
         """New fields, a new bundle swapped in; refused for the seed and while a review waits or runs in it (§6)."""
         if len(body.settings) > 100_000:
             raise HTTPException(422, "settings: at most 100000 characters")
-        return saved(lambda: reg.edit(o.ws.id, body.fields(),
-                                      check=lambda row: host_programs(body.settings, row["settings"], o.logins)),
-                     o.logins)
+        fields = body.fields()
+
+        def vet(row: dict) -> None:                  # against the row as stored, once no other change of it runs
+            host_programs(body.settings, row["settings"], o.logins)
+            stays(row, fields["p4port"], o.logins)
+        return saved(lambda: reg.edit(o.ws.id, fields, check=vet), o.logins)
 
     @app.delete("/api/workspaces/{wid}")
     def remove_workspace(o: Owned = Depends(managed)):

@@ -158,6 +158,10 @@ class Registry:
             wid = row["id"]
             self.store.update_workspace(wid, fields)
         self.store.adopt_reviews(wid)
+        was, now = server_of(row["p4port"] if row else ws.p4port), server_of(ws.p4port)
+        if was != now and (n := self.store.review_count(wid)):     # the host's to decide; said (final review M4)
+            log.warning("the workspace in tortoise.yaml moved from the Perforce server %s to %s: its %d review(s) now "
+                        "show to those signed in there", was, now, n)
         rec = self._record(self.store.get_workspace(wid))
         with self._lock:
             self._ws[wid] = rec

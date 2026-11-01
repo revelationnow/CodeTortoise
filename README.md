@@ -275,7 +275,9 @@ is fixed, **Recheck** on its Health page runs the checks again. A workspace that
 readable and refuses new reviews and re-runs until its checks pass. Each workspace has its own folder,
 `<data_dir>/workspaces/<id>/`, with its symbol index and toolchain cache, and its own shared-sink marks and Swarm URL.
 An edit is refused while one of its reviews runs (an index build under way stops, and an edit starts it over), and a
-workspace can be removed only while it has no reviews. The owner of the workspace in
+workspace can be removed only while it has no reviews. A workspace with reviews also keeps its Perforce server, so its
+reviews stay with those signed in there: only the owner of the workspace in `tortoise.yaml` moves one, and the server
+log says when that workspace itself moves. The owner of the workspace in
 `tortoise.yaml` sees every workspace on the **Workspaces** page and can edit or remove any of them, so one saved with a
 server or user nobody can sign in as is fixed there. A git workspace (the bundled fixture) can be added only in dev mode.
 

@@ -1,5 +1,6 @@
 """The workspaces one server hosts (spec 2026-10-31 §4–§6, §11, §12)."""
 import json
+import logging
 import threading
 import time
 from pathlib import Path
@@ -415,3 +416,16 @@ def test_adding_or_editing_a_workspace_answers_at_once_and_builds_its_bundle_aft
     assert reg.get(ws.id) is edited and (edited.reason, edited.svc, len(later)) == (workspaces.LOADING, None, 1)
     later.pop()()
     assert edited.ready and edited.svc.index.generation() == 2   # the index caught up, once
+
+
+def test_moving_the_seed_to_another_perforce_server_with_reviews_is_logged(fx, tmp_path, caplog):
+    """Its reviews then show to those signed in to the new server (final review M4): the host decides that in
+    tortoise.yaml, and the log says so."""
+    reg = server(fx, tmp_path)
+    reg.load()
+    reg.store.create_review("t", "owner", [101], workspace_id=reg.seed().id)
+    moved = {"vcs": "git", "root": str(fx.root), "compile_commands": str(fx.compile_commands), "p4port": "second:1666"}
+    with caplog.at_level(logging.WARNING, logger="codetortoise.workspaces"):
+        server(fx, tmp_path, workspace=moved).load()
+    assert ("the workspace in tortoise.yaml moved from the Perforce server local to second:1666: its 1 review(s) now "
+            "show to those signed in there") in caplog.text
