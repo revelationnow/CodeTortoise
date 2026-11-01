@@ -73,6 +73,12 @@ class Workspace:
     def ready(self) -> bool:
         return self.svc is not None and self.reason is None
 
+    @property
+    def scope(self) -> str:
+        """The scope keying its store entries: its bundle's (one built on its own keeps the store's own keys), else its
+        id's, so its marks answer while it has no bundle (final review M5)."""
+        return self.svc.scope if self.svc is not None else scope_of(self.id)
+
 
 class Registry:
     """Every workspace the server hosts, each with its bundle and job queue (§6). The database, the LLM clients, the

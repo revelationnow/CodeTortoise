@@ -115,6 +115,8 @@ test.describe("shared sinks", () => {
     await page.goto("/health");
     const card = page.locator("section.card", { has: page.getByRole("heading", { name: "Shared sinks" }) });
     await expect(card).toContainText("Probe::flag");
+    // a workspace added in the UI lays its own settings over the file's, so the list doesn't say where it came from
+    await expect(card).toContainText("Patterns: Stats::*");
     await card.getByRole("button", { name: "Unmark Probe::flag" }).click();
     await expect(card).not.toContainText("Probe::flag");
   });

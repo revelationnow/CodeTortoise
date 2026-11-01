@@ -77,7 +77,7 @@ export default function Health({ wid }: { wid: number }) {
               {sinks && (
                 <>
                   <p>{sinks.threshold > 0 ? `A field more than ${sinks.threshold} unchanged functions touch` : "No threshold (sink_threshold: 0)"}</p>
-                  <p className="mono small">In tortoise.yaml: {sinks.patterns.length ? sinks.patterns.join(" ") : "none"}</p>
+                  <p className="mono small">Patterns: {sinks.patterns.length ? sinks.patterns.join(" ") : "none"}</p>
                   <p>Marked: {sinks.marked.length ? sinks.marked.map((m) => <span key={m}><code>{m}</code> <SinkMark label={m} on onDone={loadSinks} /> </span>) : "none"}</p>
                 </>
               )}

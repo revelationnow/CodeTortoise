@@ -630,7 +630,7 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
     # ---- shared sinks (spec 2026-10-09-shared-sinks §6), per workspace (spec 2026-10-31 §5) ----
     def sinks_view(ws: Workspace) -> dict:
         an = ws.cfg.analysis
-        return {"threshold": an.sink_threshold, "patterns": an.sink_fields, "marked": marks(store, bundle(ws).scope)}
+        return {"threshold": an.sink_threshold, "patterns": an.sink_fields, "marked": marks(store, ws.scope)}
 
     def sink_label(label: str) -> str:
         if not label.strip() or len(label) > 300:
@@ -643,12 +643,12 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
 
     @app.put("/api/workspaces/{wid}/sinks/{label:path}")
     def mark_sink(label: str, o: Owned = Depends(owned)):
-        set_mark(store, sink_label(label), True, bundle(o.ws).scope)
+        set_mark(store, sink_label(label), True, o.ws.scope)
         return sinks_view(o.ws)
 
     @app.delete("/api/workspaces/{wid}/sinks/{label:path}")
     def unmark_sink(label: str, o: Owned = Depends(owned)):
-        set_mark(store, sink_label(label), False, bundle(o.ws).scope)
+        set_mark(store, sink_label(label), False, o.ws.scope)
         return sinks_view(o.ws)
 
     # ---- workspaces (spec 2026-10-31 §8) ----------------------------------------------

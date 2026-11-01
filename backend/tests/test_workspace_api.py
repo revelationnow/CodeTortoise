@@ -98,6 +98,19 @@ def test_detect_fills_the_add_form_from_what_is_at_a_root(app, tmp_path, monkeyp
     assert login(app, "bob").post("/api/workspaces/detect", json={"root": str(root)}).status_code == 403
 
 
+def test_the_sinks_of_a_workspace_that_could_not_load_still_answer(app, fx_b, tmp_path):
+    """Marks are store entries, so the sinks section of its Health page works while its bundle can't be built (final
+    review M5 of spec 2026-10-31)."""
+    owner = login(app, "owner")
+    broken = tmp_path / "compile_commands.json"
+    broken.write_text("not json")
+    b = owner.post("/api/workspaces", json=body(fx_b.root, compile_commands=str(broken))).json()
+    assert b["reason"].startswith("could not load")
+    sinks = f"/api/workspaces/{b['id']}/sinks"
+    assert owner.put(f"{sinks}/rec%3A%3Af").json()["marked"] == ["rec::f"]
+    assert owner.get(sinks).json()["marked"] == ["rec::f"]
+
+
 def test_the_seeds_owner_fixes_or_removes_a_workspace_saved_with_a_mistyped_server_or_user(app, fx, fx_b, tmp_path):
     """A workspace saved with a server or user nobody can sign in as (§11) is edited or removed by the owner of the
     seed, the server's own workspace (final review I5); no one else gains rights on it."""
