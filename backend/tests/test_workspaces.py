@@ -398,3 +398,20 @@ def test_an_edit_or_a_remove_stops_the_index_build_under_way(fx, fx_b, tmp_path,
     reg.remove(edited.id)
     assert edited.runner.join(10)
     reg.seed().runner.stop()
+
+
+def test_adding_or_editing_a_workspace_answers_at_once_and_builds_its_bundle_after(fx, fx_b, tmp_path):
+    """A slow Perforce server or a deep glob doesn't hold the request: its row shows it loading until its checks have
+    run (final review M11)."""
+    later = []
+    reg = Registry.open(make_config(fx, tmp_path / "data"), spawn=later.append, runner_class=InlineRunner)
+    reg.load()
+    later.pop()()                                                # the seed's
+    ws = reg.add(fields(fx_b.root), "owner")
+    assert (ws.reason, ws.svc, ws.loaded.is_set(), len(later)) == (workspaces.LOADING, None, False, 1)
+    later.pop()()
+    assert ws.ready and ws.svc.index.generation() == 1
+    edited = reg.edit(ws.id, fields(fx_b.root, name="b2"))
+    assert reg.get(ws.id) is edited and (edited.reason, edited.svc, len(later)) == (workspaces.LOADING, None, 1)
+    later.pop()()
+    assert edited.ready and edited.svc.index.generation() == 2   # the index caught up, once

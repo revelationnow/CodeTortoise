@@ -198,12 +198,10 @@ class Registry:
             ws.loaded.set()                              # nothing to build until its owner edits it
         return ws
 
-    def _start(self, ws: Workspace, wait: bool = False, after: JobRunner | None = None, reindex: bool = False) -> None:
-        if ws.reason != LOADING:
-            return
-        if wait:
-            self._build(ws, after, reindex)
-        else:
+    def _start(self, ws: Workspace, after: JobRunner | None = None, reindex: bool = False) -> None:
+        """Build its bundle in the background: a slow Perforce server or a deep glob holds no request, and its row
+        shows it loading until its checks have run (final review M11)."""
+        if ws.reason == LOADING:
             self.spawn(lambda: self._build(ws, after, reindex))
 
     def settle(self, ws: Workspace, timeout: float = 120.0) -> None:
@@ -356,7 +354,7 @@ class Registry:
 
     # ---- adding, editing, removing (§8, §11) --------------------------------------------
     def add(self, fields: dict, by: str) -> Workspace:
-        """Store a new workspace and build its bundle; it is saved even when its checks fail."""
+        """Store a new workspace and start building its bundle; it is saved even when its checks fail."""
         self._validate(fields, None)
         try:
             wid = self.store.add_workspace(fields, "ui", by)
@@ -365,13 +363,13 @@ class Registry:
         ws = self._record(self.store.get_workspace(wid))
         with self._lock:
             self._ws[wid] = ws
-        self._start(ws, wait=True)
+        self._start(ws)
         return ws
 
     def edit(self, wid: int, fields: dict, check: Callable[[dict], None] | None = None) -> Workspace:
-        """Store its new fields, build a new bundle and swap it in; refused while a review waits or runs in its queue
-        (§6), while an index build there is stopped (final review M3). `check` vets the change against its row as
-        stored once no other change of it runs (final review I3-M7)."""
+        """Store its new fields and swap in a new bundle, built in the background; refused while a review waits or
+        runs in its queue (§6), while an index build there is stopped (final review M3). `check` vets the change
+        against its row as stored once no other change of it runs (final review I3-M7)."""
         with self.guard(wid):
             old = self._editable(wid)
             if check is not None:
@@ -388,7 +386,7 @@ class Registry:
             if old.runner is not None:
                 old.runner.stop()                            # its index build ends early (final review M3)
             # a new root or compile database: the index catches up once the old queue's build has ended
-            self._start(ws, wait=True, after=old.runner, reindex=True)
+            self._start(ws, after=old.runner, reindex=True)
         return ws
 
     def remove(self, wid: int) -> None:

@@ -21,7 +21,11 @@ export interface WorkspaceRow extends WorkspaceRef {
   /** May edit or remove it: its owner, or the owner of the seed (one saved with a server or user nobody can sign in as). */
   can_manage: boolean;
   fields?: WorkspaceFields;
+  /** Its checks, with `fields`: what a save answers, once its bundle has loaded in the background. */
+  checks?: HealthCheck[];
 }
+/** A workspace's `reason` while its bundle is being built: right after a start, an add or an edit. */
+export const LOADING = "loading";
 /** What `codetortoise init` finds at a root (spec 2026-10-31 §8): P4CONFIG's server, client and user, the compile databases. */
 export interface Detected {
   root: string; p4port: string | null; client: string | null; p4user: string | null; compile_commands: string[];

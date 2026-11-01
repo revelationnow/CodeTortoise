@@ -671,6 +671,7 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
             out["fields"] = {**{k: row[k] for k in ("name", "vcs", "p4port", "client", "p4user", "root", "build_root",
                                                      "swarm_url", "settings")},
                              "compile_commands": "\n".join(cc) if isinstance(cc, list) else cc}
+            out["checks"] = [c.model_dump() for c in ws.checks]   # what a save answers, once its bundle has loaded
         return out
 
     def adder(logins: dict[str, str] = Depends(logins_of)) -> dict[str, str]:

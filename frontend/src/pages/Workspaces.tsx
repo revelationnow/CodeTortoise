@@ -1,7 +1,8 @@
 import { type ChangeEvent, type FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, errorText, type HealthCheck, type WorkspaceFields, type WorkspaceRow } from "../api";
+import { api, errorText, type HealthCheck, LOADING, type WorkspaceFields, type WorkspaceRow } from "../api";
 import { useMe } from "../App";
+import { pollLoop } from "../lib/poll";
 import { EMPTY, type FormState, formErrors, fromFields, toBody, withDetected } from "../lib/workspaceForm";
 
 type Checked = WorkspaceRow & { checks: HealthCheck[] };
@@ -17,8 +18,13 @@ export default function Workspaces() {
   const load = () => api.workspaces().then((w) => { setRows(w); setError(null); })
     .catch((e) => setError(errorText(e, "The workspaces could not be loaded.")));
   useEffect(() => { load(); }, []);
-  const done = (w: Checked) => { setSaved(w); setOpen(null); load(); };
+  const loading = !!rows?.some((w) => w.reason === LOADING);   // a bundle being built: its row follows it
+  useEffect(() => (loading ? pollLoop(load, 1500) : undefined), [loading]);
+  const done = (w: Checked) => {                       // an edited row shows what the save answered until the list does
+    setSaved(w); setOpen(null); setRows((now) => now?.map((r) => (r.id === w.id ? w : r)) ?? now); load();
+  };
   const edit = (to: number | "new") => { setSaved(null); setOpen(to); };
+  const note = saved && (rows?.find((w) => w.id === saved.id) ?? saved);   // the saved one as the list has it now
 
   return (
     <main className="page">
@@ -26,7 +32,7 @@ export default function Workspaces() {
         <h1>Workspaces</h1>
         {!!me?.owner_of.length && open !== "new" && <button onClick={() => edit("new")}>Add workspace</button>}
       </div>
-      {saved && <SavedNote w={saved} signedIn={!!me?.logins.some((l) => l.server === saved.server)} />}
+      {note && <SavedNote w={note} signedIn={!!me?.logins.some((l) => l.server === note.server)} />}
       {open === "new" && <WorkspaceForm initial={EMPTY} verb="Add" submit={api.addWorkspace} onDone={done} onCancel={() => setOpen(null)} />}
       {error && <p className="error" role="alert">{error}</p>}
       {!rows && !error && <p className="muted">Loading…</p>}
@@ -36,10 +42,11 @@ export default function Workspaces() {
             <div className="wsp-main">
               <b>{w.name}</b>
               <span className="muted small">{w.server}{w.client ? ` · ${w.client}` : ""}</span>
-              <span className={`hc-pill ${w.ready ? "ok" : "bad"}`}>● {w.ready ? "ready" : "not ready"}</span>
+              {w.reason === LOADING ? <span className="hc-pill wait">● loading</span>
+                : <span className={`hc-pill ${w.ready ? "ok" : "bad"}`}>● {w.ready ? "ready" : "not ready"}</span>}
               {w.seed && <span className="muted small">set in tortoise.yaml</span>}
             </div>
-            {!w.ready && w.reason && <div className="wsp-reason mono small">{w.reason}</div>}
+            {!w.ready && w.reason && w.reason !== LOADING && <div className="wsp-reason mono small">{w.reason}</div>}
             {(w.is_owner || w.can_manage) && <Actions w={w} onEdit={() => edit(w.id)} onChanged={load} />}
             {open === w.id && w.fields && (
               <WorkspaceForm initial={fromFields(w.fields)} verb="Save" submit={(body) => api.editWorkspace(w.id, body)} onDone={done}
@@ -52,12 +59,14 @@ export default function Workspaces() {
   );
 }
 
-/** What an add or an edit answered (§11: saved even when its checks fail), and the sign-in its server still needs. */
-function SavedNote({ w, signedIn }: { w: Checked; signedIn: boolean }) {
-  const failed = w.checks.filter((c) => c.hard && !c.ok);
+/** What an add or an edit answered (§11: saved even when its checks fail) — followed in the list while its bundle loads
+ * — and the sign-in its server still needs. */
+function SavedNote({ w, signedIn }: { w: WorkspaceRow; signedIn: boolean }) {
+  const failed = (w.checks ?? []).filter((c) => c.hard && !c.ok);
+  const loading = w.reason === LOADING;
   return (
-    <div className={`banner wsp-saved${w.ready ? "" : " warn"}`} role="status">
-      {w.ready ? `${w.name} is ready.`
+    <div className={`banner wsp-saved${w.ready || loading ? "" : " warn"}`} role="status">
+      {w.ready ? `${w.name} is ready.` : loading ? `${w.name} is saved; its checks are running…`
         : `${w.name} is saved but not ready: ${w.reason}. Fix it on this host, then press Recheck on its Health page.`}
       {failed.length > 0 && <ul className="small">{failed.map((c) => <li key={c.name}><b>{c.name}</b>: {c.detail}</li>)}</ul>}
       {!signedIn && (

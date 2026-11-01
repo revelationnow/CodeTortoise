@@ -33,7 +33,8 @@ def test_an_owner_adds_checks_edits_and_removes_a_workspace(app, fx, fx_b, tmp_p
     r = owner.post("/api/workspaces", json=body(tmp_path, name="x", settings="server: {}"))
     assert r.status_code == 422 and "only toolchain, targets and analysis" in r.json()["detail"]
     assert [(w["name"], w["seed"]) for w in owner.get("/api/workspaces").json()] == [("b", False), (fx.root.name, True)]
-    assert all("fields" not in w for w in bob.get("/api/workspaces").json())   # only owners get the settings
+    assert all("fields" not in w and "checks" not in w for w in bob.get("/api/workspaces").json())  # owners' only
+    assert {c["name"] for c in owner.get("/api/workspaces").json()[0]["checks"]} >= {"workspace root", "libclang"}
     assert owner.put("/api/workspaces/1", json=body(fx.root, name="x")).json()["detail"] == "set in tortoise.yaml"
     assert owner.delete("/api/workspaces/1").json()["detail"] == "set in tortoise.yaml"
     assert bob.put(f"/api/workspaces/{b['id']}", json=body(fx_b.root)).status_code == 403
