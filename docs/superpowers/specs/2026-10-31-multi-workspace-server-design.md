@@ -102,8 +102,13 @@ one AI worker pool with its job registry, so `llm.concurrency` stays a server-wi
 **The registry** loads every workspace at startup and builds its bundle in the background. A workspace whose bundle
 fails to build (root missing, compile database unreadable) is kept with the reason and shown as not ready. An empty
 symbol index is built when the bundle first loads. Adding a workspace builds its bundle; editing one builds a new
-bundle and swaps it in, which needs the workspace's queue idle: an edit while one of its reviews runs or waits is
-refused (409, "a review is running in this workspace; try again when it finishes").
+bundle and swaps it in. An edit while one of its reviews runs or waits is refused (409, "a review is running in this
+workspace; try again when it finishes").
+
+Amended after the reviews of the implementation (2026-11-01): an index build under way doesn't block an edit or a
+remove. It is stopped, and the edited workspace's new bundle builds the index again once that build has ended. A
+symbol index records the root, compile databases and scope it was built for, and a bundle whose index was built for
+others builds it again as it loads, so a restart in the middle of that build loses nothing.
 
 Startup chores that today run once per server (ending unfinished AI replies, failing AI calls left running, pruning
 the request log) run once.
