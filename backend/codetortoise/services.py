@@ -1,6 +1,7 @@
 """Wires configuration into long-lived services shared by the pipeline and the web app."""
 from __future__ import annotations
 
+import json
 import os
 import threading
 from collections.abc import Callable, Iterable
@@ -84,7 +85,17 @@ class Services:
         (`analysis.index_scope`, or when the compile DB is empty). Setting `cancel` stops it (SymbolIndex.build)."""
         seeds = self.cdb.files() if self.cfg.analysis.index_scope == "compile_db" and self.cdb.entries else None
         return self.index.build(self.cfg.workspace.root, workers=self.cfg.analysis.workers,
-                                include_dirs=include_dirs(self.cdb), seeds=seeds, full=full, cancel=cancel)
+                                include_dirs=include_dirs(self.cdb), seeds=seeds, full=full, cancel=cancel,
+                                stamp=self.index_stamp())
+
+    def index_stamp(self) -> str:
+        """What its symbol index is built for: the workspace's root, its compile databases and the index's scope. A
+        bundle whose index was built for others rebuilds it as it loads (review of branch minors, M7)."""
+        w = self.cfg.workspace
+        cc = w.compile_commands
+        return json.dumps({"root": str(w.root), "compile_commands": [str(p) for p in cc] if isinstance(cc, list) else str(cc),
+                           "build_root": str(w.build_root) if w.build_root is not None else None,
+                           "index_scope": self.cfg.analysis.index_scope}, sort_keys=True)
 
     def remember_stripped(self, flags: list[str]) -> None:
         """Flags libclang rejected: skipped for all later parses of this workspace (persisted)."""

@@ -1,6 +1,7 @@
 """The workspaces one server hosts (spec 2026-10-31 §4–§6, §11, §12)."""
 import json
 import logging
+import sqlite3
 import threading
 import time
 from pathlib import Path
@@ -506,3 +507,32 @@ def test_an_error_escaping_a_workspaces_checks_is_why_it_isnt_ready(fx, fx_b, tm
     ws = reg.add(fields(fx_b.root), "owner")
     assert ws.loaded.is_set() and not ws.ready
     assert ws.reason == "its checks could not run: RuntimeError: the checks broke"
+
+
+def test_an_index_built_for_other_settings_is_rebuilt_when_its_bundle_loads(fx, fx_b, tmp_path):
+    """An index records the root, compile databases and scope it was built for, and a bundle whose index was built for
+    others rebuilds it: an edit's new settings get indexed even when the server stopped before that build ended (review
+    of branch minors, M7). An index from before such records is taken as built for its workspace's settings."""
+
+    class Stopped(InlineRunner):                                 # the server stops before an index build ends
+        def submit_index(self):
+            pass
+    reg = server(fx, tmp_path)
+    reg.load()
+    b = reg.add(fields(fx_b.root), "owner")
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "o.c").write_text("int o(void) { return 0; }\n")
+    reg.runner_class = Stopped
+    reg.edit(b.id, fields(other))
+    again = server(fx, tmp_path)
+    again.load()
+    index = again.get(b.id).svc.index
+    assert index.files() == [str((other / "o.c").resolve())]
+    gen = index.generation()
+    with sqlite3.connect(index.db_path) as db:
+        db.execute("DELETE FROM sym_meta WHERE key='stamp'")
+    third = server(fx, tmp_path)
+    third.load()
+    ws = third.get(b.id)
+    assert ws.svc.index.generation() == gen and ws.svc.index.stamp() == ws.svc.index_stamp()

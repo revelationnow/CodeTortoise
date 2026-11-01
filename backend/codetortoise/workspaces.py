@@ -240,7 +240,7 @@ class Registry:
     def _load(self, ws: Workspace) -> None:
         """Build a workspace's bundle and start its queue; a failure keeps the workspace, not ready, with the reason
         (§11). Its symbol index is built when the bundle first loads, or for an edit's new settings (§6), once the queue
-        the edit stopped has ended."""
+        the edit stopped has ended, and whenever it was last built for other settings."""
         svc = runner = None
         try:
             svc = build_services(ws.cfg, self.llm, strong=self.strong, store=self.store, ledger=self.ledger,
@@ -266,7 +266,12 @@ class Registry:
             return
         if runner is None:
             return
-        if ws.reindex or svc.index.generation() == 0:
+        # an index last built for other settings is built again: one an edit's build left for the old ones, when a
+        # restart stopped it (review of branch minors, M7); one from before stamps is taken as built for these
+        built, want = svc.index.stamp(), svc.index_stamp()
+        if built is None and svc.index.generation() and not ws.reindex:
+            svc.index.set_stamp(want)
+        elif ws.reindex or svc.index.generation() == 0 or built != want:
             runner.submit_index()
         ws.after, ws.reindex = None, False
         self._check(ws)

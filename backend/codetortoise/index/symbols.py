@@ -134,13 +134,22 @@ class SymbolIndex:
         row = self._db.execute("SELECT value FROM sym_meta WHERE key='generation'").fetchone()
         return int(row[0]) if row else 0
 
+    def stamp(self) -> str | None:
+        """What its last whole build was for (Services.index_stamp); None for an index from before such stamps."""
+        row = self._db.execute("SELECT value FROM sym_meta WHERE key='stamp'").fetchone()
+        return row[0] if row else None
+
+    def set_stamp(self, stamp: str) -> None:
+        with self._db:
+            self._db.execute("INSERT OR REPLACE INTO sym_meta VALUES('stamp', ?)", (stamp,))
+
     def close(self) -> None:
         self._db.close()
 
     def build(self, root: Path, workers: int = 0, include_dirs: list[str] | None = None,
               parser: Callable[[str], tuple[str, ParsedFile | None]] = _parse_file, *,
               seeds: list[str] | None = None, full: bool = False, batch: int = 256,
-              cancel: threading.Event | None = None) -> int:
+              cancel: threading.Event | None = None, stamp: str | None = None) -> int:
         """Bring the index up to date. Returns the number of files in it.
 
         Scope: every C/C++ file under `root`, or with `seeds` (the compile database's files) those files plus the
@@ -150,7 +159,7 @@ class SymbolIndex:
         (canonical, from the compile DB) resolve `#include` targets. Once `cancel` is set (an edit or a remove of the
         workspace, final review M3 of spec 2026-10-31) the build stops at the next parsed file, or before or during its
         walk, a round of headers or its clean-up (review of branch minors, M8): what is written stays, nothing more is,
-        and the next build parses the rest.
+        and the next build parses the rest. A build that ends records `stamp`, what it was built for.
         """
         root = Path(root)
         db = self._db
@@ -216,6 +225,8 @@ class SymbolIndex:
             db.executemany("INSERT INTO sym_inc_resolved VALUES(?,?)", self._resolve_includes(include_dirs))
             db.execute("INSERT OR REPLACE INTO sym_meta VALUES('generation', ?)", (str(self.generation() + 1),))
             db.execute("INSERT OR REPLACE INTO sym_meta VALUES('root', ?)", (str(root),))
+            if stamp is not None:
+                db.execute("INSERT OR REPLACE INTO sym_meta VALUES('stamp', ?)", (stamp,))
         return self._count()
 
     def _count(self) -> int:
