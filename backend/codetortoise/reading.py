@@ -229,7 +229,7 @@ class SinkHit(BaseModel):
     field: str
     label: str
     users: int
-    why: Literal["marked", "listed", "threshold"]
+    why: Literal["marked", "listed", "settings", "threshold"]
     writers: list[str] = Field(default_factory=list)      # changed functions whose write to it the change added or removed
 
 

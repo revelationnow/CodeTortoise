@@ -72,7 +72,7 @@ class SinkInfo(BaseModel):
     field: str                                      # the field node id
     label: str                                      # record::field
     users: int                                      # distinct unchanged functions reading or writing it
-    why: Literal["marked", "listed", "threshold"]
+    why: Literal["marked", "listed", "settings", "threshold"]   # listed: in tortoise.yaml; settings: the workspace's own
 
 
 class ImpactModel(BaseModel):
@@ -232,7 +232,7 @@ def build_impact(before: list[Facts], after: list[Facts], cs: ChangeSet, sel: Tu
     model.changed = sorted((key_to_id[u] for u in changed_status if u in key_to_id), key=lambda s: int(s[1:]))
 
     from codetortoise.sinks import find_sinks  # sinks.py builds on this module's models
-    model.sinks = find_sinks(model, cfg.sink_threshold, cfg.sink_fields, marked)
+    model.sinks = find_sinks(model, cfg.sink_threshold, cfg.sink_fields, marked, own=cfg.own_sinks)
     _flows(model, cfg)
     _blast(model, cfg)
     _fanout(model, sel, index, layers)

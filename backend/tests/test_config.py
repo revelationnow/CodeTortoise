@@ -232,6 +232,14 @@ analysis: {workers: 2, sink_threshold: 20}
     assert base.analysis.sink_threshold == 20                       # the file's own settings are untouched
 
 
+def test_sink_fields_a_workspace_sets_itself_are_known_as_its_own(tmp_path):
+    """So its shared sinks say they come from its settings rather than tortoise.yaml's (spec 2026-10-31 §4)."""
+    base = load_config(write(tmp_path, "auth: {mode: dev}\nanalysis: {sink_fields: ['log_t::*']}\n"))
+    assert not base.analysis.own_sinks
+    assert not effective_config(base, {**ROW, "settings": "analysis: {sink_threshold: 5}"}).analysis.own_sinks
+    assert effective_config(base, {**ROW, "settings": "analysis: {sink_fields: ['stats_t::*']}"}).analysis.own_sinks
+
+
 def test_workspace_settings_take_toolchain_targets_and_analysis_only():
     assert parse_settings("") == {} and parse_settings(None) == {}
     with pytest.raises(ConfigError, match="server"):

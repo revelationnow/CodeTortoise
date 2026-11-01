@@ -14,6 +14,7 @@ describe("shared sinks", () => {
   it("says why each field is a sink", () => {
     expect([whyText(hit("a", "threshold", 312)), whyText(hit("a", "listed")), whyText(hit("a", "marked"))])
       .toEqual(["312 functions", "in tortoise.yaml", "marked"]);
+    expect(whyText(hit("a", "settings"))).toBe("in the workspace's settings");   // set in its own settings
   });
 
   it("writes the overview's line, one or many, hidden or shown", () => {

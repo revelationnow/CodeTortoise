@@ -9,8 +9,10 @@ export const SHOW_KEY = "ct.sinks.show";
 export const showSinks = (): boolean => load<unknown>(SHOW_KEY, false) === true;
 export const setShowSinks = (on: boolean): void => save(SHOW_KEY, on);
 
+const WHERE: Partial<Record<SinkHit["why"], string>> = { listed: "in tortoise.yaml", settings: "in the workspace's settings" };
+
 export function whyText(s: { why: SinkHit["why"]; users: number }): string {
-  return s.why === "threshold" ? `${s.users} functions` : s.why === "listed" ? "in tortoise.yaml" : "marked";
+  return s.why === "threshold" ? `${s.users} functions` : WHERE[s.why] ?? "marked";
 }
 
 /** "2 shared sinks hidden: `log_t::buf` (312 functions), `stats_t::tx` (in tortoise.yaml)" */

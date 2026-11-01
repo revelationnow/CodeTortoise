@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 
 class ServerConfig(BaseModel):
@@ -134,6 +134,13 @@ class AnalysisConfig(BaseModel):
         default_factory=lambda: ["main", "*_isr", "*_irq_handler", "*Callback", "*_callback"])
     sink_threshold: int = 20       # a field more unchanged functions than this touch is a shared sink; 0 = off
     sink_fields: list[str] = Field(default_factory=list)   # fnmatch patterns on record::field: always shared sinks
+    _own_sinks: bool = PrivateAttr(default=False)
+
+    @property
+    def own_sinks(self) -> bool:
+        """Whether sink_fields come from a workspace's own settings, not tortoise.yaml's (spec 2026-10-31 §4): its
+        reviews then say so."""
+        return self._own_sinks
 
 
 class Config(BaseModel):
@@ -304,4 +311,5 @@ def effective_config(base: Config, row: Mapping[str, Any]) -> Config:
     except Exception as e:  # pydantic.ValidationError
         raise ConfigError(str(e)) from e
     _resolve_paths(cfg, Path(row["root"]))
+    cfg.analysis._own_sinks = "sink_fields" in (s.get("analysis") or {})
     return cfg

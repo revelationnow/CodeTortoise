@@ -62,6 +62,13 @@ def test_why_text():
         == ["312 functions", "in tortoise.yaml", "marked"]
 
 
+def test_patterns_a_workspace_sets_in_its_own_settings_say_so():
+    """A workspace added in the UI may set its own sink_fields (spec 2026-10-31 §4): its sinks then point to its
+    settings, not to tortoise.yaml."""
+    assert find_sinks(_im(0), 0, ["log_t::*"], (), own=True)["N2"].why == "settings"
+    assert why_text(SinkInfo(field="N2", label="a::b", users=1, why="settings")) == "in the workspace's settings"
+
+
 class _KV:
     def __init__(self):
         self.rows = {}

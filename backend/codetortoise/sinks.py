@@ -18,10 +18,11 @@ def marks_key(scope: str = "") -> str:
     return f"{MARKS_KEY}:{scope}" if scope else MARKS_KEY
 
 
-def find_sinks(im: ImpactModel, threshold: int, patterns: list[str], marked: Collection[str]) -> dict[str, SinkInfo]:
-    """Field node id -> why it is a sink: the owner marked its label, a pattern matches it, or more than `threshold`
-    unchanged functions read or write it. Only clang's own accesses count; a match by member name alone never does
-    (spec 2026-10-10-union-fields §4.1)."""
+def find_sinks(im: ImpactModel, threshold: int, patterns: list[str], marked: Collection[str],
+               own: bool = False) -> dict[str, SinkInfo]:
+    """Field node id -> why it is a sink: the owner marked its label, a pattern matches it (one set in tortoise.yaml, or
+    with `own` in the workspace's own settings), or more than `threshold` unchanged functions read or write it. Only
+    clang's own accesses count; a match by member name alone never does (spec 2026-10-10-union-fields §4.1)."""
     changed = set(im.changed)
     who: dict[str, set[str]] = defaultdict(set)
     for e in im.edges:
@@ -37,7 +38,7 @@ def find_sinks(im: ImpactModel, threshold: int, patterns: list[str], marked: Col
         if n.label in marked:
             why = "marked"
         elif any(fnmatch.fnmatchcase(n.label, p) for p in patterns):
-            why = "listed"
+            why = "settings" if own else "listed"
         elif threshold > 0 and users > threshold:
             why = "threshold"
         else:
@@ -47,8 +48,10 @@ def find_sinks(im: ImpactModel, threshold: int, patterns: list[str], marked: Col
 
 
 def why_text(s: Any) -> str:
-    """Why a field is a sink, as the review says it: "312 functions", "in tortoise.yaml" or "marked"."""
-    return {"threshold": f"{s.users} functions", "listed": "in tortoise.yaml", "marked": "marked"}[s.why]
+    """Why a field is a sink, as the review says it: "312 functions", "in tortoise.yaml", "in the workspace's settings"
+    or "marked"."""
+    return {"threshold": f"{s.users} functions", "listed": "in tortoise.yaml", "settings": "in the workspace's settings",
+            "marked": "marked"}[s.why]
 
 
 def marks(store: Any, scope: str = "") -> list[str]:

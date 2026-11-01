@@ -46,7 +46,7 @@ export interface Cause {
   flows: string[]; finding: string | null; change: CauseChange | null;
 }
 /** A shared sink the change writes (spec 2026-10-09 §5.1): hidden unless the viewer shows them. */
-export interface SinkHit { field: string; label: string; users: number; why: "marked" | "listed" | "threshold"; writers: string[] }
+export interface SinkHit { field: string; label: string; users: number; why: "marked" | "listed" | "settings" | "threshold"; writers: string[] }
 /** "Looks fine", shared by everyone viewing the review; `changed`: the line is no longer the one marked, so it is open. */
 export interface Mark { key: string; user: string; at: string; source_line: string; changed: boolean }
 export interface Headline { text: string; tone: "hazard" | "confirm" | "none"; rules_only: boolean }
