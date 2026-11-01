@@ -509,7 +509,7 @@ def test_an_error_escaping_a_workspaces_checks_is_why_it_isnt_ready(fx, fx_b, tm
     monkeypatch.setattr(workspaces, "run_health", broken)
     ws = reg.add(fields(fx_b.root), "owner")
     assert ws.loaded.is_set() and not ws.ready
-    assert ws.reason == "its checks could not run: RuntimeError: the checks broke"
+    assert ws.reason == "could not finish loading: RuntimeError: the checks broke"
 
 
 def test_an_index_built_for_other_settings_is_rebuilt_when_its_bundle_loads(fx, fx_b, tmp_path):
@@ -584,3 +584,48 @@ def test_an_index_stamped_before_the_stamp_had_a_version_catches_up_once(fx, fx_
     third = server(fx, tmp_path)
     third.load()
     assert third.get(b.id).svc.index.generation() == gen + 1
+
+
+def test_a_bundle_that_fails_as_it_is_attached_is_closed_and_built_again_by_recheck(fx, fx_b, tmp_path, monkeypatch):
+    """An error between a bundle's build and its attach (its queue not starting, say) leaves no index open, and Recheck
+    builds the bundle again, as for one that could not load (final review of branch deferred-minors, M3)."""
+
+    class Unstartable(InlineRunner):
+        def start(self):
+            raise RuntimeError("can't start new thread")
+    reg = server(fx, tmp_path)
+    reg.load()
+    real, built = workspaces.build_services, []
+    monkeypatch.setattr(workspaces, "build_services", lambda *a, **k: built.append(real(*a, **k)) or built[-1])
+    reg.runner_class = Unstartable
+    ws = reg.add(fields(fx_b.root), "owner")
+    assert ws.svc is None and ws.reason == "could not load: RuntimeError: can't start new thread"
+    with pytest.raises(sqlite3.ProgrammingError):
+        built[0].index.generation()                              # closed: nothing else would close it
+    reg.runner_class = InlineRunner
+    reg.recheck(ws)
+    assert ws.ready and len(built) == 2
+
+
+def test_an_error_after_a_bundle_is_attached_still_catches_its_index_up(fx, fx_b, tmp_path, monkeypatch):
+    """An error between a bundle's attach and its checks (reading its index's stamp, say) still queues the index build
+    an edit asked for, and Recheck then runs its checks (final review of branch deferred-minors, M3)."""
+    reg = server(fx, tmp_path)
+    reg.load()
+    b = reg.add(fields(fx_b.root), "owner")
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "o.c").write_text("int o(void) { return 0; }\n")
+    real, calls = Services.index_stamp, []
+
+    def once(svc):
+        calls.append(1)
+        if len(calls) == 1:
+            raise sqlite3.OperationalError("database is locked")
+        return real(svc)
+    monkeypatch.setattr(Services, "index_stamp", once)
+    edited = reg.edit(b.id, fields(other))
+    assert edited.reason == "could not finish loading: OperationalError: database is locked"
+    assert edited.svc.index.files() == [str((other / "o.c").resolve())]
+    reg.recheck(edited)
+    assert edited.reason == "compile_commands: no compile database found (auto)"      # its checks' own verdict now

@@ -232,7 +232,10 @@ class Registry:
         try:
             self._load(ws)
         except Exception as e:  # shown as why it isn't ready: its row never stays loading (review of branch minors, M11)
-            ws.reason = f"its checks could not run: {type(e).__name__}: {e}"
+            # with no bundle attached Recheck builds one again; with one, it runs its checks again (final review of
+            # branch deferred-minors, M3)
+            what = "could not load" if ws.svc is None else "could not finish loading"
+            ws.reason = f"{what}: {type(e).__name__}: {e}"
             log.exception("workspace %s: %s", ws.name, ws.reason)
         finally:
             ws.loaded.set()
@@ -250,17 +253,19 @@ class Registry:
         except Exception as e:  # a missing root, an unreadable compile database: shown, never fatal
             ws.reason = f"could not load: {type(e).__name__}: {e}"
             log.warning("workspace %s: %s", ws.name, ws.reason)
-        if runner is not None and ws.after is not None and not ws.after.join(STOP_WAIT):
-            log.warning("workspace %s: the queue it replaces still runs after %.0f s", ws.name, STOP_WAIT)
-        with self._lock:
-            kept = self._ws.get(ws.id) is ws             # not removed or replaced while it was building
-            if kept and runner is not None:
-                svc.owner_ticket = self._tickets.get((ws.server, ws.owner))
-                runner.start()
-                ws.runner, ws.svc = runner, svc
+        try:
+            if runner is not None and ws.after is not None and not ws.after.join(STOP_WAIT):
+                log.warning("workspace %s: the queue it replaces still runs after %.0f s", ws.name, STOP_WAIT)
+            with self._lock:
+                kept = self._ws.get(ws.id) is ws         # not removed or replaced while it was building
+                if kept and runner is not None:
+                    svc.owner_ticket = self._tickets.get((ws.server, ws.owner))
+                    runner.start()
+                    ws.runner, ws.svc = runner, svc
+        finally:
+            if svc is not None and ws.svc is not svc:    # never attached, however it ended: nothing else closes its index
+                svc.index.close()                        # (final review of branch deferred-minors, M3)
         if not kept:
-            if svc is not None:
-                svc.index.close()
             if self.store.get_workspace(ws.id) is None:  # removed: the folder its build made goes too (final review M2)
                 shutil.rmtree(self.home(ws.id), ignore_errors=True)
             return
@@ -269,12 +274,18 @@ class Registry:
         # an index last built for other settings is built again: one an edit's build left for the old ones, when a
         # restart stopped it (review of branch minors, M7); one from before stamps is taken as built for these when it
         # was built for this root (final review of branch deferred-minors, M2)
-        built, want = svc.index.stamp(), svc.index_stamp()
-        if built is None and svc.index.generation() and svc.index.root() == str(svc.cfg.workspace.root) and not ws.reindex:
-            svc.index.set_stamp(want)
-        elif ws.reindex or svc.index.generation() == 0 or built != want:
-            runner.submit_index()
-        ws.after, ws.reindex = None, False
+        try:
+            built, want = svc.index.stamp(), svc.index_stamp()
+            if built is None and svc.index.generation() and svc.index.root() == str(svc.cfg.workspace.root) \
+                    and not ws.reindex:
+                svc.index.set_stamp(want)
+            elif ws.reindex or svc.index.generation() == 0 or built != want:
+                runner.submit_index()
+        except Exception:
+            runner.submit_index()                        # whatever failed, the index catches up (final review of branch
+            raise                                        # deferred-minors, M3)
+        finally:
+            ws.after, ws.reindex = None, False
         self._check(ws)
 
     def _check(self, ws: Workspace, report: HealthReport | None = None) -> HealthReport:
@@ -287,7 +298,7 @@ class Registry:
 
     def recheck(self, ws: Workspace, deep: bool = False) -> HealthReport | None:
         """Its checks run again (its Health page); a bundle that failed to build is tried again first. None while it
-        has no bundle."""
+        has no bundle, or when its checks could not run: its reason then says why."""
         self.settle(ws)
         with self.guard(ws.id):                          # two at once try it once (final review M2)
             ws = self.get(ws.id) or ws
@@ -301,7 +312,13 @@ class Registry:
             self.settle(ws)                              # another's try may be under way
         if ws.svc is None:
             return None
-        return self._check(ws, run_health(ws.svc, deep=deep))
+        try:
+            rep = run_health(ws.svc, deep=deep)
+        except Exception as e:  # shown as why it isn't ready, not as a server error (final review of branch
+            ws.reason = f"its checks could not run: {type(e).__name__}: {e}"    # deferred-minors, M3)
+            log.exception("workspace %s: %s", ws.name, ws.reason)
+            return None
+        return self._check(ws, rep)
 
     # ---- looking up ---------------------------------------------------------------------
     def all(self) -> list[Workspace]:

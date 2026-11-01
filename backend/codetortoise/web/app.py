@@ -291,7 +291,7 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
     def health(o: Owned = Depends(owned)):
         """Its checks run again, with a sample parse per toolchain group (its Health page)."""
         rep = reg.recheck(o.ws, deep=True)
-        if rep is None:                              # no bundle: what stops it is the one check shown
+        if rep is None:                              # no bundle, or its checks broke: why is the one check shown
             rep = HealthReport(checks=[{"name": "workspace", "ok": False, "hard": True, "detail": o.ws.reason or ""}],
                                ready=False)
         return {**rep.model_dump(), "index_building": o.ws.runner.index_building if o.ws.runner else False}

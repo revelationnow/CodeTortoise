@@ -286,3 +286,22 @@ def test_a_slip_inside_an_add_edit_or_remove_stays_an_error(app, fx_b, monkeypat
     monkeypatch.setattr(reg.store, "kv_delete_scope", slip)
     with pytest.raises(KeyError):
         owner.delete(f"/api/workspaces/{wid}")
+
+
+def test_an_error_in_a_health_pages_look_is_shown_there_not_as_a_server_error(app, fx_b, monkeypatch):
+    """Recheck's own look at a workspace that breaks answers with why, which is then why the workspace isn't ready,
+    rather than with a server error (final review of branch deferred-minors, M3); the next look that works clears it."""
+    from codetortoise import workspaces
+    owner = login(app, "owner")
+    b = owner.post("/api/workspaces", json=body(fx_b.root)).json()
+    real = workspaces.run_health
+
+    def broken(svc, deep=False):
+        raise RuntimeError("the checks broke")
+    monkeypatch.setattr(workspaces, "run_health", broken)
+    r = owner.get(f"/api/workspaces/{b['id']}/health")
+    assert r.status_code == 200, r.text
+    assert [c["detail"] for c in r.json()["checks"]] == ["its checks could not run: RuntimeError: the checks broke"]
+    assert not next(w for w in owner.get("/api/workspaces").json() if w["id"] == b["id"])["ready"]
+    monkeypatch.setattr(workspaces, "run_health", real)
+    assert owner.get(f"/api/workspaces/{b['id']}/health").json()["ready"]
