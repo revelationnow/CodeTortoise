@@ -39,6 +39,10 @@ class Invalid(Exception):
     """A value a workspace can't take (HTTP 422)."""
 
 
+class Gone(Exception):
+    """No such workspace: never added, or removed by another request meanwhile (HTTP 404)."""
+
+
 def server_of(p4port: str | None) -> str:
     """A workspace's Perforce server: its p4port as written, or `local` (§5)."""
     return p4port or LOCAL
@@ -421,7 +425,7 @@ class Registry:
     def _editable(self, wid: int) -> Workspace:
         ws = self.get(wid)
         if ws is None:
-            raise KeyError(wid)
+            raise Gone(wid)
         if ws.seed:
             raise Conflict("set in tortoise.yaml")
         return ws

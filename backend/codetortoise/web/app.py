@@ -30,7 +30,7 @@ from codetortoise.swarm import SwarmError
 from codetortoise.tidy import tidy
 from codetortoise.vcs.p4runner import P4Error, P4Runner
 from codetortoise.vcs.source import SourceBinary, SourceNotAllowed, SourceTooLarge
-from codetortoise.workspaces import Conflict, Invalid, Registry, Workspace, server_of
+from codetortoise.workspaces import Conflict, Gone, Invalid, Registry, Workspace, server_of
 
 COOKIE = "ct_session"
 STATIC = Path(__file__).parent / "static"
@@ -714,7 +714,7 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
             raise HTTPException(422, str(e)) from e
         except Conflict as e:
             raise HTTPException(409, str(e)) from e
-        except KeyError as e:                        # removed by another request meanwhile
+        except Gone as e:                            # removed by another request meanwhile
             raise HTTPException(404, "workspace not found") from e
 
     @app.get("/api/workspaces")
@@ -766,7 +766,7 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
             reg.remove(o.ws.id)
         except Conflict as e:
             raise HTTPException(409, str(e)) from e
-        except KeyError as e:                        # removed by another request meanwhile
+        except Gone as e:                            # removed by another request meanwhile
             raise HTTPException(404, "workspace not found") from e
         return {"ok": True}
 

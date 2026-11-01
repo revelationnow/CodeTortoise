@@ -263,3 +263,21 @@ def test_a_rerun_by_someone_who_no_longer_owns_the_workspace_is_refused(fx, fx_b
     r = owner.post(f"/api/reviews/{rid}/rerun")
     assert r.status_code == 403 and r.json()["detail"] == "owner only", r.text
     assert reg.get(wid).runner.reviews == []
+
+
+def test_a_slip_inside_an_add_edit_or_remove_stays_an_error(app, fx_b, monkeypatch):
+    """Only a workspace that isn't there answers 404 "workspace not found": a KeyError from a slip anywhere else in an
+    add, an edit or a remove stays the error it is (review of branch minors, M4)."""
+    reg, owner = app.state.registry, login(app, "owner")
+    wid = owner.post("/api/workspaces", json=body(fx_b.root)).json()["id"]
+
+    def slip(*a, **k):
+        raise KeyError("compile_commands")
+    monkeypatch.setattr(reg, "_validate", slip)
+    with pytest.raises(KeyError):
+        owner.post("/api/workspaces", json=body(fx_b.root, name="c"))
+    with pytest.raises(KeyError):
+        owner.put(f"/api/workspaces/{wid}", json=body(fx_b.root))
+    monkeypatch.setattr(reg.store, "kv_delete_scope", slip)
+    with pytest.raises(KeyError):
+        owner.delete(f"/api/workspaces/{wid}")

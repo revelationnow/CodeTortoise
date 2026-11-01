@@ -14,7 +14,7 @@ from codetortoise.config import ConfigError
 from codetortoise.services import Services
 from codetortoise.sinks import marks, set_mark
 from codetortoise.toolchain.libclang import find_libclang
-from codetortoise.workspaces import LOCAL, Conflict, Invalid, Registry
+from codetortoise.workspaces import LOCAL, Conflict, Gone, Invalid, Registry
 
 
 def server(fx, tmp_path, **overrides):
@@ -132,7 +132,7 @@ def test_adding_and_editing_check_the_name_root_and_perforce_fields(fx, fx_b, tm
         reg.edit(1, fields(fx.root, name=fx.root.name))
     with pytest.raises(Conflict, match="set in tortoise.yaml"):
         reg.remove(1)
-    with pytest.raises(KeyError):
+    with pytest.raises(Gone):
         reg.edit(99, fields(fx_b.root))
 
 
