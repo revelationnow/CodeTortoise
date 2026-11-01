@@ -243,3 +243,23 @@ def test_a_request_waiting_for_its_workspace_to_load_holds_up_no_edit_of_it(fx, 
     assert got["r"].status_code == 200, got["r"].text
     if ask != "rebuild":
         assert reg.get(wid).runner.reviews == [got["r"].json()["id"] if ask == "start" else rid]
+
+
+def test_a_rerun_by_someone_who_no_longer_owns_the_workspace_is_refused(fx, fx_b, tmp_path, monkeypatch):
+    """A re-run checks, under the workspace's guard, that whoever asks still owns it: an edit that gives the workspace
+    to someone else can land while the re-run waits for the guard (review of branch minors, M10)."""
+    svc = make_services(fx, tmp_path / "data")
+    app = make_app(svc, Recorded(svc))
+    reg, owner = app.state.registry, login(app, "owner")
+    wid = owner.post("/api/workspaces", json=body(fx_b.root)).json()["id"]
+    rid = owner.post("/api/reviews", json={"cls": [101], "workspace_id": wid}).json()["id"]
+    real = reg.guard
+
+    def given_away_first(w):                                     # an edit giving it to amy runs while the re-run waits
+        monkeypatch.setattr(reg, "guard", real)
+        reg.edit(w, fields(fx_b.root, p4user="amy"))
+        return real(w)
+    monkeypatch.setattr(reg, "guard", given_away_first)
+    r = owner.post(f"/api/reviews/{rid}/rerun")
+    assert r.status_code == 403 and r.json()["detail"] == "owner only", r.text
+    assert reg.get(wid).runner.reviews == []

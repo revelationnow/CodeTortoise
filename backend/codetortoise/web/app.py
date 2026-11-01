@@ -366,14 +366,14 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
                 "workspace": ws_ref(a.ws), "viewer": {"user": a.user, "is_owner": a.is_owner}}
 
     @app.post("/api/reviews/{rid}/rerun")
-    def rerun(rid: int, fresh: bool = False, a: Access = Depends(owner_in_review)):
+    def rerun(rid: int, request: Request, fresh: bool = False, a: Access = Depends(owner_in_review)):
         """Run the review again; `fresh` asks the strong model for new stories instead of reusing a brief. Refused while
         its workspace isn't ready (§11)."""
         reg.settle(a.ws)                             # waited for without its guard (review of branch minors, M3)
         with reg.guard(a.ws.id):                     # into its queue as it is once no edit of it runs (final review M2)
-            ws = reg.get(a.ws.id) or a.ws            # a workspace with reviews is never removed
-            ready(ws, wait=False)
-            ws.runner.submit_review(rid, fresh=fresh)
+            a = owner_in_review(in_review(rid, request))     # as it is now: still its owner (review of branch minors, M10)
+            ready(a.ws, wait=False)
+            a.ws.runner.submit_review(rid, fresh=fresh)
         return {"queued": True}
 
     @app.get("/api/reviews/{rid}/events")
