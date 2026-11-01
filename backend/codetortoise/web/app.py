@@ -369,11 +369,12 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
         async def gen():
             last = None
             while not await request.is_disconnected():
-                payload = json.dumps({"review": store.get_review(rid), "stages": store.list_stages(rid)})
+                review = store.get_review(rid)          # read once: the stream ends only on an end it has sent
+                payload = json.dumps({"review": review, "stages": store.list_stages(rid)})
                 if payload != last:
                     last = payload
                     yield f"data: {payload}\n\n"
-                if store.get_review(rid)["status"] in TERMINAL:
+                if review["status"] in TERMINAL:
                     return
                 await asyncio.sleep(1.0)
 

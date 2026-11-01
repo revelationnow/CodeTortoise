@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 from helpers import make_app, make_services
@@ -93,6 +95,25 @@ def test_owner_creates_review_others_view_and_comment(env):
     assert bob.delete(f"/api/comments/{reply.json()['id']}").status_code == 403
     assert owner.delete(f"/api/comments/{cid}").status_code == 200
     assert bob.get(f"/api/reviews/{rid}/comments").json() == []
+
+
+def test_a_run_that_ends_while_the_stream_reads_it_still_sends_its_end(env, monkeypatch):
+    """The progress stream ends on the review it sent: a run that ends just after the stream read it still reaches the
+    page as ended, so the page never waits on an end that was never sent."""
+    svc, app, _ = env
+    owner = login(app, "owner")
+    rid = owner.post("/api/reviews", json={"cls": [101]}).json()["id"]
+    svc.store.set_review_status(rid, "running")
+    stages = svc.store.list_stages
+
+    def run_ends(r):                                      # the run ends between the stream's read and its check
+        svc.store.set_review_status(rid, "degraded")
+        return stages(r)
+
+    monkeypatch.setattr(svc.store, "list_stages", run_ends)
+    text = owner.get(f"/api/reviews/{rid}/events").text
+    sent = [json.loads(line.removeprefix("data: ")) for line in text.splitlines() if line.startswith("data: ")]
+    assert [p["review"]["status"] for p in sent] == ["running", "degraded"]
 
 
 def test_finding_state_owner_only(env):
