@@ -24,6 +24,10 @@ from codetortoise.vcs.p4runner import P4Runner
 from codetortoise.vcs.p4source import P4Source
 from codetortoise.vcs.source import Source
 
+# the version of Services.index_stamp: raised when what it covers changes, so every index catches up once, deliberately
+# (final review of branch deferred-minors)
+INDEX_STAMP = 1
+
 
 class LayersProvider:
     """Layer model cached per symbol-index generation (in memory and in the store)."""
@@ -89,13 +93,14 @@ class Services:
                                 stamp=self.index_stamp())
 
     def index_stamp(self) -> str:
-        """What its symbol index is built for: the workspace's root, its compile databases and the index's scope. A
-        bundle whose index was built for others rebuilds it as it loads (review of branch minors, M7)."""
+        """What its symbol index is built for: the workspace's root, its compile databases and the index's scope, and
+        the stamp's version (INDEX_STAMP). A bundle whose index was built for others rebuilds it as it loads (review of
+        branch minors, M7)."""
         w = self.cfg.workspace
         cc = w.compile_commands
         return json.dumps({"root": str(w.root), "compile_commands": [str(p) for p in cc] if isinstance(cc, list) else str(cc),
                            "build_root": str(w.build_root) if w.build_root is not None else None,
-                           "index_scope": self.cfg.analysis.index_scope}, sort_keys=True)
+                           "index_scope": self.cfg.analysis.index_scope, "v": INDEX_STAMP}, sort_keys=True)
 
     def remember_stripped(self, flags: list[str]) -> None:
         """Flags libclang rejected: skipped for all later parses of this workspace (persisted)."""

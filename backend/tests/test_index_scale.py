@@ -53,6 +53,35 @@ def test_a_stopped_build_keeps_what_it_wrote_and_leaves_the_rest_to_the_next(tmp
     assert len(parsed) == 10 and idx.generation() == 1
 
 
+def test_a_build_stopped_part_way_leaves_no_stamp_that_matches(tmp_path):
+    """A build marks the index as being built for its settings before it writes, and as built for them once it ends
+    (final review of branch deferred-minors, M1): one stopped part way, whatever it was for, never reads as built for
+    the old settings or the new, so a restart catches the index up. Settings S1, an edit to S2 whose build is stopped,
+    an edit back to S1 and a restart left S2's files under S1's stamp before."""
+    _tree(tmp_path / "r1", {f"a{i}.c": f"int a{i}(void) {{ return 0; }}\n" for i in range(3)})
+    _tree(tmp_path / "r2", {f"b{i}.c": f"int b{i}(void) {{ return 0; }}\n" for i in range(9)})
+    idx = SymbolIndex(tmp_path / "s.db")
+    assert idx.build(tmp_path / "r1", stamp="S1") == 3 and idx.stamp() == "S1"
+    stop = threading.Event()
+    parsed, last = [], [5]
+
+    def parser(path):
+        parsed.append(path)
+        if len(parsed) == last[0]:
+            stop.set()                                                         # stopped while this file is parsed
+        return _parse_file(path)
+    idx.build(tmp_path / "r2", parser=parser, batch=2, cancel=stop, stamp="S2")
+    assert len(idx.files()) == 7 and idx.stamp() not in ("S1", "S2")          # r1's three and four of r2's
+    stop.clear()
+    parsed.clear()
+    last[0] = 2
+    for f in (tmp_path / "r1").iterdir():
+        os.utime(f, ns=(1, 1))                                                 # each changed: all three parsed again
+    idx.build(tmp_path / "r1", parser=parser, batch=1, cancel=stop, stamp="S1")
+    assert len(parsed) == 2 and idx.stamp() not in ("S1", "S2")                # S1 again, stopped: still not ended
+    assert idx.build(tmp_path / "r1", stamp="S1") == 3 and idx.stamp() == "S1"
+
+
 def test_a_stop_is_seen_before_and_during_the_walk_and_between_rounds(tmp_path, monkeypatch):
     """Not only per parsed file (review of branch minors, M8): a build stopped before it starts walks nothing, one
     stopped during its walk walks no further, and one stopped with nothing left to parse doesn't go on to clean up and

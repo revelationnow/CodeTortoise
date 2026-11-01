@@ -267,9 +267,10 @@ class Registry:
         if runner is None:
             return
         # an index last built for other settings is built again: one an edit's build left for the old ones, when a
-        # restart stopped it (review of branch minors, M7); one from before stamps is taken as built for these
+        # restart stopped it (review of branch minors, M7); one from before stamps is taken as built for these when it
+        # was built for this root (final review of branch deferred-minors, M2)
         built, want = svc.index.stamp(), svc.index_stamp()
-        if built is None and svc.index.generation() and not ws.reindex:
+        if built is None and svc.index.generation() and svc.index.root() == str(svc.cfg.workspace.root) and not ws.reindex:
             svc.index.set_stamp(want)
         elif ws.reindex or svc.index.generation() == 0 or built != want:
             runner.submit_index()

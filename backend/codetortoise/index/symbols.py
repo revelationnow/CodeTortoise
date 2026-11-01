@@ -122,6 +122,9 @@ def _resolve(path: str, inc: str, files: set[str], by_base: dict[str, list[str]]
     return memo[inc]
 
 
+BUILDING = "building:"     # an index's stamp while a build for that stamp hasn't ended (never a stamp itself)
+
+
 class SymbolIndex:
     def __init__(self, db_path: Path):
         self.db_path = Path(db_path)
@@ -135,8 +138,14 @@ class SymbolIndex:
         return int(row[0]) if row else 0
 
     def stamp(self) -> str | None:
-        """What its last whole build was for (Services.index_stamp); None for an index from before such stamps."""
+        """What its last whole build was for (Services.index_stamp); BUILDING + that while a build for it hasn't ended;
+        None for an index from before such stamps."""
         row = self._db.execute("SELECT value FROM sym_meta WHERE key='stamp'").fetchone()
+        return row[0] if row else None
+
+    def root(self) -> str | None:
+        """The root its last whole build was for; None before its first."""
+        row = self._db.execute("SELECT value FROM sym_meta WHERE key='root'").fetchone()
         return row[0] if row else None
 
     def set_stamp(self, stamp: str) -> None:
@@ -159,7 +168,9 @@ class SymbolIndex:
         (canonical, from the compile DB) resolve `#include` targets. Once `cancel` is set (an edit or a remove of the
         workspace, final review M3 of spec 2026-10-31) the build stops at the next parsed file, or before or during its
         walk, a round of headers or its clean-up (review of branch minors, M8): what is written stays, nothing more is,
-        and the next build parses the rest. A build that ends records `stamp`, what it was built for.
+        and the next build parses the rest. A build that ends records `stamp`, what it was built for; until then the
+        index reads as being built for it, so one stopped part way never reads as built for any settings (final review
+        of branch deferred-minors, M1).
         """
         root = Path(root)
         db = self._db
@@ -168,6 +179,8 @@ class SymbolIndex:
             return cancel is not None and cancel.is_set()
         if stopped():
             return self._count()
+        if stamp is not None:
+            self.set_stamp(BUILDING + stamp)
         if full:
             with db:
                 for t in _PER_FILE:

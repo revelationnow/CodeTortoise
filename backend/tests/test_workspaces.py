@@ -539,3 +539,48 @@ def test_an_index_built_for_other_settings_is_rebuilt_when_its_bundle_loads(fx, 
     third.load()
     ws = third.get(b.id)
     assert ws.svc.index.generation() == gen and ws.svc.index.stamp() == ws.svc.index_stamp()
+
+
+def test_an_index_from_before_stamps_is_taken_only_for_the_root_it_was_built_for(fx, fx_b, tmp_path):
+    """An index from before stamps still records the root its last whole build was for: one built for another root is
+    rebuilt when its bundle loads, not taken as built for these settings (final review of branch deferred-minors,
+    M2)."""
+
+    class Stopped(InlineRunner):                                 # the server stops before an index build ends
+        def submit_index(self):
+            pass
+    reg = server(fx, tmp_path)
+    reg.load()
+    b = reg.add(fields(fx_b.root), "owner")
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "o.c").write_text("int o(void) { return 0; }\n")
+    reg.runner_class = Stopped
+    reg.edit(b.id, fields(other))                                # its index still holds b's files, built for b's root
+    with sqlite3.connect(reg.get(b.id).svc.index.db_path) as db:
+        db.execute("DELETE FROM sym_meta WHERE key='stamp'")     # as one from before stamps
+    again = server(fx, tmp_path)
+    again.load()
+    ws = again.get(b.id)
+    assert ws.svc.index.files() == [str((other / "o.c").resolve())]
+    assert ws.svc.index.stamp() == ws.svc.index_stamp()
+
+
+def test_an_index_stamped_before_the_stamp_had_a_version_catches_up_once(fx, fx_b, tmp_path):
+    """The stamp names its version (final review of branch deferred-minors, recommendation), so a change of what it
+    covers is a deliberate catch-up of every index, once: one stamped without it is built again as its bundle loads,
+    and only then."""
+    reg = server(fx, tmp_path)
+    reg.load()
+    b = reg.add(fields(fx_b.root), "owner")
+    index = b.svc.index
+    assert json.loads(index.stamp())["v"] == 1
+    unversioned = json.dumps({k: v for k, v in json.loads(index.stamp()).items() if k != "v"}, sort_keys=True)
+    index.set_stamp(unversioned)
+    gen = index.generation()
+    again = server(fx, tmp_path)
+    again.load()
+    assert again.get(b.id).svc.index.generation() == gen + 1
+    third = server(fx, tmp_path)
+    third.load()
+    assert third.get(b.id).svc.index.generation() == gen + 1

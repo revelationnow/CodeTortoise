@@ -107,8 +107,9 @@ workspace; try again when it finishes").
 
 Amended after the reviews of the implementation (2026-11-01): an index build under way doesn't block an edit or a
 remove. It is stopped, and the edited workspace's new bundle builds the index again once that build has ended. A
-symbol index records the root, compile databases and scope it was built for, and a bundle whose index was built for
-others builds it again as it loads, so a restart in the middle of that build loses nothing.
+symbol index records the root, compile databases and scope it was built for, and while a build runs it records that
+the build hasn't ended. A bundle whose index wasn't wholly built for its settings builds it again as it loads, so a
+restart in the middle of any build loses nothing.
 
 Startup chores that today run once per server (ending unfinished AI replies, failing AI calls left running, pruning
 the request log) run once.
