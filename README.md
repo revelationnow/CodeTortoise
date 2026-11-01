@@ -287,7 +287,10 @@ starts from a file without a `workspace:` section when its data folder already h
 
 Upgrading a single-workspace server: the first start on its data folder gives the existing reviews and shared-sink marks
 to the workspace in `tortoise.yaml`, ends the old sign-ins (everyone signs in again), and rebuilds that workspace's
-symbol index once, in its new folder.
+symbol index once, in its new folder (`<data_dir>/workspaces/<id>/`). The old `<data_dir>/symbols.db`, which can be
+large, and `<data_dir>/toolchain/` are no longer used: delete them once that first start has rebuilt the index. Reads now
+run as the workspace's `owner` (`p4 -u <owner>`). If `owner` in `tortoise.yaml` isn't the service's `P4USER`, the
+service's tickets file needs a ticket for that user too (`p4 -u <owner> login -a`).
 
 ### Compile database
 
