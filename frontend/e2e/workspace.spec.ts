@@ -63,6 +63,13 @@ test.describe("desktop", () => {
     await expect(page.getByRole("main").getByRole("alert")).toHaveText("The review could not be loaded.");
   });
 
+  test("a progress stream that drops before the run ends: the page loads the review again and follows it to the end", async ({ page }) => {
+    let dropped = 0;
+    await page.route("**/api/reviews/*/events", (route) => { dropped++; return route.abort(); }, { times: 1 });
+    await startReview(page);                     // the rail shows: the page did not stay on "Analysis in progress…"
+    expect(dropped).toBe(1);
+  });
+
   test("a story the server will not give says so in an alert beside its header", async ({ page }) => {
     const base = await startReview(page);
     await page.route(`**/api${base.replace("/r/", "/reviews/")}/stories/S1`, (route) => route.fulfill({ status: 500, json: { detail: "" } }));

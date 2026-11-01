@@ -27,12 +27,13 @@ export function useReview(id: number) {
   const [reload, setReload] = useState(0);                // story pages and cluster graphs fetch again: new results, AI text
   const [error, setError] = useState<string | null>(null);
   const [signIn, setSignIn] = useState<string | null>(null);   // the server to sign in to before this review opens (spec 2026-10-31 §9)
+  const [stream, setStream] = useState(0);                // the progress stream opened again: it dropped while the run went on
 
   const fail = useCallback((e: unknown) => {
     if (e instanceof ApiError && e.status === 401 && e.server) setSignIn(e.server);   // a review on a server the session isn't signed in to
     else setError(errorText(e, "The review could not be loaded."));
   }, []);
-  const loadDetail = useCallback(() => api.review(id).then((d) => { setSignIn(null); setDetail(d); }).catch(fail), [id, fail]);
+  const loadDetail = useCallback(() => api.review(id).then((d) => { setSignIn(null); setDetail(d); return d; }).catch(fail), [id, fail]);
   const loadComments = useCallback(() => api.comments(id).then(setComments), [id]);
   const loadFindings = useCallback(() => api.findings(id).then(setFindings), [id]);
   const loadStories = useCallback(() => api.stories(id).then(setStories, (e) => setStories(missing(null)(e))), [id]);
@@ -59,14 +60,20 @@ export function useReview(id: number) {
     if (!status) return;
     if (TERMINAL.has(status)) { loadResults(); return; }
     const es = new EventSource(`/api/reviews/${id}/events`);
+    let later: ReturnType<typeof setTimeout> | undefined;
     es.onmessage = (ev) => {
       const data = JSON.parse(ev.data);
       setDetail((d) => (d ? { ...d, review: data.review, stages: data.stages } : d));
       if (TERMINAL.has(data.review.status)) { es.close(); loadDetail(); }
     };
-    es.onerror = () => es.close();
-    return () => es.close();
-  }, [id, status, loadResults, loadDetail]);
+    // the stream ended before the run did (a dropped connection, a restarted server): after a moment the review loads
+    // again; a new status follows it on a new stream, and the same status opens this stream again
+    es.onerror = () => {
+      es.close();
+      later = setTimeout(() => loadDetail().then((d) => { if (d?.review.status === status) setStream((k) => k + 1); }), 1000);
+    };
+    return () => { es.close(); clearTimeout(later); };
+  }, [id, status, stream, loadResults, loadDetail]);
 
   const ready = !!status && TERMINAL.has(status);
   const people = useMemo(() => [...new Set([detail?.review.created_by ?? "", ...comments.map((c) => c.author)])].filter(Boolean),
