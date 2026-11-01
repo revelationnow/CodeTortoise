@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import fnmatch
+import grp
 import hashlib
 import os
+import pwd
 import re
 import shutil
+import stat
 import subprocess
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -73,6 +76,89 @@ def _explicit_target(args: list[str]) -> bool:
     return any(a.startswith("--target=") or a == "-target" for a in args)
 
 
+def changeable(path: str, me: int | None = None) -> str | None:
+    """Who besides root and this server's account (`me`) can change what `path` leads to — the file, a folder on the
+    way, or a link followed on the way, where a program could be swapped in — and how to stop them; None when no one
+    can. A folder others may write to but whose sticky bit keeps them from renaming what isn't theirs counts as safe,
+    and a group may write only when it is the account's own private group (the owner's choice, 2026-11-01: final review
+    I3 of spec 2026-10-31)."""
+    me = os.geteuid() if me is None else me
+    todo = path.split("/") if os.path.isabs(path) else [*os.getcwd().split("/"), *path.split("/")]
+    at, links = "/", 0
+    passed = []                                  # every entry the system goes through to reach `path`, in order
+    try:
+        passed.append(("/", os.lstat("/")))
+        while todo:
+            name = todo.pop(0)
+            if name in ("", "."):
+                continue
+            if name == "..":
+                at = os.path.dirname(at)
+                continue
+            entry = os.path.join(at, name)
+            st = os.lstat(entry)
+            passed.append((entry, st))
+            if not stat.S_ISLNK(st.st_mode):
+                at = entry
+                continue
+            links += 1
+            if links > 40:
+                return f"{path} can't be checked (too many links on the way)"
+            target = os.readlink(entry)
+            at = "/" if target.startswith("/") else at
+            todo[:0] = target.split("/")
+    except OSError as e:
+        return f"{e.filename or path} can't be checked ({e.strerror})"
+    for entry, st in reversed(passed):           # the file first, then the folders and links on the way to it
+        why = _who(entry, st, me)
+        if why:
+            return why
+    return None
+
+
+def _who(path: str, st: os.stat_result, me: int) -> str | None:
+    """Who besides root and `me` can change the one entry `path` (its lstat `st`), and how to stop them."""
+    if st.st_uid not in (0, me):
+        h = " -h" if stat.S_ISLNK(st.st_mode) else ""
+        return f"{path} belongs to {_name(pwd.getpwuid, st.st_uid)}, who can change it (`sudo chown{h} root {path}` fixes it)"
+    if stat.S_ISLNK(st.st_mode) or stat.S_ISDIR(st.st_mode) and st.st_mode & stat.S_ISVTX:
+        return None                              # a link's own mode means nothing; a sticky folder, see changeable
+    if st.st_mode & stat.S_IWOTH:
+        return f"anyone can change {path} (`chmod o-w {path}` fixes it)"
+    if st.st_mode & stat.S_IWGRP and not _own_group(st.st_gid, me):
+        return f"the group {_name(grp.getgrgid, st.st_gid)} can change {path} (`chmod g-w {path}` fixes it)"
+    if st.st_mode & stat.S_IWGRP and _listed_others(path):
+        return f"an access list (ACL) on {path} can let others change it (`chmod g-w {path}` fixes it)"
+    return None
+
+
+def _listed_others(path: str) -> bool:
+    """Whether `path` has an access list (ACL) beyond its mode, whose group bits are then the most it lets the users
+    and groups it names do."""
+    try:
+        os.getxattr(path, "system.posix_acl_access", follow_symlinks=False)
+    except OSError:
+        return False
+    return True
+
+
+def _own_group(gid: int, uid: int) -> bool:
+    """Whether `gid` is the private group of the account `uid`: its primary group, named after it, with no one else
+    listed in it."""
+    try:
+        user, group = pwd.getpwuid(uid), grp.getgrgid(gid)
+    except KeyError:
+        return False
+    return gid == user.pw_gid and group.gr_name == user.pw_name and set(group.gr_mem) <= {user.pw_name}
+
+
+def _name(lookup, id_: int) -> str:
+    try:
+        return lookup(id_)[0]
+    except KeyError:
+        return str(id_)
+
+
 class Toolchain:
     """Turns compile entries into libclang arguments, per file: each file's own compiler is queried (once per
     toolchain group and language) for its built-in include paths and macros, and its target is made explicit."""
@@ -95,7 +181,8 @@ class Toolchain:
         self.folders = None if folders is None else \
             [os.path.realpath(f) for f in [*folders, str(self.data_dir / "libclang")]]
         self.outside = [os.path.realpath(o) for o in outside]    # never toolchain folders: tortoise.yaml's workspace
-        self._allowed = self._within if self.folders is not None else None    # what find_libclang may load
+        self._refuses = self._refused if self.folders is not None else None    # what find_libclang may not load
+        self._progs: dict[str, list[str]] = {}       # the programs each compiler preprocesses with, as it names them
         self.choice: LibclangChoice | None = None    # the library this workspace parses with by default
         self.samples: dict[tuple, str] = {}          # Health's sample parse per group, once per process
 
@@ -108,6 +195,11 @@ class Toolchain:
         """Whether `path` really lies in a toolchain folder, links followed the way the system follows them."""
         return self._within(os.path.realpath(path))
 
+    def _refused(self, real: str) -> str | None:
+        """Why a workspace held to the toolchain folders may not run or load the real path `real`: it lies outside
+        them, or someone besides root and this server's account can change it (the owner's choice, 2026-11-01)."""
+        return changeable(real) if self._within(real) else "outside server.toolchain_folders"
+
     def _exe(self, driver: str) -> str | None:
         """The file a run of `driver` executes, its name kept as argv[0] (a compiler picks its mode and target from
         it): for a workspace held to the toolchain folders, the real path, resolved and checked as the run starts, so a
@@ -117,14 +209,51 @@ class Toolchain:
         real = os.path.realpath(driver)
         if not self._within(real):
             raise PermissionError(f"compiler {driver} is outside the toolchain folders and is not run")
+        why = self._unsafe(driver)
+        if why:
+            raise PermissionError(f"compiler {driver} is not run: {why}")
         return real
+
+    def _unsafe(self, driver: str) -> str | None:
+        """For a workspace held to the toolchain folders: who besides root and this server's account can change
+        `driver` — the compiler, a folder or link on the way to it (gcc finds its programs from the name it is run by),
+        or a program it preprocesses with (gcc's cc1 and cc1plus) — and how to stop them; None when no one can, and for
+        tortoise.yaml's workspace."""
+        if self.folders is None:
+            return None
+        why = changeable(driver)
+        if why:
+            return why
+        for prog in self._helpers(driver):
+            why = changeable(prog)
+            if why:
+                return f"it runs {prog}, and {why}"
+        return None
+
+    def _helpers(self, driver: str) -> list[str]:
+        """The programs `driver` preprocesses with, as it names them when asked (-print-prog-name, asked only once
+        `driver` itself has passed changeable): gcc's cc1 and cc1plus; none for clang, which runs itself."""
+        real = os.path.realpath(driver)
+        if real not in self._progs:
+            found = []
+            for prog in ("cc1", "cc1plus"):
+                try:
+                    r = subprocess.run([driver, f"-print-prog-name={prog}"], executable=real, capture_output=True,
+                                       text=True, timeout=30, stdin=subprocess.DEVNULL)
+                except (OSError, subprocess.TimeoutExpired):
+                    continue
+                path = r.stdout.strip()
+                if r.returncode == 0 and os.path.isabs(path) and os.path.exists(path):
+                    found.append(path)
+            self._progs[real] = found
+        return self._progs[real]
 
     def prepare(self) -> None:
         """Idempotent: chooses and describes this workspace's default library (loading it here when the process has no
         other). Every parse runs in worker processes that load the request's library; compilers are queried lazily,
         per group."""
         if self.libclang is None:
-            self.choice = find_libclang(self.cfg, data_dir=self.data_dir, allowed=self._allowed)
+            self.choice = find_libclang(self.cfg, data_dir=self.data_dir, refuses=self._refuses)
             self.libclang = library_info(self.choice.path)
 
     # ---- per file
@@ -158,7 +287,8 @@ class Toolchain:
         if mode == "outside_workspace" and self.root and os.path.realpath(driver).startswith(self.root + "/"):
             return (f"compiler {driver} is inside the workspace and is not run "
                     "(set toolchain.query_compilers: all to allow it)")
-        return None
+        why = self._unsafe(driver)
+        return f"compiler {driver} is not run: {why}" if why else None
 
     def _machine(self, driver: str) -> str | None:
         if self.not_run(driver):
@@ -184,7 +314,7 @@ class Toolchain:
         key = (driver, target, flags, lib_override)
         if key not in self._groups:
             lib = find_libclang(self.cfg, compiler=driver, override=lib_override, data_dir=self.data_dir,
-                                allowed=self._allowed)
+                                refuses=self._refuses)
             self._groups[key] = Group(compiler=driver, target=target, flags=flags, libclang=lib)
         return self._groups[key]
 
@@ -257,7 +387,7 @@ class Toolchain:
 
     def libclang_for(self, file: str) -> LibclangChoice:
         g = self.group_of(file)
-        return g.libclang if g else find_libclang(self.cfg, data_dir=self.data_dir, allowed=self._allowed)
+        return g.libclang if g else find_libclang(self.cfg, data_dir=self.data_dir, refuses=self._refuses)
 
     def group_of(self, file: str) -> Group | None:
         file = canon(file)

@@ -226,6 +226,7 @@ def test_only_workspaces_added_in_the_ui_are_held_to_the_toolchain_folders(fx, f
     opt = tmp_path / "opt"
     (opt / "bin").mkdir(parents=True)
     listed, elsewhere = str(opt / "bin" / "cc"), str(tmp_path / "elsewhere" / "bin" / "cc")
+    (opt / "bin" / "cc").write_text("")                          # one there to check: no one else can change it
     folders = {"data_dir": str(tmp_path / "data"), "toolchain_folders": [str(opt)]}
     reg = server(fx, tmp_path, server=folders)
     reg.load()
@@ -267,6 +268,8 @@ def test_the_seeds_folder_never_counts_as_a_toolchain_folder(fx, fx_b, tmp_path)
     """tortoise.yaml's workspace may sit in a toolchain folder, but its synced files still don't run for a workspace
     added in the UI (final review I3)."""
     opt = tmp_path / "opt"
+    (opt / "bin").mkdir(parents=True)
+    (opt / "bin" / "cc").write_text("")                          # one there to check: no one else can change it
     folders = {"data_dir": str(tmp_path / "data"), "toolchain_folders": [str(opt), str(fx.root.parent)]}
     reg = server(fx, tmp_path, server=folders)
     reg.load()

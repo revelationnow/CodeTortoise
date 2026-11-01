@@ -210,31 +210,32 @@ def _resource_dir(lib: Path) -> str | None:
 
 
 def find_libclang(cfg, compiler: str | None = None, override: str | None = None, data_dir: Path | None = None,
-                  system_globs: list[str] | None = None, allowed: Callable[[str], bool] | None = None) -> LibclangChoice:
+                  system_globs: list[str] | None = None,
+                  refuses: Callable[[str], str | None] | None = None) -> LibclangChoice:
     """The library to parse with, in order: an override's or `toolchain.libclang`; one next to a clang compiler (that
     toolchain's own); the newest under `toolchain.search_paths`; one fetched by `codetortoise fetch-libclang`; the
     newest system LLVM; the one bundled with the bindings.
 
-    `allowed` (a workspace added in the UI: server.toolchain_folders) judges a library by its real path, and the choice
-    names that path, so a link that moves later can't change what loads; a library it refuses is passed over, and the
-    reason names it."""
+    `refuses` (a workspace added in the UI: server.toolchain_folders, and who can change a library) judges a library by
+    its real path, and the choice names that path, so a link that moves later can't change what loads; a library it
+    refuses is passed over, and the reason names it and why."""
     passed: list[str] = []
 
     def pick(hits):
         for h in hits:
-            if allowed is None:
+            if refuses is None:
                 return h
             real = os.path.realpath(h)
-            if allowed(real):
+            why = refuses(real)
+            if why is None:
                 return Path(real)
-            passed.append(str(h))
+            passed.append(f"{h} ({why})")
         return None
 
     def chosen(lib, kind: str, reason: str) -> LibclangChoice:
         if passed:
             names = list(dict.fromkeys(passed))
-            reason += ("; not loaded, outside server.toolchain_folders: " + ", ".join(names[:3])
-                       + (f" and {len(names) - 3} more" if len(names) > 3 else ""))
+            reason += ("; not loaded: " + ", ".join(names[:3]) + (f" and {len(names) - 3} more" if len(names) > 3 else ""))
         return LibclangChoice(None if lib is None else str(lib), kind, reason,
                               None if lib is None else _resource_dir(Path(lib)))
 

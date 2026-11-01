@@ -343,10 +343,20 @@ include paths and macros). Server startup runs no compiler; the Health page and 
 A workspace added in the UI runs compilers and loads libclang only from the folders in `server.toolchain_folders`
 (default `/usr` and `/opt`), plus the libraries `fetch-libclang` installs. A path counts by where it really leads, links
 followed, and that real file is what runs or loads. A compiler elsewhere isn't run, and the Health page says why; a
-library elsewhere is passed over for the next one in the order below. The workspace in tortoise.yaml isn't held to
-these folders, and its own folder never counts as one of them; a workspace added in the UI can't overlap one. List only
-folders that hold programs you installed and that no one else can write to: anyone who can add a file there can have
-the server run it.
+library elsewhere is passed over for the next one in the order below.
+
+Nor does such a workspace run or load anything that someone other than you (the account the server runs as) or root
+can change. The compiler, the programs gcc runs for it (`cc1` and `cc1plus`), the library, and every folder and link on
+the way to them must belong to you or root, and no one else may write to them. Two exceptions: your own private group
+(named after you, with no other members: the default on Debian and Ubuntu) may write, and so may others in a folder
+with the sticky bit set, like `/tmp`, since that bit keeps them from renaming or removing what isn't theirs. Otherwise
+the Health page names the file or folder and the command that fixes it, such as `chmod o-w /opt/tools`. On most
+machines `/usr` and `/opt` belong to root alone, so nothing there is refused.
+
+The workspace in tortoise.yaml isn't held to any of this, and its own folder never counts as a toolchain folder; a
+workspace added in the UI can't overlap one. The shared libraries a compiler or libclang loads in turn aren't checked
+one by one; they usually sit in the same checked folders, where no one else can add or swap a file. So list only
+folders that hold programs you installed.
 
 libclang only parses, so one upstream library handles every standard target (ARM, AArch64, RISC-V, x86, MIPS,
 PowerPC). A newer library knows more recent flags. The library for a group is, in order: an override's or
@@ -396,7 +406,8 @@ Compilers that are neither GCC- nor clang-compatible (IAR, TI `cl6x`, Green Hill
   loads (`toolchain.clang`, `libclang`, `search_paths` and `query_compilers`, and an override's `clang` and `libclang`)
   are set only by the owner of the workspace in tortoise.yaml; another owner editing a workspace keeps what is there.
   Whatever its settings or compile databases name, a workspace added in the UI runs compilers and loads libclang only
-  from `server.toolchain_folders`, and its folder can't overlap one (see
+  from `server.toolchain_folders`, and only ones that no one but you and root can change; its folder can't overlap one
+  (see
   [Toolchains and libclang](#toolchains-and-libclang)). A server started without a workspace in tortoise.yaml has no
   such owner, so these settings can't be set in the UI there.
 - Only paths that map into the base workspace are served. Wildcards, revision specifiers and paths outside the client

@@ -1,6 +1,11 @@
 """Programs and libraries a workspace's settings or compile database could have the server run or load (final review
 I3 of spec 2026-10-31): a workspace added in the UI runs compilers and loads libclang only from the toolchain folders
 tortoise.yaml lists, judged by where a path really leads; tortoise.yaml's own workspace is not held to them."""
+import grp
+import os
+import pwd
+import shutil
+import stat
 import subprocess
 
 import pytest
@@ -8,7 +13,7 @@ from test_toolchain_review_fixes import _compiler, _ws
 
 from codetortoise.config import ConfigError, ToolchainConfig, parse_settings, program_settings
 from codetortoise.toolchain.compile_db import load_databases
-from codetortoise.toolchain.toolchain import Toolchain
+from codetortoise.toolchain.toolchain import Toolchain, changeable
 
 
 def _toolchain(base):
@@ -121,3 +126,121 @@ def test_settings_with_yaml_anchors_or_aliases_are_refused():
     """An alias repeats what it names without copying it, so a kilobyte of them unfolds into gigabytes."""
     with pytest.raises(ConfigError, match="anchors and aliases"):
         parse_settings("toolchain: {strip_flags: &f [-x]}\nanalysis: {entrypoint_patterns: *f}")
+
+
+def _runs(tmp_path, compiler, folders):
+    """Whether a workspace held to `folders` (None: tortoise.yaml's) runs `compiler`, and why not."""
+    log = tmp_path / "runs.log"
+    log.unlink(missing_ok=True)
+    tc, file = _toolchain_for(tmp_path, compiler, folders)
+    tc.args_for(file)
+    return log.exists(), tc.groups()[0].error
+
+
+def test_a_compiler_anyone_can_change_is_not_run_for_a_workspace_added_in_the_ui(tmp_path):
+    """The owner's choice (2026-11-01): a workspace added in the UI runs a compiler only when no one but root and the
+    server's own account can change it or a folder above it; the reason says how to fix it. tortoise.yaml's workspace
+    is not held to this."""
+    cc = _compiler(tmp_path / "opt" / "bin" / "cc", tmp_path / "runs.log")
+    opt, bin_ = [str(tmp_path / "opt")], tmp_path / "opt" / "bin"
+    bin_.chmod(0o755)
+    (tmp_path / "opt").chmod(0o1777)                             # others can add to it, but can't swap what is mine
+    assert _runs(tmp_path, cc, opt) == (True, None)
+    bin_.chmod(0o777)
+    assert _runs(tmp_path, cc, opt) == (False, f"compiler {cc} is not run: anyone can change {bin_} "
+                                               f"(`chmod o-w {bin_}` fixes it)")
+    assert _runs(tmp_path, cc, None)[0]                          # tortoise.yaml's workspace: as before
+
+
+def test_a_compiler_a_shared_group_can_change_is_not_run_but_the_accounts_own_group_may(tmp_path):
+    """A group may write only when it is the account's own private group (named after it, no other member), as
+    Debian's sshd judges it: on a system whose umask is 002 that is every folder the owner makes."""
+    cc = _compiler(tmp_path / "opt" / "bin" / "cc", tmp_path / "runs.log")
+    opt, bin_ = [str(tmp_path / "opt")], tmp_path / "opt" / "bin"
+    bin_.chmod(0o775)
+    me, mine = pwd.getpwuid(os.geteuid()), grp.getgrgid(os.getegid())
+    if mine.gr_name == me.pw_name and set(mine.gr_mem) <= {me.pw_name}:
+        assert _runs(tmp_path, cc, opt) == (True, None)
+    shared = [g for g in os.getgroups() if g != os.getegid()]
+    if not shared:
+        pytest.skip("the account is in no other group to share a folder with")
+    os.chown(bin_, -1, shared[0])
+    name = grp.getgrgid(shared[0]).gr_name
+    assert _runs(tmp_path, cc, opt) == (False, f"compiler {cc} is not run: the group {name} can change {bin_} "
+                                               f"(`chmod g-w {bin_}` fixes it)")
+
+
+def test_the_accounts_own_group_may_not_change_a_folder_whose_access_list_names_others(tmp_path):
+    """With an access list (ACL), a folder's group bits are the most it lets the users and groups it names do."""
+    me, mine = pwd.getpwuid(os.geteuid()), grp.getgrgid(os.getegid())
+    if not (mine.gr_gid == me.pw_gid and mine.gr_name == me.pw_name and set(mine.gr_mem) <= {me.pw_name}):
+        pytest.skip("the account has no private group")
+    d = tmp_path / "d"
+    d.mkdir()
+    d.chmod(0o775)
+    assert changeable(str(d)) is None
+    if not shutil.which("setfacl") or subprocess.run(["setfacl", "-m", "u:nobody:rwx", str(d)]).returncode:
+        pytest.skip("no access lists here")
+    assert changeable(str(d)) == f"an access list (ACL) on {d} can let others change it (`chmod g-w {d}` fixes it)"
+
+
+def test_a_path_another_account_owns_is_one_it_can_change(tmp_path):
+    (tmp_path / "f").write_text("")
+    os.chmod(tmp_path / "f", 0o644)
+    owner = pwd.getpwuid(os.geteuid()).pw_name
+    assert changeable(str(tmp_path / "f")) is None
+    assert changeable(str(tmp_path / "f"), me=os.geteuid() + 1) \
+        == f"{tmp_path / 'f'} belongs to {owner}, who can change it (`sudo chown root {tmp_path / 'f'}` fixes it)"
+
+
+def test_a_compiler_that_runs_a_program_anyone_can_change_is_not_run(tmp_path):
+    """gcc preprocesses with cc1 and cc1plus, which it names when asked (-print-prog-name): they are held to the same
+    rule as the compiler."""
+    log, shared = tmp_path / "runs.log", tmp_path / "shared"
+    shared.mkdir()
+    helper = shared / "cc1plus"
+    helper.write_text("")
+    cc = _compiler(tmp_path / "opt" / "bin" / "gcc", log)
+    with open(cc) as fh:
+        script = fh.read()
+    with open(cc, "w") as fh:                    # asked for its programs, it runs none of them and logs no run
+        fh.write(script.replace("#!/bin/sh\n", "#!/bin/sh\ncase \"$*\" in "
+                                f"*-print-prog-name=cc1plus*) echo {helper}; exit 0;; *-print-prog-name=*) exit 0;; esac\n", 1))
+    shared.chmod(0o755)
+    assert _runs(tmp_path, cc, [str(tmp_path / "opt")]) == (True, None)
+    shared.chmod(0o777)
+    assert _runs(tmp_path, cc, [str(tmp_path / "opt")]) == \
+        (False, f"compiler {cc} is not run: it runs {helper}, and anyone can change {shared} (`chmod o-w {shared}` fixes it)")
+
+
+def test_a_compiler_named_through_a_link_others_can_swap_is_not_run(tmp_path):
+    """gcc finds the programs it runs from the name it is run by, so a link on the way to it that others could swap
+    would send it elsewhere: every folder and link on the way is held to the rule, not only where it leads."""
+    cc = _compiler(tmp_path / "opt" / "bin" / "cc", tmp_path / "runs.log")
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "cc").symlink_to(cc)
+    shared.chmod(0o755)
+    assert _runs(tmp_path, str(shared / "cc"), [str(tmp_path / "opt")]) == (True, None)
+    shared.chmod(0o777)
+    assert _runs(tmp_path, str(shared / "cc"), [str(tmp_path / "opt")]) == \
+        (False, f"compiler {shared / 'cc'} is not run: anyone can change {shared} (`chmod o-w {shared}` fixes it)")
+
+
+def test_a_link_another_account_owns_is_one_it_can_swap(tmp_path):
+    (tmp_path / "l").symlink_to("/usr")
+    owner = pwd.getpwuid(os.geteuid()).pw_name
+    assert changeable(str(tmp_path / "l")) is None
+    assert changeable(str(tmp_path / "l"), me=os.geteuid() + 1) \
+        == f"{tmp_path / 'l'} belongs to {owner}, who can change it (`sudo chown -h root {tmp_path / 'l'}` fixes it)"
+
+
+def test_a_library_anyone_can_change_is_not_loaded_for_a_workspace_added_in_the_ui(tmp_path):
+    clang, lib = _toolchain(tmp_path / "opt" / "vendor")
+    libdir = tmp_path / "opt" / "vendor" / "lib"
+    libdir.chmod(libdir.stat().st_mode | stat.S_IWOTH)
+    tc, file = _toolchain_for(tmp_path, clang, [str(tmp_path / "opt")])
+    chosen = tc.group_of(file).libclang
+    assert chosen.path != lib and f"{lib} (anyone can change {libdir} (`chmod o-w {libdir}` fixes it))" in chosen.reason
+    tc, file = _toolchain_for(tmp_path, clang, None)
+    assert tc.group_of(file).libclang.path == lib                # tortoise.yaml's workspace: as before
