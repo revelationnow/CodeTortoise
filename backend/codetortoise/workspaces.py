@@ -53,6 +53,13 @@ def scope_of(wid: int) -> str:
     return f"ws{wid}"
 
 
+def _moved(what: str, was: str, now: str, reviews: int) -> None:
+    """Said when a workspace with reviews moves to another Perforce server, which is the host's to decide (final review
+    M4): its reviews then show to those signed in there."""
+    log.warning("%s moved from the Perforce server %s to %s: its %d review(s) now show to those signed in there",
+                what, was, now, reviews)
+
+
 def _stored(cc) -> str:
     """`workspace.compile_commands` as the workspaces table holds it: JSON text."""
     if isinstance(cc, list):
@@ -167,9 +174,8 @@ class Registry:
             self.store.update_workspace(wid, fields)
         self.store.adopt_reviews(wid)
         was, now = server_of(row["p4port"] if row else ws.p4port), server_of(ws.p4port)
-        if was != now and (n := self.store.review_count(wid)):     # the host's to decide; said (final review M4)
-            log.warning("the workspace in tortoise.yaml moved from the Perforce server %s to %s: its %d review(s) now "
-                        "show to those signed in there", was, now, n)
+        if was != now and (n := self.store.review_count(wid)):
+            _moved("the workspace in tortoise.yaml", was, now, n)
         rec = self._record(self.store.get_workspace(wid))
         with self._lock:
             self._ws[wid] = rec
@@ -394,6 +400,10 @@ class Registry:
             except sqlite3.IntegrityError as e:
                 raise Conflict(self._taken(fields["name"], fields["root"], wid) or str(e)) from e
             ws = self._record(self.store.get_workspace(wid))
+            # only the host moves a workspace with reviews (the web app refuses anyone else): said, as the move of
+            # the workspace in tortoise.yaml is (review of branch minors, M5)
+            if ws.server != old.server and (n := self.store.review_count(wid)):
+                _moved(f"the workspace {ws.name}", old.server, ws.server, n)
             with self._lock:
                 self._ws[wid] = ws
                 stale = old.runner                           # attached before the swap, if at all

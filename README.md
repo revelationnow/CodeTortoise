@@ -277,9 +277,9 @@ readable and refuses new reviews and re-runs until its checks pass. Each workspa
 An edit is refused while one of its reviews runs (an index build under way stops, and an edit starts it over), and a
 workspace can be removed only while it has no reviews. A workspace with reviews also keeps its Perforce server, so its
 reviews stay with those signed in there: only the owner of the workspace in `tortoise.yaml` moves one, and the server
-log says when that workspace itself moves. The owner of the workspace in
-`tortoise.yaml` sees every workspace on the **Workspaces** page and can edit or remove any of them, so one saved with a
-server or user nobody can sign in as is fixed there. A git workspace (the bundled fixture) can be added only in dev mode.
+log says when one moves. The owner of the workspace in `tortoise.yaml` sees every workspace on the **Workspaces** page
+and can edit or remove any of them, so one saved with a server or user nobody can sign in as is fixed there. A git
+workspace (the bundled fixture) can be added only in dev mode.
 
 Sign-in is per Perforce server. With workspaces on several servers, the sign-in page has a **Perforce server** picker,
 and the menu under your name lists each sign-in ("`<server>` as `<user>`") with **Sign in to another server**. A link to

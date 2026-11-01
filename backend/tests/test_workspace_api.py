@@ -1,5 +1,6 @@
 """The Workspaces page's API (spec 2026-10-31 §8, §9, §11)."""
 import json
+import logging
 import threading
 
 import pytest
@@ -190,9 +191,10 @@ def test_a_workspace_removed_meanwhile_is_404_to_what_waited_on_it(fx, fx_b, tmp
     assert reg.store.list_reviews() == []
 
 
-def test_a_workspace_with_reviews_keeps_its_perforce_server(app, fx_b, tmp_path):
+def test_a_workspace_with_reviews_keeps_its_perforce_server(app, fx_b, tmp_path, caplog):
     """Its reviews were made on that server's code; moved, they would show to those signed in to another one (final
-    review M4). The owner of the workspace in tortoise.yaml may move it, as they move that one in the file."""
+    review M4). The owner of the workspace in tortoise.yaml may move it, as they move that one in the file, and the log
+    says so, as it does for that one (review of branch minors, M5)."""
     owner = login(app, "owner")
     b = owner.post("/api/workspaces", json=body(fx_b.root, p4user="amy")).json()
     c = owner.post("/api/workspaces", json=body(tmp_path, name="c", p4user="amy")).json()
@@ -204,7 +206,10 @@ def test_a_workspace_with_reviews_keeps_its_perforce_server(app, fx_b, tmp_path)
     assert amy.put(f"/api/workspaces/{b['id']}", json=body(fx_b.root, p4user="amy", swarm_url="https://sw")).status_code == 200
     assert amy.put(f"/api/workspaces/{c['id']}", json=body(tmp_path, name="c", p4user="amy", p4port="second:1666")).status_code \
         == 200                                                   # one with no reviews moves
-    assert owner.put(f"/api/workspaces/{b['id']}", json=moved).status_code == 200
+    with caplog.at_level(logging.WARNING, logger="codetortoise.workspaces"):
+        assert owner.put(f"/api/workspaces/{b['id']}", json=moved).status_code == 200
+    assert "the workspace b moved from the Perforce server local to second:1666: its 1 review(s) now show to those " \
+           "signed in there" in caplog.text
 
 
 @pytest.mark.parametrize("ask", ["start", "rerun", "rebuild"])
