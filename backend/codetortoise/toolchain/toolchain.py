@@ -7,7 +7,7 @@ import os
 import re
 import shutil
 import subprocess
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -78,30 +78,51 @@ class Toolchain:
     toolchain group and language) for its built-in include paths and macros, and its target is made explicit."""
 
     def __init__(self, cfg: ToolchainConfig, cdb: CompileDb, work_dir: Path, root: Path | None = None,
-                 data_dir: Path | None = None, roots: Callable[[], Iterable[str]] | None = None, trusted: bool = True):
+                 data_dir: Path | None = None, folders: Iterable[str] | None = None):
         self.cfg = cfg
         self.cdb = cdb
         self.work_dir = Path(work_dir)
         self.root = canon(str(root)) if root else None
-        # every workspace folder on the server: a compiler synced into one is not run, and unless this workspace's
-        # compile databases are the host's own (`trusted`: tortoise.yaml's), nor is the library beside it loaded
-        self.roots = roots if roots is not None else (lambda: [self.root] if self.root else [])
-        self.trusted = trusted
         self.strip: set[str] = set(cfg.strip_flags)
         self.libclang: LibclangInfo | None = None
         self._groups: dict[tuple, Group] = {}
         self._machines: dict[str, str | None] = {}
         # where fetch-libclang puts libraries: the server's data folder (a workspace's own folder sits below it)
         self.data_dir = Path(data_dir) if data_dir is not None else self.work_dir.parent
+        # a workspace added in the UI runs compilers and loads libraries only from these folders
+        # (server.toolchain_folders, and the libraries fetch-libclang installed); None for tortoise.yaml's workspace,
+        # which isn't held to them (final review I3 of spec 2026-10-31)
+        self.folders = None if folders is None else \
+            [os.path.realpath(f) for f in [*folders, str(self.data_dir / "libclang")]]
+        self._allowed = self._within if self.folders is not None else None    # what find_libclang may load
         self.choice: LibclangChoice | None = None    # the library this workspace parses with by default
         self.samples: dict[tuple, str] = {}          # Health's sample parse per group, once per process
+
+    def _within(self, real: str) -> bool:
+        """Whether the real path `real` lies in a toolchain folder (always, for tortoise.yaml's workspace)."""
+        return self.folders is None or any(real == f or real.startswith(f.rstrip("/") + "/") for f in self.folders)
+
+    def listed(self, path: str) -> bool:
+        """Whether `path` really lies in a toolchain folder, links followed the way the system follows them."""
+        return self._within(os.path.realpath(path))
+
+    def _exe(self, driver: str) -> str | None:
+        """The file a run of `driver` executes, its name kept as argv[0] (a compiler picks its mode and target from
+        it): for a workspace held to the toolchain folders, the real path, resolved and checked as the run starts, so a
+        link that moves after not_run can't send the run elsewhere; None (`driver` itself) for tortoise.yaml's."""
+        if self.folders is None:
+            return None
+        real = os.path.realpath(driver)
+        if not self._within(real):
+            raise PermissionError(f"compiler {driver} is outside the toolchain folders and is not run")
+        return real
 
     def prepare(self) -> None:
         """Idempotent: chooses and describes this workspace's default library (loading it here when the process has no
         other). Every parse runs in worker processes that load the request's library; compilers are queried lazily,
         per group."""
         if self.libclang is None:
-            self.choice = find_libclang(self.cfg, data_dir=self.data_dir)
+            self.choice = find_libclang(self.cfg, data_dir=self.data_dir, allowed=self._allowed)
             self.libclang = library_info(self.choice.path)
 
     # ---- per file
@@ -124,37 +145,26 @@ class Toolchain:
             return os.path.normpath(os.path.join(entry.directory, name))
         return shutil.which(name) or name
 
-    def _folder_of(self, driver: str) -> str | None:
-        """"the workspace" or "another workspace" when `driver` lies in a workspace folder on this server, else None."""
-        d = canon(driver)
-        if self.root and d.startswith(self.root + "/"):
-            return "the workspace"
-        return "another workspace" if any(r and d.startswith(canon(r) + "/") for r in self.roots()) else None
-
     def not_run(self, driver: str) -> str | None:
-        """Why `driver` must not be run (toolchain.query_compilers), or None."""
+        """Why `driver` must not be run (toolchain.query_compilers, server.toolchain_folders), or None."""
         mode = self.cfg.query_compilers
         if mode == "off":
             return "compiler queries are off (toolchain.query_compilers: off)"
-        where = self._folder_of(driver) if mode == "outside_workspace" else None
-        if where:
-            return (f"compiler {driver} is inside {where} and is not run "
+        if not self.listed(driver):
+            return (f"compiler {driver} is outside the toolchain folders and is not run "
+                    "(server.toolchain_folders in tortoise.yaml lists them)")
+        if mode == "outside_workspace" and self.root and os.path.realpath(driver).startswith(self.root + "/"):
+            return (f"compiler {driver} is inside the workspace and is not run "
                     "(set toolchain.query_compilers: all to allow it)")
         return None
-
-    def _beside(self, driver: str) -> bool:
-        """Whether the library beside `driver` (its toolchain's own) may load: always for tortoise.yaml's workspace;
-        for one added in the UI, when `driver` is outside every workspace folder or the host allowed it (final review
-        I3 of spec 2026-10-31)."""
-        return self.trusted or self.cfg.query_compilers == "all" or self._folder_of(driver) is None
 
     def _machine(self, driver: str) -> str | None:
         if self.not_run(driver):
             return None
         if driver not in self._machines:
             try:
-                r = subprocess.run([driver, "-dumpmachine"], capture_output=True, text=True, timeout=30,
-                                   stdin=subprocess.DEVNULL)
+                r = subprocess.run([driver, "-dumpmachine"], executable=self._exe(driver), capture_output=True,
+                                   text=True, timeout=30, stdin=subprocess.DEVNULL)
                 self._machines[driver] = r.stdout.strip() or None if r.returncode == 0 else None
             except (OSError, subprocess.TimeoutExpired):
                 self._machines[driver] = None
@@ -171,8 +181,8 @@ class Toolchain:
         lib_override = ov.libclang if ov else None
         key = (driver, target, flags, lib_override)
         if key not in self._groups:
-            lib = find_libclang(self.cfg, compiler=driver if self._beside(driver) else None, override=lib_override,
-                                data_dir=self.data_dir)
+            lib = find_libclang(self.cfg, compiler=driver, override=lib_override, data_dir=self.data_dir,
+                                allowed=self._allowed)
             self._groups[key] = Group(compiler=driver, target=target, flags=flags, libclang=lib)
         return self._groups[key]
 
@@ -184,8 +194,8 @@ class Toolchain:
             g.error = reason
             return None
         try:
-            info = query_driver(g.compiler, list(g.flags), lang)
-        except RuntimeError as e:
+            info = query_driver(g.compiler, list(g.flags), lang, executable=self._exe(g.compiler))
+        except (RuntimeError, OSError) as e:
             g.error = str(e)
             return None
         g.info[lang] = info
@@ -245,7 +255,7 @@ class Toolchain:
 
     def libclang_for(self, file: str) -> LibclangChoice:
         g = self.group_of(file)
-        return g.libclang if g else find_libclang(self.cfg, data_dir=self.data_dir)
+        return g.libclang if g else find_libclang(self.cfg, data_dir=self.data_dir, allowed=self._allowed)
 
     def group_of(self, file: str) -> Group | None:
         file = canon(file)

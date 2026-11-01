@@ -69,7 +69,7 @@ def test_a_compiler_that_may_run_adds_its_include_paths_to_its_own_library_witho
     rd = str(acc.parent.parent / "lib" / "clang" / "21")
     paths = {str(acc): (f"{rd}/include", "/t/acc/include/c++", "/t/acc/include"),
              str(dsp): ("/t/dsp/include",)}
-    monkeypatch.setattr(tcmod, "query_driver", lambda driver, flags, lang: DriverInfo(paths[driver], (("X", "1"),), rd))
+    monkeypatch.setattr(tcmod, "query_driver", lambda driver, flags, lang, **k: DriverInfo(paths[driver], (("X", "1"),), rd))
     args = tc.args_for(str(ws / "acc/a.c"))
     assert _value(args, "-isystem") == ["/t/acc/include/c++", "/t/acc/include"]     # in the compiler's order
     assert f"{rd}/include" not in args and "-include" not in args                 # the library has its own macros

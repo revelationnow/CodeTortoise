@@ -14,6 +14,7 @@ import shutil
 import tarfile
 import threading
 import urllib.request
+from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -177,35 +178,59 @@ def _resource_dir(lib: Path) -> str | None:
 
 
 def find_libclang(cfg, compiler: str | None = None, override: str | None = None, data_dir: Path | None = None,
-                  system_globs: list[str] | None = None) -> LibclangChoice:
+                  system_globs: list[str] | None = None, allowed: Callable[[str], bool] | None = None) -> LibclangChoice:
     """The library to parse with, in order: an override's or `toolchain.libclang`; one next to a clang compiler (that
     toolchain's own); the newest under `toolchain.search_paths`; one fetched by `codetortoise fetch-libclang`; the
-    newest system LLVM; the one bundled with the bindings."""
+    newest system LLVM; the one bundled with the bindings.
+
+    `allowed` (a workspace added in the UI: server.toolchain_folders) judges a library by its real path, and the choice
+    names that path, so a link that moves later can't change what loads; a library it refuses is passed over, and the
+    reason names it."""
+    passed: list[str] = []
+
+    def pick(hits):
+        for h in hits:
+            if allowed is None:
+                return h
+            real = os.path.realpath(h)
+            if allowed(real):
+                return Path(real)
+            passed.append(str(h))
+        return None
+
+    def chosen(lib, kind: str, reason: str) -> LibclangChoice:
+        if passed:
+            names = list(dict.fromkeys(passed))
+            reason += ("; not loaded, outside server.toolchain_folders: " + ", ".join(names[:3])
+                       + (f" and {len(names) - 3} more" if len(names) > 3 else ""))
+        return LibclangChoice(None if lib is None else str(lib), kind, reason,
+                              None if lib is None else _resource_dir(Path(lib)))
+
     explicit = override or cfg.libclang
-    if explicit:
+    lib = pick([explicit]) if explicit else None
+    if lib:
         note = "" if _usable(Path(explicit)) else f"; older than the bindings ({bindings_major()}), it may fail to load"
-        return LibclangChoice(explicit, "explicit", "set in tortoise.yaml" + note, _resource_dir(Path(explicit)))
+        return chosen(lib, "explicit", "set in tortoise.yaml" + note)
     if compiler and "clang" in os.path.basename(compiler):
         bindir = Path(compiler).resolve().parent if Path(compiler).exists() else Path(compiler).parent
         for libdir in (bindir.parent / "lib", bindir.parent / "lib64"):
-            hits = _libs_in(libdir) if libdir.is_dir() else []
-            if hits:
-                return LibclangChoice(str(hits[0]), "toolchain", f"next to {compiler}", _resource_dir(hits[0]))
+            lib = pick(_libs_in(libdir)) if libdir.is_dir() else None
+            if lib:
+                return chosen(lib, "toolchain", f"next to {compiler}")
     for sp in getattr(cfg, "search_paths", []) or []:
-        hits = _libs_in(Path(sp), deep=True) if Path(sp).is_dir() else []
-        if hits:
-            return LibclangChoice(str(hits[0]), "search", f"newest under {sp}", _resource_dir(hits[0]))
+        lib = pick(_libs_in(Path(sp), deep=True)) if Path(sp).is_dir() else None
+        if lib:
+            return chosen(lib, "search", f"newest under {sp}")
     if data_dir is not None and (Path(data_dir) / "libclang").is_dir():
-        hits = sorted((h for v in (Path(data_dir) / "libclang").iterdir() if v.is_dir() and not v.name.startswith(".")
-                       for h in _libs_in(v / "lib")), key=lambda p: (_version_key(p), p.name), reverse=True)
-        if hits:
-            return LibclangChoice(str(hits[0]), "fetched", "fetched with codetortoise fetch-libclang",
-                                  _resource_dir(hits[0]))
+        lib = pick(sorted((h for v in (Path(data_dir) / "libclang").iterdir() if v.is_dir() and not v.name.startswith(".")
+                           for h in _libs_in(v / "lib")), key=lambda p: (_version_key(p), p.name), reverse=True))
+        if lib:
+            return chosen(lib, "fetched", "fetched with codetortoise fetch-libclang")
     dirs = [Path(d) for g in (SYSTEM_GLOBS if system_globs is None else system_globs) for d in globmod.glob(g)]
-    hits = sorted((h for d in dirs for h in _libs_in(d)), key=lambda p: (_version_key(p), p.name), reverse=True)
-    if hits:
-        return LibclangChoice(str(hits[0]), "system", f"system LLVM in {hits[0].parent}", _resource_dir(hits[0]))
-    return LibclangChoice(None, "bundled", "bundled with the Python bindings (no newer library found)")
+    lib = pick(sorted((h for d in dirs for h in _libs_in(d)), key=lambda p: (_version_key(p), p.name), reverse=True))
+    if lib:
+        return chosen(lib, "system", f"system LLVM in {lib.parent}")
+    return chosen(None, "bundled", "bundled with the Python bindings (no newer library found)")
 
 
 # ---------------------------------------------------------------- fetching a release

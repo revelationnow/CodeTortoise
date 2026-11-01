@@ -190,18 +190,24 @@ def test_sign_in_runs_p4_from_a_perforce_workspace_on_that_server(fx, fx_b, tmp_
     assert ws.svc.p4.user == "amy"                               # its reads run as its owner
 
 
-def test_every_workspace_judges_compilers_against_every_workspace_folder(fx, fx_b, tmp_path):
-    """A compiler inside any workspace on the server is not run, and only tortoise.yaml's workspace loads a library
-    beside one (final review I3), in the server and in a command-line tool alike."""
-    reg = server(fx, tmp_path)
+def test_only_workspaces_added_in_the_ui_are_held_to_the_toolchain_folders(fx, fx_b, tmp_path):
+    """A workspace added in the UI runs compilers only from tortoise.yaml's toolchain folders; tortoise.yaml's own
+    workspace is not held to them, and a workspace saved at a toolchain folder changes neither (final review I3), in
+    the server and in a command-line tool alike."""
+    opt = tmp_path / "opt"
+    (opt / "bin").mkdir(parents=True)
+    listed, elsewhere = str(opt / "bin" / "cc"), str(tmp_path / "elsewhere" / "bin" / "cc")
+    folders = {"data_dir": str(tmp_path / "data"), "toolchain_folders": [str(opt)]}
+    reg = server(fx, tmp_path, server=folders)
     reg.load()
     b = reg.add(fields(fx_b.root), "owner")
-    in_b = str(fx_b.root / "tools" / "bin" / "cc")
-    seed = reg.seed().svc.toolchain
-    assert "inside another workspace" in (seed.not_run(in_b) or "") and seed.trusted
-    assert "inside the workspace" in (b.svc.toolchain.not_run(in_b) or "") and not b.svc.toolchain.trusted
-    tool = Registry.open(make_config(fx, tmp_path / "data")).tool_workspace(None).svc.toolchain
-    assert "inside another workspace" in (tool.not_run(in_b) or "") and tool.trusted
+    reg.add(fields(opt, name="at-opt"), "owner")
+    assert b.svc.toolchain.not_run(listed) is None
+    assert "outside the toolchain folders" in (b.svc.toolchain.not_run(elsewhere) or "")
+    assert reg.seed().svc.toolchain.not_run(elsewhere) is None and reg.seed().svc.toolchain.not_run(listed) is None
+    tool = Registry.open(make_config(fx, tmp_path / "data", server=folders)).tool_workspace("b").svc.toolchain
+    assert "outside the toolchain folders" in (tool.not_run(elsewhere) or "")
+    assert make_config(fx, tmp_path / "data").server.toolchain_folders == ["/usr", "/opt"]
 
 
 def test_a_tool_works_on_the_named_workspace_else_the_seed_else_the_only_one(fx, fx_b, tmp_path):

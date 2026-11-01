@@ -159,8 +159,10 @@ function WorkspaceForm({ initial, verb, submit, onDone, onCancel }: {
         <div className="stack">
           {text("build_root", "Build root")}
           <label>Settings<textarea rows={8} value={f.settings} onChange={set("settings")} spellCheck={false} /></label>
-          <div className="hint">tortoise.yaml's toolchain, targets and analysis keys, as YAML. The keys that name programs
-            (clang, libclang, search_paths, query_compilers) are set by the owner of the workspace in tortoise.yaml.</div>
+          <div className="hint">tortoise.yaml's toolchain, targets and analysis keys, as YAML. Only the owner of the
+            workspace in tortoise.yaml changes the keys that name programs (clang, libclang, search_paths,
+            query_compilers, and an override's clang and libclang). Compilers run, and libclang loads, only from the
+            server's toolchain folders.</div>
         </div>
       </details>
       {error && <div className="error" role="alert">{error}</div>}

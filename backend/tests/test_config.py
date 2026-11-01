@@ -83,6 +83,15 @@ server: {host: 0.0.0.0, tls_cert: certs/ct.pem, tls_key: certs/ct.key}
     assert cfg.server.tls_key == (tmp_path / "certs/ct.key").resolve()
 
 
+def test_toolchain_folders_resolve_relative_to_the_config(tmp_path):
+    cfg = load_config(write(tmp_path, """
+owner: a
+workspace: {vcs: git, root: /w, compile_commands: /w/cc.json}
+server: {toolchain_folders: [/opt, tools]}
+"""))
+    assert cfg.server.toolchain_folders == ["/opt", str((tmp_path / "tools").resolve())]
+
+
 def test_tls_cert_without_key_is_a_config_error(tmp_path):
     with pytest.raises(ConfigError, match="tls_cert and server.tls_key"):
         load_config(write(tmp_path, "owner: a\nworkspace: {vcs: git, root: /w, compile_commands: /w/cc.json}\n"

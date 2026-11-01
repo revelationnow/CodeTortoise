@@ -212,7 +212,7 @@ class Registry:
         (§11). An empty symbol index is built when the bundle first loads (§6)."""
         try:
             svc = build_services(ws.cfg, self.llm, strong=self.strong, store=self.store, ledger=self.ledger,
-                                 home=self.home(ws.id), scope=scope_of(ws.id), roots=self.roots, trusted=ws.seed)
+                                 home=self.home(ws.id), scope=scope_of(ws.id), folders=self.folders(ws))
         except Exception as e:  # a missing root, an unreadable compile database: shown, never fatal
             ws.reason = f"could not load: {type(e).__name__}: {e}"
             log.warning("workspace %s: %s", ws.name, ws.reason)
@@ -257,9 +257,11 @@ class Registry:
     def get(self, wid: int) -> Workspace | None:
         return self._ws.get(wid)
 
-    def roots(self) -> list[str]:
-        """Every workspace folder on the server: compilers synced into one are not run (final review I3)."""
-        return [w.cfg.workspace.root for w in self.all()]
+    def folders(self, ws: Workspace) -> list[str] | None:
+        """The only folders a workspace's toolchain runs compilers and loads libclang from: tortoise.yaml's
+        server.toolchain_folders for one added in the UI; None (as configured) for tortoise.yaml's own (final review
+        I3)."""
+        return None if ws.seed else self.base.server.toolchain_folders
 
     def seed(self) -> Workspace | None:
         return next((w for w in self.all() if w.seed), None)
@@ -419,8 +421,7 @@ class Registry:
         ws = self._record(row)
         if ws.reason != LOADING:
             raise ConfigError(f"the workspace {ws.name}: {ws.reason}")
-        folders = [r["root"] for r in rows.values()]
         ws.svc = build_services(ws.cfg, self.llm, strong=self.strong, store=self.store, ledger=self.ledger,
-                                home=self.home(ws.id), scope=scope_of(ws.id), roots=lambda: folders, trusted=ws.seed)
+                                home=self.home(ws.id), scope=scope_of(ws.id), folders=self.folders(ws))
         ws.reason = None
         return ws

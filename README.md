@@ -165,6 +165,7 @@ server:
   data_dir: /var/lib/codetortoise   # SQLite database; workspaces/<id>/ holds each workspace's symbol index and toolchain cache
   # tls_cert: /etc/codetortoise/ct.pem   # both set: serve HTTPS directly (plain HTTP on a network address
   # tls_key: /etc/codetortoise/ct.key    #   is allowed but warned about at startup and in a banner)
+  toolchain_folders: [/usr, /opt]   # the only folders a workspace added in the UI runs compilers and loads libclang from
 workspace:
   vcs: p4
   name: main                        # optional: its name in the app (default: the client's name; git: the root folder's name)
@@ -179,7 +180,7 @@ toolchain:
   # libclang: /opt/vendor/lib/libclang.so   # optional: default is found (see Toolchains and libclang)
   search_paths: [/opt/tools]        # optional: folders to search for a newer libclang
   query_compilers: outside_workspace   # run compilers named in compile databases to learn their includes and
-                                    #   macros, except ones inside any workspace folder; "all" or "off"
+                                    #   macros, except ones inside the workspace; "all" or "off"
   strip_flags: []                   # vendor flags libclang must ignore (unknown ones are learned automatically)
   overrides:                        # optional, first match wins
     - match: "dsp/**"               # workspace-relative glob
@@ -327,13 +328,17 @@ and target flags. The target comes from the command (`--target`), an override, `
 name (`arm-none-eabi-gcc` means `arm-none-eabi`), or the compiler's `-dumpmachine`. The Health page lists each group,
 parses one sample file of it (once per server start), and shows the first error if that fails.
 
-Querying runs the compiler program. CodeTortoise doesn't run compilers that live inside any workspace folder on the
-server, since a compile database or toolchain synced from a depot could name any program there; if your toolchain is
-checked in, set `toolchain.query_compilers: all`. For a workspace added in the UI, the library next to such a compiler
-isn't loaded either until its `query_compilers` is `all`, which only the owner of the workspace in tortoise.yaml sets
-(see [Access and protections](#access-and-protections)). `off` never runs a compiler (files then parse without the
-toolchain's built-in include paths and macros). Toolchains installed outside the workspace folders, such as under
-`/opt`, are run and loaded as configured. Server startup runs no compiler; the Health page and reviews do.
+Querying runs the compiler program. CodeTortoise doesn't run compilers that live inside the workspace, since a compile
+database or toolchain synced from the depot could name any program there; if your toolchain is checked in, set
+`toolchain.query_compilers: all`. `off` never runs a compiler (files then parse without the toolchain's built-in
+include paths and macros). Server startup runs no compiler; the Health page and reviews do.
+
+A workspace added in the UI runs compilers and loads libclang only from the folders in `server.toolchain_folders`
+(default `/usr` and `/opt`), plus the libraries `fetch-libclang` installs. A path counts by where it really leads, links
+followed, and that real file is what runs or loads. A compiler elsewhere isn't run, and the Health page says why; a
+library elsewhere is passed over for the next one in the order below. The workspace in tortoise.yaml isn't held to
+these folders. List only folders whose contents you control, never one that holds a workspace or files synced from a
+depot.
 
 libclang only parses, so one upstream library handles every standard target (ARM, AArch64, RISC-V, x86, MIPS,
 PowerPC). A newer library knows more recent flags. The library for a group is, in order: an override's or
@@ -382,9 +387,9 @@ Compilers that are neither GCC- nor clang-compatible (IAR, TI `cl6x`, Green Hill
 - **Only you choose what runs.** The settings under **Advanced** that name programs or libraries the server runs or
   loads (`toolchain.clang`, `libclang`, `search_paths` and `query_compilers`, and an override's `clang` and `libclang`)
   are set only by the owner of the workspace in tortoise.yaml; another owner editing a workspace keeps what is there.
-  Compilers inside any workspace folder are not run, and for a workspace added in the UI the library next to one isn't
-  loaded, unless you set `query_compilers: all` on that workspace. A server started without a workspace in tortoise.yaml
-  has no such owner, so these settings can't be set in the UI there.
+  Whatever its settings or compile databases name, a workspace added in the UI runs compilers and loads libclang only
+  from `server.toolchain_folders` (see [Toolchains and libclang](#toolchains-and-libclang)). A server started without a
+  workspace in tortoise.yaml has no such owner, so these settings can't be set in the UI there.
 - Only paths that map into the base workspace are served. Wildcards, revision specifiers and paths outside the client
   view are refused (HTTP 403), binary files are refused (415), and files over 2 MiB are refused (413).
 - Restricted changelists can be reviewed only if the owner can `describe` them.

@@ -38,7 +38,7 @@ def test_args_for_adds_driver_info_when_libclang_is_not_vendor(tmp_path, monkeyp
     from codetortoise.toolchain import toolchain as tcmod
     db = CompileDb([CompileEntry("/w/a.c", "/w", ("vcc", "--target=arm", "-c", "a.c"), compiler="vcc")])
     tc = Toolchain(ToolchainConfig(clang="/opt/vendor/bin/clang"), db, tmp_path)
-    monkeypatch.setattr(tcmod, "query_driver", lambda driver, flags, lang: DriverInfo(
+    monkeypatch.setattr(tcmod, "query_driver", lambda driver, flags, lang, **k: DriverInfo(
         ("/opt/vendor/lib/clang/17/include", "/opt/vendor/sysroot/usr/include"), (("__VENDOR__", "1"),),
         "/opt/vendor/lib/clang/17"))
     args = tc.args_for("/w/a.c")[2:]                      # after -working-directory /w

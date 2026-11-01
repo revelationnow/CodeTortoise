@@ -60,10 +60,12 @@ def parse_driver_output(stdout: str, stderr: str) -> tuple[list[str], list[tuple
     return dirs, defines
 
 
-def query_driver(driver: str, target_args: list[str], lang: str, timeout: float = 60) -> DriverInfo:
-    """lang: 'c' or 'c++'. Raises RuntimeError if the driver cannot be run."""
+def query_driver(driver: str, target_args: list[str], lang: str, timeout: float = 60,
+                 executable: str | None = None) -> DriverInfo:
+    """lang: 'c' or 'c++'. Raises RuntimeError if the driver cannot be run. `executable`: the file to run in place of
+    `driver`, which stays the program's name (argv[0])."""
     try:
-        r = subprocess.run([driver, *target_args, "-E", "-dM", "-v", "-x", lang, "/dev/null"],
+        r = subprocess.run([driver, *target_args, "-E", "-dM", "-v", "-x", lang, "/dev/null"], executable=executable,
                            capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
     except (OSError, subprocess.TimeoutExpired) as e:
         raise RuntimeError(f"driver query failed: {e}") from e
@@ -72,7 +74,7 @@ def query_driver(driver: str, target_args: list[str], lang: str, timeout: float 
     dirs, defines = parse_driver_output(r.stdout, r.stderr)
     resource_dir = None
     try:
-        rr = subprocess.run([driver, *target_args, "-print-resource-dir"], capture_output=True,
+        rr = subprocess.run([driver, *target_args, "-print-resource-dir"], executable=executable, capture_output=True,
                             text=True, timeout=timeout, stdin=subprocess.DEVNULL)
         if rr.returncode == 0 and rr.stdout.strip():
             resource_dir = rr.stdout.strip()

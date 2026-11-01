@@ -17,6 +17,9 @@ class ServerConfig(BaseModel):
     data_dir: Path = Path(".tortoise")
     tls_cert: Path | None = None     # both set: serve HTTPS (spec §14.2)
     tls_key: Path | None = None
+    # the only folders a workspace added in the UI runs compilers and loads libclang from (final review I3 of spec
+    # 2026-10-31); the workspace described here is not held to them
+    toolchain_folders: list[str] = Field(default_factory=lambda: ["/usr", "/opt"])
 
 
 class WorkspaceConfig(BaseModel):
@@ -184,6 +187,7 @@ def load_config(path: Path, env: Mapping[str, str] | None = None) -> Config:
     if not cfg.server.data_dir.is_absolute():
         cfg.server.data_dir = (base / cfg.server.data_dir).resolve()
     srv = cfg.server
+    srv.toolchain_folders = [f if Path(f).is_absolute() else str((base / f).resolve()) for f in srv.toolchain_folders]
     if (srv.tls_cert is None) != (srv.tls_key is None):
         raise ConfigError("server.tls_cert and server.tls_key must be set together")
     if srv.tls_cert is not None and srv.tls_key is not None:
@@ -233,8 +237,12 @@ def seed_name(cfg: Config) -> str:
 
 
 def parse_settings(text: str | None) -> dict:
-    """A workspace's Advanced settings: tortoise.yaml's `toolchain`, `targets` and `analysis` keys, as YAML text."""
+    """A workspace's Advanced settings: tortoise.yaml's `toolchain`, `targets` and `analysis` keys, as YAML text. No
+    anchors or aliases: an alias repeats what it names without copying it, so a kilobyte of them unfolds into gigabytes
+    wherever the settings are copied out (final review I3 of spec 2026-10-31)."""
     try:
+        if any(isinstance(t, (yaml.AnchorToken, yaml.AliasToken)) for t in yaml.scan(text or "")):
+            raise ConfigError("settings: YAML anchors and aliases (& and *) aren't allowed here")
         got = yaml.safe_load(text or "") or {}
     except yaml.YAMLError as e:
         raise ConfigError(f"settings: not YAML: {e}") from e
