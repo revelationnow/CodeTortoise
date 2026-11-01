@@ -159,6 +159,7 @@ class LibclangChoice:
     kind: str                        # explicit | toolchain | search | fetched | system | bundled
     reason: str
     resource_dir: str | None = None  # built-in headers of that library, passed to every parse
+    passed: tuple[str, ...] = ()     # libraries passed over, each with why (a workspace added in the UI)
 
     @property
     def vendor(self) -> bool:
@@ -233,11 +234,11 @@ def find_libclang(cfg, compiler: str | None = None, override: str | None = None,
         return None
 
     def chosen(lib, kind: str, reason: str) -> LibclangChoice:
-        if passed:
-            names = list(dict.fromkeys(passed))
+        names = tuple(dict.fromkeys(passed))
+        if names:
             reason += ("; not loaded: " + ", ".join(names[:3]) + (f" and {len(names) - 3} more" if len(names) > 3 else ""))
         return LibclangChoice(None if lib is None else str(lib), kind, reason,
-                              None if lib is None else _resource_dir(Path(lib)))
+                              None if lib is None else _resource_dir(Path(lib)), names)
 
     explicit = override or cfg.libclang
     lib = pick([explicit]) if explicit else None

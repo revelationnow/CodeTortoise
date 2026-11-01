@@ -346,17 +346,23 @@ followed, and that real file is what runs or loads. A compiler elsewhere isn't r
 library elsewhere is passed over for the next one in the order below.
 
 Nor does such a workspace run or load anything that someone other than you (the account the server runs as) or root
-can change. The compiler, the programs gcc runs for it (`cc1` and `cc1plus`), the library, and every folder and link on
-the way to them must belong to you or root, and no one else may write to them. Two exceptions: your own private group
-(named after you, with no other members: the default on Debian and Ubuntu) may write, and so may others in a folder
-with the sticky bit set, like `/tmp`, since that bit keeps them from renaming or removing what isn't theirs. Otherwise
-the Health page names the file or folder and the command that fixes it, such as `chmod o-w /opt/tools`. On most
-machines `/usr` and `/opt` belong to root alone, so nothing there is refused.
+can change. That covers the compiler, the library, and every folder and link on the way to them. For gcc it also covers
+each folder gcc names when asked where it looks (`gcc -print-search-dirs`): no one else may change or add a `cc1`,
+`cc1plus` or `specs` file there, since a specs file can have gcc load any program. All of these must belong to you or
+root, and no one else may write to them. Two exceptions:
+- Your own private group may write. That is a group named after you with no other members, whether listed in it or
+  having it as their own group: the default on Debian and Ubuntu.
+- Others may write to a folder with the sticky bit set, like `/tmp`, since that bit keeps them from renaming or
+  removing what isn't theirs. It doesn't keep them from adding a file gcc looks for, so a folder gcc searches gets no
+  such exception.
+
+Otherwise the Health page names the file or folder and the command that fixes it, such as `chmod o-w /opt/tools`; fix
+it and press Recheck. On most machines `/usr` and `/opt` belong to root alone, so nothing there is refused.
 
 The workspace in tortoise.yaml isn't held to any of this, and its own folder never counts as a toolchain folder; a
-workspace added in the UI can't overlap one. The shared libraries a compiler or libclang loads in turn aren't checked
-one by one; they usually sit in the same checked folders, where no one else can add or swap a file. So list only
-folders that hold programs you installed.
+workspace added in the UI can't overlap one. Two things aren't checked: the shared libraries a compiler or libclang
+loads in turn (they usually sit in the same checked folders, where no one else can add or swap a file), and where the
+server's own environment and `PATH` point gcc. So list only folders that hold programs you installed.
 
 libclang only parses, so one upstream library handles every standard target (ARM, AArch64, RISC-V, x86, MIPS,
 PowerPC). A newer library knows more recent flags. The library for a group is, in order: an override's or

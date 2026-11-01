@@ -2,6 +2,7 @@
 I3 of spec 2026-10-31): a workspace added in the UI runs compilers and loads libclang only from the toolchain folders
 tortoise.yaml lists, judged by where a path really leads; tortoise.yaml's own workspace is not held to them."""
 import grp
+import json
 import os
 import pwd
 import shutil
@@ -11,8 +12,10 @@ import subprocess
 import pytest
 from test_toolchain_review_fixes import _compiler, _ws
 
+import codetortoise.toolchain.toolchain as tcmod
 from codetortoise.config import ConfigError, ToolchainConfig, parse_settings, program_settings
 from codetortoise.toolchain.compile_db import load_databases
+from codetortoise.toolchain.libclang import LibclangInfo
 from codetortoise.toolchain.toolchain import Toolchain, changeable
 
 
@@ -193,24 +196,145 @@ def test_a_path_another_account_owns_is_one_it_can_change(tmp_path):
         == f"{tmp_path / 'f'} belongs to {owner}, who can change it (`sudo chown root {tmp_path / 'f'}` fixes it)"
 
 
-def test_a_compiler_that_runs_a_program_anyone_can_change_is_not_run(tmp_path):
-    """gcc preprocesses with cc1 and cc1plus, which it names when asked (-print-prog-name): they are held to the same
-    rule as the compiler."""
-    log, shared = tmp_path / "runs.log", tmp_path / "shared"
-    shared.mkdir()
-    helper = shared / "cc1plus"
-    helper.write_text("")
-    cc = _compiler(tmp_path / "opt" / "bin" / "gcc", log)
+def _gcc(path, log, install, programs, libraries):
+    """A gcc (see _compiler) that names the folders it searches when asked (-print-search-dirs): `install`, where it
+    reads its specs, then the folders it looks in for the programs it runs and for its specs; asked, it logs no run."""
+    cc = _compiler(path, log)
     with open(cc) as fh:
         script = fh.read()
-    with open(cc, "w") as fh:                    # asked for its programs, it runs none of them and logs no run
-        fh.write(script.replace("#!/bin/sh\n", "#!/bin/sh\ncase \"$*\" in "
-                                f"*-print-prog-name=cc1plus*) echo {helper}; exit 0;; *-print-prog-name=*) exit 0;; esac\n", 1))
+    dirs = f"install: {install}\\nprograms: ={':'.join(programs)}\\nlibraries: ={':'.join(libraries)}\\n"
+    with open(cc, "w") as fh:
+        fh.write(script.replace("#!/bin/sh\n", f'#!/bin/sh\ncase "$*" in *-print-search-dirs*) printf "{dirs}"; exit 0;; '
+                                "*-print-prog-name=*) exit 0;; esac\n", 1))
+    return cc
+
+
+def test_a_compiler_that_runs_a_program_anyone_can_change_is_not_run(tmp_path):
+    """gcc preprocesses with cc1 and cc1plus, which it looks for in the folders it names when asked
+    (-print-search-dirs): no one else may change one there or add one where it looks first."""
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "cc1plus").write_text("")
+    cc = _gcc(tmp_path / "opt" / "bin" / "gcc", tmp_path / "runs.log", f"{tmp_path}/opt/lib/", [f"{shared}/"], [])
     shared.chmod(0o755)
     assert _runs(tmp_path, cc, [str(tmp_path / "opt")]) == (True, None)
     shared.chmod(0o777)
     assert _runs(tmp_path, cc, [str(tmp_path / "opt")]) == \
-        (False, f"compiler {cc} is not run: it runs {helper}, and anyone can change {shared} (`chmod o-w {shared}` fixes it)")
+        (False, f"compiler {cc} is not run: it looks for {shared}/cc1, and anyone can add {shared}/cc1 "
+                f"(`chmod o-w {shared}` fixes it)")
+
+
+def test_a_compiler_whose_specs_others_could_add_is_not_run(tmp_path):
+    """gcc reads a specs file from the folders it names (its install folder first), and a specs file can have cc1 load
+    any library: no one else may add one where gcc looks, whether or not one is there, and a sticky folder doesn't
+    stop them adding one."""
+    opt = tmp_path / "opt"
+    install, libexec = opt / "lib" / "gcc" / "x" / "1", opt / "libexec" / "gcc" / "x" / "1"
+    install.mkdir(parents=True)
+    libexec.mkdir(parents=True)
+    cc = _gcc(opt / "bin" / "gcc", tmp_path / "runs.log", f"{install}/", [f"{libexec}/"], [f"{install}/", f"{opt}/x/lib/"])
+    assert _runs(tmp_path, cc, [str(opt)]) == (True, None)
+    install.chmod(0o1777)
+    assert _runs(tmp_path, cc, [str(opt)]) == \
+        (False, f"compiler {cc} is not run: it looks for {install}/specs, and anyone can add {install}/specs "
+                f"(`chmod o-w {install}` fixes it)")
+    install.chmod(0o755)
+    (install / "specs").write_text("")
+    (install / "specs").chmod(0o666)
+    assert _runs(tmp_path, cc, [str(opt)]) == \
+        (False, f"compiler {cc} is not run: it looks for {install}/specs, and anyone can change {install}/specs "
+                f"(`chmod o-w {install}/specs` fixes it)")
+
+
+@pytest.fixture
+def accounts(monkeypatch):
+    """Accounts to add to the system's, as the checks read them; each check below reads them afresh."""
+    extra = []
+    real = pwd.getpwall
+    reads = []
+    monkeypatch.setattr(pwd, "getpwall", lambda: reads.append(1) or [*real(), *extra])
+    tcmod._private_group.cache_clear()
+    yield extra, reads
+    tcmod._private_group.cache_clear()
+
+
+def test_a_group_another_account_has_as_its_own_is_not_the_accounts_private_group(tmp_path, accounts):
+    """An account whose primary group it is belongs to it too, though the group's list doesn't name it."""
+    me, mine = pwd.getpwuid(os.geteuid()), grp.getgrgid(os.getegid())
+    if not (mine.gr_gid == me.pw_gid and mine.gr_name == me.pw_name and set(mine.gr_mem) <= {me.pw_name}):
+        pytest.skip("the account has no private group")
+    d = tmp_path / "d"
+    d.mkdir()
+    d.chmod(0o775)
+    accounts[0].append(pwd.struct_passwd(("deploy", "x", os.geteuid() + 1000, os.getegid(), "", "/", "/bin/false")))
+    assert changeable(str(d)) == f"the group {mine.gr_name} can change {d} (`chmod g-w {d}` fixes it)"
+
+
+def test_the_systems_accounts_are_read_once_for_many_checks(tmp_path, accounts):
+    me, mine = pwd.getpwuid(os.geteuid()), grp.getgrgid(os.getegid())
+    if not (mine.gr_gid == me.pw_gid and mine.gr_name == me.pw_name and set(mine.gr_mem) <= {me.pw_name}):
+        pytest.skip("the account has no private group")
+    d = tmp_path / "d"
+    d.mkdir()
+    d.chmod(0o775)
+    for _ in range(20):
+        assert changeable(str(d)) is None
+    assert len(accounts[1]) == 1
+
+
+def test_the_checks_cost_the_same_for_one_file_as_for_many(tmp_path, monkeypatch):
+    """What not_run judges is kept per compiler until the Health page looks again; a run still checks afresh."""
+    walked = []
+    real = tcmod.changeable
+    monkeypatch.setattr(tcmod, "changeable", lambda *a, **k: walked.append(a[0]) or real(*a, **k))
+    cc = _compiler(tmp_path / "opt" / "bin" / "gcc", tmp_path / "runs.log")     # no target in its name: asked for one
+
+    def walks(n):
+        ws = tmp_path / f"ws{n}"
+        (ws / "src").mkdir(parents=True)
+        entries = []
+        for i in range(n):
+            (ws / "src" / f"a{i}.c").write_text("int a(void) { return 0; }\n")
+            entries.append({"directory": str(ws), "file": f"src/a{i}.c", "arguments": [cc, "-c", f"src/a{i}.c"]})
+        (ws / "compile_commands.json").write_text(json.dumps(entries))
+        tc = Toolchain(ToolchainConfig(), load_databases(ws / "compile_commands.json", ws, None), tmp_path / f"d{n}",
+                       root=ws, folders=[str(tmp_path / "opt")])
+        walked.clear()
+        [g] = tc.groups()
+        for i in range(n):
+            tc.args_for(str(ws / "src" / f"a{i}.c"))
+        assert g.files == n and g.error is None
+        return len(walked)
+
+    assert walks(40) == walks(1)
+
+
+def test_a_compiler_fixed_since_runs_when_the_health_page_looks_again(tmp_path):
+    """Recheck after `chmod`: what was refused is judged afresh (its target comes from its name, so its group stays)."""
+    cc = _compiler(tmp_path / "opt" / "bin" / "arm-none-eabi-gcc", tmp_path / "runs.log")
+    bin_ = tmp_path / "opt" / "bin"
+    bin_.chmod(0o777)
+    tc, file = _toolchain_for(tmp_path, cc, [str(tmp_path / "opt")])
+    tc.args_for(file)
+    assert "anyone can change" in (tc.groups()[0].error or "")
+    bin_.chmod(0o755)
+    tc.again()
+    tc.args_for(file)
+    assert tc.groups()[0].error is None
+
+
+def test_a_library_fixed_since_loads_when_the_health_page_looks_again(tmp_path, monkeypatch):
+    monkeypatch.setattr(tcmod, "library_info", lambda path: LibclangInfo(path, "21.1.0", True))
+    clang, lib = _toolchain(tmp_path / "opt" / "vendor")
+    libdir = tmp_path / "opt" / "vendor" / "lib"
+    libdir.chmod(libdir.stat().st_mode | stat.S_IWOTH)
+    tc, file = _toolchain_for(tmp_path, clang, [str(tmp_path / "opt")], libclang=lib)
+    tc.prepare()
+    assert tc.group_of(file).libclang.path != lib and tc.choice.path != lib
+    libdir.chmod(libdir.stat().st_mode & ~stat.S_IWOTH)
+    tc.again()
+    tc.prepare()
+    assert tc.group_of(file).libclang.path == lib and tc.choice.path == lib
 
 
 def test_a_compiler_named_through_a_link_others_can_swap_is_not_run(tmp_path):
@@ -244,3 +368,48 @@ def test_a_library_anyone_can_change_is_not_loaded_for_a_workspace_added_in_the_
     assert chosen.path != lib and f"{lib} (anyone can change {libdir} (`chmod o-w {libdir}` fixes it))" in chosen.reason
     tc, file = _toolchain_for(tmp_path, clang, None)
     assert tc.group_of(file).libclang.path == lib                # tortoise.yaml's workspace: as before
+
+
+def test_only_the_health_pages_look_judges_afresh(fx, tmp_path, monkeypatch):
+    """Opening the Health page or pressing Recheck (deep) forgets what was judged; the quick checks don't."""
+    from codetortoise.health import run_health
+    from tests.helpers import make_services
+    looks = []
+    monkeypatch.setattr(Toolchain, "again", lambda self: looks.append(self))
+    svc = make_services(fx, tmp_path)
+    run_health(svc, deep=False)
+    assert looks == []
+    run_health(svc, deep=True)
+    assert looks == [svc.toolchain]
+
+
+def test_the_health_page_forgetting_meanwhile_doesnt_break_a_check(tmp_path):
+    """again() can forget the verdicts while a review's thread is judging the same compiler."""
+    class Forgetting(dict):                      # forgets right after each look, as again() in another thread may
+        def __contains__(self, key):
+            had = dict.__contains__(self, key)
+            self.clear()
+            return had
+
+        def get(self, key, default=None):
+            got = dict.get(self, key, default)
+            self.clear()
+            return got
+
+    cc = _compiler(tmp_path / "opt" / "bin" / "cc", tmp_path / "runs.log")
+    tc, _ = _toolchain_for(tmp_path, cc, [str(tmp_path / "opt")])
+    assert tc.not_run(cc) is None
+    tc._verdicts = Forgetting(tc._verdicts)
+    assert tc.not_run(cc) is None
+
+
+def test_a_folder_on_the_way_is_named_though_the_rest_cant_be_read(tmp_path):
+    """Its owner can open it whenever they like: that, not the error, is what the host needs to know."""
+    d = tmp_path / "d"
+    (d / "x").mkdir(parents=True)
+    d.chmod(0o777)
+    (d / "x").chmod(0o000)
+    try:
+        assert changeable(str(d / "x" / "specs"), create=True) == f"anyone can change {d} (`chmod o-w {d}` fixes it)"
+    finally:
+        (d / "x").chmod(0o755)

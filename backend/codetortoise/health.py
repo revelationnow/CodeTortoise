@@ -107,6 +107,8 @@ def run_health(svc: Services, deep: bool = False) -> HealthReport:
     if svc.cdb.problems:
         detail += f"; {len(svc.cdb.problems)} problem(s), e.g. {svc.cdb.problems[0]}"
     checks.append(Check(name="compile_commands", ok=bool(svc.cdb.entries), hard=True, detail=detail))
+    if deep:                                  # the Health page judges afresh what others could change (Recheck)
+        svc.toolchain.again()
     try:
         svc.toolchain.prepare()
         lc = svc.toolchain.libclang
