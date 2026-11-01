@@ -636,6 +636,7 @@ class JobRunner:
         self.ai_jobs = self.pool.jobs
         self._pending: Counter[str] = Counter()          # jobs queued or running, by kind
         self._pending_lock = threading.Lock()
+        self._stop = threading.Event()                   # set by stop(): an index build ends early
 
     def submit_ai(self, rid: int, user: str, kind: str, target: str, fn: Callable[[], None]) -> dict:
         """Queue one AI job for review `rid`; its status ("running", "done", "failed", "refused") is kept in
@@ -676,12 +677,11 @@ class JobRunner:
             self._pending[kind] += n
 
     def busy(self) -> str | None:
-        """Why this workspace's bundle can't be replaced now (an edit swaps it, spec 2026-10-31 §6), or None."""
+        """Why this workspace's bundle can't be replaced now (an edit swaps it, spec 2026-10-31 §6), or None: a review
+        waits or runs. An index build is stopped instead (final review M3)."""
         with self._pending_lock:
             if self._pending["review"]:
                 return "a review is running in this workspace; try again when it finishes"
-            if self._pending["index"]:
-                return "the symbol index is being built in this workspace; try again when it finishes"
         return None
 
     def submit_review(self, rid: int, fresh: bool = False) -> None:
@@ -694,7 +694,16 @@ class JobRunner:
         self._q.put(("index", None))
 
     def stop(self) -> None:
+        """End the queue: an index build under way stops at its next file, and those still queued are dropped (final
+        review M3); reviews still queued run first."""
+        self._stop.set()
         self._q.put(None)
+
+    def join(self, timeout: float | None = None) -> bool:
+        """Wait for the queue to end once stopped; False while it still runs after `timeout` seconds."""
+        if self._thread.is_alive():
+            self._thread.join(timeout)
+        return not self._thread.is_alive()
 
     def _loop(self) -> None:
         while True:
@@ -705,9 +714,9 @@ class JobRunner:
             try:
                 if kind == "review":
                     run_review(arg[0], self.svc, fresh=arg[1])
-                elif kind == "index":
+                elif kind == "index" and not self._stop.is_set():
                     self.index_building = True
-                    self.svc.build_index()
+                    self.svc.build_index(cancel=self._stop)
             except Exception:
                 log.error("job %s failed: %s", job, traceback.format_exc())
             finally:

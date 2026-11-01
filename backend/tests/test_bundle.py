@@ -103,16 +103,24 @@ def test_queues_share_one_ai_pool_and_its_jobs(fx, tmp_path):
     assert b.submit_ai(7, "bob", "flow", "FL2", lambda: None)["id"] == 2     # ids count per review, across queues
 
 
-def test_a_queue_is_busy_while_a_review_or_an_index_build_waits_or_runs(fx, tmp_path):
+def test_a_queue_is_busy_while_a_review_waits_or_runs_and_stopping_it_ends_its_index_build(fx, tmp_path, monkeypatch):
     svc = make_services(fx, tmp_path)
     reviews = JobRunner(svc)                            # not started: what is submitted waits
     assert reviews.busy() is None
     reviews.submit_review(svc.store.create_review("t", "owner", [101]))
     assert reviews.busy() == "a review is running in this workspace; try again when it finishes"
+    building, builds = threading.Event(), []
+
+    def build_index(full=False, cancel=None):           # the first index of a big tree: long
+        builds.append(cancel)
+        building.set()
+        assert cancel.wait(30)
+    monkeypatch.setattr(svc, "build_index", build_index)
     index = JobRunner(svc)
     index.submit_index()
-    assert index.busy() == "the symbol index is being built in this workspace; try again when it finishes"
+    index.submit_index()
+    assert index.busy() is None                         # an edit or a remove stops it instead (final review M3)
     index.start()
+    assert building.wait(10)
     index.stop()
-    index._thread.join(60)
-    assert index.busy() is None
+    assert index.join(10) and len(builds) == 1          # the build under way ended, and the one queued was dropped

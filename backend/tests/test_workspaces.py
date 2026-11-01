@@ -2,6 +2,7 @@
 import json
 import threading
 import time
+from pathlib import Path
 
 import pytest
 from helpers import make_config, make_services
@@ -9,6 +10,7 @@ from test_web import InlineRunner, login
 
 from codetortoise import workspaces
 from codetortoise.config import ConfigError
+from codetortoise.services import Services
 from codetortoise.sinks import marks, set_mark
 from codetortoise.toolchain.libclang import find_libclang
 from codetortoise.workspaces import LOCAL, Conflict, Invalid, Registry
@@ -371,3 +373,28 @@ def test_a_workspace_removed_while_its_bundle_builds_leaves_no_folder_behind(fx,
     for build in later:
         build()
     assert not home.exists() and reg.get(wid) is None
+
+
+def test_an_edit_or_a_remove_stops_the_index_build_under_way(fx, fx_b, tmp_path, monkeypatch):
+    """The first index of a big tree takes long: an owner who saved a wrong setting fixes it, or removes the workspace,
+    at once (final review M3)."""
+    real = Services.build_index
+    under_way = threading.Event()
+
+    def build_index(svc, full=False, cancel=None):              # b's index: long, until it is stopped
+        if Path(svc.cfg.workspace.root) != fx_b.root:
+            return real(svc, full=full, cancel=cancel)
+        under_way.set()
+        assert cancel.wait(30)
+        return 0
+    monkeypatch.setattr(Services, "build_index", build_index)
+    reg = Registry.open(make_config(fx, tmp_path / "data"), spawn=lambda fn: fn())     # queues on their own threads
+    reg.load()
+    b = reg.add(fields(fx_b.root), "owner")
+    assert under_way.wait(10)
+    under_way.clear()
+    edited = reg.edit(b.id, fields(fx_b.root, name="b2"))      # not refused
+    assert b.runner.join(10) and under_way.wait(10)             # its build stopped; the new bundle's started over
+    reg.remove(edited.id)
+    assert edited.runner.join(10)
+    reg.seed().runner.stop()

@@ -1,6 +1,7 @@
 """Symbol index at production scale: flat memory, compile-DB scope, incremental rebuilds."""
 import os
 import sqlite3
+import threading
 
 from codetortoise.index.symbols import SymbolIndex, _parse_file
 
@@ -30,6 +31,25 @@ def test_results_are_written_in_batches_while_parsing(tmp_path):
     assert idx.build(tmp_path / "ws", parser=parser, batch=2) == 9
     assert committed[:3] == [0, 0, 2] and committed[-1] == 8                # never all held back until the end
     assert len(idx.files()) == 9 and root
+
+
+def test_a_stopped_build_keeps_what_it_wrote_and_leaves_the_rest_to_the_next(tmp_path):
+    """An edit or a remove of its workspace stops an index build (final review M3 of spec 2026-10-31): what is written
+    stays, nothing more is written, and the next build parses the rest."""
+    _tree(tmp_path / "ws", {f"f{i}.c": f"int f{i}(void) {{ return 0; }}\n" for i in range(9)})
+    idx = SymbolIndex(tmp_path / "s.db")
+    stop = threading.Event()
+    parsed = []
+
+    def parser(path):
+        parsed.append(path)
+        if len(parsed) == 5:
+            stop.set()                                                         # stopped while this file is parsed
+        return _parse_file(path)
+    idx.build(tmp_path / "ws", parser=parser, batch=2, cancel=stop)
+    assert len(parsed) == 5 and len(idx.files()) == 4 and idx.generation() == 0
+    assert idx.build(tmp_path / "ws", parser=parser) == 9
+    assert len(parsed) == 10 and idx.generation() == 1
 
 
 def test_compile_db_scope_indexes_its_files_and_the_headers_they_include(tmp_path):

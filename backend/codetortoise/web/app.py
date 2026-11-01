@@ -733,7 +733,7 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
 
     @app.put("/api/workspaces/{wid}")
     def edit_workspace(body: WorkspaceIn, o: Owned = Depends(managed)):
-        """New fields, a new bundle swapped in; refused for the seed and while its queue has work (§6)."""
+        """New fields, a new bundle swapped in; refused for the seed and while a review waits or runs in it (§6)."""
         if len(body.settings) > 100_000:
             raise HTTPException(422, "settings: at most 100000 characters")
         return saved(lambda: reg.edit(o.ws.id, body.fields(),

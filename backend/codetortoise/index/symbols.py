@@ -4,6 +4,7 @@ from __future__ import annotations
 import multiprocessing as mp
 import os
 import sqlite3
+import threading
 from collections.abc import Callable, Iterator
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
@@ -135,14 +136,17 @@ class SymbolIndex:
 
     def build(self, root: Path, workers: int = 0, include_dirs: list[str] | None = None,
               parser: Callable[[str], tuple[str, ParsedFile | None]] = _parse_file, *,
-              seeds: list[str] | None = None, full: bool = False, batch: int = 256) -> int:
+              seeds: list[str] | None = None, full: bool = False, batch: int = 256,
+              cancel: threading.Event | None = None) -> int:
         """Bring the index up to date. Returns the number of files in it.
 
         Scope: every C/C++ file under `root`, or with `seeds` (the compile database's files) those files plus the
         workspace headers they include, transitively. Incremental: only files whose size or modification time changed
         are parsed again (`full` re-parses everything); files that left the scope are dropped. Results are written in
         batches of `batch` files as they are parsed, so memory stays flat at any workspace size. `include_dirs`
-        (canonical, from the compile DB) resolve `#include` targets.
+        (canonical, from the compile DB) resolve `#include` targets. Once `cancel` is set (an edit or a remove of the
+        workspace, final review M3 of spec 2026-10-31) the build stops at the next parsed file: what is written stays,
+        nothing more is, and the next build parses the rest.
         """
         root = Path(root)
         db = self._db
@@ -176,6 +180,8 @@ class SymbolIndex:
                     stale.append(f)
             pending: list[tuple[str, ParsedFile | None]] = []
             for path, pf in self._parse_stream(stale, workers, parser):
+                if cancel is not None and cancel.is_set():
+                    return db.execute("SELECT COUNT(*) FROM sym_files").fetchone()[0]
                 includes[path] = pf.includes if pf is not None else []
                 pending.append((path, pf))
                 if len(pending) >= batch:

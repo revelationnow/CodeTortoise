@@ -25,6 +25,7 @@ from codetortoise.vcs.p4runner import P4Runner
 
 LOCAL = "local"            # the Perforce server of a workspace with no p4port (§5)
 LOADING = "loading"        # a workspace's reason while its bundle builds
+STOP_WAIT = 600.0          # seconds a new bundle waits for the stopped queue it replaces to end
 NO_WORKSPACE = ("no workspace to serve: add a `workspace:` section to tortoise.yaml, or set server.data_dir to a data "
                 "folder that already holds one")
 log = logging.getLogger(__name__)
@@ -197,13 +198,13 @@ class Registry:
             ws.loaded.set()                              # nothing to build until its owner edits it
         return ws
 
-    def _start(self, ws: Workspace, wait: bool = False) -> None:
+    def _start(self, ws: Workspace, wait: bool = False, after: JobRunner | None = None, reindex: bool = False) -> None:
         if ws.reason != LOADING:
             return
         if wait:
-            self._build(ws)
+            self._build(ws, after, reindex)
         else:
-            self.spawn(lambda: self._build(ws))
+            self.spawn(lambda: self._build(ws, after, reindex))
 
     def settle(self, ws: Workspace, timeout: float = 120.0) -> None:
         """Wait while a workspace's bundle is still being built (right after startup), so a request then is answered
@@ -211,15 +212,16 @@ class Registry:
         if ws.reason == LOADING:
             ws.loaded.wait(timeout)
 
-    def _build(self, ws: Workspace) -> None:
+    def _build(self, ws: Workspace, after: JobRunner | None = None, reindex: bool = False) -> None:
         try:
-            self._load(ws)
+            self._load(ws, after, reindex)
         finally:
             ws.loaded.set()
 
-    def _load(self, ws: Workspace) -> None:
+    def _load(self, ws: Workspace, after: JobRunner | None = None, reindex: bool = False) -> None:
         """Build a workspace's bundle and start its queue; a failure keeps the workspace, not ready, with the reason
-        (§11). An empty symbol index is built when the bundle first loads (§6)."""
+        (§11). Its symbol index is built when the bundle first loads, or with `reindex` (§6). `after`: the stopped queue
+        of the bundle it replaces, whose index build ends before this one's starts."""
         svc = runner = None
         try:
             svc = build_services(ws.cfg, self.llm, strong=self.strong, store=self.store, ledger=self.ledger,
@@ -229,6 +231,8 @@ class Registry:
         except Exception as e:  # a missing root, an unreadable compile database: shown, never fatal
             ws.reason = f"could not load: {type(e).__name__}: {e}"
             log.warning("workspace %s: %s", ws.name, ws.reason)
+        if runner is not None and after is not None and not after.join(STOP_WAIT):
+            log.warning("workspace %s: the queue it replaces still runs after %.0f s", ws.name, STOP_WAIT)
         with self._lock:
             kept = self._ws.get(ws.id) is ws             # not removed or replaced while it was building
             if kept and runner is not None:
@@ -243,7 +247,7 @@ class Registry:
             return
         if runner is None:
             return
-        if svc.index.generation() == 0:
+        if reindex or svc.index.generation() == 0:
             runner.submit_index()
         self._check(ws)
 
@@ -365,8 +369,9 @@ class Registry:
         return ws
 
     def edit(self, wid: int, fields: dict, check: Callable[[dict], None] | None = None) -> Workspace:
-        """Store its new fields, build a new bundle and swap it in; refused while its queue has work (§6). `check`
-        vets the change against its row as stored once no other change of it runs (final review I3-M7)."""
+        """Store its new fields, build a new bundle and swap it in; refused while a review waits or runs in its queue
+        (§6), while an index build there is stopped (final review M3). `check` vets the change against its row as
+        stored once no other change of it runs (final review I3-M7)."""
         with self.guard(wid):
             old = self._editable(wid)
             if check is not None:
@@ -381,10 +386,9 @@ class Registry:
             with self._lock:
                 self._ws[wid] = ws
             if old.runner is not None:
-                old.runner.stop()
-            self._start(ws, wait=True)
-            if ws.runner is not None:
-                ws.runner.submit_index()                     # a new root or compile database: the index catches up
+                old.runner.stop()                            # its index build ends early (final review M3)
+            # a new root or compile database: the index catches up once the old queue's build has ended
+            self._start(ws, wait=True, after=old.runner, reindex=True)
         return ws
 
     def remove(self, wid: int) -> None:
@@ -398,7 +402,7 @@ class Registry:
             with self._lock:
                 self._ws.pop(wid, None)
             if ws.runner is not None:
-                ws.runner.stop()
+                ws.runner.stop()                             # its index build ends early (final review M3)
             self.store.delete_workspace(wid)
             self.store.kv_delete_scope(scope_of(wid))
             shutil.rmtree(self.home(wid), ignore_errors=True)
