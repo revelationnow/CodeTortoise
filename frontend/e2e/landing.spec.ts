@@ -62,6 +62,14 @@ test.describe("desktop", () => {
     await expect(page.locator(".rv-hello")).toContainText("bob");
   });
 
+  test("signing in from a link goes back to the whole address, its query too", async ({ page }) => {
+    await page.goto("/workspaces?probe=1");
+    await expect(page).toHaveURL(/\/login\?next=/);
+    await page.getByLabel("P4 user").fill("demo");
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page).toHaveURL(/\/workspaces\?probe=1$/);
+  });
+
   test("login is a card with the mascot", async ({ page }) => {
     await page.goto("/login");
     await expect(page.locator(".login-card svg")).toBeVisible();
