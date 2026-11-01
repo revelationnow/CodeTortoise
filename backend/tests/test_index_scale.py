@@ -3,6 +3,7 @@ import os
 import sqlite3
 import threading
 
+from codetortoise.index import symbols
 from codetortoise.index.symbols import SymbolIndex, _parse_file
 
 
@@ -50,6 +51,39 @@ def test_a_stopped_build_keeps_what_it_wrote_and_leaves_the_rest_to_the_next(tmp
     assert len(parsed) == 5 and len(idx.files()) == 4 and idx.generation() == 0
     assert idx.build(tmp_path / "ws", parser=parser) == 9
     assert len(parsed) == 10 and idx.generation() == 1
+
+
+def test_a_stop_is_seen_before_and_during_the_walk_and_between_rounds(tmp_path, monkeypatch):
+    """Not only per parsed file (review of branch minors, M8): a build stopped before it starts walks nothing, one
+    stopped during its walk walks no further, and one stopped with nothing left to parse doesn't go on to clean up and
+    bump the index."""
+    _tree(tmp_path / "ws", {f"d{i}/f.c": "int f(void) { return 0; }\n" for i in range(5)})
+    idx = SymbolIndex(tmp_path / "s.db")
+    assert idx.build(tmp_path / "ws") == 5 and idx.generation() == 1
+    stop, seen, is_source = threading.Event(), [], symbols.is_source
+
+    def walked(path):                                                          # each file the walk looks at
+        seen.append(path)
+        stop.set()                                                             # stopped during the walk
+        return is_source(path)
+    monkeypatch.setattr(symbols, "is_source", walked)
+    stop.set()
+    idx.build(tmp_path / "ws", cancel=stop)
+    assert seen == [] and idx.generation() == 1
+    stop.clear()
+    idx.build(tmp_path / "ws", cancel=stop)
+    assert len(seen) == 1 and idx.generation() == 1
+    monkeypatch.setattr(symbols, "is_source", is_source)
+    stop.clear()
+    walk = symbols.iter_source_files
+
+    def then_stopped(root, cancel=None):
+        got = walk(root, cancel)
+        stop.set()                                                             # stopped as the walk ends
+        return got
+    monkeypatch.setattr(symbols, "iter_source_files", then_stopped)
+    idx.build(tmp_path / "ws", cancel=stop)
+    assert idx.generation() == 1 and len(idx.files()) == 5
 
 
 def test_compile_db_scope_indexes_its_files_and_the_headers_they_include(tmp_path):

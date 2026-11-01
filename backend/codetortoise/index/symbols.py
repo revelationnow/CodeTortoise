@@ -66,9 +66,12 @@ def _parse_file(path: str) -> tuple[str, ParsedFile | None]:
         return path, None
 
 
-def iter_source_files(root: Path) -> list[str]:
+def iter_source_files(root: Path, cancel: threading.Event | None = None) -> list[str]:
+    """The C/C++ files under `root`; the walk ends early once `cancel` is set (its build then stops)."""
     out = []
     for dirpath, dirnames, filenames in os.walk(root):
+        if cancel is not None and cancel.is_set():
+            break
         dirnames[:] = [d for d in dirnames if not d.startswith(".")]
         for f in filenames:
             p = os.path.join(dirpath, f)
@@ -145,17 +148,23 @@ class SymbolIndex:
         are parsed again (`full` re-parses everything); files that left the scope are dropped. Results are written in
         batches of `batch` files as they are parsed, so memory stays flat at any workspace size. `include_dirs`
         (canonical, from the compile DB) resolve `#include` targets. Once `cancel` is set (an edit or a remove of the
-        workspace, final review M3 of spec 2026-10-31) the build stops at the next parsed file: what is written stays,
-        nothing more is, and the next build parses the rest.
+        workspace, final review M3 of spec 2026-10-31) the build stops at the next parsed file, or before or during its
+        walk, a round of headers or its clean-up (review of branch minors, M8): what is written stays, nothing more is,
+        and the next build parses the rest.
         """
         root = Path(root)
         db = self._db
+
+        def stopped() -> bool:
+            return cancel is not None and cancel.is_set()
+        if stopped():
+            return self._count()
         if full:
             with db:
                 for t in _PER_FILE:
                     db.execute(f"DELETE FROM {t}")
         stored = {p: (m, z) for p, m, z in db.execute("SELECT path, mtime_ns, size FROM sym_stat")}
-        everything = iter_source_files(root)
+        everything = iter_source_files(root, cancel)
         if seeds is None:
             queue, headers = everything, None
         else:
@@ -169,6 +178,8 @@ class SymbolIndex:
         self.skipped = []
         scope: set[str] = set()
         while queue:
+            if stopped():
+                return self._count()
             scope.update(queue)
             includes: dict[str, list[str]] = {}
             stale = []
@@ -180,8 +191,8 @@ class SymbolIndex:
                     stale.append(f)
             pending: list[tuple[str, ParsedFile | None]] = []
             for path, pf in self._parse_stream(stale, workers, parser):
-                if cancel is not None and cancel.is_set():
-                    return db.execute("SELECT COUNT(*) FROM sym_files").fetchone()[0]
+                if stopped():
+                    return self._count()
                 includes[path] = pf.includes if pf is not None else []
                 pending.append((path, pf))
                 if len(pending) >= batch:
@@ -193,6 +204,8 @@ class SymbolIndex:
             found = {t for f, incs in includes.items() for inc in incs
                      for t in _resolve(f, inc, headers, by_base, include_dirs, memo)}
             queue = sorted(found - scope)
+        if stopped():
+            return self._count()
         with db:
             gone = [p for (p,) in db.execute("SELECT path FROM sym_files UNION SELECT path FROM sym_stat")
                     if p not in scope]
@@ -203,7 +216,10 @@ class SymbolIndex:
             db.executemany("INSERT INTO sym_inc_resolved VALUES(?,?)", self._resolve_includes(include_dirs))
             db.execute("INSERT OR REPLACE INTO sym_meta VALUES('generation', ?)", (str(self.generation() + 1),))
             db.execute("INSERT OR REPLACE INTO sym_meta VALUES('root', ?)", (str(root),))
-        return db.execute("SELECT COUNT(*) FROM sym_files").fetchone()[0]
+        return self._count()
+
+    def _count(self) -> int:
+        return self._db.execute("SELECT COUNT(*) FROM sym_files").fetchone()[0]
 
     def _write(self, results: list[tuple[str, ParsedFile | None]]) -> None:
         """Replace the rows of each parsed file in one transaction; a file that could not be parsed is removed."""
