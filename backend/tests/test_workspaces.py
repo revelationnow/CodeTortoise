@@ -492,3 +492,17 @@ def test_a_recheck_that_loads_an_edited_workspace_builds_the_index_its_edit_aske
     monkeypatch.setattr(workspaces, "build_services", real)
     reg.recheck(edited)
     assert edited.ready and edited.svc.index.generation() == 2
+
+
+def test_an_error_escaping_a_workspaces_checks_is_why_it_isnt_ready(fx, fx_b, tmp_path, monkeypatch):
+    """A failure escaping the checks of a bundle built in the background is shown as its reason, so its row never stays
+    "loading" (review of branch minors, M11)."""
+    reg = server(fx, tmp_path)
+    reg.load()
+
+    def broken(svc, deep=False):
+        raise RuntimeError("the checks broke")
+    monkeypatch.setattr(workspaces, "run_health", broken)
+    ws = reg.add(fields(fx_b.root), "owner")
+    assert ws.loaded.is_set() and not ws.ready
+    assert ws.reason == "its checks could not run: RuntimeError: the checks broke"

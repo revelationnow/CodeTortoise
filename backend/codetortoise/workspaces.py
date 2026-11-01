@@ -231,6 +231,9 @@ class Registry:
     def _build(self, ws: Workspace) -> None:
         try:
             self._load(ws)
+        except Exception as e:  # shown as why it isn't ready: its row never stays loading (review of branch minors, M11)
+            ws.reason = f"its checks could not run: {type(e).__name__}: {e}"
+            log.exception("workspace %s: %s", ws.name, ws.reason)
         finally:
             ws.loaded.set()
 
