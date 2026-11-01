@@ -100,6 +100,15 @@ server: {toolchain_folders: [/opt, tools]}
     assert cfg.server.toolchain_folders == ["/opt", str((tmp_path / "tools").resolve())]
 
 
+def test_the_whole_disk_is_not_a_toolchain_folder(tmp_path):
+    """It would hold every workspace, so a workspace added in the UI could run anything synced to it."""
+    (tmp_path / "root-link").symlink_to("/")
+    for entry in ("/", "/usr/..", "root-link"):
+        with pytest.raises(ConfigError, match=f"server.toolchain_folders: {entry} is the whole disk"):
+            load_config(write(tmp_path, "owner: a\nworkspace: {vcs: git, root: /w, compile_commands: /w/cc.json}\n"
+                                        f"server: {{toolchain_folders: [/opt, {entry}]}}\n"))
+
+
 def test_tls_cert_without_key_is_a_config_error(tmp_path):
     with pytest.raises(ConfigError, match="tls_cert and server.tls_key"):
         load_config(write(tmp_path, "owner: a\nworkspace: {vcs: git, root: /w, compile_commands: /w/cc.json}\n"

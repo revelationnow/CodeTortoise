@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
@@ -187,7 +188,14 @@ def load_config(path: Path, env: Mapping[str, str] | None = None) -> Config:
     if not cfg.server.data_dir.is_absolute():
         cfg.server.data_dir = (base / cfg.server.data_dir).resolve()
     srv = cfg.server
-    srv.toolchain_folders = [f if Path(f).is_absolute() else str((base / f).resolve()) for f in srv.toolchain_folders]
+    folders = []
+    for f in srv.toolchain_folders:
+        full = f if Path(f).is_absolute() else str((base / f).resolve())
+        if os.path.realpath(full) == "/":
+            raise ConfigError(f"server.toolchain_folders: {f} is the whole disk, every workspace on it included; list "
+                              "the folders that hold toolchains")
+        folders.append(full)
+    srv.toolchain_folders = folders
     if (srv.tls_cert is None) != (srv.tls_key is None):
         raise ConfigError("server.tls_cert and server.tls_key must be set together")
     if srv.tls_cert is not None and srv.tls_key is not None:
