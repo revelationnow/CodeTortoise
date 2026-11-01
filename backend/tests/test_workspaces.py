@@ -4,7 +4,7 @@ import threading
 
 import pytest
 from helpers import make_config, make_services
-from test_web import InlineRunner
+from test_web import InlineRunner, login
 
 from codetortoise import workspaces
 from codetortoise.config import ConfigError
@@ -45,6 +45,31 @@ def test_a_request_right_after_startup_waits_for_its_workspace_to_load(fx, tmp_p
     assert ws.reason == workspaces.LOADING and not ws.loaded.is_set()
     reg.settle(ws)
     assert ws.ready and ws.loaded.is_set()
+
+
+def test_ai_answers_wait_for_a_loading_workspace(fx, tmp_path):
+    """Right after a start, the AI panel and an @tortoise question wait for the workspace's bundle as other requests
+    do, rather than saying it isn't loaded (final review M6 of spec 2026-10-31)."""
+    from test_tortoise import _ask, _reply_to
+
+    from codetortoise.web.app import create_app, make_authenticator
+    first = server(fx, tmp_path)
+    first.load()
+    rid = login(create_app(first, make_authenticator(first)), "owner").post("/api/reviews", json={"cls": [101]}).json()["id"]
+
+    def started(llm):
+        reg = Registry.open(make_config(fx, tmp_path / "data"), spawn=lambda fn: threading.Timer(0.3, fn).start(),
+                            runner_class=InlineRunner)
+        reg.llm = llm
+        reg.load()
+        return login(create_app(reg, make_authenticator(reg)), "owner")
+    class Llm:                                                   # a configured AI that Health finds answering
+        def ping(self):
+            return True
+    assert started(Llm()).get(f"/api/reviews/{rid}/ai").json()["llm"]
+    owner = started(None)
+    q = _ask(owner, rid, "@tortoise hello")
+    assert [r["body"] for r in _reply_to(owner, rid, q["id"])] == ["I can't answer: no AI is configured for CodeTortoise."]
 
 
 def test_with_no_workspace_the_server_names_both_ways_in(fx, tmp_path):

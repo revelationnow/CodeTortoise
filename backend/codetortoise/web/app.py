@@ -763,6 +763,7 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
 
     @app.get("/api/reviews/{rid}/ai")
     def ai_view(rid: int, a: Access = Depends(in_review)):
+        reg.settle(a.ws)                               # right after a start: what its bundle has, once built
         svc, cfg, ledger = a.ws.svc, a.ws.cfg, reg.ledger
         b = cfg.llm.budget
         u = ledger.usage(rid)
@@ -815,6 +816,7 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
 
     def ask_tortoise(a: Access, question: dict) -> None:
         """Post tortoise's reply in the question's thread and answer it as a job (spec 2026-10-03 §5)."""
+        reg.settle(a.ws)                               # right after a start: answered once the bundle is built
         rid, user, svc = a.rid, a.user, a.ws.svc
         root = question["parent_id"] or question["id"]
         reply = store.add_comment(rid, tortoise.AUTHOR, "thinking…", question["anchor_kind"], question["anchor"], root)
