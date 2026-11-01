@@ -282,8 +282,8 @@ and the menu under your name lists each sign-in ("`<server>` as `<user>`") with 
 a review on a server you aren't signed in to asks you to sign in there, then opens the review.
 
 On the command line, `index`, `review`, `stories-check` and `check-parse` take `--workspace NAME`; without it they use
-the workspace in `tortoise.yaml`, or the only one there is. `serve` also starts from a file without a `workspace:`
-section when its data folder already holds a workspace.
+the workspace in `tortoise.yaml`, or the only one there is (`stories-check` uses its review's workspace). `serve` also
+starts from a file without a `workspace:` section when its data folder already holds a workspace.
 
 Upgrading a single-workspace server: the first start on its data folder gives the existing reviews and shared-sink marks
 to the workspace in `tortoise.yaml`, ends the old sign-ins (everyone signs in again), and rebuilds that workspace's

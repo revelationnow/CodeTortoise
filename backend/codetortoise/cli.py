@@ -29,10 +29,11 @@ def plain_http_warning(server: ServerConfig) -> str | None:
             "network unencrypted. Set server.tls_cert/tls_key, or bind 127.0.0.1.")
 
 
-def _workspace(args):
-    """The workspace a tool works on (spec 2026-10-31 §10): --workspace, else the seed, else the only one."""
+def _workspace(args, review: int | None = None):
+    """The workspace a tool works on (spec 2026-10-31 §10): --workspace, else the review's, else the seed, else the
+    only one."""
     from codetortoise.workspaces import Registry
-    return Registry.open(load_config(Path(args.config))).tool_workspace(args.workspace)
+    return Registry.open(load_config(Path(args.config))).tool_workspace(args.workspace, review)
 
 
 def cmd_serve(args) -> int:
@@ -82,7 +83,7 @@ def cmd_review(args) -> int:
 
 def cmd_stories_check(args) -> int:
     from codetortoise.stories_check import stories_check
-    svc = _workspace(args).svc
+    svc = _workspace(args, args.review).svc
     try:
         return stories_check(svc, args.review, args.runs)
     except ValueError as e:
@@ -225,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
     s.set_defaults(fn=cmd_review)
     s = sub.add_parser("stories-check", help="run tier 1's stories N times on a review and print how often they agree")
     s.add_argument("--config", required=True)
-    s.add_argument("--workspace", help="the workspace's name (default: the one in tortoise.yaml, else the only one)")
+    s.add_argument("--workspace", help="the workspace's name (default: the review's)")
     s.add_argument("review", type=int)
     s.add_argument("--runs", type=int, default=3)
     s.set_defaults(fn=cmd_stories_check)

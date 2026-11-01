@@ -67,6 +67,6 @@ def test_stories_check_needs_a_strong_model(fx, tmp_path, capsys, monkeypatch):
     svc = make_services(fx, tmp_path)
     rid = svc.store.create_review("t", "owner", [101, 102])
     run_review(rid, svc)
-    monkeypatch.setattr("codetortoise.cli._workspace", lambda args: SimpleNamespace(svc=svc))
+    monkeypatch.setattr("codetortoise.cli._workspace", lambda args, review=None: SimpleNamespace(svc=svc))
     assert main(["stories-check", "--config", "x.yaml", str(rid), "--runs", "2"]) == 1
     assert "no strong model configured (llm.strong)" in capsys.readouterr().err

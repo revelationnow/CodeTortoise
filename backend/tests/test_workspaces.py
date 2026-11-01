@@ -279,6 +279,10 @@ def test_a_tool_works_on_the_named_workspace_else_the_seed_else_the_only_one(fx,
     data = tmp_path / "data"
     assert Registry.open(make_config(fx, data)).tool_workspace("b").name == "b"
     assert Registry.open(make_config(fx, data)).tool_workspace(None).seed
+    on_b = reg.store.create_review("t", "owner", [101], workspace_id=next(w.id for w in reg.all() if w.name == "b"))
+    older = reg.store.create_review("t", "owner", [101])                # made before workspaces: the seed's
+    assert Registry.open(make_config(fx, data)).tool_workspace(review=on_b).name == "b"   # final review M7
+    assert Registry.open(make_config(fx, data)).tool_workspace(review=older).seed
     bare = make_config(fx, data, workspace=None)
     with pytest.raises(ConfigError, match=rf"several workspaces: name one with --workspace \(b, {fx.root.name}\)"):
         Registry.open(bare).tool_workspace(None)

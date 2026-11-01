@@ -429,12 +429,15 @@ class Registry:
             raise Invalid(str(e)) from e
 
     # ---- command-line tools (§10) -------------------------------------------------------
-    def tool_workspace(self, name: str | None = None) -> Workspace:
-        """The workspace a command-line tool works on: the one named, else the seed, else the only one; its bundle
-        built here, without a queue."""
+    def tool_workspace(self, name: str | None = None, review: int | None = None) -> Workspace:
+        """The workspace a command-line tool works on: the one named, else the `review`'s (final review M7), else the
+        seed, else the only one; its bundle built here, without a queue."""
         if self.base.workspace is not None:
             self._register_seed()
         rows = {r["name"]: r for r in self.store.list_workspaces()}
+        got = self.store.get_review(review) if name is None and review is not None else None
+        if got is not None and got.get("workspace_id") is not None:
+            name = next((n for n, r in rows.items() if r["id"] == got["workspace_id"]), None)
         if name is not None:
             row = rows.get(name)
             if row is None:
