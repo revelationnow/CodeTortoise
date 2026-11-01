@@ -19,6 +19,19 @@ from codetortoise.vcs.gitfixture import GitFixtureSource
 _libclang.SYSTEM_GLOBS = []
 
 
+@pytest.fixture
+def closed(tmp_path):
+    """For tests of the rule that a workspace added in the UI runs and loads only what root and the server's account
+    alone can change: skipped, saying why, when a folder above tmp_path is open to others (a TMPDIR that a shared group
+    can write, say), since the rule then refuses everything below it (final review of branch deferred-minors, M8)."""
+    from codetortoise.toolchain.toolchain import changeable
+    why = changeable(str(tmp_path))
+    if why:
+        pytest.skip(f"the folders above the test's temp folder aren't closed to others ({why}); run the tests with a "
+                    "TMPDIR only you and root can change")
+    return tmp_path
+
+
 @pytest.fixture(scope="session")
 def fx(tmp_path_factory):
     """Git-backed fixture workspace checked out at the base commit (CLs 101 and 102 exist as commits)."""

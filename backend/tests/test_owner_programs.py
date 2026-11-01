@@ -22,6 +22,13 @@ from codetortoise.toolchain.libclang import LibclangInfo
 from codetortoise.toolchain.toolchain import Toolchain, changeable
 
 
+@pytest.fixture(autouse=True)
+def _closed(request):
+    """Each test here that makes folders judges them by who can change them: see conftest's `closed`."""
+    if "tmp_path" in request.fixturenames:
+        request.getfixturevalue("closed")
+
+
 def _toolchain(base):
     """A clang toolchain with its own library: base/bin/clang and base/lib/libclang.so."""
     (base / "bin").mkdir(parents=True)

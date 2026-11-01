@@ -346,10 +346,11 @@ followed, and that real file is what runs or loads. A compiler elsewhere isn't r
 library elsewhere is passed over for the next one in the order below.
 
 Nor does such a workspace run or load anything that someone other than you (the account the server runs as) or root
-can change. That covers the compiler, the library, and every folder and link on the way to them. For gcc it also covers
-each folder gcc names when asked where it looks (`gcc -print-search-dirs`): no one else may change or add a `cc1`,
-`cc1plus` or `specs` file there, since a specs file can have gcc load any program. All of these must belong to you or
-root, and no one else may write to them. Two exceptions:
+can change. That covers the compiler and every folder and link on the way to it, and the library where it really is
+(links to it followed first) with every folder above it. For gcc it also covers each folder gcc names when asked where
+it looks (`gcc -print-search-dirs`): no one else may change or add a `cc1`, `cc1plus` or `specs` file there, since a
+specs file can have gcc load any program. All of these must belong to you or root, and no one else may write to them.
+Two exceptions:
 - Your own private group may write. That is a group named after you with no other members, whether listed in it or
   having it as their own group: the default on Debian and Ubuntu. An access list (ACL) that names others takes that
   away, and so does one the server can't read; NFSv4 access lists aren't read.
@@ -362,7 +363,10 @@ For a compiler installed in a folder of its own inside a toolchain folder, it al
 of it at once, such as `chmod -R go-w /opt/tools`. For a folder another account owns, moving the toolchain to a folder
 only you and root can change is the other way. Fix it and press Recheck. The server's log says each refusal once as
 well, so a toolchain refused after an upgrade shows there before anyone opens the Health page. On most machines `/usr`
-and `/opt` belong to root alone, so nothing there is refused.
+and `/opt` belong to root alone, so nothing there is refused. Debian installed before version 10 (buster) is one
+exception: there `/usr/local` and the folders in it belong to the group `staff`, which may write to them, so a toolchain
+under `/usr/local` is refused until `sudo chmod g-w` is run on the folders named (members of `staff` then can't install
+there).
 
 The workspace in tortoise.yaml isn't held to any of this, and its own folder never counts as a toolchain folder; a
 workspace added in the UI can't overlap one. Two things aren't checked: the shared libraries a compiler or libclang

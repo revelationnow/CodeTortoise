@@ -220,7 +220,7 @@ def test_sign_in_runs_p4_from_a_perforce_workspace_on_that_server(fx, fx_b, tmp_
     assert ws.svc.p4.user == "amy"                               # its reads run as its owner
 
 
-def test_only_workspaces_added_in_the_ui_are_held_to_the_toolchain_folders(fx, fx_b, tmp_path):
+def test_only_workspaces_added_in_the_ui_are_held_to_the_toolchain_folders(fx, fx_b, tmp_path, closed):
     """A workspace added in the UI runs compilers only from tortoise.yaml's toolchain folders; tortoise.yaml's own
     workspace is not held to them (final review I3), in the server and in a command-line tool alike."""
     opt = tmp_path / "opt"
@@ -264,7 +264,7 @@ def test_a_stored_workspace_that_overlaps_a_toolchain_folder_loads_not_ready(fx,
     assert "toolchain folder" in (b.reason or "") and b.svc is None
 
 
-def test_the_seeds_folder_never_counts_as_a_toolchain_folder(fx, fx_b, tmp_path):
+def test_the_seeds_folder_never_counts_as_a_toolchain_folder(fx, fx_b, tmp_path, closed):
     """tortoise.yaml's workspace may sit in a toolchain folder, but its synced files still don't run for a workspace
     added in the UI (final review I3)."""
     opt = tmp_path / "opt"
