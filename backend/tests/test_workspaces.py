@@ -190,6 +190,20 @@ def test_sign_in_runs_p4_from_a_perforce_workspace_on_that_server(fx, fx_b, tmp_
     assert ws.svc.p4.user == "amy"                               # its reads run as its owner
 
 
+def test_every_workspace_judges_compilers_against_every_workspace_folder(fx, fx_b, tmp_path):
+    """A compiler inside any workspace on the server is not run, and only tortoise.yaml's workspace loads a library
+    beside one (final review I3), in the server and in a command-line tool alike."""
+    reg = server(fx, tmp_path)
+    reg.load()
+    b = reg.add(fields(fx_b.root), "owner")
+    in_b = str(fx_b.root / "tools" / "bin" / "cc")
+    seed = reg.seed().svc.toolchain
+    assert "inside another workspace" in (seed.not_run(in_b) or "") and seed.trusted
+    assert "inside the workspace" in (b.svc.toolchain.not_run(in_b) or "") and not b.svc.toolchain.trusted
+    tool = Registry.open(make_config(fx, tmp_path / "data")).tool_workspace(None).svc.toolchain
+    assert "inside another workspace" in (tool.not_run(in_b) or "") and tool.trusted
+
+
 def test_a_tool_works_on_the_named_workspace_else_the_seed_else_the_only_one(fx, fx_b, tmp_path):
     reg = server(fx, tmp_path)
     reg.load()

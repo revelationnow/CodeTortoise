@@ -47,6 +47,29 @@ def test_an_owner_adds_checks_edits_and_removes_a_workspace(app, fx, fx_b, tmp_p
     assert [w["name"] for w in owner.get("/api/workspaces").json()] == [fx.root.name]
 
 
+def test_only_the_seeds_owner_sets_settings_that_name_programs(app, fx_b, tmp_path):
+    """Settings naming a program or library the server runs or loads are the host's (final review I3): only the owner
+    of the seed sets or changes them; another owner keeps what is there while editing the rest."""
+    owner = login(app, "owner")
+    b = owner.post("/api/workspaces", json=body(fx_b.root, p4user="amy")).json()
+    amy = login(app, "amy")
+    (tmp_path / "c").mkdir()
+    clang = "toolchain: {clang: /opt/vendor/bin/clang}"
+    for settings in (clang, "toolchain: {libclang: /x/libclang.so}", "toolchain: {search_paths: [/x]}",
+                     "toolchain: {query_compilers: all}", "toolchain: {overrides: [{match: 'a/**', clang: /x/cc}]}",
+                     "toolchain: {overrides: [{match: 'a/**', libclang: /x/l.so}]}"):
+        r = amy.post("/api/workspaces", json=body(tmp_path / "c", name="c", p4user="amy", settings=settings))
+        assert r.status_code == 422 and "only the owner of the workspace in tortoise.yaml" in r.json()["detail"], settings
+    r = amy.post("/api/workspaces", json=body(tmp_path / "c", name="c", p4user="amy", settings="toolchain: {target: arm}"))
+    assert r.status_code == 200, r.text
+    assert amy.put(f"/api/workspaces/{b['id']}", json=body(fx_b.root, p4user="amy", settings=clang)).status_code == 422
+    assert owner.put(f"/api/workspaces/{b['id']}", json=body(fx_b.root, p4user="amy", settings=clang)).status_code == 200
+    kept = f"{clang}\nanalysis: {{sink_threshold: 3}}"
+    assert amy.put(f"/api/workspaces/{b['id']}", json=body(fx_b.root, p4user="amy", settings=kept)).status_code == 200
+    r = amy.put(f"/api/workspaces/{b['id']}", json=body(fx_b.root, p4user="amy", settings="toolchain: {clang: /x/cc}"))
+    assert r.status_code == 422
+
+
 def test_a_workspace_on_another_server_is_listed_to_those_signed_in_there(app, fx_b):
     owner = login(app, "owner")
     assert owner.post("/api/workspaces", json=body(fx_b.root, p4port="second:1666")).status_code == 200

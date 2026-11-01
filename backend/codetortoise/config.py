@@ -246,6 +246,29 @@ def parse_settings(text: str | None) -> dict:
     return got
 
 
+PROGRAM_KEYS = ("clang", "libclang", "search_paths", "query_compilers")   # toolchain keys naming what the server runs
+
+
+def program_settings(text: str | None) -> tuple:
+    """What a workspace's settings name for the server to run or load (final review I3 of spec 2026-10-31): the
+    toolchain's clang, libclang, search_paths and query_compilers, and each override's clang and libclang, in a form two
+    settings compare by. A default or empty value names nothing; settings that don't parse name nothing here (saving
+    them says why)."""
+    try:
+        got = parse_settings(text)
+    except ConfigError:
+        return ()
+    tc = got.get("toolchain")
+    if not isinstance(tc, dict):
+        return ()
+    named = tuple((k, json.dumps(tc[k], sort_keys=True, default=str)) for k in PROGRAM_KEYS
+                  if tc.get(k) not in (None, "", []) and not (k == "query_compilers" and tc[k] == "outside_workspace"))
+    overrides = tc.get("overrides") if isinstance(tc.get("overrides"), list) else []
+    return named + tuple(sorted(json.dumps({k: o.get(k) for k in ("match", "clang", "libclang")}, sort_keys=True,
+                                           default=str)
+                                for o in overrides if isinstance(o, dict) and (o.get("clang") or o.get("libclang"))))
+
+
 def effective_config(base: Config, row: Mapping[str, Any]) -> Config:
     """A stored workspace's configuration (spec 2026-10-31 §4): `server`, `llm` and `auth` from tortoise.yaml; `analysis`
     the file's, overlaid with the workspace's own; `workspace`, `toolchain`, `targets` and `swarm` the workspace's.

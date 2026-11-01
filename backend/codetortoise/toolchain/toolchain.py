@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -77,11 +78,15 @@ class Toolchain:
     toolchain group and language) for its built-in include paths and macros, and its target is made explicit."""
 
     def __init__(self, cfg: ToolchainConfig, cdb: CompileDb, work_dir: Path, root: Path | None = None,
-                 data_dir: Path | None = None):
+                 data_dir: Path | None = None, roots: Callable[[], Iterable[str]] | None = None, trusted: bool = True):
         self.cfg = cfg
         self.cdb = cdb
         self.work_dir = Path(work_dir)
         self.root = canon(str(root)) if root else None
+        # every workspace folder on the server: a compiler synced into one is not run, and unless this workspace's
+        # compile databases are the host's own (`trusted`: tortoise.yaml's), nor is the library beside it loaded
+        self.roots = roots if roots is not None else (lambda: [self.root] if self.root else [])
+        self.trusted = trusted
         self.strip: set[str] = set(cfg.strip_flags)
         self.libclang: LibclangInfo | None = None
         self._groups: dict[tuple, Group] = {}
@@ -119,15 +124,29 @@ class Toolchain:
             return os.path.normpath(os.path.join(entry.directory, name))
         return shutil.which(name) or name
 
+    def _folder_of(self, driver: str) -> str | None:
+        """"the workspace" or "another workspace" when `driver` lies in a workspace folder on this server, else None."""
+        d = canon(driver)
+        if self.root and d.startswith(self.root + "/"):
+            return "the workspace"
+        return "another workspace" if any(r and d.startswith(canon(r) + "/") for r in self.roots()) else None
+
     def not_run(self, driver: str) -> str | None:
         """Why `driver` must not be run (toolchain.query_compilers), or None."""
         mode = self.cfg.query_compilers
         if mode == "off":
             return "compiler queries are off (toolchain.query_compilers: off)"
-        if mode == "outside_workspace" and self.root and canon(driver).startswith(self.root + "/"):
-            return (f"compiler {driver} is inside the workspace and is not run "
+        where = self._folder_of(driver) if mode == "outside_workspace" else None
+        if where:
+            return (f"compiler {driver} is inside {where} and is not run "
                     "(set toolchain.query_compilers: all to allow it)")
         return None
+
+    def _beside(self, driver: str) -> bool:
+        """Whether the library beside `driver` (its toolchain's own) may load: always for tortoise.yaml's workspace;
+        for one added in the UI, when `driver` is outside every workspace folder or the host allowed it (final review
+        I3 of spec 2026-10-31)."""
+        return self.trusted or self.cfg.query_compilers == "all" or self._folder_of(driver) is None
 
     def _machine(self, driver: str) -> str | None:
         if self.not_run(driver):
@@ -152,7 +171,8 @@ class Toolchain:
         lib_override = ov.libclang if ov else None
         key = (driver, target, flags, lib_override)
         if key not in self._groups:
-            lib = find_libclang(self.cfg, compiler=driver, override=lib_override, data_dir=self.data_dir)
+            lib = find_libclang(self.cfg, compiler=driver if self._beside(driver) else None, override=lib_override,
+                                data_dir=self.data_dir)
             self._groups[key] = Group(compiler=driver, target=target, flags=flags, libclang=lib)
         return self._groups[key]
 

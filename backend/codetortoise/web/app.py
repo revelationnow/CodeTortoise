@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from codetortoise import boardstore, filestore
+from codetortoise.config import program_settings
 from codetortoise.health import HealthReport
 from codetortoise.impact import ImpactModel, Node
 from codetortoise.init_config import scan
@@ -675,6 +676,14 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
     def checked(ws: Workspace, logins: dict[str, str]) -> dict:
         return {**ws_row(ws, logins), "checks": [c.model_dump() for c in ws.checks]}
 
+    def host_programs(settings: str, before: str | None, logins: dict[str, str]) -> None:
+        """Settings naming a program or library the server runs or loads are the host's (final review I3): only the
+        owner of the seed sets or changes them; anyone who edits a workspace keeps what is there."""
+        if not hosts(logins) and program_settings(settings) != program_settings(before):
+            raise HTTPException(422, "settings: toolchain clang, libclang, search_paths and query_compilers, and an "
+                                     "override's clang and libclang, name programs this server runs or loads: only the "
+                                     "owner of the workspace in tortoise.yaml sets them")
+
     def saved(change: Callable[[], Workspace], logins: dict[str, str]) -> dict:
         try:
             return checked(change(), logins)
@@ -693,6 +702,7 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
         """Saved even when its checks fail; the answer carries them (§11)."""
         if len(body.settings) > 100_000:
             raise HTTPException(422, "settings: at most 100000 characters")
+        host_programs(body.settings, None, logins)
         by = next(logins[w.server] for w in reg.all() if logins.get(w.server) == w.owner)
         return saved(lambda: reg.add(body.fields(), by), logins)
 
@@ -718,6 +728,7 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
         """New fields, a new bundle swapped in; refused for the seed and while its queue has work (§6)."""
         if len(body.settings) > 100_000:
             raise HTTPException(422, "settings: at most 100000 characters")
+        host_programs(body.settings, (store.get_workspace(o.ws.id) or {}).get("settings"), o.logins)
         return saved(lambda: reg.edit(o.ws.id, body.fields()), o.logins)
 
     @app.delete("/api/workspaces/{wid}")
