@@ -103,6 +103,16 @@ def load_libclang(path: str | None) -> LibclangInfo:
 LIBRARY_INFO_TIMEOUT = 120.0     # seconds a worker may take to load and describe a library
 
 
+def _describe(path: str | None, out) -> None:
+    """In a worker process: load the library and send back its description, or the error loading it raised."""
+    try:
+        out.send(load_libclang(path))
+    except Exception as e:
+        out.send(e)
+    finally:
+        out.close()
+
+
 def library_info(path: str | None) -> LibclangInfo:
     """The library a workspace parses with, described: loaded here when this process has none yet (or has this one);
     else described from a worker process, since a process loads one libclang and workspaces may each choose another
@@ -113,14 +123,29 @@ def library_info(path: str | None) -> LibclangInfo:
         same = _loaded.path == path if path else not _loaded.vendor
     if same:
         return _loaded
-    method = "forkserver" if "forkserver" in mp.get_all_start_methods() else "spawn"
-    # leaving a multiprocessing pool ends its worker, so a library whose loading hangs costs the timeout, not the hang
-    # (final review M10 of spec 2026-10-31)
-    with mp.get_context(method).Pool(1) as pool:
+    ctx = mp.get_context("forkserver" if "forkserver" in mp.get_all_start_methods() else "spawn")
+    got, out = ctx.Pipe(duplex=False)
+    worker = ctx.Process(target=_describe, args=(path, out), daemon=True, name="tortoise-libclang")
+    worker.start()
+    out.close()                                  # the worker's end: once the worker is gone, reading here ends
+    # the worker is ended, so a library whose loading hangs costs the timeout, not the hang (final review M10 of spec
+    # 2026-10-31); one whose loading ends the worker is said at once (review of branch minors, M6)
+    try:
+        if not got.poll(LIBRARY_INFO_TIMEOUT):
+            raise TimeoutError(f"libclang {path} took over {LIBRARY_INFO_TIMEOUT:.0f} s to load")
         try:
-            return pool.apply_async(load_libclang, (path,)).get(timeout=LIBRARY_INFO_TIMEOUT)
-        except mp.TimeoutError:
-            raise TimeoutError(f"libclang {path} took over {LIBRARY_INFO_TIMEOUT:.0f} s to load") from None
+            answer = got.recv()
+        except EOFError:
+            worker.join(5)
+            raise RuntimeError(f"libclang {path} ended the process loading it (exit code {worker.exitcode})") from None
+    finally:
+        got.close()
+        if worker.is_alive():
+            worker.kill()
+        worker.join()
+    if isinstance(answer, Exception):
+        raise answer
+    return answer
 
 
 # ---------------------------------------------------------------- choosing a library

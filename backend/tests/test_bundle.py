@@ -83,6 +83,22 @@ def test_describing_a_library_whose_loading_hangs_gives_up_at_the_timeout(monkey
     assert time.monotonic() - start < 15
 
 
+def test_describing_a_library_whose_loading_ends_its_worker_says_so_at_once(monkeypatch, tmp_path):
+    """Not after the whole timeout, as a timeout (review of branch minors, M6)."""
+    cc = shutil.which("cc")
+    if cc is None:
+        pytest.skip("no C compiler to build a library that ends its process")
+    (tmp_path / "end.c").write_text("#include <unistd.h>\n__attribute__((constructor)) static void e(void) { _exit(3); }\n")
+    lib = tmp_path / "libclang.so.98"
+    subprocess.run([cc, "-shared", "-fPIC", "-o", str(lib), str(tmp_path / "end.c")], check=True)
+    monkeypatch.setattr(lc, "_loaded", lc.LibclangInfo(path="/b/libclang.so", version="clang version 1", vendor=False))
+    monkeypatch.setattr(lc, "LIBRARY_INFO_TIMEOUT", 8.0)
+    start = time.monotonic()
+    with pytest.raises(RuntimeError, match=rf"libclang {lib} ended the process loading it \(exit code 3\)"):
+        lc.library_info(str(lib))
+    assert time.monotonic() - start < 6
+
+
 def test_a_toolchain_that_picks_another_library_than_the_process_has_still_prepares(monkeypatch, tmp_path):
     vendor = lc.LibclangInfo(path="/v/libclang.so.19", version="clang version 19", vendor=True)
     monkeypatch.setattr(lc, "_loaded", vendor)        # another workspace's toolchain loaded its own library here
