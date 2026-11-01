@@ -295,9 +295,11 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
         return {**rep.model_dump(), "index_building": o.ws.runner.index_building if o.ws.runner else False}
 
     @app.post("/api/workspaces/{wid}/index/rebuild")
-    def rebuild_index(o: Owned = Depends(owned)):
-        bundle(o.ws)
-        o.ws.runner.submit_index()
+    def rebuild_index(wid: int, o: Owned = Depends(owned)):
+        with reg.guard(wid):                         # into its queue as it is once no edit of it runs (final review M2)
+            o = owned(wid, o.logins)
+            bundle(o.ws)
+            o.ws.runner.submit_index()
         return {"queued": True}
 
     # ---- reviews ------------------------------------------------------------
@@ -343,11 +345,13 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
             if len(every) != 1:
                 raise HTTPException(422, "choose a workspace")
             wid = every[0].id
-        o = owned(wid, logins)
-        ready(o.ws)
-        title = body.title or "CLs " + ", ".join(str(c) for c in sorted(set(body.cls)))
-        rid = store.create_review(title, o.user, body.cls, workspace_id=o.ws.id)
-        o.ws.runner.submit_review(rid)
+        owned(wid, logins)                           # 404 or 403 before waiting on it
+        with reg.guard(wid):                         # no edit or remove of it until the review is queued (final review M2)
+            o = owned(wid, logins)                   # as it is now
+            ready(o.ws)
+            title = body.title or "CLs " + ", ".join(str(c) for c in sorted(set(body.cls)))
+            rid = store.create_review(title, o.user, body.cls, workspace_id=o.ws.id)
+            o.ws.runner.submit_review(rid)
         return store.get_review(rid)
 
     @app.get("/api/reviews/{rid}")
@@ -360,8 +364,10 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
     def rerun(rid: int, fresh: bool = False, a: Access = Depends(owner_in_review)):
         """Run the review again; `fresh` asks the strong model for new stories instead of reusing a brief. Refused while
         its workspace isn't ready (§11)."""
-        ready(a.ws)
-        a.ws.runner.submit_review(rid, fresh=fresh)
+        with reg.guard(a.ws.id):                     # into its queue as it is once no edit of it runs (final review M2)
+            ws = reg.get(a.ws.id) or a.ws            # a workspace with reviews is never removed
+            ready(ws)
+            ws.runner.submit_review(rid, fresh=fresh)
         return {"queued": True}
 
     @app.get("/api/reviews/{rid}/events")
@@ -691,6 +697,8 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
             raise HTTPException(422, str(e)) from e
         except Conflict as e:
             raise HTTPException(409, str(e)) from e
+        except KeyError as e:                        # removed by another request meanwhile
+            raise HTTPException(404, "workspace not found") from e
 
     @app.get("/api/workspaces")
     def list_workspaces(logins: dict[str, str] = Depends(logins_of)):
@@ -728,8 +736,9 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
         """New fields, a new bundle swapped in; refused for the seed and while its queue has work (§6)."""
         if len(body.settings) > 100_000:
             raise HTTPException(422, "settings: at most 100000 characters")
-        host_programs(body.settings, (store.get_workspace(o.ws.id) or {}).get("settings"), o.logins)
-        return saved(lambda: reg.edit(o.ws.id, body.fields()), o.logins)
+        return saved(lambda: reg.edit(o.ws.id, body.fields(),
+                                      check=lambda row: host_programs(body.settings, row["settings"], o.logins)),
+                     o.logins)
 
     @app.delete("/api/workspaces/{wid}")
     def remove_workspace(o: Owned = Depends(managed)):
@@ -737,6 +746,8 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
             reg.remove(o.ws.id)
         except Conflict as e:
             raise HTTPException(409, str(e)) from e
+        except KeyError as e:                        # removed by another request meanwhile
+            raise HTTPException(404, "workspace not found") from e
         return {"ok": True}
 
     # ---- AI on demand (spec 2026-10-03) ---------------------------------------

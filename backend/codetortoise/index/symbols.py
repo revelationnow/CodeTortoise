@@ -130,6 +130,9 @@ class SymbolIndex:
         row = self._db.execute("SELECT value FROM sym_meta WHERE key='generation'").fetchone()
         return int(row[0]) if row else 0
 
+    def close(self) -> None:
+        self._db.close()
+
     def build(self, root: Path, workers: int = 0, include_dirs: list[str] | None = None,
               parser: Callable[[str], tuple[str, ParsedFile | None]] = _parse_file, *,
               seeds: list[str] | None = None, full: bool = False, batch: int = 256) -> int:

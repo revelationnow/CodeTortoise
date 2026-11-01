@@ -93,6 +93,7 @@ class Registry:
         self.runner_class = runner_class
         self._lock = threading.Lock()
         self._ws: dict[int, Workspace] = {}
+        self._guards: dict[int, threading.Lock] = {}       # by workspace id: see guard()
         self._tickets: dict[tuple[str, str], str] = {}     # (server, owner) -> the Swarm ticket from their sign-in
 
     @classmethod
@@ -219,21 +220,29 @@ class Registry:
     def _load(self, ws: Workspace) -> None:
         """Build a workspace's bundle and start its queue; a failure keeps the workspace, not ready, with the reason
         (§11). An empty symbol index is built when the bundle first loads (§6)."""
+        svc = runner = None
         try:
             svc = build_services(ws.cfg, self.llm, strong=self.strong, store=self.store, ledger=self.ledger,
                                  home=self.home(ws.id), scope=scope_of(ws.id), folders=self.folders(ws),
                                  outside=self.outside())
+            runner = self.runner_class(svc, self.pool)
         except Exception as e:  # a missing root, an unreadable compile database: shown, never fatal
             ws.reason = f"could not load: {type(e).__name__}: {e}"
             log.warning("workspace %s: %s", ws.name, ws.reason)
-            return
-        runner = self.runner_class(svc, self.pool)
         with self._lock:
-            if self._ws.get(ws.id) is not ws:            # removed or replaced while it was building
-                return
-            svc.owner_ticket = self._tickets.get((ws.server, ws.owner))
-            runner.start()
-            ws.runner, ws.svc = runner, svc
+            kept = self._ws.get(ws.id) is ws             # not removed or replaced while it was building
+            if kept and runner is not None:
+                svc.owner_ticket = self._tickets.get((ws.server, ws.owner))
+                runner.start()
+                ws.runner, ws.svc = runner, svc
+        if not kept:
+            if svc is not None:
+                svc.index.close()
+            if self.store.get_workspace(ws.id) is None:  # removed: the folder its build made goes too (final review M2)
+                shutil.rmtree(self.home(ws.id), ignore_errors=True)
+            return
+        if runner is None:
+            return
         if svc.index.generation() == 0:
             runner.submit_index()
         self._check(ws)
@@ -250,10 +259,16 @@ class Registry:
         """Its checks run again (its Health page); a bundle that failed to build is tried again first. None while it
         has no bundle."""
         self.settle(ws)
-        if ws.svc is None and ws.reason is not None and ws.reason.startswith("could not load"):
-            ws.reason = LOADING
-            ws.loaded.clear()
+        with self.guard(ws.id):                          # two at once try it once (final review M2)
+            ws = self.get(ws.id) or ws
+            again = ws.svc is None and ws.reason is not None and ws.reason.startswith("could not load")
+            if again:
+                ws.reason = LOADING
+                ws.loaded.clear()
+        if again:
             self._build(ws)
+        else:
+            self.settle(ws)                              # another's try may be under way
         if ws.svc is None:
             return None
         return self._check(ws, run_health(ws.svc, deep=deep))
@@ -266,6 +281,12 @@ class Registry:
 
     def get(self, wid: int) -> Workspace | None:
         return self._ws.get(wid)
+
+    def guard(self, wid: int) -> threading.Lock:
+        """What a change of workspace `wid` holds from its checks to its effect — an edit, a remove, a review queued in
+        it, a bundle tried again — so that none acts on what another has just changed (final review M2)."""
+        with self._lock:
+            return self._guards.setdefault(wid, threading.Lock())
 
     def folders(self, ws: Workspace) -> list[str] | None:
         """The only folders a workspace's toolchain runs compilers and loads libclang from: tortoise.yaml's
@@ -343,39 +364,44 @@ class Registry:
         self._start(ws, wait=True)
         return ws
 
-    def edit(self, wid: int, fields: dict) -> Workspace:
-        """Store its new fields, build a new bundle and swap it in; refused while its queue has work (§6)."""
-        old = self._editable(wid)
-        self._idle(old)
-        self._validate(fields, wid)
-        try:
-            self.store.update_workspace(wid, fields)
-        except sqlite3.IntegrityError as e:
-            raise Conflict(self._taken(fields["name"], fields["root"], wid) or str(e)) from e
-        ws = self._record(self.store.get_workspace(wid))
-        with self._lock:
-            self._ws[wid] = ws
-        if old.runner is not None:
-            old.runner.stop()
-        self._start(ws, wait=True)
-        if ws.runner is not None:
-            ws.runner.submit_index()                         # a new root or compile database: the index catches up
+    def edit(self, wid: int, fields: dict, check: Callable[[dict], None] | None = None) -> Workspace:
+        """Store its new fields, build a new bundle and swap it in; refused while its queue has work (§6). `check`
+        vets the change against its row as stored once no other change of it runs (final review I3-M7)."""
+        with self.guard(wid):
+            old = self._editable(wid)
+            if check is not None:
+                check(self.store.get_workspace(wid))
+            self._idle(old)
+            self._validate(fields, wid)
+            try:
+                self.store.update_workspace(wid, fields)
+            except sqlite3.IntegrityError as e:
+                raise Conflict(self._taken(fields["name"], fields["root"], wid) or str(e)) from e
+            ws = self._record(self.store.get_workspace(wid))
+            with self._lock:
+                self._ws[wid] = ws
+            if old.runner is not None:
+                old.runner.stop()
+            self._start(ws, wait=True)
+            if ws.runner is not None:
+                ws.runner.submit_index()                     # a new root or compile database: the index catches up
         return ws
 
     def remove(self, wid: int) -> None:
         """Forget a workspace with no reviews: its row, its folder and its store entries."""
-        ws = self._editable(wid)
-        n = self.store.review_count(wid)
-        if n:
-            raise Conflict(f"the workspace {ws.name} has {n} review(s); a workspace with reviews is kept")
-        self._idle(ws)
-        with self._lock:
-            self._ws.pop(wid, None)
-        if ws.runner is not None:
-            ws.runner.stop()
-        self.store.delete_workspace(wid)
-        self.store.kv_delete_scope(scope_of(wid))
-        shutil.rmtree(self.home(wid), ignore_errors=True)
+        with self.guard(wid):
+            ws = self._editable(wid)
+            n = self.store.review_count(wid)
+            if n:
+                raise Conflict(f"the workspace {ws.name} has {n} review(s); a workspace with reviews is kept")
+            self._idle(ws)
+            with self._lock:
+                self._ws.pop(wid, None)
+            if ws.runner is not None:
+                ws.runner.stop()
+            self.store.delete_workspace(wid)
+            self.store.kv_delete_scope(scope_of(wid))
+            shutil.rmtree(self.home(wid), ignore_errors=True)
 
     def _editable(self, wid: int) -> Workspace:
         ws = self.get(wid)

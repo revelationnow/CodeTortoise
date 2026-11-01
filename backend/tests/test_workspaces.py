@@ -1,6 +1,7 @@
 """The workspaces one server hosts (spec 2026-10-31 §4–§6, §11, §12)."""
 import json
 import threading
+import time
 
 import pytest
 from helpers import make_config, make_services
@@ -312,3 +313,61 @@ def test_sign_in_never_runs_from_a_root_that_is_not_there(fx, fx_b, tmp_path):
     assert reg.login_runner("p4:1666").cwd is None
     reg.add(fields(fx_b.root, name="b", vcs="p4", p4port="p4:1666", client="b"), "owner")
     assert reg.login_runner("p4:1666").cwd == str(fx_b.root)
+
+
+def test_an_edit_vets_its_change_against_the_row_stored_when_it_runs(fx, fx_b, tmp_path):
+    """An edit's `check` reads the row once no other change of the workspace runs, so a change vetted against what an
+    earlier request read can't undo what was saved meanwhile (final review I3-M7)."""
+    reg = server(fx, tmp_path)
+    reg.load()
+    ws = reg.add(fields(fx_b.root), "owner")
+    seen = []
+    with reg.guard(ws.id):                                       # another change of it is under way
+        t = threading.Thread(target=reg.edit, args=(ws.id, fields(fx_b.root, name="b2")),
+                             kwargs={"check": lambda row: seen.append(row["settings"])})
+        t.start()
+        time.sleep(0.2)
+        assert seen == []                                        # it waits for that change
+        reg.store.update_workspace(ws.id, fields(fx_b.root, settings="analysis: {sink_threshold: 3}"))
+    t.join(30)
+    assert seen == ["analysis: {sink_threshold: 3}"] and reg.get(ws.id).name == "b2"
+
+
+def test_two_rechecks_of_a_workspace_that_could_not_load_build_it_once(fx, fx_b, tmp_path, monkeypatch):
+    """Recheck tries a bundle that failed to build again; two at once build it once (final review M2)."""
+    reg = server(fx, tmp_path)
+    reg.load()
+    real = workspaces.build_services
+
+    def broken(*a, **k):
+        raise OSError("not yet")
+    monkeypatch.setattr(workspaces, "build_services", broken)
+    ws = reg.add(fields(fx_b.root), "owner")
+    assert ws.reason == "could not load: OSError: not yet"
+    builds = []
+    monkeypatch.setattr(workspaces, "build_services", lambda *a, **k: builds.append(1) or real(*a, **k))
+    with reg.guard(ws.id):                                       # an edit of it, say, is under way
+        both = [threading.Thread(target=reg.recheck, args=(ws,)) for _ in range(2)]
+        for t in both:
+            t.start()
+        time.sleep(0.2)
+        assert builds == []                                      # each waits for it before trying the bundle again
+    for t in both:
+        t.join(60)
+    assert builds == [1] and ws.ready
+
+
+def test_a_workspace_removed_while_its_bundle_builds_leaves_no_folder_behind(fx, fx_b, tmp_path):
+    """The build under way finds it gone and takes back the folder it made (final review M2)."""
+    first = server(fx, tmp_path)
+    first.load()
+    wid = first.add(fields(fx_b.root), "owner").id
+    later = []
+    reg = Registry.open(make_config(fx, tmp_path / "data"), spawn=later.append, runner_class=InlineRunner)
+    reg.load()                                                   # its bundles build later
+    home = tmp_path / "data" / "workspaces" / str(wid)
+    reg.remove(wid)
+    assert not home.exists()
+    for build in later:
+        build()
+    assert not home.exists() and reg.get(wid) is None

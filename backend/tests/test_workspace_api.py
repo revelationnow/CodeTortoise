@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from helpers import make_app, make_services
 from test_web import InlineRunner, login
+from test_workspaces import fields
 
 
 @pytest.fixture
@@ -129,3 +130,59 @@ def test_the_seeds_owner_fixes_or_removes_a_workspace_saved_with_a_mistyped_serv
     assert e.status_code == 200 and (e.json()["server"], e.json()["can_manage"]) == ("second:1666", True), e.text
     assert owner.delete(f"/api/workspaces/{typo['id']}").json() == {"ok": True}
     assert owner.delete(f"/api/workspaces/{carol['id']}").json() == {"ok": True}
+
+
+class Recorded(InlineRunner):
+    """Remembers the reviews it is handed."""
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.reviews = []
+
+    def submit_review(self, rid, fresh=False):
+        self.reviews.append(rid)
+        super().submit_review(rid, fresh)
+
+
+def test_a_review_started_or_rerun_while_its_workspace_is_edited_goes_to_the_new_queue(fx, fx_b, tmp_path, monkeypatch):
+    """Not to the queue the edit stopped, where it would wait for ever (final review M2)."""
+    svc = make_services(fx, tmp_path / "data")
+    app = make_app(svc, Recorded(svc))
+    reg, owner = app.state.registry, login(app, "owner")
+    wid = owner.post("/api/workspaces", json=body(fx_b.root)).json()["id"]
+    real = reg.guard
+
+    def edited_first(w):                                         # an edit of it runs while the request waits
+        monkeypatch.setattr(reg, "guard", real)
+        reg.edit(w, fields(fx_b.root))
+        return real(w)
+    old = reg.get(wid)
+    monkeypatch.setattr(reg, "guard", edited_first)
+    rid = owner.post("/api/reviews", json={"cls": [101], "workspace_id": wid}).json()["id"]
+    assert old.runner.reviews == [] and reg.get(wid).runner.reviews == [rid]
+    old = reg.get(wid)
+    monkeypatch.setattr(reg, "guard", edited_first)
+    assert owner.post(f"/api/reviews/{rid}/rerun").json() == {"queued": True}
+    assert old.runner.reviews == [rid] and reg.get(wid).runner.reviews == [rid]     # its start, then the re-run
+
+
+def test_a_workspace_removed_meanwhile_is_404_to_what_waited_on_it(fx, fx_b, tmp_path, monkeypatch):
+    """A review started, or an edit or remove asked for, while another request removes the workspace finds it gone,
+    leaving no review behind (final review M2)."""
+    svc = make_services(fx, tmp_path / "data")
+    app = make_app(svc, InlineRunner(svc))
+    reg, owner = app.state.registry, login(app, "owner")
+    real = reg.guard
+
+    def removed_first(w):                                        # a remove of it runs while the request waits
+        monkeypatch.setattr(reg, "guard", real)
+        reg.remove(w)
+        return real(w)
+    for i, ask in enumerate((lambda w: owner.post("/api/reviews", json={"cls": [101], "workspace_id": w}),
+                             lambda w: owner.put(f"/api/workspaces/{w}", json=body(tmp_path / "x", name="x")),
+                             lambda w: owner.delete(f"/api/workspaces/{w}"))):
+        wid = owner.post("/api/workspaces", json=body(fx_b.root, name=f"b{i}")).json()["id"]
+        monkeypatch.setattr(reg, "guard", removed_first)
+        r = ask(wid)
+        assert r.status_code == 404 and r.json()["detail"] == "workspace not found", r.text
+    assert reg.store.list_reviews() == []
