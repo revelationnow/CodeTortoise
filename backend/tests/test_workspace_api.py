@@ -212,6 +212,19 @@ def test_a_workspace_with_reviews_keeps_its_perforce_server(app, fx_b, tmp_path,
            "signed in there" in caplog.text
 
 
+def test_a_workspace_renamed_in_the_save_that_moves_it_is_logged_by_both_names(app, fx_b, caplog):
+    """The log of a move names the workspace as it was too, when the same save renames it (final review of branch
+    deferred-minors, M10)."""
+    owner = login(app, "owner")
+    b = owner.post("/api/workspaces", json=body(fx_b.root, p4user="amy")).json()
+    assert login(app, "amy").post("/api/reviews", json={"cls": [101], "workspace_id": b["id"]}).status_code == 200
+    with caplog.at_level(logging.WARNING, logger="codetortoise.workspaces"):
+        r = owner.put(f"/api/workspaces/{b['id']}", json=body(fx_b.root, name="b2", p4user="amy", p4port="second:1666"))
+    assert r.status_code == 200, r.text
+    assert "the workspace b2 (renamed from b) moved from the Perforce server local to second:1666: its 1 review(s) " \
+           "now show to those signed in there" in caplog.text
+
+
 @pytest.mark.parametrize("ask", ["start", "rerun", "rebuild"])
 def test_a_request_waiting_for_its_workspace_to_load_holds_up_no_edit_of_it(fx, fx_b, tmp_path, ask):
     """Starting a review, re-running one and Rebuild index wait for a bundle being built outside the workspace's guard,
@@ -235,7 +248,9 @@ def test_a_request_waiting_for_its_workspace_to_load_holds_up_no_edit_of_it(fx, 
     asked = threading.Thread(target=lambda: got.update(r=owner.post(url, json={"cls": [101], "workspace_id": wid})))
     asked.start()
     assert waiting.wait(10)
-    edit = threading.Thread(target=lambda: login(app, "owner").put(f"/api/workspaces/{wid}", json=body(fx_b.root)))
+    edited = {}
+    edit = threading.Thread(target=lambda: edited.update(
+        r=login(app, "owner").put(f"/api/workspaces/{wid}", json=body(fx_b.root))))
     edit.start()
     edit.join(5)
     try:
@@ -245,7 +260,8 @@ def test_a_request_waiting_for_its_workspace_to_load_holds_up_no_edit_of_it(fx, 
             build()
         asked.join(10)
         edit.join(10)
-    assert got["r"].status_code == 200, got["r"].text
+    assert edited["r"].status_code == 200, edited["r"].text    # done, not refused (final review of branch
+    assert got["r"].status_code == 200, got["r"].text          # deferred-minors, M11)
     if ask != "rebuild":
         assert reg.get(wid).runner.reviews == [got["r"].json()["id"] if ask == "start" else rid]
 

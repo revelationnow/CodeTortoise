@@ -429,7 +429,8 @@ class Registry:
             # only the host moves a workspace with reviews (the web app refuses anyone else): said, as the move of
             # the workspace in tortoise.yaml is (review of branch minors, M5)
             if ws.server != old.server and (n := self.store.review_count(wid)):
-                _moved(f"the workspace {ws.name}", old.server, ws.server, n)
+                was = f" (renamed from {old.name})" if old.name != ws.name else ""   # (final review of branch
+                _moved(f"the workspace {ws.name}{was}", old.server, ws.server, n)    # deferred-minors, M10)
             with self._lock:
                 self._ws[wid] = ws
                 stale = old.runner                           # attached before the swap, if at all

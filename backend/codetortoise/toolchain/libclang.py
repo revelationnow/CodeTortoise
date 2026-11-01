@@ -11,6 +11,7 @@ import os
 import platform
 import re
 import shutil
+import signal
 import tarfile
 import threading
 import urllib.request
@@ -113,6 +114,16 @@ def _describe(path: str | None, out) -> None:
         out.close()
 
 
+def _ended(code: int | None) -> str:
+    """How a worker process ended, from its exit code."""
+    if code is not None and code < 0:
+        try:
+            return f"killed by signal {-code}, {signal.Signals(-code).name}"
+        except ValueError:
+            return f"killed by signal {-code}"
+    return f"exit code {code}"
+
+
 def library_info(path: str | None) -> LibclangInfo:
     """The library a workspace parses with, described: loaded here when this process has none yet (or has this one);
     else described from a worker process, since a process loads one libclang and workspaces may each choose another
@@ -137,8 +148,9 @@ def library_info(path: str | None) -> LibclangInfo:
             answer = got.recv()
         except EOFError:
             worker.join(5)
-            raise RuntimeError(f"libclang {path} ended the process loading it (exit code {worker.exitcode})") from None
-    finally:
+            raise RuntimeError(f"libclang {path} ended the process loading it ({_ended(worker.exitcode)})") from None
+        worker.join(1)                           # it ends once it has answered: killed below only if it doesn't (final
+    finally:                                     # review of branch deferred-minors, M7)
         got.close()
         if worker.is_alive():
             worker.kill()

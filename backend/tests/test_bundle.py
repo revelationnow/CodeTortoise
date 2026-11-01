@@ -140,3 +140,53 @@ def test_a_queue_is_busy_while_a_review_waits_or_runs_and_stopping_it_ends_its_i
     assert building.wait(10)
     index.stop()
     assert index.join(10) and len(builds) == 1          # the build under way ended, and the one queued was dropped
+
+
+def test_describing_a_library_whose_loading_kills_its_worker_names_the_signal(monkeypatch, tmp_path):
+    """A worker ended by a signal is said to be, not to have exited with a negative code (final review of branch
+    deferred-minors, M7)."""
+    cc = shutil.which("cc")
+    if cc is None:
+        pytest.skip("no C compiler to build a library that kills its process")
+    (tmp_path / "kill.c").write_text("#include <signal.h>\n__attribute__((constructor)) static void k(void) { raise(SIGTERM); }\n")
+    lib = tmp_path / "libclang.so.97"
+    subprocess.run([cc, "-shared", "-fPIC", "-o", str(lib), str(tmp_path / "kill.c")], check=True)
+    monkeypatch.setattr(lc, "_loaded", lc.LibclangInfo(path="/b/libclang.so", version="clang version 1", vendor=False))
+    with pytest.raises(RuntimeError, match=rf"libclang {lib} ended the process loading it \(killed by signal 15, SIGTERM\)"):
+        lc.library_info(str(lib))
+
+
+class _Watched:
+    """A worker process, watched: whether it was killed."""
+
+    def __init__(self, process):
+        self.process, self.killed = process, False
+
+    def __getattr__(self, name):
+        return getattr(self.process, name)
+
+    def kill(self):
+        self.killed = True
+        self.process.kill()
+
+
+def test_a_worker_that_has_described_its_library_ends_by_itself(monkeypatch):
+    """It is given a moment to end once it has answered, and is killed only if it doesn't (final review of branch
+    deferred-minors, M7)."""
+    workers, real = [], lc.mp.get_context
+
+    class Context:
+        def __init__(self, method):
+            self.ctx = real(method)
+
+        def __getattr__(self, name):
+            return getattr(self.ctx, name)
+
+        def Process(self, *a, **k):                              # noqa: N802 - as multiprocessing names it
+            workers.append(_Watched(self.ctx.Process(*a, **k)))
+            return workers[-1]
+    monkeypatch.setattr(lc.mp, "get_context", Context)
+    monkeypatch.setattr(lc, "_loaded", lc.LibclangInfo(path="/v/libclang.so.19", version="clang version 19", vendor=True))
+    info = lc.library_info(None)                                  # the bundled library, described by a worker
+    assert not info.vendor and info.version
+    assert [(w.killed, w.exitcode) for w in workers] == [(False, 0)]
