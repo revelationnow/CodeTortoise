@@ -16,6 +16,7 @@ from codetortoise.attribution import changed_functions, unparsed
 from codetortoise.board import BoardContext, analyse, build_boards, is_test_path
 from codetortoise.brief import Brief, cache_key
 from codetortoise.cltext import prompt_text
+from codetortoise.config import seed_name
 from codetortoise.detectors.base import DetectorContext, renumber, run_detectors
 from codetortoise.diffmap import map_changes
 from codetortoise.facts.model import Facts, relative_records
@@ -717,8 +718,14 @@ class JobRunner:
                 elif kind == "index" and not self._stop.is_set():
                     self.index_building = True
                     self.svc.build_index(cancel=self._stop)
-            except Exception:
-                log.error("job %s failed: %s", job, traceback.format_exc())
+            except Exception as e:
+                if kind == "index" and self._stop.is_set():
+                    # a removal stops the queue, then takes the folder away under the build, which may then break: not
+                    # said as the workspace's error (final review of branch deferred-minors-4, declined item 1)
+                    log.debug("workspace %s: its index build ended as its queue was stopped: %s: %s",
+                              seed_name(self.svc.cfg), type(e).__name__, e)
+                else:
+                    log.error("workspace %s: job %s failed: %s", seed_name(self.svc.cfg), job, traceback.format_exc())
             finally:
                 self.index_building = False
                 self._count(kind, -1)

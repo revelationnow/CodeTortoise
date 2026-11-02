@@ -1,6 +1,8 @@
 """A workspace's bundle on a server of many (spec 2026-10-31 §6): shared store, ledger and AI pool; its own folder and
 store-entry keys; its own libclang even when the process loaded another."""
+import logging
 import shutil
+import sqlite3
 import subprocess
 import threading
 import time
@@ -140,6 +142,56 @@ def test_a_queue_is_busy_while_a_review_waits_or_runs_and_stopping_it_ends_its_i
     assert building.wait(10)
     index.stop()
     assert index.join(10) and len(builds) == 1          # the build under way ended, and the one queued was dropped
+
+
+def _broken_index(svc, monkeypatch):
+    """`svc`'s index builds break as one does when its folder is taken away under it; each waits for `go` first."""
+    building, go = threading.Event(), threading.Event()
+
+    def build_index(full=False, cancel=None):
+        building.set()
+        assert go.wait(30)
+        raise sqlite3.OperationalError("disk I/O error")
+    monkeypatch.setattr(svc, "build_index", build_index)
+    return building, go
+
+
+def test_an_index_build_that_breaks_once_its_queue_is_stopped_is_not_logged_as_an_error(fx, tmp_path, monkeypatch,
+                                                                                         caplog):
+    """Removing a workspace stops its queue, then takes its folder away under the index build under way, which may
+    then break (sqlite's "disk I/O error"): not an error of the workspace's (final review of branch deferred-minors-4,
+    declined item 1)."""
+    svc = make_services(fx, tmp_path)
+    building, go = _broken_index(svc, monkeypatch)
+    runner = JobRunner(svc)
+    with caplog.at_level(logging.DEBUG, logger="codetortoise.pipeline"):
+        runner.start()
+        runner.submit_index()
+        assert building.wait(10)
+        runner.stop()                                   # the removal: then its folder goes
+        go.set()
+        assert runner.join(10)
+    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING] == []
+
+
+def test_a_job_that_fails_names_its_workspace(fx, tmp_path, monkeypatch, caplog):
+    """On a server of many workspaces, a failed review or index build says whose it was (final review of branch
+    deferred-minors-4, declined item 1)."""
+    svc = make_services(fx, tmp_path)
+    _, go = _broken_index(svc, monkeypatch)
+    go.set()
+    runner = JobRunner(svc)
+    with caplog.at_level(logging.ERROR, logger="codetortoise.pipeline"):
+        runner.start()
+        runner.submit_index()
+        end = time.monotonic() + 10
+        while not caplog.records and time.monotonic() < end:
+            time.sleep(0.01)
+    runner.stop()
+    assert runner.join(10)
+    [said] = [r.getMessage() for r in caplog.records]
+    assert said.startswith(f"workspace {fx.root.name}: job ('index', None) failed: Traceback"), said
+    assert said.rstrip().endswith("sqlite3.OperationalError: disk I/O error"), said
 
 
 def test_describing_a_library_whose_loading_kills_its_worker_names_the_signal(monkeypatch, tmp_path):
