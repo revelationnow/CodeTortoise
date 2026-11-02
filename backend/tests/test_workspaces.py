@@ -409,21 +409,28 @@ def test_a_workspace_removed_while_it_loads_is_not_said_to_have_failed_to_load(f
 def test_a_workspace_removed_while_its_checks_run_is_not_said_to_have_failed_to_load(fx, fx_b, tmp_path, monkeypatch,
                                                                                       caplog):
     """The same for a removal that lands once its bundle is built, while its first checks run: its folder goes under
-    them (final review of branch deferred-minors-3, declined item 12)."""
+    them (final review of branch deferred-minors-3, declined item 12). A kept workspace whose first checks break still
+    says so, with the traceback (final review of branch deferred-minors-4, M3)."""
     later = []
     reg = Registry.open(make_config(fx, tmp_path / "data"), spawn=later.append, runner_class=InlineRunner)
     reg.load()
     later.pop()()                                                # the seed's
+    other = tmp_path / "other"
+    other.mkdir()
     ws = reg.add(fields(fx_b.root), "owner")
+    kept = reg.add(fields(other, name="kept"), "owner")
 
-    def removed(svc, **kw):                                      # the owner removes it as its checks begin
-        reg.remove(ws.id)
+    def broken(svc, **kw):
+        if svc is ws.svc:                                        # the owner removes it as its checks begin
+            reg.remove(ws.id)
         raise sqlite3.OperationalError("disk I/O error")
-    monkeypatch.setattr(workspaces, "run_health", removed)
+    monkeypatch.setattr(workspaces, "run_health", broken)
     with caplog.at_level(logging.INFO, logger="codetortoise.workspaces"):
-        later.pop()()
-    assert reg.get(ws.id) is None
-    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING] == []
+        while later:
+            later.pop()()
+    assert reg.get(ws.id) is None and reg.get(kept.id) is kept
+    said = [(r.getMessage(), r.exc_info is not None) for r in caplog.records if r.levelno >= logging.WARNING]
+    assert said == [("workspace kept: could not finish loading: OperationalError: disk I/O error", True)], said
 
 
 def test_an_edit_or_a_remove_stops_the_index_build_under_way(fx, fx_b, tmp_path, monkeypatch):
