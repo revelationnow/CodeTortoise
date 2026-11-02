@@ -321,3 +321,19 @@ def test_an_error_in_a_health_pages_look_is_shown_there_not_as_a_server_error(ap
     assert not next(w for w in owner.get("/api/workspaces").json() if w["id"] == b["id"])["ready"]
     monkeypatch.setattr(workspaces, "run_health", real)
     assert owner.get(f"/api/workspaces/{b['id']}/health").json()["ready"]
+
+
+def test_a_health_look_that_builds_a_workspace_again_answers_for_that_build(app, tmp_path, monkeypatch):
+    """Recheck builds a workspace whose checks failed again (final review of branch deferred-minors-2, I2): the Health
+    page then answers for that build, with its reason, not the one before it."""
+    from codetortoise import workspaces
+    owner = login(app, "owner")
+    root = tmp_path / "late"
+    root.mkdir()
+    b = owner.post("/api/workspaces", json=body(root)).json()
+
+    def broken(svc, deep=False):
+        raise RuntimeError("the checks broke")
+    monkeypatch.setattr(workspaces, "run_health", broken)
+    r = owner.get(f"/api/workspaces/{b['id']}/health")
+    assert [c["detail"] for c in r.json()["checks"]] == ["its checks could not run: RuntimeError: the checks broke"]

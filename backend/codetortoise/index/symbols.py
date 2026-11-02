@@ -170,7 +170,8 @@ class SymbolIndex:
         walk, a round of headers or its clean-up (review of branch minors, M8): what is written stays, nothing more is,
         and the next build parses the rest. A build that ends records `stamp`, what it was built for; until then the
         index reads as being built for it, so one stopped part way never reads as built for any settings (final review
-        of branch deferred-minors, M1).
+        of branch deferred-minors, M1). Nor does one over a root that isn't there (a client not yet synced: final review
+        of branch deferred-minors-2, M3): it ends at once, its files kept, and the next load builds it.
         """
         root = Path(root)
         db = self._db
@@ -181,6 +182,8 @@ class SymbolIndex:
             return self._count()
         if stamp is not None:
             self.set_stamp(BUILDING + stamp)
+        if not root.is_dir():
+            return self._count()
         if full:
             with db:
                 for t in _PER_FILE:

@@ -197,6 +197,9 @@ apply §7. New or changed:
   readable; new reviews and re-runs there are refused with the reason until its checks pass.
 - Adding a workspace runs the same checks and saves it even when they fail, so the owner can fix the host and press
   Recheck.
+  Amended after the reviews of the implementation (2026-11-01): Recheck loads a workspace that isn't ready again, as
+  an edit does, once none of its reviews waits or runs, so what was fixed since it loaded counts (a compile database
+  made, a client synced). A Health page look that breaks leaves the load's own checks to decide whether it is ready.
 - Refused: a second workspace with the same name or the same root (409); removing the seed or a workspace with reviews
   (409); editing while one of its reviews runs (409, §6).
 - A Perforce server that is down: sign-in to it fails with Perforce's message; its workspaces show the client check's

@@ -291,10 +291,12 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
     def health(o: Owned = Depends(owned)):
         """Its checks run again, with a sample parse per toolchain group (its Health page)."""
         rep = reg.recheck(o.ws, deep=True)
+        ws = reg.get(o.ws.id) or o.ws                # Recheck may have built it again (final review of branch
+                                                     # deferred-minors-2, I2)
         if rep is None:                              # no bundle, or its checks broke: why is the one check shown
-            rep = HealthReport(checks=[{"name": "workspace", "ok": False, "hard": True, "detail": o.ws.reason or ""}],
+            rep = HealthReport(checks=[{"name": "workspace", "ok": False, "hard": True, "detail": ws.reason or ""}],
                                ready=False)
-        return {**rep.model_dump(), "index_building": o.ws.runner.index_building if o.ws.runner else False}
+        return {**rep.model_dump(), "index_building": ws.runner.index_building if ws.runner else False}
 
     @app.post("/api/workspaces/{wid}/index/rebuild")
     def rebuild_index(wid: int, o: Owned = Depends(owned)):

@@ -628,4 +628,69 @@ def test_an_error_after_a_bundle_is_attached_still_catches_its_index_up(fx, fx_b
     assert edited.reason == "could not finish loading: OperationalError: database is locked"
     assert edited.svc.index.files() == [str((other / "o.c").resolve())]
     reg.recheck(edited)
-    assert edited.reason == "compile_commands: no compile database found (auto)"      # its checks' own verdict now
+    assert reg.get(b.id).reason == "compile_commands: no compile database found (auto)"   # its checks' own verdict now
+
+
+def _synced(root):
+    """A root as its client's sync leaves it: one file and the compile database that builds it."""
+    root.mkdir(exist_ok=True)
+    (root / "a.c").write_text("int a(void) { return 0; }\n")
+    (root / "compile_commands.json").write_text(json.dumps(
+        [{"directory": str(root), "file": "a.c", "arguments": ["cc", "-c", "a.c"]}]))
+
+
+def test_recheck_builds_a_workspace_whose_checks_failed_again(fx, tmp_path):
+    """Fix the host and press Recheck (spec 2026-10-31 §11): a workspace whose checks failed is built again, as an edit
+    builds it, once no review waits or runs in its queue, so a compile database made since counts (final review of
+    branch deferred-minors-2, I2)."""
+    reg = server(fx, tmp_path)
+    reg.load()
+    root = tmp_path / "late"
+    root.mkdir()
+    (root / "a.c").write_text("int a(void) { return 0; }\n")
+    ws = reg.add(fields(root, name="late"), "owner")
+    assert ws.reason == "compile_commands: no compile database found (auto)"
+    _synced(root)
+    rep = reg.recheck(ws)
+    now = reg.get(ws.id)
+    assert now.ready and rep.ready, now.reason
+    assert next(c for c in now.checks if c.name == "compile_commands").ok
+
+
+def test_an_index_built_before_its_root_was_there_is_built_when_the_workspace_next_loads(fx, tmp_path):
+    """A workspace added before its client was synced: its index, built over nothing, isn't taken as built for its
+    settings, so the next load builds it (final review of branch deferred-minors-2, M3)."""
+    reg = server(fx, tmp_path)
+    reg.load()
+    root = tmp_path / "unsynced"
+    ws = reg.add(fields(root, name="unsynced"), "owner")
+    assert ws.svc is not None and ws.reason == f"workspace root: {root}"
+    _synced(root)
+    again = server(fx, tmp_path)
+    again.load()
+    now = again.get(ws.id)
+    assert now.ready, now.reason
+    assert now.svc.index.files() == [str((root / "a.c").resolve())]
+
+
+def test_a_health_look_that_breaks_leaves_a_ready_workspace_ready(fx, fx_b, tmp_path, monkeypatch):
+    """The Health page's look at each toolchain group runs compilers and parses while reviews change the toolchain's
+    state: when that look breaks, the load's own checks decide whether the workspace is ready, and a row says what
+    broke (final review of branch deferred-minors-2, M1)."""
+    reg = server(fx, tmp_path)
+    reg.load()
+    b = reg.add(fields(fx_b.root), "owner")
+    assert b.ready
+    real = workspaces.run_health
+
+    def deep_breaks(svc, deep=False):
+        if deep:
+            raise RuntimeError("dictionary changed size during iteration")
+        return real(svc)
+    monkeypatch.setattr(workspaces, "run_health", deep_breaks)
+    rep = reg.recheck(b, deep=True)
+    assert b.ready and rep is not None and rep.ready
+    row = next(c for c in rep.checks if c.name == "toolchain groups")
+    assert not row.ok and not row.hard
+    assert row.detail == ("could not be checked (RuntimeError: dictionary changed size during iteration); "
+                          "Recheck tries again")

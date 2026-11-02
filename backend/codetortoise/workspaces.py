@@ -80,8 +80,8 @@ class Workspace:
     reason: str | None = LOADING      # why it isn't ready; None when it is
     checks: list[Check] = field(default_factory=list)
     loaded: threading.Event = field(default_factory=threading.Event, repr=False, compare=False)   # set once it built
-    # left by an edit until its bundle loads, a Recheck's included: the stopped queue whose index build ends before
-    # this one's starts, and whether the index is to be rebuilt for its new settings
+    # left by an edit, or a Recheck that loads it again, until its bundle loads: the stopped queue whose index build
+    # ends before this one's starts, and whether the index is to catch up with new settings or a new compile database
     after: JobRunner | None = field(default=None, repr=False, compare=False)
     reindex: bool = False
 
@@ -297,8 +297,11 @@ class Registry:
         return rep
 
     def recheck(self, ws: Workspace, deep: bool = False) -> HealthReport | None:
-        """Its checks run again (its Health page); a bundle that failed to build is tried again first. None while it
-        has no bundle, or when its checks could not run: its reason then says why."""
+        """Its checks run again (its Health page). A workspace that isn't ready is built again first: one whose bundle
+        failed to build, and one whose checks failed, once no review waits or runs in its queue, since what its bundle
+        read as it loaded (its compile database, a root since synced) may have been fixed (final review of branch
+        deferred-minors-2, I2); the workspace checked is then the one get() gives. None while it has no bundle, or when
+        its checks could not run: its reason then says why."""
         self.settle(ws)
         with self.guard(ws.id):                          # two at once try it once (final review M2)
             ws = self.get(ws.id) or ws
@@ -306,6 +309,9 @@ class Registry:
             if again:
                 ws.reason = LOADING
                 ws.loaded.clear()
+            elif self._stale(ws):
+                ws = self._swap(ws, self._record(self.store.get_workspace(ws.id)))
+                again = ws.reason == LOADING
         if again:
             self._build(ws)
         else:
@@ -313,12 +319,34 @@ class Registry:
         if ws.svc is None:
             return None
         try:
-            rep = run_health(ws.svc, deep=deep)
+            rep = self._look(ws, deep)
         except Exception as e:  # shown as why it isn't ready, not as a server error (final review of branch
             ws.reason = f"its checks could not run: {type(e).__name__}: {e}"    # deferred-minors, M3)
             log.exception("workspace %s: %s", ws.name, ws.reason)
             return None
         return self._check(ws, rep)
+
+    @staticmethod
+    def _stale(ws: Workspace) -> bool:
+        """Whether Recheck builds the bundle of `ws` again: one built here (scoped: the one single() was given isn't)
+        whose checks failed, once no review waits or runs in its queue."""
+        return ws.svc is not None and bool(ws.svc.scope) and ws.reason not in (None, LOADING) \
+            and ws.runner is not None and not ws.runner.busy()
+
+    def _look(self, ws: Workspace, deep: bool) -> HealthReport:
+        """Its checks, with the Health page's look at each toolchain group when `deep`. That look runs compilers and
+        parses while reviews change the toolchain's state: when it breaks, the load's own checks decide whether the
+        workspace is ready, and a row says what broke (final review of branch deferred-minors-2, M1)."""
+        if not deep:
+            return run_health(ws.svc)
+        try:
+            return run_health(ws.svc, deep=True)
+        except Exception as e:
+            log.exception("workspace %s: the Health page's look at its toolchain groups broke", ws.name)
+            rep = run_health(ws.svc)
+            rep.checks.append(Check(name="toolchain groups", ok=False, hard=False,
+                                    detail=f"could not be checked ({type(e).__name__}: {e}); Recheck tries again"))
+            return rep
 
     # ---- looking up ---------------------------------------------------------------------
     def all(self) -> list[Workspace]:
@@ -431,16 +459,21 @@ class Registry:
             if ws.server != old.server and (n := self.store.review_count(wid)):
                 was = f" (renamed from {old.name})" if old.name != ws.name else ""   # (final review of branch
                 _moved(f"the workspace {ws.name}{was}", old.server, ws.server, n)    # deferred-minors, M10)
-            with self._lock:
-                self._ws[wid] = ws
-                stale = old.runner                           # attached before the swap, if at all
-            if stale is not None:
-                stale.stop()                                 # its index build ends early (final review M3)
-            # a new root or compile database: the index catches up, once the build stopped here has ended — or the one
-            # an earlier edit stopped, while that edit's bundle is still building (review of branch minors, M1) — and
-            # even when the bundle first fails to load and a Recheck loads it (M7)
-            ws.after, ws.reindex = stale or old.after, True
-            self._start(ws)
+            self._start(self._swap(old, ws))
+        return ws
+
+    def _swap(self, old: Workspace, ws: Workspace) -> Workspace:
+        """`ws`, a fresh record of the stored row of `old`, in its place, to be built: the queue of `old` is stopped (its
+        index build ends early, final review M3), and the index of `ws` catches up with a new root or compile database
+        once the build stopped here has ended — or the one an earlier edit stopped, while that edit's bundle is still
+        building (review of branch minors, M1) — even when its bundle first fails to load and a Recheck loads it
+        (M7)."""
+        with self._lock:
+            self._ws[old.id] = ws
+            stale = old.runner                               # attached before the swap, if at all
+        if stale is not None:
+            stale.stop()
+        ws.after, ws.reindex = stale or old.after, True
         return ws
 
     def remove(self, wid: int) -> None:

@@ -269,10 +269,11 @@ To add one, open **Workspaces** as the owner of any workspace and press **Add wo
 - **Compile database** (`auto`, or one path per line), **Swarm URL**, and under **Advanced** a build root and the
   `toolchain`, `targets` and `analysis` keys of `tortoise.yaml`, as YAML (its `analysis` keys override the file's).
 
-A workspace is saved even when its checks fail. Its checks run in the background once it is added or saved, and the
-page shows it as loading until they finish; then it shows as ready, or as not ready with the reason, and once the host
-is fixed, **Recheck** on its Health page runs the checks again. A workspace that isn't ready keeps its finished reviews
-readable and refuses new reviews and re-runs until its checks pass. Each workspace has its own folder,
+A workspace is saved even when its checks fail. Its checks run in the background once it is added or saved, and the page
+shows it as loading until they finish; then it shows as ready, or as not ready with the reason, and once the host is
+fixed, **Recheck** on its Health page loads it again and runs its checks, so a compile database made or a client synced
+since counts (while one of its reviews runs, Recheck only runs the checks). A workspace that isn't ready keeps its
+finished reviews readable and refuses new reviews and re-runs until its checks pass. Each workspace has its own folder,
 `<data_dir>/workspaces/<id>/`, with its symbol index and toolchain cache, and its own shared-sink marks and Swarm URL.
 An edit is refused while one of its reviews runs (an index build under way stops, and an edit starts it over), and a
 workspace can be removed only while it has no reviews. A workspace with reviews also keeps its Perforce server, so its
