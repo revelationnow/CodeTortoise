@@ -1,9 +1,11 @@
 """The workspaces one server hosts (spec 2026-10-31 §4–§6, §11, §12)."""
+import gc
 import json
 import logging
 import sqlite3
 import threading
 import time
+import weakref
 from pathlib import Path
 
 import pytest
@@ -712,3 +714,25 @@ def test_each_workspace_refused_a_compiler_says_so_in_the_log_once_by_name(fx, f
             assert ws.svc.toolchain.refusal(elsewhere)
     said = [r.getMessage() for r in caplog.records if f"compiler {elsewhere} is outside" in r.getMessage()]
     assert [m.split(":")[0] for m in said] == ["workspace b", "workspace c"], said
+
+
+def test_a_bundle_an_edit_or_a_recheck_replaces_lets_go_of_its_index_at_once(fx, fx_b, tmp_path):
+    """A replaced bundle holds an open index. Nothing keeps it once its queue has ended and requests let go of it, so
+    its connection closes then, without waiting for a garbage collection (review of branch deferred-minors-2,
+    deferred minor), though Recheck may replace one at each look at a workspace that isn't ready."""
+    reg = server(fx, tmp_path)
+    reg.load()
+    b = reg.add(fields(fx_b.root), "owner")
+    root = tmp_path / "late"
+    root.mkdir()
+    late = reg.add(fields(root, name="late"), "owner")             # not ready: no compile database
+    gone = [weakref.ref(b.svc.index), weakref.ref(late.svc.index)]
+    ids = b.id, late.id
+    del b, late
+    gc.disable()
+    try:
+        reg.edit(ids[0], fields(fx_b.root, name="b2"))
+        reg.recheck(reg.get(ids[1]))                               # builds it again
+        assert [r() for r in gone] == [None, None]
+    finally:
+        gc.enable()
