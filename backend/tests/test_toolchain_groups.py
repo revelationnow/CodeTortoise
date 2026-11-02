@@ -4,6 +4,7 @@ import os
 import stat
 import sys
 import threading
+import time
 
 from codetortoise.config import ToolchainConfig
 from codetortoise.facts.clang_extractor import TuRequest, extract_tu
@@ -152,7 +153,7 @@ def test_health_looks_beside_a_review_adding_groups_never_break_or_miscount(tmp_
             tc = Toolchain(ToolchainConfig(query_compilers="off"), load_databases(cc, ws, None), tmp_path / "tc",
                            root=ws)
             errors, wrong = [], []
-            review = threading.Thread(target=lambda tc=tc: [tc.group_of(f) for f in reversed(files)])
+            review = threading.Thread(target=lambda tc=tc: [tc.group_of(f) for f in reversed(files)], daemon=True)
 
             def look(tc=tc, review=review, errors=errors, wrong=wrong):
                 try:
@@ -164,12 +165,14 @@ def test_health_looks_beside_a_review_adding_groups_never_break_or_miscount(tmp_
                             tc.key_of(g)
                 except Exception as e:  # what a look raises is the finding
                     errors.append(e)
-            looks = [threading.Thread(target=look) for _ in range(2)]
+            looks = [threading.Thread(target=look, daemon=True) for _ in range(2)]
             review.start()
             for t in looks:
                 t.start()
+            end = time.monotonic() + 60
             for t in [review, *looks]:
-                t.join(60)
+                t.join(max(0.0, end - time.monotonic()))
+            assert not any(t.is_alive() for t in [review, *looks]), "a look or the review never ended: a deadlock"
             assert errors == [] and wrong == [], (errors[:1], wrong[:3])
     finally:
         sys.setswitchinterval(old)
