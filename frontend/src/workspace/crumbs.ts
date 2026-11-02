@@ -17,6 +17,8 @@ export interface CrumbContext {
   clusters: { id: string; name: string }[];
   /** With a reading: a story's thread ("Thread A", "Tests"); CLs, files, findings and the map then live in the Index. */
   threadOf?: (sid: string) => string | null;
+  /** With a design overview: its walk-throughs, each with its threads by name ("Thread A with Thread B"; spec 2026-11-02 §3.2). */
+  walks?: { id: string; title: string; scope: string }[];
 }
 
 export const INDEX_LABEL = { cls: "CLs", files: "Files", findings: "Findings", map: "Map" } as const;
@@ -69,6 +71,11 @@ export function crumbs(place: Place, c: CrumbContext): Crumb[] {
     case "cluster": {
       const k = c.clusters.find((x) => x.id === place.cid);
       return [home, section("Map", "map"), k ? { ...named(k.name), to: null } : missing()];
+    }
+    case "walk": {
+      const w = c.walks?.find((x) => x.id === place.wid);
+      if (!w) return [home, missing()];
+      return [home, ...(w.scope ? [{ label: w.scope, to: c.base }] : []), { ...named(`Walk through: ${w.title}`), to: null }];
     }
     case "index":
       return [home, { label: INDEX_LABEL[place.tab], to: null }];

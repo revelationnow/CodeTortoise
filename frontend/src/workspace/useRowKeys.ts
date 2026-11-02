@@ -4,20 +4,23 @@ import { inPopup, lowerKey, typing } from "./keys";
 import { MARKED_FINE, shortcutsOn } from "./shortcuts";
 import useSaid from "./useSaid";
 
-/** Puts focus on row `n`'s toggle, the button that opens it. */
-const focusRow = (n: number) => document.querySelector<HTMLElement>(`#flow-${n} .fl-toggle`)?.focus();
-
-/** The Flows tab's row keys and where focus goes (spec 2026-10-25-review-ui-redesign §7.3). `cur` is the row J, K and F act on: the
+/** The Flows tab's and a walk-through's row keys and where focus goes (spec 2026-10-25-review-ui-redesign §7.3). `cur` is the row J, K and F act on: the
  * last with focus in it, or clicked (`setCur`). `move(n)` puts focus on row n once its group has unfolded; `focusRow(n)` is for a
  * button that hands its focus back to its row. `order`: the rows as they read, group by group; `leftAt(n)`: the keys of row n's places
  * still open; `fine(keys)`: marks them, and settles to whether the mark landed (and never rejects). Enter is the focused row's own
  * button. `said` is the words for the tab's live region, which the tab renders: F puts `Marked fine` there once its mark has landed
  * (`useSaid`). */
-export default function useRowKeys({ order, busy, leftAt, fine }: {
+export default function useRowKeys({ order, busy, leftAt, fine, start, prefix = "flow" }: {
   order: number[]; busy: boolean; leftAt: (n: number) => string[]; fine: (keys: string[]) => Promise<boolean>;
+  /** The row J, K and F start from; the address's flow unless given. */
+  start?: number | null;
+  /** The rows' id before their number: "flow" for `#flow-3` (the Flows tab), "step" for `#step-3` (a walk-through). */
+  prefix?: string;
 }) {
   const ws = useWs();
-  const [cur, setCur] = useState<number | null>(ws.addr.flow);
+  const [cur, setCur] = useState<number | null>(start === undefined ? ws.addr.flow : start);
+  /** Puts focus on row `n`'s toggle, the button that opens it. */
+  const focusRow = (n: number) => document.querySelector<HTMLElement>(`#${prefix}-${n} .fl-toggle`)?.focus();
   const { said, say } = useSaid();
   const focusTo = useRef<number | null>(null);
   const move = (to: number | undefined) => {

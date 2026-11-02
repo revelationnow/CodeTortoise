@@ -96,3 +96,16 @@ describe("stored memory", () => {
     expect(() => saveMemory(7, {})).not.toThrow();
   });
 });
+
+describe("a walk-through", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("is remembered at its step; a stored step that is not one is dropped", () => {
+    const w: Address = { place: { kind: "walk", wid: "W1" }, flow: null, open: null, tab: "diff", step: 3 };
+    expect(recall(remember({}, w), { kind: "walk", wid: "W1" })).toEqual(w);
+    const items: Record<string, string> = {
+      "ct.ws.7.memory": JSON.stringify({ "w:W1": w, "w:W2": { ...w, place: { kind: "walk", wid: "W2" }, step: 0 } }) };
+    vi.stubGlobal("window", { sessionStorage: { getItem: (k: string) => items[k] ?? null, setItem: () => {} } });
+    expect(loadMemory(7)).toEqual({ "w:W1": w });
+  });
+});

@@ -866,3 +866,17 @@ a.ws-chip { text-decoration: none; }
   .ov3 .ov-w { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
   .ov3 .ov-sep { display: inline; }
 }
+
+/* a walk-through's page (spec 2026-11-02-design-overview §3.2): a story's header and the Flows tab's rows, each row ending in
+   where its step comes from */
+.dz-note { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+.dz-ref { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 8px;
+  font-size: 12.5px; color: var(--muted); }
+.dz-ref a { text-decoration: none; }
+.dz-loop { font-size: 13px; color: var(--muted); }
+.dz-loop code { overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  /* a phone's row: where the step comes from goes under its line, so the line keeps the width */
+  .dz-step .fl-head { flex-wrap: wrap; }
+  .dz-ref { max-width: none; flex-basis: 100%; padding: 0 0 6px 40px; }
+}

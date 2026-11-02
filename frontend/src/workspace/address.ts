@@ -9,6 +9,7 @@ export type Place =
   | { kind: "finding"; fid: string }
   | { kind: "cl"; cl: number }
   | { kind: "cluster"; cid: string }
+  | { kind: "walk"; wid: string }
   | { kind: "index"; tab: IndexTab }
   | { kind: "unknown"; path: string };
 
@@ -45,6 +46,8 @@ export interface Address {
   status?: FindingState | null;
   /** A story's tab (absent: its first). */
   sec?: StorySec;
+  /** A walk-through's step to open (1-based; spec 2026-11-02 §18.5): `?step=N`. */
+  step?: number;
 }
 
 function readPlace(path: string, q: URLSearchParams): Place {
@@ -55,6 +58,7 @@ function readPlace(path: string, q: URLSearchParams): Place {
   if (kind === "s") return { kind: "story", sid: id, view: q.get("view") === "graph" || q.get("sec") === "graph" ? "graph" : "steps" };
   if (kind === "f") return { kind: "finding", fid: id };
   if (kind === "cl" && /^\d+$/.test(id)) return { kind: "cl", cl: Number(id) };
+  if (kind === "walk") return { kind: "walk", wid: id };
   if (kind === "c") return { kind: "cluster", cid: id };
   if (kind === "i" && (INDEX_TABS as readonly string[]).includes(id)) return { kind: "index", tab: id as IndexTab };
   return { kind: "unknown", path };
@@ -78,6 +82,7 @@ function withCl(open: Open, cl: string | null): Open {
 /** The address of `path` (what follows `/r/:id`) and its query. */
 export function readAddress(path: string, q: URLSearchParams): Address {
   const flow = Number(q.get("flow"));
+  const step = Number(q.get("step"));
   const place = readPlace(path, q), findings = place.kind === "index" && place.tab === "findings";
   return {
     place,
@@ -85,6 +90,7 @@ export function readAddress(path: string, q: URLSearchParams): Address {
     open: withCl(readOpen(q.get("open"), q.get("at")), q.get("cl")),
     tab: q.get("tab") === "neighbours" ? "neighbours" : "diff",
     ...(place.kind === "story" && (STORY_SECS as readonly string[]).includes(q.get("sec") ?? "") ? { sec: q.get("sec") as StorySec } : {}),
+    ...(place.kind === "walk" && Number.isInteger(step) && step > 0 ? { step } : {}),
     ...(q.get("story") ? { story: q.get("story") } : {}),
     ...(q.get("check") ? { check: q.get("check") } : {}),
     ...(q.get("details") === "1" ? { details: true } : {}),
@@ -100,6 +106,7 @@ function placePath(p: Place): string {
     case "finding": return `/f/${p.fid}`;
     case "cl": return `/cl/${p.cl}`;
     case "cluster": return `/c/${p.cid}`;
+    case "walk": return `/walk/${p.wid}`;
     case "index": return `/i/${p.tab}`;
     case "unknown": return p.path;
   }
@@ -117,6 +124,7 @@ export function href(base: string, a: Address): string {
   if (a.open && "file" in a.open && (a.open.all || a.open.cl)) q.set("cl", a.open.all ? "all" : String(a.open.cl));
   if (a.tab !== "diff") q.set("tab", a.tab);
   if (a.sec && a.place.kind === "story" && a.place.view !== "graph") q.set("sec", a.sec);
+  if (a.step && a.place.kind === "walk") q.set("step", String(a.step));
   if (a.check) q.set("check", a.check);
   if (a.details && a.place.kind === "finding") q.set("details", "1");
   if (a.place.kind === "index" && a.place.tab === "findings") {
@@ -134,6 +142,7 @@ export function placeKey(p: Place): string {
     case "finding": return `f:${p.fid}`;
     case "cl": return `cl:${p.cl}`;
     case "cluster": return `c:${p.cid}`;
+    case "walk": return `w:${p.wid}`;
     case "index": return `i:${p.tab}`;
     case "unknown": return `?:${p.path}`;
   }

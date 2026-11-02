@@ -78,6 +78,17 @@ describe("the breadcrumb", () => {
     a.label = "changed";
     expect(crumbs({ kind: "unknown", path: "/y" }, ctx).at(-1)).toEqual({ label: "Not found", to: null });
   });
+
+  it("puts a walk-through under its threads, and says so when the review does not have it", () => {
+    const walks = [{ id: "W1", title: "When `len > 64`", scope: "Thread A with Thread B" },
+                   { id: "W2", title: "From `main` through `hal_write`", scope: "" }];
+    expect(crumbs({ kind: "walk", wid: "W1" }, { ...ctx, walks })).toEqual([
+      { label: "Review 7", to: "/r/7" }, { label: "Thread A with Thread B", to: "/r/7" }, { label: "Walk through: When len > 64", to: null }]);
+    expect(crumbs({ kind: "walk", wid: "W2" }, { ...ctx, walks })).toEqual([
+      { label: "Review 7", to: "/r/7" }, { label: "Walk through: From main through hal_write", to: null }]);
+    expect(crumbs({ kind: "walk", wid: "W9" }, { ...ctx, walks }).at(-1)).toEqual({ label: "Not found", to: null });
+    expect(crumbs({ kind: "walk", wid: "W1" }, ctx).at(-1)).toEqual({ label: "Not found", to: null });   // a reading with no design
+  });
 });
 
 describe("short", () => {

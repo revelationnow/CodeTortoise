@@ -14,6 +14,7 @@ import { threadLabel } from "../reading/checks";
 import { causeOfCheck, loadHidden, loadOutline, nextOpen, openCount, type OutlineView, progressLine, saveHidden, saveOutline, shown } from "../reading/causes";
 import { progress, progressText } from "../reading/plan";
 import type { CheckKind } from "../reading/types";
+import { walkScope } from "../reading/walks";
 import { ViewerContext, viewerOf } from "../viewer";
 import { type Address, at, href, type Item, type Open, type Place, readAddress, type Tab } from "./address";
 import { type Folds, useWs, type Ws, WsContext } from "./context";
@@ -30,6 +31,7 @@ import Outline, { useStoryThread } from "./Outline";
 import Rail from "./Rail";
 import ReviewMenu from "./ReviewMenu";
 import StoryPage from "./StoryPage";
+import WalkPage from "./WalkPage";
 import { addTab, closeTab as closeOf } from "./tabs";
 import { HEAD_MIN, headMax, loadHeadH } from "./layout";
 import { indexFor, legacy } from "./legacy";
@@ -97,13 +99,14 @@ export default function Workspace() {
   const r = data.reading;
   useStoryThread(id, r, addr.place.kind === "story" ? addr.place.sid : null);   // here, not in the outline: a phone shows no outline beside a story
   const threadOf = useMemo(() => r ? (sid: string) => threadLabel(r.threads, sid) : undefined, [r]);
+  const walks = useMemo(() => r?.design?.walks.map((w) => ({ id: w.id, title: w.title, scope: walkScope(w, r.threads) })), [r]);
   const waiting = r === undefined || !loadedFor(addr.place, data);   // the trail waits, as the centre does
   const trail = useMemo(() => waiting && addr.place.kind !== "whole"
     ? [{ label: d?.review.title ?? `Review ${id}`, to: root }, { label: "Loading…", to: null }]
     : crumbs(addr.place, {
       base: root, title: d?.review.title ?? `Review ${id}`, stories: data.stories?.stories ?? [], findings: data.findings,
-      cls: d?.cls ?? [], clusters: data.overview?.clusters ?? [], threadOf,
-    }), [waiting, addr.place, root, d, id, data.stories, data.findings, data.overview, threadOf]);
+      cls: d?.cls ?? [], clusters: data.overview?.clusters ?? [], threadOf, walks,
+    }), [waiting, addr.place, root, d, id, data.stories, data.findings, data.overview, threadOf, walks]);
   const hash = location.hash.slice(1) || null;
 
   // an address from before the workspace goes to where that thing lives now (§2.3)
@@ -236,12 +239,14 @@ function Centre() {
   if (r === undefined || !loadedFor(p, d)) return <div className="ws-page"><p className="muted">Loading…</p></div>;
   const exists = p.kind === "whole" || (p.kind === "index" && !!r) || (p.kind === "story" && !!d.stories?.stories.some((s) => s.id === p.sid))
     || (p.kind === "finding" && d.findings.some((f) => f.id === p.fid)) || (p.kind === "cl" && !!d.detail?.cls.some((c) => c.cl === p.cl))
-    || (p.kind === "cluster" && !!d.overview?.clusters.some((c) => c.id === p.cid));
+    || (p.kind === "cluster" && !!d.overview?.clusters.some((c) => c.id === p.cid))
+    || (p.kind === "walk" && !!r?.design?.walks.some((w) => w.id === p.wid));
   if (!exists) return <Missing what={p} />;
   if (p.kind === "whole" && p.view === "graph")
     return d.board ? <div className="ws-page graph"><ReviewGraph board={d.board} /></div> : <Missing what={p} />;
   if (p.kind === "whole") return <WholePage />;
   if (p.kind === "story") return <StoryPage key={p.sid} sid={p.sid} view={p.view} />;
+  if (p.kind === "walk") return <WalkPage key={p.wid} wid={p.wid} />;
   if (p.kind === "finding") {
     // with a reading, an old finding address opens its story with its row lit (§11); its own page is Details
     const k = r && !ws.addr.details ? r.checks.find((c) => c.finding === p.fid) : null;
@@ -258,6 +263,7 @@ function Centre() {
 /** Whether what tells `p`'s page exists is in (spec §7): until then the page is on its way, not missing. A finding's
  * old address also needs the stories, for the story it opens. */
 function loadedFor(p: Place, d: ReviewData): boolean {
+  if (p.kind === "walk") return d.stories !== undefined;                       // its crumb and chips name stories
   if (p.kind === "story") return d.stories !== undefined;
   if (p.kind === "finding") return d.findingsLoaded && d.stories !== undefined;
   if (p.kind === "cluster") return d.overview !== undefined;
@@ -267,7 +273,8 @@ function loadedFor(p: Place, d: ReviewData): boolean {
 export function Missing({ what }: { what: Place }) {
   const ws = useWs();
   const name = what.kind === "story" ? `Story ${what.sid}` : what.kind === "finding" ? `Finding ${what.fid}`
-    : what.kind === "cl" ? `CL ${what.cl}` : what.kind === "cluster" ? `Part ${what.cid}` : "This page";
+    : what.kind === "cl" ? `CL ${what.cl}` : what.kind === "cluster" ? `Part ${what.cid}`
+    : what.kind === "walk" ? "This walk-through" : "This page";
   return (
     <div className="ws-page">
       <div className="banner warn">{name} isn't in this review. <Link to={ws.link(at({ kind: "whole" }))} state={{ page: true }}>Whole change</Link></div>

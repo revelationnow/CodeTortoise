@@ -141,3 +141,18 @@ describe("the findings index's filters", () => {
     expect(href("/r/7", { ...at({ kind: "index", tab: "files" }), sev: "high" })).toBe("/r/7/i/files");
   });
 });
+
+describe("a walk-through", () => {
+  it("is a place of its own, with the step it opens at", () => {
+    const a = readAddress("/walk/W1", q("step=4"));
+    expect([a.place, a.step]).toEqual([{ kind: "walk", wid: "W1" }, 4]);
+    expect(href("/r/7", a)).toBe("/r/7/walk/W1?step=4");
+    const [path, query] = href("/r/7", a).slice("/r/7".length).split("?");
+    expect(readAddress(path, q(query)).step).toBe(4);
+    for (const bad of ["step=0", "step=2.5", "step=x", "step=-1"]) expect(readAddress("/walk/W1", q(bad)).step).toBeUndefined();
+    expect(readAddress("/s/S1", q("step=4")).step).toBeUndefined();                  // only a walk-through has steps
+    expect(href("/r/7", at({ kind: "story", sid: "S1", view: "steps" }, { step: 4 }))).toBe("/r/7/s/S1");
+    expect(readAddress("/walk/W1/x", q("")).place).toEqual({ kind: "unknown", path: "/walk/W1/x" });
+    expect(placeKey({ kind: "walk", wid: "W1" })).toBe("w:W1");
+  });
+});

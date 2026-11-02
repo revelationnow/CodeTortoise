@@ -1,6 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigationType } from "react-router-dom";
-import { api, errorText } from "../api";
 import type { BoardFlow, StoryDetail } from "../board/types";
 import AiText from "../components/AiText";
 import { shown } from "../reading/causes";
@@ -12,6 +11,7 @@ import Chips from "./Chips";
 import { useWs } from "./context";
 import NameText, { Ticks } from "./NameText";
 import { bare } from "./names";
+import useMarks from "./useMarks";
 import useRowKeys from "./useRowKeys";
 
 const ALSO = "also";                                                           // the end line's key in `more`; a group's is "kind:node"
@@ -36,20 +36,7 @@ export default function FlowsTab({ detail, sr, flows }: { detail: StoryDetail; s
   const parts = sr.account ?? [], effects = parts.find((p) => p.kind === "effects");
   const [open, setOpen] = useState<number | null>(lit);
   const [more, setMore] = useState<ReadonlySet<string>>(new Set());
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // settles to whether the change landed (never rejects): F says "Marked fine" only for a mark that did. `failed` is what a refusal
-  // that comes without words says, by what the reader was doing
-  const run = (act: () => Promise<unknown>, failed: string): Promise<boolean> => {
-    if (busy) return Promise.resolve(false);                                   // one mark at a time; the tick boxes stay enabled, so they keep their focus
-    setBusy(true);
-    setError(null);
-    return act().then(() => Promise.all([d.loadReading(), d.loadTicks().catch(() => {})])).then(() => true)
-      .catch((e) => { setError(errorText(e, failed)); return false; }).finally(() => setBusy(false));
-  };
-  const fine = (keys: string[]) => run(() => api.markChecks(d.id, keys), "The server did not accept the mark.");
-  const reopen = (keys: string[]) => run(() => api.unmarkChecks(d.id, keys),   // all of them or none, so a refusal leaves the row as it was
-                                         "The server did not reopen these checks.");
+  const { busy, error, fine, reopen } = useMarks();
   const leftAt = (n: number) => openKeys(places.get(flows[n - 1]?.id ?? "") ?? [], marks);
   const { cur, setCur, move, focusRow, said } = useRowKeys({ order, busy, leftAt, fine });
   // An address that names a row opens it and brings it into view, once. An outline group line names its first row even when the address

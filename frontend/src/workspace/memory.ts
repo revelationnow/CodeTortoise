@@ -28,6 +28,7 @@ function isPlace(p: unknown): p is Place {
     case "finding": return str(p.fid);
     case "cl": return Number.isInteger(p.cl);
     case "cluster": return str(p.cid);
+    case "walk": return str(p.wid);
     default: return false;
   }
 }
@@ -46,7 +47,8 @@ function isOpen(o: unknown): o is Open {
 const isAddressAt = (k: string, a: unknown): a is Address =>
   isObj(a) && isPlace(a.place) && placeKey(a.place) === k && isOpen(a.open)
   && (a.flow === null || (Number.isInteger(a.flow) && (a.flow as number) > 0)) && (a.tab === "diff" || a.tab === "neighbours")
-  && (a.sec === undefined || (STORY_SECS as readonly unknown[]).includes(a.sec));
+  && (a.sec === undefined || (STORY_SECS as readonly unknown[]).includes(a.sec))
+  && (a.step === undefined || (Number.isInteger(a.step) && (a.step as number) > 0));
 
 /** Session storage may be missing or throw: the workspace then just forgets. */
 export function loadMemory(reviewId: number): Memory {
