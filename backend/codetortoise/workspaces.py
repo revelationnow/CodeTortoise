@@ -236,7 +236,12 @@ class Registry:
             # branch deferred-minors, M3)
             what = "could not load" if ws.svc is None else "could not finish loading"
             ws.reason = f"{what}: {type(e).__name__}: {e}"
-            log.exception("workspace %s: %s", ws.name, ws.reason)
+            with self._lock:
+                kept = self._ws.get(ws.id) is ws
+            if kept:
+                log.exception("workspace %s: %s", ws.name, ws.reason)
+            else:                                        # removed or replaced meanwhile, as in _load
+                log.debug("workspace %s: its build ended as it was removed or replaced: %s", ws.name, ws.reason)
         finally:
             ws.loaded.set()
 
@@ -252,7 +257,6 @@ class Registry:
             runner = self.runner_class(svc, self.pool)
         except Exception as e:  # a missing root, an unreadable compile database: shown, never fatal
             ws.reason = f"could not load: {type(e).__name__}: {e}"
-            log.warning("workspace %s: %s", ws.name, ws.reason)
         try:
             if runner is not None and ws.after is not None and not ws.after.join(STOP_WAIT):
                 log.warning("workspace %s: the queue it replaces still runs after %.0f s", ws.name, STOP_WAIT)
@@ -266,10 +270,15 @@ class Registry:
             if svc is not None and ws.svc is not svc:    # never attached, however it ended: nothing else closes its index
                 svc.index.close()                        # (final review of branch deferred-minors, M3)
         if not kept:
+            # a removal takes its folder away under the build, which may then break: not said as a workspace that could
+            # not load (final review of branch deferred-minors-3, declined item 12)
+            if runner is None:
+                log.debug("workspace %s: its build ended as it was removed or replaced: %s", ws.name, ws.reason)
             if self.store.get_workspace(ws.id) is None:  # removed: the folder its build made goes too (final review M2)
                 shutil.rmtree(self.home(ws.id), ignore_errors=True)
             return
         if runner is None:
+            log.warning("workspace %s: %s", ws.name, ws.reason)
             return
         # an index last built for other settings is built again: one an edit's build left for the old ones, when a
         # restart stopped it (review of branch minors, M7); one from before stamps is taken as built for these when it

@@ -382,6 +382,50 @@ def test_a_workspace_removed_while_its_bundle_builds_leaves_no_folder_behind(fx,
     assert not home.exists() and reg.get(wid) is None
 
 
+def test_a_workspace_removed_while_it_loads_is_not_said_to_have_failed_to_load(fx, fx_b, tmp_path, monkeypatch, caplog):
+    """Removing a workspace takes its folder away under a build still under way, which then breaks (in the e2e run,
+    sqlite's "disk I/O error"): the log doesn't say that a workspace the owner removed could not load, and still says
+    it of one that is kept (final review of branch deferred-minors-3, declined item 12)."""
+    later = []
+    reg = Registry.open(make_config(fx, tmp_path / "data"), spawn=later.append, runner_class=InlineRunner)
+    reg.load()
+    later.pop()()                                                # the seed's
+    other = tmp_path / "other"
+    other.mkdir()
+    gone = reg.add(fields(fx_b.root), "owner")
+    reg.add(fields(other, name="kept"), "owner")
+
+    def broken(*a, **k):
+        raise sqlite3.OperationalError("disk I/O error")         # its folder went while it was being built
+    monkeypatch.setattr(workspaces, "build_services", broken)
+    reg.remove(gone.id)
+    with caplog.at_level(logging.INFO, logger="codetortoise.workspaces"):
+        while later:
+            later.pop()()
+    said = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert said == ["workspace kept: could not load: OperationalError: disk I/O error"], said
+
+
+def test_a_workspace_removed_while_its_checks_run_is_not_said_to_have_failed_to_load(fx, fx_b, tmp_path, monkeypatch,
+                                                                                      caplog):
+    """The same for a removal that lands once its bundle is built, while its first checks run: its folder goes under
+    them (final review of branch deferred-minors-3, declined item 12)."""
+    later = []
+    reg = Registry.open(make_config(fx, tmp_path / "data"), spawn=later.append, runner_class=InlineRunner)
+    reg.load()
+    later.pop()()                                                # the seed's
+    ws = reg.add(fields(fx_b.root), "owner")
+
+    def removed(svc, **kw):                                      # the owner removes it as its checks begin
+        reg.remove(ws.id)
+        raise sqlite3.OperationalError("disk I/O error")
+    monkeypatch.setattr(workspaces, "run_health", removed)
+    with caplog.at_level(logging.INFO, logger="codetortoise.workspaces"):
+        later.pop()()
+    assert reg.get(ws.id) is None
+    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING] == []
+
+
 def test_an_edit_or_a_remove_stops_the_index_build_under_way(fx, fx_b, tmp_path, monkeypatch):
     """The first index of a big tree takes long: an owner who saved a wrong setting fixes it, or removes the workspace,
     at once (final review M3)."""
