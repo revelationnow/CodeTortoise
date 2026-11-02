@@ -76,8 +76,9 @@ export default function Detail() {
   }, [nid, hereKey, storyOf, rid]);
   const close = ws.link({ ...ws.addr, open: null, tab: "diff" });
   const found = nid ? locateNode(nid, detailBoards(own?.detail ?? null, here?.key === hereKey ? here.at : null, d.board)) : null;
-  // until the node's story has answered, a node without its lines may yet get them: wait rather than show the file first
-  const waiting = !!name?.story && !own && !(found?.node.path && found.node.range);
+  // until the node's story has answered, a node without its lines may yet get them: wait rather than show the file first;
+  // and until the names or its neighbours name it, since only its name says which story it is in
+  const waiting = !!nid && !(found?.node.path && found.node.range) && (name ? !!name.story && !own : !off);
   const node = found?.node;
   const path = "file" in open ? open.file : node?.path ?? name?.path ?? null;
   const label = cid ? (causeLine ? short(causeLine, 40) : null) : fid ? (finding ? fid : null) : "file" in open ? path!.slice(path!.lastIndexOf("/") + 1) : node?.label ?? name?.label ?? null;

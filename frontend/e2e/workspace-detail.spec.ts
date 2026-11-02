@@ -1,5 +1,5 @@
 import { devices, expect, type Page } from "@playwright/test";
-import { expectIconsOnly, expectNamed, expectNoNodeIds, LARGE, openFold, openIndex, sideways, startReview, test } from "./helpers";
+import { expectIconsOnly, expectNamed, expectNoNodeIds, hold, LARGE, openFold, openIndex, sideways, startReview, test } from "./helpers";
 
 /** The detail panel (spec 2026-10-04-review-workspace §3.7): a node's code or a file's diff, on demand. */
 
@@ -149,7 +149,7 @@ test.describe("desktop", () => {
     await expect(panel.getByRole("button", { name: "Stacked" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  test("a node in a story waits for the story before choosing how to show it", async ({ page }) => {
+  test("a node in a story waits for the names and its story before choosing how to show it", async ({ page }) => {
     const base = await startReview(page);
     const rid = base.split("/")[2];
     const names = await (await page.request.get(`/api/reviews/${rid}/names`)).json();
@@ -158,13 +158,26 @@ test.describe("desktop", () => {
     const board = await (await page.request.get(`/api/reviews/${rid}/board`)).json();
     board.nodes = board.nodes.map((n: { id: string }) => (n.id === send ? { ...n, range: null } : n));
     await page.route(`**/api/reviews/${rid}/board`, (r) => r.fulfill({ json: board }));
-    await page.route(`**/api/reviews/${rid}/stories/S1`, async (r) => { await new Promise((ok) => setTimeout(ok, 1500)); await r.continue(); });
+    await page.addInitScript(() => {                    // the whole file in the panel, however briefly it shows
+      const w = window as unknown as { file: boolean };
+      w.file = false;
+      new MutationObserver(() => { if (document.querySelector(".ws-detail .ws-file")) w.file = true; })
+        .observe(document, { subtree: true, childList: true });
+    });
+    // until the names or its neighbours answer, nothing says the function is in a story
+    const named = await hold(page, `**/api/reviews/${rid}/names`), asked = await hold(page, `**/api/reviews/${rid}/nodes/*/neighbours*`);
+    const told = await hold(page, `**/api/reviews/${rid}/stories/S1`);
     await page.goto(`${base}?open=${send}`);
     const panel = page.getByRole("complementary", { name: "Code: uart_send" });
-    await expect(panel).toBeVisible();
-    for (let i = 0; i < 8; i++) { expect(await panel.locator(".ws-file").count()).toBe(0); await page.waitForTimeout(150); }
+    await Promise.all([named.held, asked.held]);
+    await expect(panel).toContainText("Fetching uart_send's code…");
+    asked.release();
+    named.release();
+    await told.held;
+    await expect(panel).toContainText("Fetching uart_send's code…");
+    told.release();
     await expect(panel.locator(".bd-code")).toBeVisible();
-    await expect(panel.locator(".ws-file")).toHaveCount(0);
+    expect(await page.evaluate(() => (window as unknown as { file: boolean }).file), "the whole file never showed").toBe(false);
   });
 
   test("a check's place opens its file at its line, outside the hunks", async ({ page }) => {
