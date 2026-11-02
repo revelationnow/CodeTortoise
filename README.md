@@ -19,6 +19,14 @@ tab and beside a check; it is on by default and remembered in that browser. F al
 reader once its mark has landed. The same menu holds workspace drift, stage notes, AI usage, the help and the owner's
 re-runs.
 
+The overview also says **where the change sits**: its components, layer by layer, each with the threads that change it and
+the calls and fields that cross into it from another (the `analysis:` setting `components` names them; without it, the
+folders do). A thread's **walk-throughs** follow a changed path from where it starts, through the functions it passes, to
+where what changed lands, as a drawing and as steps. Each step links to the story it comes from, and a step that is one of
+the story's flows has that flow's tick box. When the change adds a condition, a folded row lists the changed lines that
+still run when the condition is false, and those that don't. All of it comes from the code alone; `design: false` turns it
+off.
+
 The web app is the system of record for review discussion. P4 Swarm is a side channel: CodeTortoise reads review state,
 can create a Swarm review for a shelved CL and posts a summary link.
 
