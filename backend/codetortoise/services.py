@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from codetortoise import layers as layers_mod
-from codetortoise.config import Config
+from codetortoise.config import Config, seed_name
 from codetortoise.index.symbols import SymbolIndex
 from codetortoise.layers import LayerModel, infer_layers
 from codetortoise.llm.client import LlmClient
@@ -154,7 +154,7 @@ def build_services(cfg: Config, llm: LlmClient | None = None, source: Source | N
     index = SymbolIndex(home / "symbols.db")
     cdb = load_databases(cfg.workspace.compile_commands, cfg.workspace.root, cfg.workspace.build_root)
     tc = Toolchain(cfg.toolchain, cdb, home / "toolchain", root=cfg.workspace.root, data_dir=data, folders=folders,
-                   outside=outside)
+                   outside=outside, label=seed_name(cfg))
     tc.strip.update(store.kv_get(strip_flags_key(cfg.workspace.root, scope)) or [])
     llm = llm if llm is not None else make_llm(cfg)
     p4 = None

@@ -260,15 +260,16 @@ def _accounts_homes(me: int, minute: int) -> tuple[str, ...]:
 
 
 _UNJUDGED = object()                             # refusal: no verdict since again()
-_said: set[str] = set()                          # refusals the log has had, by compiler or library: once per process
+_said: set[tuple[str, str]] = set()              # refusals the log has had, by workspace and compiler or library
 
 
-def _say(what: str, why: str) -> None:
-    """Log a refusal once per process (final review of branch deferred-minors): after an upgrade a toolchain that ran
-    before loses its include paths and macros, and the log says so before anyone opens a Health page."""
-    if what not in _said:
-        _said.add(what)
-        log.warning("a workspace added in the UI: %s; its Health page says the same", why)
+def _say(label: str, what: str, why: str) -> None:
+    """Log a refusal once per process for each workspace (final review of branch deferred-minors), naming it (review of
+    branch deferred-minors-2): after an upgrade a toolchain that ran before loses its include paths and macros, and
+    the log says so as soon as a review or the Health page meets it."""
+    if (label, what) not in _said:
+        _said.add((label, what))
+        log.warning("%s: %s; its Health page says the same", f"workspace {label}" if label else "a workspace", why)
 
 
 def _dirs(said: str) -> list[str]:
@@ -288,8 +289,10 @@ class Toolchain:
     toolchain group and language) for its built-in include paths and macros, and its target is made explicit."""
 
     def __init__(self, cfg: ToolchainConfig, cdb: CompileDb, work_dir: Path, root: Path | None = None,
-                 data_dir: Path | None = None, folders: Iterable[str] | None = None, outside: Iterable[str] = ()):
+                 data_dir: Path | None = None, folders: Iterable[str] | None = None, outside: Iterable[str] = (),
+                 label: str = ""):
         self.cfg = cfg
+        self.label = label                               # the workspace's name, for the log
         self.cdb = cdb
         self.work_dir = Path(work_dir)
         self.root = canon(str(root)) if root else None
@@ -425,7 +428,7 @@ class Toolchain:
         deferred-minors)."""
         choice = find_libclang(self.cfg, data_dir=self.data_dir, refuses=self._refuses, **kw)
         for p in choice.passed:
-            _say(p, f"libclang {p} is passed over")
+            _say(self.label, p, f"libclang {p} is passed over")
         return choice
 
     def prepare(self) -> tuple[LibclangChoice, LibclangInfo]:
@@ -488,7 +491,7 @@ class Toolchain:
                 unsafe = self._unsafe(driver)
                 why = self._verdicts[driver] = f"compiler {driver} is not run: {unsafe}" if unsafe else None
         if why:
-            _say(driver, why)
+            _say(self.label, driver, why)
         return why
 
     def _machine(self, driver: str) -> str | None:

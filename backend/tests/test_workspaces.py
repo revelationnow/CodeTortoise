@@ -694,3 +694,21 @@ def test_a_health_look_that_breaks_leaves_a_ready_workspace_ready(fx, fx_b, tmp_
     assert not row.ok and not row.hard
     assert row.detail == ("could not be checked (RuntimeError: dictionary changed size during iteration); "
                           "Recheck tries again")
+
+
+def test_each_workspace_refused_a_compiler_says_so_in_the_log_once_by_name(fx, fx_b, tmp_path, caplog):
+    """Two workspaces whose compiler the toolchain folders refuse each say so in the server's log, naming the
+    workspace, once each (review of branch deferred-minors-2, deferred minor)."""
+    opt = tmp_path / "opt"
+    opt.mkdir()
+    elsewhere = str(tmp_path / "elsewhere" / "bin" / "cc")
+    reg = server(fx, tmp_path, server={"data_dir": str(tmp_path / "data"), "toolchain_folders": [str(opt)]})
+    reg.load()
+    other = tmp_path / "other"
+    other.mkdir()
+    b, c = reg.add(fields(fx_b.root), "owner"), reg.add(fields(other, name="c"), "owner")
+    with caplog.at_level(logging.WARNING, logger="codetortoise.toolchain.toolchain"):
+        for ws in (b, c, b):
+            assert ws.svc.toolchain.refusal(elsewhere)
+    said = [r.getMessage() for r in caplog.records if f"compiler {elsewhere} is outside" in r.getMessage()]
+    assert [m.split(":")[0] for m in said] == ["workspace b", "workspace c"], said

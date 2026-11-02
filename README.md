@@ -361,15 +361,15 @@ Two exceptions:
 
 Otherwise the Health page names the file or folder and the command that fixes it, such as `chmod o-w /opt/tools/bin`.
 For a compiler in the `bin` folder of a toolchain installed in a folder of its own inside a toolchain folder (gcc in
-`/opt/tools/bin`), it also gives the command that fixes everything in that folder at once, such as
-`chmod -R go-w /opt/tools`. It never gives one for a folder programs share, such as `/usr/local`, nor for one that is,
-lies in or holds another account's home. For a folder another account owns, moving the toolchain to a folder only you
-and root can change is the other way, and for another account's home the only one. Fix it and press Recheck. The
-server's log says each refusal once as well, as soon as a review or the Health page meets it. On most machines `/usr`
-and `/opt` belong to root alone, so nothing there is refused. Debian installed before version 10 (buster) is one
-exception: there `/usr/local` and the folders in it belong to the group `staff`, which may write to them, so a toolchain
-under `/usr/local` is refused until `sudo chmod g-w` is run on the folders named (members of `staff` then can't install
-there).
+`/opt/tools/bin`), it also gives the command that fixes everything in that folder at once, such as `chmod -R go-w
+/opt/tools`. It never gives one for a folder programs share, such as `/usr/local`, nor for one that is, lies in or holds
+another account's home. For a folder another account owns, moving the toolchain to a folder only you and root can change
+is the other way, and for another account's home the only one. Fix it and press Recheck. The server's log says each
+refusal as well, once for each workspace and naming it, as soon as a review or the Health page meets it. On most
+machines `/usr` and `/opt` belong to root alone, so nothing there is refused. Debian installed before version 10
+(buster) is one exception: there `/usr/local` and the folders in it belong to the group `staff`, which may write to
+them, so a toolchain under `/usr/local` is refused until `sudo chmod g-w` is run on the folders named (members of
+`staff` then can't install there).
 
 The workspace in tortoise.yaml isn't held to any of this, and its own folder never counts as a toolchain folder; a
 workspace added in the UI can't overlap one. Two things aren't checked: the shared libraries a compiler or libclang
