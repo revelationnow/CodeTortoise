@@ -190,16 +190,26 @@ def test_a_look_describing_the_library_holds_no_review_up(tmp_path, monkeypatch)
         described.wait(30)
         return LibclangInfo(path=path or "bundled", version="clang version 99", vendor=False)
     monkeypatch.setattr(toolchain, "library_info", slow)
-    look = threading.Thread(target=tc.prepare, daemon=True)
+    got, parsed, errors = [], threading.Event(), []
+    look = threading.Thread(target=lambda: got.append(tc.prepare()), daemon=True)
     look.start()
     assert describing.wait(10)
-    review = threading.Thread(target=lambda: [tc.group_of(f) for f in files], daemon=True)
-    review.start()
-    review.join(5)
-    waited = review.is_alive()
+
+    def parse():
+        try:
+            for f in files:
+                tc.group_of(f)
+        except Exception as e:  # what the parse raises is the finding
+            errors.append(e)
+        finally:
+            parsed.set()
+    threading.Thread(target=parse, daemon=True).start()
+    waited = not parsed.wait(5)
     described.set()
     look.join(10)
     assert not waited, "the review's parse waited for a Health look to describe the library"
+    assert errors == [], errors
+    assert got and got[0][1].version == "clang version 99", "the look never ended"
 
 
 def test_a_library_chosen_again_while_a_look_describes_the_old_one_is_the_one_kept(tmp_path, monkeypatch):
@@ -221,7 +231,8 @@ def test_a_library_chosen_again_while_a_look_describes_the_old_one_is_the_one_ke
             described.wait(30)
         return LibclangInfo(path=path, version="clang version 99", vendor=path == own.path)
     monkeypatch.setattr(toolchain, "library_info", info)
-    look = threading.Thread(target=tc.prepare, daemon=True)
+    got, later = [], []
+    look = threading.Thread(target=lambda: got.append(tc.prepare()), daemon=True)
     look.start()
     assert describing.wait(10)
     chosen[0] = own                                  # the owner fixed the toolchain's library, then pressed Recheck
@@ -229,6 +240,12 @@ def test_a_library_chosen_again_while_a_look_describes_the_old_one_is_the_one_ke
     recheck.start()
     recheck.join(5)
     described.set()
-    look.join(10)
-    recheck.join(10)
-    assert tc.prepare()[0] == own
+    end = time.monotonic() + 10
+    for t in (look, recheck):
+        t.join(max(0.0, end - time.monotonic()))
+    assert not look.is_alive() and not recheck.is_alive(), "the look or the Recheck never ended"
+    assert got[0][0] == own                          # the look overtaken comes back with the library chosen anew
+    after = threading.Thread(target=lambda: later.append(tc.prepare()), daemon=True)
+    after.start()
+    after.join(10)
+    assert later and later[0][0] == own, "the library kept isn't the one chosen anew, or prepare() never ended"
