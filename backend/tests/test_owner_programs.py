@@ -265,8 +265,10 @@ def accounts(monkeypatch):
     reads = []
     monkeypatch.setattr(pwd, "getpwall", lambda: reads.append(1) or [*real(), *extra])
     tcmod._private_group.cache_clear()
+    tcmod._accounts_homes.cache_clear()
     yield extra, reads
     tcmod._private_group.cache_clear()
+    tcmod._accounts_homes.cache_clear()
 
 
 def test_a_group_another_account_has_as_its_own_is_not_the_accounts_private_group(tmp_path, accounts):
@@ -450,7 +452,7 @@ def test_a_fix_inside_a_toolchains_own_folder_says_how_to_fix_all_of_it_at_once(
     bin_.chmod(0o777)
     assert _runs(tmp_path, cc, [str(opt)]) == \
         (False, f"compiler {cc} is not run: anyone can change {bin_} (`chmod o-w {bin_}` fixes it; "
-                f"`chmod -R go-w {opt / 'tc'}` fixes the whole toolchain)")
+                f"`chmod -R go-w {opt / 'tc'}` fixes everything in {opt / 'tc'})")
     bin_.chmod(0o755)
     opt.chmod(0o777)                                             # above the toolchain's own folder: that one alone
     assert _runs(tmp_path, cc, [str(opt)]) == \
@@ -460,7 +462,58 @@ def test_a_fix_inside_a_toolchains_own_folder_says_how_to_fix_all_of_it_at_once(
     owner = pwd.getpwuid(os.geteuid()).pw_name
     assert changeable(str(f), me=os.geteuid() + 1, tree=str(opt / "tc")) \
         == f"{f} belongs to {owner}, who can change it (`sudo chown root {f}` fixes it; `sudo chown -R root " \
-           f"{opt / 'tc'}` fixes the whole toolchain; or move the toolchain to a folder only you and root can change)"
+           f"{opt / 'tc'}` fixes everything in {opt / 'tc'}; or move the toolchain to a folder only you and root can " \
+           "change)"
+
+
+def test_a_shared_prefix_or_a_compiler_deeper_in_gets_no_fix_for_all_of_it(tmp_path):
+    """The command that fixes a whole toolchain is for one installed in a folder of its own, its compiler in that
+    folder's bin: never for a prefix programs share (/usr/local: final review of branch deferred-minors-2, I1), nor
+    for a compiler deeper in, where the folder above its own isn't the toolchain's."""
+    usr = tmp_path / "usr"
+    cc = _compiler(usr / "local" / "bin" / "gcc", tmp_path / "runs.log")
+    bin_ = usr / "local" / "bin"
+    bin_.chmod(0o777)
+    assert _runs(tmp_path, cc, [str(usr)]) == \
+        (False, f"compiler {cc} is not run: anyone can change {bin_} (`chmod o-w {bin_}` fixes it)")
+    bin_.chmod(0o755)
+    sdk = tmp_path / "sdk"
+    deep = sdk / "sysroots" / "host" / "usr" / "bin" / "arm-linux"
+    cc = _compiler(deep / "arm-linux-gcc", tmp_path / "runs.log")
+    deep.chmod(0o777)
+    assert _runs(tmp_path, cc, [str(sdk)]) == \
+        (False, f"compiler {cc} is not run: anyone can change {deep} (`chmod o-w {deep}` fixes it)")
+
+
+@pytest.mark.parametrize("home", ["opt/tools", "opt", "opt/tools/share/build"])
+def test_no_fix_for_all_of_a_toolchain_that_is_lies_in_or_holds_another_accounts_home(tmp_path, accounts, home):
+    """A home is its account's to keep (final review of branch deferred-minors-2, M2): no recursive command for a
+    toolchain's folder that is another account's home, lies in one or holds one."""
+    opt = tmp_path / "opt"
+    cc = _compiler(opt / "tools" / "bin" / "gcc", tmp_path / "runs.log")
+    (opt / "tools" / "share" / "build").mkdir(parents=True)
+    accounts[0].append(pwd.struct_passwd(("tools", "x", os.geteuid() + 1000, os.getegid() + 1000, "",
+                                          str(tmp_path / home), "/bin/sh")))
+    bin_ = opt / "tools" / "bin"
+    bin_.chmod(0o777)
+    assert _runs(tmp_path, cc, [str(opt)]) == \
+        (False, f"compiler {cc} is not run: anyone can change {bin_} (`chmod o-w {bin_}` fixes it)")
+
+
+def test_a_home_reached_through_a_link_is_said_first_and_never_given_to_root(tmp_path, monkeypatch):
+    """A home is found where it really is, though its account names it through a link (/home -> /data/home), and what
+    lies in it is said to be in the home, to be moved, rather than given to root one entry at a time (final review of
+    branch deferred-minors-2, M2)."""
+    home = tmp_path / "data" / "home" / "amy"
+    (home / "tc" / "bin").mkdir(parents=True)
+    (home / "tc" / "bin" / "gcc").write_text("")
+    (tmp_path / "home").symlink_to(tmp_path / "data" / "home")
+    gid = home.stat().st_gid
+    monkeypatch.setattr(tcmod.pwd, "getpwuid", lambda uid: pwd.struct_passwd(
+        ("amy", "x", uid, gid, "", str(tmp_path / "home" / "amy"), "/bin/sh")))
+    said = f"{home} is the home of amy, who can change it (move the toolchain to a folder only you and root can change)"
+    for path in (home, home / "tc" / "bin" / "gcc", tmp_path / "home" / "amy" / "tc" / "bin" / "gcc"):
+        assert changeable(str(path), me=os.geteuid() + 1) == said, path
 
 
 def _private_group_or_skip():
@@ -504,7 +557,7 @@ def test_a_group_parsing_with_its_toolchains_own_library_shows_its_compilers_ref
     [g] = tc.groups()
     assert g.libclang.path == lib
     assert g.error == f"compiler {clang} is not run: anyone can change {bin_} (`chmod o-w {bin_}` fixes it; " \
-                      f"`chmod -R go-w {vendor}` fixes the whole toolchain)"
+                      f"`chmod -R go-w {vendor}` fixes everything in {vendor})"
     bin_.chmod(0o755)
     tc.again()
     tc.args_for(file)

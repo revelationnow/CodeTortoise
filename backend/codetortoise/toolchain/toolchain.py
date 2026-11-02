@@ -89,7 +89,9 @@ def changeable(path: str, me: int | None = None, create: bool = False, tree: str
     and a group may write only when it is the account's own private group (the owner's choice, 2026-11-01: final review
     I3 of spec 2026-10-31). With `create`, `path` need not be there: then no one else may add it either, and the folder
     it would go in must be closed to them, sticky or not. `tree`, the folder a toolchain is installed in, adds the
-    command that fixes all of it to the fix for what lies in it."""
+    command that fixes all of it to the fix for what lies in it. Another account's home on the way is said first, with
+    the move as the fix: it is theirs to keep, and what lies in it is theirs to change however it is owned (final
+    review of branch deferred-minors-2, M2)."""
     me = os.geteuid() if me is None else me
     todo = path.split("/") if os.path.isabs(path) else [*os.getcwd().split("/"), *path.split("/")]
     at, links, missing, failed = "/", 0, None, None
@@ -124,6 +126,10 @@ def changeable(path: str, me: int | None = None, create: bool = False, tree: str
             todo[:0] = target.split("/")
     except OSError as e:                         # who could change what was passed still comes first
         failed = f"{e.filename or path} can't be checked ({e.strerror})"
+    for entry, st in passed:
+        name = _home(entry, st, me)
+        if name:
+            return f"{entry} is the home of {name}, who can change it ({_MOVE})"
     if missing is not None:
         why = _adds(at, missing, path, me, tree)
         if why:
@@ -141,9 +147,9 @@ _MOVE = "move the toolchain to a folder only you and root can change"
 def _fix(command: str, path: str, tree: str | None, whole: str) -> str:
     """How to stop others: `command` for `path` itself and, for a path inside a toolchain's folder `tree`, `whole` run
     on `tree` for all of it, so the host isn't walked through one folder per Recheck (final review of branch
-    deferred-minors)."""
+    deferred-minors); said as what it fixes, everything in `tree` (final review of branch deferred-minors-2, I1)."""
     if tree is not None and within(path, tree):
-        return f"`{command}` fixes it; `{whole} {tree}` fixes the whole toolchain"
+        return f"`{command}` fixes it; `{whole} {tree}` fixes everything in {tree}"
     return f"`{command}` fixes it"
 
 
@@ -179,8 +185,6 @@ def _who(path: str, st: os.stat_result, me: int, tree: str | None = None) -> str
         except KeyError:
             owner = None
         name = owner.pw_name if owner is not None else str(st.st_uid)
-        if owner is not None and os.path.normpath(owner.pw_dir) == path:   # theirs to keep (final review of branch
-            return f"{path} is the home of {name}, who can change it ({_MOVE})"  # deferred-minors, M5)
         fix = _fix(f"sudo chown{' -h' if stat.S_ISLNK(st.st_mode) else ''} root {path}", path, tree, "sudo chown -R root")
         return f"{path} belongs to {name}, who can change it ({fix}; or {_MOVE})"
     if stat.S_ISLNK(st.st_mode) or stat.S_ISDIR(st.st_mode) and st.st_mode & stat.S_ISVTX:
@@ -197,6 +201,18 @@ def _who(path: str, st: os.stat_result, me: int, tree: str | None = None) -> str
         except OSError as e:
             return f"the access list (ACL) of {path} can't be read ({e.strerror}): it may let others change it ({fix})"
     return None
+
+
+def _home(path: str, st: os.stat_result, me: int) -> str | None:
+    """The name of the account besides root and `me` that owns `path` (its lstat `st`) as its home, which is where its
+    account says it is, links followed (final review of branch deferred-minors-2, M2); None when it is no one's."""
+    if st.st_uid in (0, me):
+        return None
+    try:
+        owner = pwd.getpwuid(st.st_uid)
+    except KeyError:
+        return None
+    return owner.pw_name if owner.pw_dir and os.path.realpath(owner.pw_dir) == path else None
 
 
 def _listed_others(path: str) -> bool:
@@ -228,6 +244,18 @@ def _private_group(gid: int, uid: int, minute: int) -> bool:
     if gid != user.pw_gid or group.gr_name != user.pw_name or set(group.gr_mem) - {user.pw_name}:
         return False
     return all(a.pw_gid != gid or a.pw_uid == uid for a in pwd.getpwall())
+
+
+def _homes(me: int) -> tuple[str, ...]:
+    """The homes of the system's accounts besides root and `me`, as their accounts name them (not followed: a home on
+    a disk mounted when needed stays unmounted); read again after a minute at most."""
+    return _accounts_homes(me, int(time.monotonic() // 60))
+
+
+@functools.lru_cache(maxsize=8)
+def _accounts_homes(me: int, minute: int) -> tuple[str, ...]:
+    return tuple({os.path.normpath(a.pw_dir) for a in pwd.getpwall()
+                  if a.pw_uid not in (0, me) and a.pw_dir and os.path.normpath(a.pw_dir) != "/"})
 
 
 _UNJUDGED = object()                             # refusal: no verdict since again()
@@ -329,9 +357,17 @@ class Toolchain:
 
     def _tree(self, driver: str) -> str | None:
         """The folder a compiler's toolchain is installed in, for a fix text that fixes all of it at once: the one above
-        the compiler's own folder (/opt/tc for /opt/tc/bin/gcc), when it lies inside a toolchain folder and isn't one."""
-        top = os.path.dirname(os.path.dirname(os.path.realpath(driver)))
-        return top if any(within(top, f) and top != f for f in self.folders) else None
+        the compiler's own bin folder (/opt/tc for /opt/tc/bin/gcc), when it lies inside a toolchain folder and isn't
+        one. Never a prefix programs share (/usr, /usr/local: final review of branch deferred-minors-2, I1), nor one
+        that is, lies in or holds another account's home (M2), whose files are theirs."""
+        own = os.path.dirname(os.path.realpath(driver))
+        top = os.path.dirname(own)
+        if os.path.basename(own) != "bin" or os.path.basename(top) in ("usr", "local") \
+                or not any(within(top, f) and top != f for f in self.folders):
+            return None
+        if any(within(top, h) or within(h, top) for h in _homes(os.geteuid())):
+            return None
+        return top
 
     def _looks_for(self, driver: str) -> list[str]:
         """Where `driver` looks for what a query runs or reads, from the folders it names when asked
