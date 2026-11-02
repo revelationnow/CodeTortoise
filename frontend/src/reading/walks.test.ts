@@ -102,6 +102,10 @@ describe("a step's line and where it comes from (§3.3)", () => {
     expect(stepSentence(step({ kind: "read", src: "F1", dst: "N4", label: "u->errors" }), label))
       .toBe("`uart_errors` reads `Uart::errors`: `u->errors`");
     expect(stepSentence(step({ kind: "fold", src: "N1", dst: "N3", folded: 3 }), label)).toBe("… 3 calls, `main` to `uart_send`");
+    expect(stepSentence(step({ kind: "fold", src: "N3", dst: "N1", label: "… 2 returns", folded: 2 }), label))
+      .toBe("… 2 returns, `uart_send` to `main`");                                 // a fold says what it folds
+    expect(stepSentence(step({ kind: "fold", src: "N3", dst: "N3", label: "… 13 steps", folded: 13 }), label))
+      .toBe("… 13 steps in `uart_send`");
     expect(stepSentence(step({ kind: "self", src: "N3", dst: "N3", label: "a `b` c" }), label)).toBe("`uart_send`: `a 'b' c`");
   });
 
@@ -117,6 +121,8 @@ describe("a step's line and where it comes from (§3.3)", () => {
     expect(stepRef(step({ kind: "read", src: "F1", dst: "N4" }), label).text).toBe("`uart_errors`, unchanged");
     expect(stepRef(step({ src: "N3", dst: "N2", status: "changed" }), label).text).toBe("`uart_send`, changed");
     expect(stepRef(step({ kind: "fold", src: "N1", dst: "N3", folded: 2 }), label)).toEqual({ text: "unchanged", link: null });
+    expect(stepRef(step({ kind: "fold", src: "N3", dst: "N3", status: "changed", folded: 13, label: "… 13 steps" }), label))
+      .toEqual({ text: "some changed", link: null });                              // a long walk's fold may hold changed steps
   });
 });
 
@@ -147,6 +153,13 @@ describe("the drawing's layout (§4.4)", () => {
     expect(lay.rows.map((r) => r.y)).toEqual([74, 128, 164, 200, 236, 272, 308]);
     expect(lay.rows.map((r) => r.text)).toEqual(["logger_flush(&g_log)", "len > 64", "*err += 1", "-2", "u->errors", "… 3 calls",
                                                  "flush_again()"]);
+  });
+
+  it("writes a fold as the walk-through words it: calls, returns or steps", () => {
+    const folds = walkLayout(walk({ parts: ["N1", "N3"], steps: [step({ kind: "fold", src: "N3", dst: "N1", label: "… 2 returns", folded: 2 }),
+                                                                step({ kind: "fold", src: "N3", dst: "N3", label: "… 13 steps", folded: 13 })] }),
+                             label, () => null);
+    expect(folds.rows.map((r) => r.full)).toEqual(["… 2 returns", "… 13 steps"]);
   });
 
   it("frames the steps inside one loop of the code, and cuts what does not fit, keeping the whole for its title", () => {

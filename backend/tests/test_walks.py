@@ -104,3 +104,118 @@ def test_unchanged_calls_more_than_walk_depth_from_the_change_fold_into_one_step
     assert len(fold(steps, {"N6"}, 4)) == 6                      # one far call alone never folds
     flowed = [call("N1", "N2", "flow")] + steps[1:]
     assert [s.kind for s in fold(flowed, {"N6"}, 2)] == ["call", "call", "call", "call", "call", "self"]
+
+
+def _sides(fns, calls, lines, of):
+    """Each side's walk-through of function `of` in a small world, before any ranking: (kind, from, to, line) a step.
+    `lines` puts each call, in `calls` order, on its line of the after text."""
+    from test_stories import _world
+
+    from codetortoise.board import analyse
+    from codetortoise.gates import Sources
+    from codetortoise.reading import build_reading
+    from codetortoise.stories import build_stories
+    from codetortoise.walks import _Walker
+    c = _world(fns, calls=calls)
+    for i, ln in enumerate(lines):
+        c.after[0].calls[i].line = ln
+    an = analyse(c)
+    ss, det = build_stories(c, analysis=an)
+    r, per = build_reading(ss, c, details=det, analysis=an)
+    x, src = an.x, Sources(an.x)
+    _, branches = build_gates(x, ss, r, per, src)
+    w = _Walker(x, ss, det, r, per, src, branches, None, 2)
+    F = next(n for n in x.changed if x.label(n) == of)
+    sid = next(s.id for s in ss.stories if F in s.nodes)
+    gate = w.gate_of.get(F)
+    return {case: [(s.kind, x.label(s.src), x.label(s.dst), s.line) for s in w.walk(sid, F, gate, case).walk.steps]
+            for case in ((True, False) if gate is not None else (None,))}
+
+
+def _changed(name, rel="drv/c.c"):
+    return (name, rel, ["y = 1;"], ["y = 2;"])
+
+
+MAIN = ("main", "app/m.c", ["send();"], ["send();"])
+
+
+def test_a_void_function_s_early_guard_return_does_not_end_its_walk_through():
+    flush = ("flush", "drv/f.c", ["if (!u)", "\treturn;", "a();"], ["if (!u)", "\treturn;", "a();", "b();", "c();"])
+    sides = _sides([flush, ("a", "drv/f.c", ["x = 1;"], ["x = 1;"]), _changed("b"), _changed("c"),
+                    ("main", "app/m.c", ["flush();"], ["flush();"])],
+                   [("flush", "a"), ("flush", "b"), ("flush", "c"), ("main", "flush")], [5, 6, 7, 3], "flush")
+    assert sides == {None: [("call", "main", "flush", 3), ("call", "flush", "b", 6), ("return", "b", "flush", None),
+                            ("call", "flush", "c", 7), ("return", "c", "flush", None), ("return", "flush", "main", None)]}
+
+
+def test_a_new_condition_after_an_early_guard_return_still_splits_the_walk_through():
+    send = ("send", "drv/s.c", ["if (!u)", "\treturn;", "go();"],
+            ["if (!u)", "\treturn;", "if (len > 64) {", "\tdrop();", "\treturn;", "}", "go();"])
+    sides = _sides([send, _changed("go"), _changed("drop"), MAIN], [("send", "go"), ("send", "drop"), ("main", "send")],
+                   [9, 6, 3], "send")
+    assert sides[True] == [("call", "main", "send", 3), ("self", "send", "send", 5), ("call", "send", "drop", 6),
+                           ("return", "drop", "send", None), ("return", "send", "main", 7)]
+    assert sides[False] == [("call", "main", "send", 3), ("self", "send", "send", 5), ("call", "send", "go", 9),
+                            ("return", "go", "send", None), ("return", "send", "main", None)]
+
+
+def test_a_new_block_with_no_return_runs_on_to_the_function_s_end_on_both_sides():
+    send = ("send", "drv/s.c", ["if (!u)", "\treturn;", "go();"],
+            ["if (!u)", "\treturn;", "if (len > 64) {", "\tdrop();", "}", "go();"])
+    sides = _sides([send, _changed("go"), _changed("drop"), MAIN], [("send", "go"), ("send", "drop"), ("main", "send")],
+                   [8, 6, 3], "send")
+    assert sides[True] == [("call", "main", "send", 3), ("self", "send", "send", 5), ("call", "send", "drop", 6),
+                           ("return", "drop", "send", None), ("call", "send", "go", 8), ("return", "go", "send", None),
+                           ("return", "send", "main", None)]
+    assert sides[False] == [("call", "main", "send", 3), ("self", "send", "send", 5), ("call", "send", "go", 8),
+                            ("return", "go", "send", None), ("return", "send", "main", None)]
+
+
+def test_a_block_that_jumps_away_skips_the_lines_up_to_where_it_lands():
+    goto = ("send", "drv/s.c", ["go();", "done();"], ["if (len > 64)", "\tgoto out;", "go();", "out:", "done();"])
+    sides = _sides([goto, _changed("go"), _changed("done"), MAIN], [("send", "go"), ("send", "done"), ("main", "send")],
+                   [5, 7, 3], "send")
+    assert sides[True] == [("call", "main", "send", 3), ("self", "send", "send", 3), ("call", "send", "done", 7),
+                           ("return", "done", "send", None), ("return", "send", "main", None)]
+    assert sides[False] == [("call", "main", "send", 3), ("self", "send", "send", 3), ("call", "send", "go", 5),
+                            ("return", "go", "send", None), ("call", "send", "done", 7), ("return", "done", "send", None),
+                            ("return", "send", "main", None)]
+    loop = ("send", "drv/s.c", ["for (i = 0; i < n; i++) {", "\tgo();", "}", "done();"],
+            ["for (i = 0; i < n; i++) {", "\tif (len > 64)", "\t\tcontinue;", "\tgo();", "}", "done();"])
+    sides = _sides([loop, _changed("go"), _changed("done"), MAIN], [("send", "go"), ("send", "done"), ("main", "send")],
+                   [6, 8, 3], "send")
+    assert sides[True] == [("call", "main", "send", 3), ("self", "send", "send", 4), ("call", "send", "done", 8),
+                           ("return", "done", "send", None), ("return", "send", "main", None)]
+
+
+def test_a_walk_through_over_its_cap_folds_its_middle_and_keeps_its_condition_its_flows_and_its_way_back():
+    from codetortoise.walks import shrink
+
+    def st(kind, a, b, ref="code", status="same"):
+        return WalkStep(kind=kind, src=a, dst=b, label="", status=status, ref=ref)
+    middle = [s for k in range(4, 34) for s in (st("call", "N3", f"N{k}", "change", "new"), st("return", f"N{k}", "N3"))]
+    steps = [st("call", "N1", "N2", "path"), st("call", "N2", "N3", "path"), st("self", "N3", "N3", "change", "new"),
+             *middle, st("return", "N3", "N2", "flow", "new"), st("call", "N2", "N9"), st("read", "N8", "N9", "flow"),
+             st("return", "N9", "N2"), st("return", "N2", "N1")]
+    out = shrink(steps, 40, "N3")
+    assert len(steps) == 68 and len(out) == 40
+    assert out[:34] == steps[:34] and out[35:] == steps[63:]
+    assert (out[34].kind, out[34].src, out[34].dst, out[34].label, out[34].folded, out[34].status) == (
+        "fold", "N19", "N3", "… 29 steps", 29, "changed")
+    assert shrink(steps, 80, "N3") == steps
+    reads = [st("read", "N8", f"N{k}", "flow") for k in range(10, 60)]          # nothing to fold: the end is counted
+    out = shrink(reads, 40, "N3")
+    assert len(out) == 40 and out[:39] == reads[:39]
+    assert (out[39].kind, out[39].src, out[39].dst, out[39].label, out[39].folded) == ("fold", "N8", "N59", "… 11 more steps", 11)
+
+
+def test_a_function_with_many_changed_calls_shrinks_to_the_cap_and_still_returns_to_its_caller():
+    from codetortoise.walks import MAX_STEPS
+    big = ("big", "drv/b.c", ["x = 0;"], ["x = 0;", *(f"c{k}();" for k in range(1, 26))])
+    sides = _sides([big, *(_changed(f"c{k}") for k in range(1, 26)), ("main", "app/m.c", ["big();"], ["big();"])],
+                   [*(("big", f"c{k}") for k in range(1, 26)), ("main", "big")], [*range(4, 29), 3], "big")
+    steps = sides[None]
+    assert len(steps) == MAX_STEPS == 40
+    assert steps[:3] == [("call", "main", "big", 3), ("call", "big", "c1", 4), ("return", "c1", "big", None)]
+    assert [s[0] for s in steps].count("fold") == 1 and steps[38][0] == "fold"
+    assert steps[-1] == ("return", "big", "main", None)

@@ -86,6 +86,10 @@ export function flowSteps(design: Walks, sid: string, flow: string): { walk: Wal
     s.ref === "flow" && s.story === sid && s.flow === flow ? [{ walk, n: i + 1 }] : [])));
 }
 
+/** What a fold stands for, as the walk-through words it ("… 3 calls", "… 2 returns", "… 13 steps"); an older review's
+ * folds were all calls. */
+const foldText = (st: WalkStep): string => st.label || `… ${st.folded} call${st.folded === 1 ? "" : "s"}`;
+
 /** A step's one line (§4.1): who calls, returns to, writes or reads what, in the code's own words. */
 export function stepSentence(st: WalkStep, label: Label): string {
   const a = label(st.src), b = label(st.dst), says = st.label ? code(st.label) : "";
@@ -95,7 +99,7 @@ export function stepSentence(st: WalkStep, label: Label): string {
     case "return": return says ? `${code(a)} returns ${says} to ${code(b)}` : `${code(a)} returns to ${code(b)}`;
     case "write": return `${code(a)} writes ${code(b)}${says ? `: ${says}` : ""}`;
     case "read": return `${code(b)} reads ${code(a)}${says ? `: ${says}` : ""}`;
-    case "fold": return `… ${st.folded} call${st.folded === 1 ? "" : "s"}, ${code(a)} to ${code(b)}`;
+    case "fold": return st.src === st.dst ? `${foldText(st)} in ${code(a)}` : `${foldText(st)}, ${code(a)} to ${code(b)}`;
     default: return `${code(a)}${says ? `: ${says}` : ""}`;
   }
 }
@@ -111,7 +115,7 @@ export function stepRef(st: WalkStep, label: Label): StepRef {
   if (st.ref === "change" && st.story) return { text: `${st.story} · the change`, link: { story: st.story, sec: "code", flow: null } };
   if (st.ref === "flow" && st.story)
     return { text: st.flow_n ? `${st.story} flow ${st.flow_n}` : `${st.story}'s flows`, link: { story: st.story, sec: null, flow: st.flow_n } };
-  if (st.kind === "fold") return { text: "unchanged", link: null };
+  if (st.kind === "fold") return { text: st.status === "same" ? "unchanged" : "some changed", link: null };
   return { text: `${code(label(st.kind === "read" ? st.dst : st.src))}, ${st.status === "same" ? "unchanged" : st.status}`, link: null };
 }
 
@@ -158,7 +162,7 @@ export function walkLayout(w: Pick<Walk, "parts" | "steps">, label: Label, compo
     if (open && st.loop !== open.loop) close(y);
     if (st.loop && !open) { open = { first: i, top: y, loop: st.loop }; y += FRAME; }
     const [a, b] = ends(st), loop = a === b, x1 = x(a), x2 = x(b);
-    const said = st.kind === "fold" ? `… ${st.folded} call${st.folded === 1 ? "" : "s"}` : st.label;
+    const said = st.kind === "fold" ? foldText(st) : st.label;
     const room = Math.floor(((loop ? COL - 24 : Math.abs(x2 - x1)) - 16) / CH);
     rows.push({ n: i + 1, y: y + ROW / 2 + 4, x1, x2, loop, status: st.status, text: cut(said, room), full: said,
                 line: st.kind === "return" ? "dashed" : st.kind === "fold" ? "dotted" : "solid" });

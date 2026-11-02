@@ -22,6 +22,9 @@ PAIRS = 400               # a replaced block bigger than this (old lines × new 
 _TRIVIAL = re.compile(r"[{}();,\s]*")
 _COMMENT = re.compile(r"//|/\*|\*(\s|/|$)")   # a comment, or a block comment's next line: "* more", "*/"
 _LOOPS = {"for_statement", "while_statement", "do_statement", "for_range_loop"}
+_EXITS = {"return_statement", "goto_statement", "break_statement", "continue_statement"}
+_PLAIN = {"compound_statement", "labeled_statement", "preproc_if", "preproc_ifdef", "preproc_else", "preproc_elif",
+          "preproc_elifdef"}                               # statements a return passes through and still ends the function
 _INDEXED = ("call_expression", "field_expression")
 
 
@@ -69,6 +72,11 @@ class Branch:
     body: set[int]                    # the lines its statements take up
     own: set[int]                     # the test's lines and the block's braces, statements left out
     returns: list[int] = field(default_factory=list)      # return lines in the body
+    test_lines: set[int] = field(default_factory=set)     # the lines its test takes up
+    ends: list[int] = field(default_factory=list)         # the block's own return, when it always returns
+    skips: tuple[int, int] | None = None                  # the lines after the block its own return or jump skips
+    exit: tuple[str, int, object] | None = None           # that statement: its kind, line, and where it goes (a
+                                                          # break's or continue's construct end, a goto's label)
     alt: tuple[int, int] | None = None                    # a plain else's lines (an else-if is a branch of its own)
     kind: str = "if"                  # if | else if | case; as a gate also changed (its test) or return (a new one)
     strength: int = 0                 # new or changed lines it guards
@@ -84,6 +92,7 @@ class FnShape:
     branches: list[Branch]
     loops: list[Loop]
     returns: list[tuple[int, str]]    # (line, the returned expression as written; "" for a bare return)
+    ends: list[int] = field(default_factory=list)          # returns at its top level: one that runs ends it
 
 
 def _cond_text(src: bytes, cond) -> str:
@@ -113,6 +122,37 @@ def _span(ln, nodes) -> set[int]:
     return out
 
 
+def _exit(stmts: list, src: bytes, ln) -> tuple[str, int, object] | None:
+    """A block's first statement that always leaves it: a return, a goto (to its label), a break (to the end of its loop
+    or switch) or a continue (to the end of its loop)."""
+    for st in stmts:
+        if st.type not in _EXITS:
+            continue
+        kind = st.type.removesuffix("_statement")
+        if kind == "goto":
+            label = st.child_by_field_name("label")
+            return kind, ln(st.start_point), _txt(src, label) if label is not None else None
+        if kind in ("break", "continue"):
+            up = st.parent
+            while up is not None and up.type not in _LOOPS and not (kind == "break" and up.type == "switch_statement"):
+                up = up.parent
+            return kind, ln(st.start_point), ln(up.end_point) if up is not None else None
+        return kind, ln(st.start_point), None
+    return None
+
+
+def _leaves(node) -> tuple[bool, bool]:
+    """Where a return statement sits: whether it returns from a lambda (not from the function), and whether it is at
+    the function's top level, where it always ends the function when reached."""
+    up, top = node.parent, True
+    while up is not None and up.type != "function_definition":
+        if up.type == "lambda_expression":
+            return True, False
+        top = top and up.type in _PLAIN
+        up = up.parent
+    return False, top and up is not None
+
+
 def _if_branch(node, src: bytes, ln, nid: str, path: str) -> Branch | None:
     cond, cons = node.child_by_field_name("condition"), node.child_by_field_name("consequence")
     if cond is None or cons is None:
@@ -127,7 +167,8 @@ def _if_branch(node, src: bytes, ln, nid: str, path: str) -> Branch | None:
             alt = (ln(other.start_point), ln(other.end_point))
     kind = "else if" if node.parent is not None and node.parent.type == "else_clause" else "if"
     return Branch(nid, path, ln(node.start_point), _cond_text(src, cond), ln(cons.start_point), ln(cons.end_point),
-                  body, own, alt=alt, kind=kind)
+                  body, own, alt=alt, kind=kind, test_lines=set(range(ln(node.start_point), ln(cond.end_point) + 1)),
+                  exit=_exit(_stmts(cons), src, ln))
 
 
 def _case_branch(node, src: bytes, ln, nid: str, path: str) -> Branch | None:
@@ -137,10 +178,11 @@ def _case_branch(node, src: bytes, ln, nid: str, path: str) -> Branch | None:
     sw = node.parent.parent if node.parent is not None else None
     subject = _cond_text(src, sw.child_by_field_name("condition")) if sw is not None and sw.type == "switch_statement" else ""
     v = norm_ws(_txt(src, value))
-    body = _span(ln, [c for c in node.named_children if c.id != value.id and c.type != "comment"])
+    stmts = [c for c in node.named_children if c.id != value.id and c.type != "comment"]
+    body = _span(ln, stmts)
     line = ln(node.start_point)
     return Branch(nid, path, line, f"{subject} == {v}" if subject else v, line, ln(node.end_point), body, {line} - body,
-                  kind="case")
+                  kind="case", test_lines={line}, exit=_exit(stmts, src, ln))
 
 
 def _loop_text(node, src: bytes) -> str:
@@ -239,6 +281,7 @@ class Sources:
         def ln(p) -> int:
             return _at(starts, p[0] + 1)
         out = FnShape(nid, fn.file, fn.start_line, fn.end_line, [], [], [])
+        labels: dict[str, int] = {}
         stack = [tree.root_node]
         while stack:
             node = stack.pop()
@@ -253,17 +296,44 @@ class Sources:
             elif t in _LOOPS:
                 out.loops.append(Loop(_loop_text(node, src), ln(node.start_point), ln(node.end_point)))
             elif t == "return_statement":
-                val = next((c for c in node.named_children if c.type != "comment"), None)
-                out.returns.append((ln(node.start_point), norm_ws(_txt(src, val))))
+                lam, top = _leaves(node)
+                if not lam:                                # a lambda's return leaves the lambda, not the function
+                    val = next((c for c in node.named_children if c.type != "comment"), None)
+                    out.returns.append((ln(node.start_point), norm_ws(_txt(src, val))))
+                    if top:
+                        out.ends.append(ln(node.start_point))
+            elif t == "labeled_statement":
+                label = node.child_by_field_name("label")
+                if label is not None:
+                    labels.setdefault(_txt(src, label), ln(node.start_point))
             if b is not None:
                 out.branches.append(b)
             stack.extend(node.children)
         out.branches.sort(key=lambda b: (b.line, b.first))
         out.loops.sort(key=lambda lp: (lp.first, -lp.last))
         out.returns.sort()
+        out.ends.sort()
         for b in out.branches:
             b.returns = [r for r, _ in out.returns if r in b.body]
+            b.ends, b.skips = _skips(b, fn.end_line, labels)
         return out
+
+
+def _skips(b: Branch, last: int, labels: dict[str, int]) -> tuple[list[int], tuple[int, int] | None]:
+    """When its block always leaves: its own return, and the lines after the block that the leaving skips — to the
+    function's end for a return, to the label for a goto (to the end when the label is not after the block), to the end
+    of the loop or switch for a break or continue."""
+    if b.exit is None:
+        return [], None
+    kind, line, to = b.exit
+    if kind == "return":
+        return [line], (b.last + 1, last) if b.last < last else None
+    if kind == "goto":
+        at = labels.get(to) if isinstance(to, str) else None
+        end = at - 1 if at is not None and at > b.last else last
+    else:
+        end = to if isinstance(to, int) else None
+    return [], (b.last + 1, end) if end is not None and end > b.last else None
 
 
 def node_stories(ss) -> dict[str, str]:
@@ -309,8 +379,8 @@ def find_gates(x, src: Sources, story_of: dict[str, str], order: list[str]) -> l
         marks = src.marks(after.path)
         for b in after.branches:
             strength = sum(1 for k in b.body if k in marks and not trivial(src.line(after.path, k)))
-            if b.line in marks and b.test not in had:
-                kind = "changed" if marks[b.line] == "changed" else b.kind
+            if any(k in marks for k in b.test_lines) and b.test not in had:
+                kind = b.kind if marks.get(b.line) == "new" else "changed"
             elif any(r in marks for r in b.returns):
                 kind = "return"
             else:

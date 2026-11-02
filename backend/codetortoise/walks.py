@@ -101,7 +101,7 @@ def _runs(g: Branch | None, case: bool | None, line: int) -> bool:
         return True
     if g.alt is not None and g.alt[0] <= line <= g.alt[1]:
         return False
-    return not g.returns                         # after the block: only when it does not return
+    return g.skips is None or not g.skips[0] <= line <= g.skips[1]   # after the block: unless its return or jump skips it
 
 
 def _loop_at(shape: FnShape | None, line: int) -> str | None:
@@ -150,6 +150,44 @@ def fold(steps: list[WalkStep], important: set[str], depth: int) -> list[WalkSte
             out.append(s)
             i += 1
     return out
+
+
+def _folded(run: list[WalkStep], label: str) -> WalkStep:
+    loops = {s.loop for s in run}
+    return WalkStep(kind="fold", src=run[0].src, dst=run[-1].dst, label=label, ref="code", folded=len(run),
+                    status="same" if all(s.status == "same" for s in run) else "changed",
+                    loop=loops.pop() if len(loops) == 1 else None)
+
+
+def shrink(steps: list[WalkStep], cap: int, F: str) -> list[WalkStep]:
+    """A walk-through over `cap` steps (R19) folds the steps that carry nothing of their own, the longest run first and
+    from its end, into one "… N steps" step each, until it fits. Its call path, F's condition, signature and return,
+    its flows and reads, and everything after F's return (its landings and the way back up) stay. Should those alone
+    pass the cap, the steps past it fold into one at the end, so the walk still says how many it leaves out."""
+    back = next((i for i in range(len(steps) - 1, -1, -1) if steps[i].kind == "return" and steps[i].src == F), len(steps))
+    keep = [i >= back or s.ref in ("flow", "path") or s.kind in ("read", "fold") or
+            (s.src == F and s.kind in ("self", "return")) for i, s in enumerate(steps)]
+    steps = list(steps)
+    while len(steps) > cap:
+        best: tuple[int, int] | None = None
+        i = 0
+        while i < len(steps):
+            j = i
+            while j < len(steps) and not keep[j]:
+                j += 1
+            if j - i >= 2 and (best is None or j - i > best[1] - best[0]):
+                best = (i, j)
+            i = j + 1
+        if best is None:
+            break
+        i, j = best
+        a = max(i, j - (len(steps) - cap + 1))
+        steps[a:j] = [_folded(steps[a:j], f"… {j - a} steps")]
+        keep[a:j] = [True]                                   # a fold is not folded again
+    if len(steps) > cap:
+        rest = steps[cap - 1:]
+        steps = steps[:cap - 1] + [_folded(rest, f"… {len(rest)} more steps")]
+    return steps
 
 
 @dataclass
@@ -310,17 +348,18 @@ class _Walker:
                      fl.lands == caller and self._attach(fl) == "return"), None)
 
     def _taken(self, F: str, shape: FnShape | None, gate: Branch | None, case: bool | None, result) -> int | None:
-        """The return F takes on this side: the first one its condition guards, when it holds; else the line raising a
-        new value a result flow carries back, when it runs; else the last return that runs."""
+        """The return F takes on this side: the block's own return, when its condition holds; else the line raising a
+        new value a result flow carries back, when it runs; else the first return at F's top level that runs. A return
+        nested in another if, switch or loop may not run, so none of those ends the walk: it goes on to F's end."""
         if shape is None:
             return None
-        if case is True and gate is not None and gate.returns:
-            return gate.returns[0]
+        if case is True and gate is not None and gate.ends:
+            return gate.ends[0]
         rise = _raising(self.x, F)
         if result is not None and rise is not None and _runs(gate, case, rise):
             return rise
-        runs = [k for k, _ in shape.returns if _runs(gate, case, k)]
-        return runs[-1] if runs else None
+        runs = [k for k in shape.ends if _runs(gate, case, k)]
+        return runs[0] if runs else None
 
     def _writes(self, F: str, fld: str, gate, case, taken) -> bool:
         """Whether F writes the field on a line that runs before its return (marked or not, R29)."""
@@ -524,7 +563,8 @@ class _Walker:
         important = {n for s in steps for n in (s.src, s.dst) if n in x.changed}
         important |= {s.dst for s in steps if s.kind == "read"}
         important |= {self.flow_by_id[s.flow].lands for s in steps if s.ref == "flow" and s.flow in self.flow_by_id}
-        steps = fold(steps, important, self.depth)[:MAX_STEPS]
+        whole = fold(steps, important, self.depth)       # what it covers and the checks it carries, before it shrinks
+        steps = shrink(whole, MAX_STEPS, F)
         parts: list[str] = []
         stories: list[str] = []
         for s in steps:
@@ -533,12 +573,12 @@ class _Walker:
                     parts.append(n)
             if s.story and s.story not in stories:
                 stories.append(s.story)
-        causes = {self.check[k].cause for s in steps if s.ref == "flow" for k in s.keys
+        causes = {self.check[k].cause for s in whole if s.ref == "flow" for k in s.keys
                   if k in self.check and self.check[k].cause}
         thread, connection = self._anchor(sid, steps)
         w = Walk(id="", title=self._title(gate, case, spine, F), thread=thread, connection=connection,
                  condition=gate.id if gate is not None else None, case=case, parts=parts, stories=stories, steps=steps)
-        cover = set(stories) | {f"flow:{s.flow}" for s in steps if s.ref == "flow" and s.flow}
+        cover = {s.story for s in whole if s.story} | {f"flow:{s.flow}" for s in whole if s.ref == "flow" and s.flow}
         group = gate.id if gate is not None else f"{sid}:{F}"
         return _Cand(w, causes, cover, group, self.pos.get(sid, len(self.pos)))
 

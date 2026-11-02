@@ -114,3 +114,12 @@ def test_the_demo_has_one_condition_and_its_false_case_still_runs_the_other_chan
     tx = next(k for k in g.lines if (k.path, k.line) == ("driver/uart.c", 22))
     assert (tx.story, tx.cl, tx.text, tx.function) == ("S1", 101, "st->tx++;", "uart_send")
     assert (g.stops, g.runs) == (2, len(g.lines) - 2)
+
+
+def test_a_condition_changed_only_on_a_continuation_line_is_a_changed_condition():
+    c = _world([("check", "drv/u.c", ["if (p == NULL ||", "    len == 0) {", "\treturn -1;", "}", "go();"],
+                 ["if (p == NULL ||", "    len == 0 ||", "    len > 64) {", "\treturn -1;", "}", "go();"])])
+    assert [_gate(b) for b in _found(c)[1]] == [("changed", "p == NULL || len == 0 || len > 64", 3, [6])]
+    c = _world([("check", "drv/u.c", ["if (p == NULL ||", "    len > 32) {", "\treturn -1;", "}"],
+                 ["if (p == NULL ||", "    len > 64) {", "\treturn -1;", "}"])])
+    assert [_gate(b) for b in _found(c)[1]] == [("changed", "p == NULL || len > 64", 3, [5])]
