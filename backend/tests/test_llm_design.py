@@ -59,3 +59,160 @@ def test_the_prompt_lists_at_most_its_share_of_checks_and_names_hazards_first(de
     assert [line.split(" | ")[0] for line in checks.splitlines()] == ["c504c9fbd94", "c8143badb9b", "… +4 more checks"]
     names = text.split("FUNCTIONS AND FIELDS (id | name | component | where):\n", 1)[1].split("\nCONDITIONS", 1)[0]
     assert [line.split(" | ")[0] for line in names.splitlines()] == ["N2", "N3", "N4", "… +8 more"]
+
+
+GOOD = {
+    "verdict": "The change holds together, but one new result goes unchecked. Settle whether `logger_flush` must "
+               "handle the new -2.",
+    "verdict_causes": ["c504c9fbd94"],
+    "concerns": [
+        {"text": "Senders learn when a write is too long",
+         "how": "`uart_send` now returns -2 for a write longer than 64 bytes.", "stories": ["S1"],
+         "assessment": "confirm", "note": "`logger_flush` drops the -2.", "causes": ["c504c9fbd94"]},
+        {"text": "Register numbers are never negative", "how": "`hal_write` now takes an unsigned register.",
+         "stories": ["S2"], "assessment": "right"},
+        {"text": "The logger starts at a known level", "how": "`logger_init` now sets the level to 2.",
+         "stories": ["S5", "S3"], "assessment": "note"}],
+    "ownership": [
+        {"tag": "right", "text": "The driver owns the length check.", "cites": ["driver/uart.c"]},
+        {"tag": "questionable", "text": "The logger decides what a failed send means, and it drops the result.",
+         "cites": ["N3", "S1"]},
+        {"tag": "shortfall", "text": "Nothing tells the caller of `logger_write` that a write was dropped.",
+         "cites": ["S1"]}],
+    "walks": [
+        {"id": "W1", "title": "A write longer than 64 bytes",
+         "lead": "It follows a long write from `main` into `uart_send` and back."},
+        {"id": "W2", "title": "A write that fits", "lead": "It follows a short write down to `hal_write`."},
+        {"id": "W3", "title": "Setting up the UART", "lead": "It follows `uart_init` into the new `hal_write`."},
+        {"id": "W4", "title": "The logger's level", "lead": "It follows the new level from `logger_init` to "
+         "`logger_level`."}],
+    "conditions": [{"id": "G1", "false_case": "Writes that fit (64 bytes or less)"}]}
+
+
+def _with(**part):
+    return {**GOOD, **part}
+
+
+def _write(demo, d, answer, **kw):
+    from scripted_llm import ScriptedLlm
+    return dl.write_design(ScriptedLlm(lambda s, u: answer), None, None, d, demo.r, demo.ss, **kw)
+
+
+def test_an_accepted_answer_writes_every_part_and_says_the_model_wrote_it(demo, made):
+    assert _write(demo, made, GOOD) == ([], "big")
+    assert made.verdict.startswith("The change holds together") and made.verdict_causes == ["c504c9fbd94"]
+    assert [(c.text, c.stories, c.assessment, c.note, c.causes) for c in made.concerns] == [
+        ("Senders learn when a write is too long", ["S1"], "confirm", "`logger_flush` drops the -2.", ["c504c9fbd94"]),
+        ("Register numbers are never negative", ["S2"], "right", "", []),
+        ("The logger starts at a known level", ["S5", "S3"], "note", "", [])]
+    assert [(o.tag, o.cites) for o in made.ownership] == [
+        ("right", ["driver/uart.c"]), ("questionable", ["N3", "S1"]), ("shortfall", ["S1"])]
+    assert [(w.id, w.title, w.title_source) for w in made.walks] == [
+        ("W1", "A write longer than 64 bytes", "llm"), ("W2", "A write that fits", "llm"),
+        ("W3", "Setting up the UART", "llm"), ("W4", "The logger's level", "llm")]
+    assert made.walks[0].lead == "It follows a long write from `main` into `uart_send` and back."
+    assert made.gates[0].false_case == "Writes that fit (64 bytes or less)"
+    assert made.sources == {"verdict": "llm", "concerns": "llm", "ownership": "llm", "walk:W1": "llm", "walk:W2": "llm",
+                            "walk:W3": "llm", "walk:W4": "llm", "gate:G1": "llm"}
+
+
+def test_a_concern_on_a_cause_the_review_lacks_is_a_note_without_chips_and_so_is_a_confirm_on_none(demo, made):
+    concerns = [{**GOOD["concerns"][0], "causes": ["c0000000000"]}, {**GOOD["concerns"][0], "causes": []},
+                {**GOOD["concerns"][1], "assessment": "ask", "causes": ["c504c9fbd94", "c0000000000"]},
+                {**GOOD["concerns"][1], "causes": ["c8143badb9b"]}]
+    assert _write(demo, made, _with(concerns=concerns)) == ([], "big")
+    assert [(c.assessment, c.causes) for c in made.concerns] == [
+        ("note", []), ("note", []), ("note", []), ("right", ["c8143badb9b"])]
+
+
+def test_each_failing_part_keeps_its_fixed_text_or_is_left_out_and_only_that_part(demo):
+    c, o, w = GOOD["concerns"], GOOD["ownership"], GOOD["walks"]
+    cases = {
+        "a node id in the verdict": (_with(verdict="N10 now returns -2. Settle whether its callers handle it."),
+                                     "the verdict"),
+        "a cause id in the verdict": (_with(verdict="c504c9fbd94 is open. Settle it."), "the verdict"),
+        "a verdict naming no check": (_with(verdict_causes=[]), "the verdict"),
+        "a verdict naming a check it was not shown": (_with(verdict_causes=["c0000000000"]), "the verdict"),
+        "a four-sentence verdict": (_with(verdict="A holds. B holds. C holds. Settle D."), "the verdict"),
+        "a concern on an unlisted story": (_with(concerns=[*c[:2], {**c[2], "stories": ["S9"]}]), "1 concern(s)"),
+        "a concern on no story": (_with(concerns=[*c[:2], {**c[2], "stories": []}]), "1 concern(s)"),
+        "two sentences of how": (_with(concerns=[{**c[0], "how": "It returns -2. Callers see it."}, *c[1:]]),
+                                 "1 concern(s)"),
+        "a nine-word concern": (_with(concerns=[{**c[0], "text": "One two three four five six seven eight nine"},
+                                                *c[1:]]), "1 concern(s)"),
+        "an unknown assessment": (_with(concerns=[{**c[0], "assessment": "maybe"}, *c[1:]]), "1 concern(s)"),
+        "no concerns": (_with(concerns=[]), "the concerns"),
+        "an uncited ownership line": (_with(ownership=[*o[:2], {**o[2], "cites": []}]), "1 ownership line(s)"),
+        "a cite it was not shown": (_with(ownership=[{**o[0], "cites": ["drv/old.c"]}, *o[1:]]), "1 ownership line(s)"),
+        "an unknown tag": (_with(ownership=[{**o[0], "tag": "good"}, *o[1:]]), "1 ownership line(s)"),
+        "two walk-throughs with one title": (_with(walks=[w[0], {**w[1], "title": "A Write Longer Than 64 Bytes"},
+                                                          *w[2:]]), "1 walk-through title(s)"),
+        "a title with a final period": (_with(walks=[{**w[0], "title": "A long write."}, *w[1:]]),
+                                        "1 walk-through title(s)"),
+        "a walk-through with no lead": (_with(walks=[{**w[0], "lead": ""}, *w[1:]]), "1 walk-through title(s)"),
+        "a false case naming a node": (_with(conditions=[{"id": "G1", "false_case": "When N10 gets a short write"}]),
+                                       "1 condition name(s)"),
+    }
+    for name, (answer, part) in cases.items():
+        d = rules.build_design(demo.x, demo.ss, demo.det, demo.r, demo.per, lines=demo.lines, read_text=demo.read_text)
+        assert _write(demo, d, answer) == ([f"design: {part} failed the checks"], "big"), name
+
+
+def test_a_walk_through_whose_title_fails_keeps_its_fixed_title_and_no_lead(demo, made):
+    _write(demo, made, _with(walks=[{**GOOD["walks"][0], "title": "A long write."}, *GOOD["walks"][1:]]))
+    assert (made.walks[0].title, made.walks[0].lead, made.walks[0].title_source) == ("When `len > 64`", "", "template")
+    assert "walk:W1" not in made.sources and made.walks[1].title == "A write that fits"
+
+
+def test_several_failing_parts_are_named_together(demo, made):
+    answer = {"verdict": "", "concerns": [], "ownership": [{"tag": "note", "text": "Uncited.", "cites": []}],
+              "walks": [], "conditions": []}
+    assert _write(demo, made, answer) == ([
+        "design: the verdict, the concerns, 1 ownership line(s), 4 walk-through title(s) and 1 condition name(s) "
+        "failed the checks"], "big")
+
+
+def test_a_model_that_fails_or_is_refused_leaves_the_rules_design_exactly(demo, made):
+    from scripted_llm import ScriptedLlm
+
+    from codetortoise.llm.ledger import Refused
+    before = made.model_dump()
+    notes, by = dl.write_design(ScriptedLlm(lambda s, u: RuntimeError("down")), None, None, made, demo.r, demo.ss)
+    assert by is None and notes == ["design: big: RuntimeError: down; fresh try: RuntimeError: down; the fixed text stays"]
+    assert made.model_dump() == before
+
+    class Budget:
+        def call(self, llm, rid, user, purpose, target, fn):
+            assert (purpose, target) == ("design", "design")
+            raise Refused("this review has used its 10 tier-1 AI calls")
+    notes, by = dl.write_design(ScriptedLlm(lambda s, u: GOOD), Budget(), 1, made, demo.r, demo.ss)
+    assert by is None and notes == ["design: AI budget: this review has used its 10 tier-1 AI calls; the fixed text stays"]
+    assert made.model_dump() == before
+
+
+def test_the_design_the_strong_model_fails_is_written_by_the_weak_model_and_says_so(demo, made):
+    from scripted_llm import ScriptedLlm
+
+    from codetortoise.llm.client import LlmError
+    notes, by = dl.write_design(ScriptedLlm(lambda s, u: LlmError("LLM returned invalid JSON twice: x")), None, None,
+                                made, demo.r, demo.ss, weak=ScriptedLlm(lambda s, u: GOOD, model="small"))
+    assert by == "small" and made.sources["verdict"] == "llm"
+    assert notes == ["design: big: invalid JSON twice; fresh try: invalid JSON twice; small wrote it"]
+
+
+def test_the_kept_text_puts_back_every_part_the_model_wrote(demo, made):
+    _write(demo, made, GOOD)
+    kept = dl.design_text(made)
+    again = rules.build_design(demo.x, demo.ss, demo.det, demo.r, demo.per, lines=demo.lines, read_text=demo.read_text)
+    dl.apply_design_text(again, kept)
+    assert again.model_dump() == made.model_dump()
+
+
+def test_the_design_counts_against_the_tier_1_budget():
+    from codetortoise.llm.ledger import TIER1
+    assert "design" in TIER1
+
+
+def test_the_scripted_design_answer_passes_every_check(demo, made):
+    from scripted_llm import ScriptedLlm, design_answer
+    assert dl.write_design(ScriptedLlm(lambda s, u: design_answer(u)), None, None, made, demo.r, demo.ss) == ([], "big")
