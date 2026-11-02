@@ -68,6 +68,8 @@ export interface Reading {
   sinks?: SinkHit[];
   /** Every thread once, in the order to read them; absent on a reading stored before the introduction. */
   route?: RouteStep[]; route_source?: "template" | "llm";
+  /** The design overview (spec 2026-11-02): null when the design stage is off or broke; absent from a server before it. */
+  design?: ReadingDesign | null;
 }
 
 export interface ContractRow {
@@ -126,3 +128,55 @@ export interface Gap { file: string; after_cl: number; before_cl: number; same_b
 /** CL `by` replaced or deleted `lines` lines CL `of` added to `file` (a depot path); `line` is the first final line in
  * their place and `function` the function holding it. */
 export interface Rewrite { by: number; of: number; file: string; function: string | null; lines: number; line: number | null }
+
+/** The design overview (spec 2026-11-02-design-overview §9, §18.10): design.py's models as the browser gets them. */
+export type StepKind = "call" | "return" | "self" | "write" | "read" | "fold";
+/** One step of a walk-through (§4.1): node ids (`src`, `dst`; a field for a write's `dst` and a read's `src`), the code's own
+ * words, and what it comes from (`ref`): a story's call path, its change, one of its flows, or the code between them.
+ * `keys` are a flow step's check keys, what its tick box marks; `flow_n` is that flow's `?flow=N` on its story. */
+export interface WalkStep {
+  kind: StepKind; src: string; dst: string; label: string; status: "new" | "changed" | "same";
+  ref: "path" | "change" | "flow" | "code"; story: string | null; flow: string | null; flow_n: number | null;
+  cause: string | null; keys: string[]; edge: string | null;
+  /** The loop it sits in, as written: "for (i = 0; i < len; i++)". */
+  loop: string | null;
+  path: string; line: number | null; cl: number | null;
+  /** A fold step: how many steps it stands for. */
+  folded: number;
+}
+/** A path through the changed code a reviewer would trace by hand (§4); `id` is cited, never shown. Anchored on a thread,
+ * or on the connection between two; one side (`case`) of a condition (`condition`, a gate id) or of none. */
+export interface Walk {
+  id: string; title: string; title_source: "template" | "llm"; lead: string; thread: string | null;
+  connection: [string, string] | null; condition: string | null; case: boolean | null;
+  /** Function node ids, left to right. */
+  parts: string[];
+  /** The stories its steps come from, in order. */
+  stories: string[]; steps: WalkStep[];
+}
+/** A block of Where the change sits (§5): a component, the band (layer) it sits in, the threads and stories that change it,
+ * its changed files, the edges that cross into or out of it as sentences; `quiet`: it shares none with the rest. */
+export interface Component {
+  name: string; level: number | null; band: string; globs: string[]; threads: string[]; stories: string[]; files: string[];
+  crossing: string[]; quiet: boolean;
+}
+/** A changed line and whether it still runs when the condition is false (§7); `story` is null for a line no story holds. */
+export interface GatedLine {
+  story: string | null; cl: number | null; text: string; runs: boolean; where: "under" | "outside" | "elsewhere"; path: string;
+  line: number | null; function: string | null;
+}
+/** A condition the change adds (§7); `false_case` is the model's words for its false side (phase 2), "" until then. */
+export interface Gate {
+  id: string; node: string; test: string; false_case: string; lines: GatedLine[]; source: "code" | "context"; story: string | null;
+  path: string; line: number | null; guarded: number[]; runs: number; stops: number;
+}
+/** A node a walk-through or a condition cites: `/names` names only the nodes on boards and stories (§18.8). */
+export interface DesignNode { label: string; kind: "function" | "field"; component: string | null; path: string; line: number | null }
+export interface Concern {
+  text: string; how: string; stories: string[]; assessment: "right" | "note" | "confirm" | "ask"; note: string; causes: string[];
+}
+export interface Ownership { tag: "right" | "questionable" | "shortfall" | "note"; text: string; cites: string[] }
+export interface ReadingDesign {
+  verdict: string; verdict_causes: string[]; components: Component[]; concerns: Concern[]; ownership: Ownership[]; gates: Gate[];
+  walks: Walk[]; nodes: Record<string, DesignNode>; sources: Record<string, "template" | "llm" | "pinned">; context_hash: string | null;
+}
