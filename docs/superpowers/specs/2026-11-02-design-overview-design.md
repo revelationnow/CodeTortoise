@@ -500,3 +500,33 @@ analysis:
 - Should the concern table be allowed to raise a new `ask` cause when the design context names something the change
   doesn't do? This proposal says no for now, because checks come from code.
 - Components from config are a second source of names beside `layers.py`. Should `layers` gain names instead?
+
+## 18. Notes against the code (added when planning, 2026-11-02)
+
+The proposal was written against the demo before the code was read line by line. Where the code says otherwise, these
+notes hold.
+
+1. **Ids.** Cause ids are `c` and ten hex digits (`causes.py`), not `C1…`; `C<n>` are cluster ids. Walk-through ids are
+   numbered in the order they are listed: by condition, the ones covering the most causes first.
+2. **The demo's first walk-through.** `uart_send`'s new `-2` lands in `logger_flush` (S1's flow 1), not in
+   `logger_write`, and S1's other flow is the reader `uart_errors`. So the demo's W1 runs `main` → `logger_flush` →
+   `uart_send`, takes `len > 64`, returns `-2` to `logger_flush`, goes back to `main` and on to `uart_errors`. That is
+   nine steps, and the flow-1 step is step 5. It crosses into the logger's thread because `logger_flush` lives in
+   `service/logger.c`, which that thread's stories change, so it sits on the connection between the two threads.
+3. **Thread letters.** In the demo the driver and HAL thread is Thread A (stories S2, S1), the logger thread is Thread B
+   and the C++ thread is Thread C, so the crumbs read "Thread A with Thread B".
+4. **A fourth walk-through.** `hal_write`'s signature change gets one of its own (`main` → `uart_init` → `hal_write`),
+   since S2's flow 1 lands there with an open cause.
+5. **A step's address** is `?step=N`. `?at=` already places the open cause in the side panel (`open=cause:…&at=N`).
+6. **The head's progress** reads "X of N stories read · K checks open" today, and stays as it is.
+7. **Unchanged arrows** use `--bd-muted`. `--bd-arrow` (#b3b8cc) is about 2:1 on white, short of the 3:1 that WCAG
+   asks of graphics.
+8. **Labels.** `/names` names only the nodes on boards and stories and in cited text, so `ReadingDesign` carries its own
+   `nodes`: label, component, file and line.
+9. **No single-stage re-run exists today.** Phase 3 adds the one a design context needs. Until then `design` runs as
+   part of every run.
+10. **Fields added to the §9 models**, each commented in the code:
+    - a step's `ref` (what it comes from), `keys`, `flow_n`, `path`, `line`, `cl` and `folded`;
+    - a walk-through's `case` and `stories`;
+    - a gate's `story`, `path`, `line`, `guarded`, `runs` and `stops`;
+    - a gated line's `where`, `path`, `line` and `function`. Its `story` may be none: a header line that no story holds.
