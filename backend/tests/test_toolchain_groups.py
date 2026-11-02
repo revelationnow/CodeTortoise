@@ -249,3 +249,32 @@ def test_a_library_chosen_again_while_a_look_describes_the_old_one_is_the_one_ke
     after.start()
     after.join(10)
     assert later and later[0][0] == own, "the library kept isn't the one chosen anew, or prepare() never ended"
+
+
+def test_a_recheck_that_leaves_the_library_alone_costs_a_look_no_second_describe(tmp_path, monkeypatch):
+    """Rechecks (again()) that overtake a look describing the default library but leave the choice as it was cost no
+    more describes, each a worker that may take up to LIBRARY_INFO_TIMEOUT (final review of branch deferred-minors-4,
+    M1)."""
+    ws, cc, _ = _many(tmp_path, 1)
+    tc = Toolchain(ToolchainConfig(query_compilers="off"), load_databases(cc, ws, None), tmp_path / "tc", root=ws)
+    choice = LibclangChoice(path="/opt/llvm/lib/libclang.so", kind="search", reason="found")
+    monkeypatch.setattr(toolchain, "find_libclang", lambda *a, **kw: choice)
+    describing, described, calls = threading.Event(), threading.Event(), []
+
+    def info(path):
+        calls.append(path)
+        describing.set()
+        described.wait(30)
+        return LibclangInfo(path=path, version="clang version 99", vendor=False)
+    monkeypatch.setattr(toolchain, "library_info", info)
+    got = []
+    look = threading.Thread(target=lambda: got.append(tc.prepare()), daemon=True)
+    look.start()
+    assert describing.wait(10)
+    for _ in range(3):                               # Rechecks from other pages while it describes
+        tc.again()
+    described.set()
+    look.join(10)
+    assert got and got[0] == (choice, LibclangInfo(path=choice.path, version="clang version 99", vendor=False)), \
+        "the look never ended"
+    assert calls == [choice.path]

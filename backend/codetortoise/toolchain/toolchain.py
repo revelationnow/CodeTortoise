@@ -438,17 +438,20 @@ class Toolchain:
         other), and returns them: another Health page look may choose it again meanwhile (again()), so a caller uses
         what it returns. Every parse runs in worker processes that load the request's library; compilers are queried
         lazily, per group. Describing may load the library in a worker and wait for it, so it runs outside the lock,
-        and a choice an again() overtook meanwhile is made afresh (final review of branch deferred-minors-3, M2)."""
+        and a choice an again() overtook meanwhile is made afresh (final review of branch deferred-minors-3, M2); a
+        library chosen as before isn't described again (final review of branch deferred-minors-4, M1)."""
+        described: tuple[str | None, LibclangInfo] | None = None     # the library last described here, by its path
         while True:
             with self._lock:
                 if self.libclang is not None:
                     return self.choice, self.libclang
                 agains = self._agains
             choice = self._default()
-            info = library_info(choice.path)
+            if described is None or described[0] != choice.path:
+                described = (choice.path, library_info(choice.path))
             with self._lock:
                 if self.libclang is None and self._agains == agains:
-                    self.choice, self.libclang = choice, info
+                    self.choice, self.libclang = choice, described[1]
 
     # ---- per file
     def _override(self, file: str) -> ToolchainOverride | None:
