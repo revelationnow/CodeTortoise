@@ -717,9 +717,10 @@ def test_each_workspace_refused_a_compiler_says_so_in_the_log_once_by_name(fx, f
 
 
 def test_a_bundle_an_edit_or_a_recheck_replaces_lets_go_of_its_index_at_once(fx, fx_b, tmp_path):
-    """A replaced bundle holds an open index. Nothing keeps it once its queue has ended and requests let go of it, so
-    its connection closes then, without waiting for a garbage collection (review of branch deferred-minors-2,
-    deferred minor), though Recheck may replace one at each look at a workspace that isn't ready."""
+    """A replaced bundle holds an open index. Nothing keeps it once its queue has ended and requests let go of it, and
+    the index closes its connection as it goes, without waiting for a garbage collection: sqlite3 keeps a connection
+    in a cycle with its own statement cache (review of branch deferred-minors-2, deferred minor; final review of
+    deferred-minors-3, I1). Recheck may replace one at each look at a workspace that isn't ready."""
     reg = server(fx, tmp_path)
     reg.load()
     b = reg.add(fields(fx_b.root), "owner")
@@ -727,6 +728,7 @@ def test_a_bundle_an_edit_or_a_recheck_replaces_lets_go_of_its_index_at_once(fx,
     root.mkdir()
     late = reg.add(fields(root, name="late"), "owner")             # not ready: no compile database
     gone = [weakref.ref(b.svc.index), weakref.ref(late.svc.index)]
+    conns = [b.svc.index._db, late.svc.index._db]
     ids = b.id, late.id
     del b, late
     gc.disable()
@@ -734,5 +736,8 @@ def test_a_bundle_an_edit_or_a_recheck_replaces_lets_go_of_its_index_at_once(fx,
         reg.edit(ids[0], fields(fx_b.root, name="b2"))
         reg.recheck(reg.get(ids[1]))                               # builds it again
         assert [r() for r in gone] == [None, None]
+        for conn in conns:
+            with pytest.raises(sqlite3.ProgrammingError):
+                conn.execute("SELECT 1")
     finally:
         gc.enable()

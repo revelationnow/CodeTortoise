@@ -5,6 +5,7 @@ import multiprocessing as mp
 import os
 import sqlite3
 import threading
+import weakref
 from collections.abc import Callable, Iterator
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
@@ -130,6 +131,9 @@ class SymbolIndex:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        # closed once nothing holds the index (a bundle an edit or a Recheck replaced): sqlite3 keeps a connection in a
+        # cycle with its statement cache, so it would otherwise stay open until a garbage collection
+        weakref.finalize(self, self._db.close)
         self._db.executescript(_SCHEMA)
         self.skipped: list[str] = []  # files whose parse crashed in the last build
 
