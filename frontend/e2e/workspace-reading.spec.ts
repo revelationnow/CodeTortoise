@@ -23,11 +23,12 @@ test.describe("desktop", () => {
 
   test("the overview tells the change as threads, how they connect and what to check", async ({ page }) => {
     await startReview(page, FOUR);
-    await expect(page.locator(".ov3 h2")).toHaveText(["3 threads", "Build impact · up to 4 files rebuild", "Coverage · 2 notes",
+    await expect(page.locator(".ov3 h2")).toHaveText(["3 threads", "Where the change sits", /^When len > 64 is false · \d+ changes? still runs?$/,
+                                                      "Build impact · up to 4 files rebuild", "Coverage · 2 notes",
                                                       "Discussion · no comments yet"]);
     await expect(page.locator(".ov3 .ws-lead"))                                         // the heading counts the threads
       .toHaveText("A and B: both run inside main; B and C: nothing besides arriving in CL 104.");
-    await expect(page.locator(".ov-links li")).toHaveText(["With Thread A: both run inside main",
+    await expect(page.locator(".ov-links li")).toHaveText(["With Thread A: both run inside main · ▶ Walk through ›",
                                                            "With Thread B: nothing besides arriving in CL 104 — ask the author"]);
     const threads = page.locator("section.ov-sec");
     await expect(threads.locator(".ov-sec-name")).toHaveText(["hal_write in hal", "logger_init in service", "svc::Engine::step in cpp"]);
@@ -397,7 +398,7 @@ test.describe("phone", () => {
   test("the overview's connections are sentences and nothing scrolls sideways", async ({ page }) => {
     await startReview(page, FOUR);
     await page.getByRole("link", { name: "Go to the overview" }).click();
-    await expect(page.locator(".ov-links li")).toHaveText(["With Thread A: both run inside main",
+    await expect(page.locator(".ov-links li")).toHaveText(["With Thread A: both run inside main · ▶ Walk through ›",
                                                            "With Thread B: nothing besides arriving in CL 104 — ask the author"]);
     expect(await sideways(page)).toBeLessThanOrEqual(0);
   });

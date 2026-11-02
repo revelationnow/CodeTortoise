@@ -1,5 +1,5 @@
 import { devices, expect, type Page } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, sideways, startReview, test } from "./helpers";
+import { expectNamed, expectNoNodeIds, openFold, sideways, startReview, test } from "./helpers";
 
 /** The design overview's walk-throughs (spec 2026-11-02 §3, §4, §18). CLs 101–104 have four: W1 takes `len > 64` from `main`
  * through `logger_flush` into `uart_send`, returns -2 to `logger_flush` (S1's flow 1) and reaches the reader `uart_errors`
@@ -118,5 +118,55 @@ test.describe("a walk-through on a phone", () => {
     await expect(page.locator(".dz-draw")).toHaveCount(0);
     await expect(page.locator(".dz-note")).toHaveText(/^Built from the stories' call paths and flows\. Its checks/);
     expect(await sideways(page)).toBeLessThanOrEqual(0);
+  });
+});
+
+test.describe("the overview", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("says where the change sits, layer by layer; a component that shares nothing with the rest is dashed", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(base);
+    const where = page.getByRole("region", { name: "Where the change sits" });
+    await expect(where.locator(".ov-band h3")).toHaveText(["service", "driver", "hal", "cpp, include/hal"]);
+    await expect(where.locator(".dz-block .nm")).toHaveText(["service", "driver", "hal", "cpp", "include/hal"]);
+    const driver = where.locator(".dz-block").filter({ has: page.locator(".nm", { hasText: /^driver$/ }) });
+    await expect(driver.locator(".ct")).toHaveText("Thread A · 2 changed files");
+    await expect(driver.locator(".ln")).toHaveText(["uart_init, uart_send call hal_write"]);
+    await expect(where.locator(".dz-block.quiet .nm")).toHaveText(["cpp"]);
+    await expect(where.locator(".dz-block.quiet .ln")).toHaveText("No calls or fields shared with the rest");
+    await expectNoNodeIds(page);
+  });
+
+  test("lists a thread's walk-throughs under its stories, and links the one on a connection at the end of its line", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(base);
+    const secs = page.locator("section.ov-sec");
+    await expect(secs.nth(0).locator(".dz-walks li")).toHaveText(["▶ Walk through: When len > 64 ›",
+      "▶ Walk through: When len > 64 is false ›", "▶ Walk through: From main through hal_write ›"]);
+    await expect(secs.nth(1).locator(".dz-walks li")).toHaveText(["▶ Walk through: From main through logger_init ›"]);
+    await expect(secs.nth(2).locator(".dz-walks")).toHaveCount(0);
+    await expect(secs.nth(1).locator(".ov-links li")).toHaveText(["With Thread A: both run inside main · ▶ Walk through ›"]);
+    await expect(secs.nth(2).locator(".ov-links li")).toHaveText(["With Thread B: nothing besides arriving in CL 104 — ask the author"]);
+    await secs.nth(1).locator(".ov-links").getByRole("link", { name: "Walk through: When len > 64" }).click();
+    await expect(page).toHaveURL(new RegExp(`${base}/walk/W1$`));
+    await page.goBack();
+    await secs.nth(1).locator(".dz-walks").getByRole("link", { name: "Walk through: From main through logger_init" }).click();
+    await expect(page).toHaveURL(new RegExp(`${base}/walk/W4$`));
+    await expectNamed(page);
+  });
+
+  test("folds the changes that still run when the condition is false, and those that stop", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(base);
+    const region = page.getByRole("region", { name: "When the condition is false", exact: true });
+    await expect(region.locator("h2")).toHaveText(/^When len > 64 is false · \d+ changes still run$/);
+    await expect(region.getByText("Stops (2)")).toBeHidden();
+    await openFold(page, "When the condition is false");
+    await expect(region.locator("h3")).toHaveText([/^Still runs \(\d+\)$/, "Stops (2)"]);
+    await expect(region.locator(".dz-gated").last().locator("li")).toHaveText([
+      /^S1 .+ · driver\/uart\.c:17 in uart_send$/, /^S1 .+ · driver\/uart\.c:18 in uart_send$/]);
+    await expect(region.locator(".dz-gated").first()).toContainText("st->tx++;");
+    await expectNamed(page);
   });
 });

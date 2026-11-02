@@ -111,7 +111,7 @@ test.describe("desktop", () => {
         expect(Math.abs(await right(secs.nth(s).locator(".ov-n").nth(c)) - await right(labels.nth(c + 1))), `section ${s}, column ${c}`)
           .toBeLessThanOrEqual(1);
     await expect(secs.nth(0).locator(".ov-links")).toHaveCount(0);
-    await expect(secs.nth(1).locator(".ov-links li")).toHaveText(["With Thread A: both run inside main"]);
+    await expect(secs.nth(1).locator(".ov-links li")).toHaveText(["With Thread A: both run inside main · ▶ Walk through ›"]);
     await expect(secs.nth(2).locator(".ov-links li")).toHaveText(["With Thread B: nothing besides arriving in CL 104 — ask the author"]);
     await expectNoNodeIds(page);
     await expectNamed(page);
@@ -134,7 +134,7 @@ test.describe("desktop", () => {
     const base = await startReview(page, FOUR);
     await page.goto(base);
     const line = (n: number) => page.locator("section.ov-sec").nth(n).locator(".ov-links li");
-    await expect(line(1)).toHaveText("With Thread A: Written by AI. both run inside main");
+    await expect(line(1)).toHaveText("With Thread A: Written by AI. both run inside main · ▶ Walk through ›");
     await expect(line(2)).toHaveText("With Thread B: Written by AI. nothing besides arriving in CL 104 — ask the author");
     for (const n of [1, 2]) {
       const words = line(n).locator(".ai-text");
@@ -213,7 +213,8 @@ test.describe("desktop", () => {
   test("Build impact, Coverage and Discussion are folded rows whose headings say what they hold", async ({ page }) => {
     const base = await startReview(page);
     await page.goto(base);
-    await expect(page.locator(".ov3 h2")).toHaveText(["1 thread", "Build impact · up to 4 files rebuild", "Coverage · 2 notes",
+    await expect(page.locator(".ov3 h2")).toHaveText(["1 thread", "Where the change sits", /^When len > 64 is false · \d+ changes? still runs?$/,
+                                                      "Build impact · up to 4 files rebuild", "Coverage · 2 notes",
                                                       "Discussion · no comments yet"]);
     const cov = page.getByRole("region", { name: "Coverage", exact: true });
     await expect(cov.getByText("Risks judged by rules only.")).toBeHidden();
@@ -230,7 +231,7 @@ test.describe("desktop", () => {
 
   test("a review with no threads says the change and starts here, with no column labels (review focus 2)", async ({ page }) => {
     const base = await startReview(page, FOUR);
-    await patchReading(page, (r) => { r.threads = []; r.connections = []; });
+    await patchReading(page, (r) => { r.threads = []; r.connections = []; r.design = null; });
     await page.goto(base);
     await expect(page.locator(".ov3 h2").first()).toHaveText("The change");
     await expect(page.locator(".ov-cols, section.ov-sec")).toHaveCount(0);

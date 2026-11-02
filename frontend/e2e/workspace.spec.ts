@@ -33,7 +33,8 @@ test.describe("desktop", () => {
   test("the overview: the change as a whole, its one thread and what to check", async ({ page }) => {
     const base = await startReview(page);
     const ov = page.locator(".ov3");
-    await expect(ov.locator("h2")).toHaveText(["1 thread", "Build impact · up to 4 files rebuild", "Coverage · 2 notes",
+    await expect(ov.locator("h2")).toHaveText(["1 thread", "Where the change sits", /^When len > 64 is false · \d+ changes? still runs?$/,
+                                               "Build impact · up to 4 files rebuild", "Coverage · 2 notes",
                                                "Discussion · no comments yet"]);
     await expect(ov.locator(".ws-lead")).toHaveCount(0);                      // the heading says it; no empty paragraph stands in its place
     await expect(ov.locator("section.ov-sec")).toHaveCount(1);

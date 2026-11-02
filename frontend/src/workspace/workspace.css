@@ -914,3 +914,16 @@ a.ws-chip { text-decoration: none; }
 .dz-key.changed::before { border-color: var(--chg-deep); }
 .dz-key.same::before { border-color: var(--bd-muted); }
 .dz-key.open::before { width: 10px; height: 10px; border: 0; border-radius: 50%; background: var(--fx-deep); }
+
+/* the design overview on the overview (spec 2026-11-02-design-overview §3.1): Where the change sits is the map's bands with
+   components that open nothing for blocks; a thread's walk-throughs sit under its stories; the condition fold's lines */
+.ov-block.dz-block { cursor: default; }
+.ov-block.dz-block:hover { border-color: var(--bd-node-line); }
+.ov-block.dz-block .nm { margin-right: 0; }
+.ov-block.dz-block.quiet { border-style: dashed; }
+.ov-block.dz-block code { overflow-wrap: anywhere; }
+.ov3 .dz-walks { list-style: none; margin: 0 14px 10px; padding: 0; font-size: 13.5px; }
+.ov3 .dz-walks li { padding: 2px 0; overflow-wrap: anywhere; }
+.ov3 .dz-walks a, .ov3 .dz-cwalk { text-decoration: none; font-weight: 600; }
+.ov3 .ov-fold h3 { margin: 10px 0 4px; font-size: 13px; }
+.dz-gated li { overflow-wrap: anywhere; }

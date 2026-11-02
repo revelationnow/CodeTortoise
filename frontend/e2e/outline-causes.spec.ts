@@ -655,7 +655,8 @@ test.describe("the overview", () => {
   test("the change, Start with Thread A then Continue, a section per thread and how they connect; nothing pinned beside it", async ({ page }) => {
     const base = await startReview(page, FOUR);
     await page.goto(base);
-    await expect(page.locator(".ov3 h2")).toHaveText(["3 threads", "Build impact · up to 4 files rebuild", "Coverage · 2 notes",
+    await expect(page.locator(".ov3 h2")).toHaveText(["3 threads", "Where the change sits", /^When len > 64 is false · \d+ changes? still runs?$/,
+                                                      "Build impact · up to 4 files rebuild", "Coverage · 2 notes",
                                                       "Discussion · no comments yet"]);
     const a = page.getByRole("region", { name: "Thread A: hal_write in hal" });
     await expect(a.locator(".ov-n")).toHaveText([", 2 stories", ", 3 open", ", 0 read"]);
@@ -664,7 +665,7 @@ test.describe("the overview", () => {
     expect(full.length).toBeGreaterThan(0);
     expect(full).toContain(((await intro.innerText()).split("\n")[0] ?? "").slice(0, 20));
     expect(full).not.toMatch(/\bN\d+\b/);
-    await expect(page.locator(".ov-links li")).toHaveText(["With Thread A: both run inside main",
+    await expect(page.locator(".ov-links li")).toHaveText(["With Thread A: both run inside main · ▶ Walk through ›",
                                                            "With Thread B: nothing besides arriving in CL 104 — ask the author"]);
     await expect(page.getByRole("region", { name: "Coverage" })).toContainText("Risks judged by rules only.");
     await expect(page.locator(".ov-howto, .ck-tile, .ov-progress, .ov-route, .ov2-check, .ov-thread, .ov-meta, .ov-conn-rows"))

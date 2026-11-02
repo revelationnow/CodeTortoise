@@ -85,9 +85,10 @@ describe("how the threads connect, under the later thread (§5.2)", () => {
                                         conn("T3", "T1", "vocabulary", true, "both use `hal_write`"),
                                         conn("T1", "T9", "caller", true, "a thread the reading no longer has")]);
     expect([...rows.entries()]).toEqual([
-      ["T2", [{ before: "With Thread A: ", text: "both run inside `main`", after: "", ai: false, bundled: false }]],
-      ["T4", [{ before: "With Thread B: ", text: "nothing besides arriving in CL 104", after: " — ask the author", ai: false, bundled: true }]],
-      ["T3", [{ before: "With Thread A: ", text: "both use `hal_write`", after: "", ai: false, bundled: false }]],
+      ["T2", [{ before: "With Thread A: ", text: "both run inside `main`", after: "", ai: false, bundled: false, a: "T1", b: "T2" }]],
+      ["T4", [{ before: "With Thread B: ", text: "nothing besides arriving in CL 104", after: " — ask the author", ai: false, bundled: true,
+                a: "T2", b: "T4" }]],
+      ["T3", [{ before: "With Thread A: ", text: "both use `hal_write`", after: "", ai: false, bundled: false, a: "T1", b: "T3" }]],
     ]);
   });
 
@@ -96,9 +97,10 @@ describe("how the threads connect, under the later thread (§5.2)", () => {
                                         conn("T1", "T3", "caller", true, "both run inside `main`"),
                                         conn("T4", "T3", "vocabulary", true, "both use `hal_write`")]);
     expect([...rows.entries()]).toEqual([
-      ["T4", [{ before: "With Thread B: ", text: "nothing besides arriving in CL 104", after: " — ask the author", ai: false, bundled: true },
-              { before: "With Thread C: ", text: "both use `hal_write`", after: "", ai: false, bundled: false }]],
-      ["T3", [{ before: "With Thread A: ", text: "both run inside `main`", after: "", ai: false, bundled: false }]],
+      ["T4", [{ before: "With Thread B: ", text: "nothing besides arriving in CL 104", after: " — ask the author", ai: false, bundled: true,
+                a: "T2", b: "T4" },
+              { before: "With Thread C: ", text: "both use `hal_write`", after: "", ai: false, bundled: false, a: "T3", b: "T4" }]],
+      ["T3", [{ before: "With Thread A: ", text: "both run inside `main`", after: "", ai: false, bundled: false, a: "T1", b: "T3" }]],
     ]);
   });
 

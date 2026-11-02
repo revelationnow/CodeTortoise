@@ -59,8 +59,9 @@ export function threadCounts(t: Thread, causes: Cause[] | null | undefined, hidd
 
 /** One line of how the threads connect: the connection's `text` between what the app adds around it (`before` names the
  * earlier thread, `after` says a bundled pair is the author's to explain). `ai`: the strong model reworded the text, and only
- * the text is its words. */
-export interface SectionLink { before: string; text: string; after: string; ai: boolean; bundled: boolean }
+ * the text is its words. `a` and `b` are the earlier and the later thread's ids: a walk-through on their connection is linked
+ * at the line's end (spec 2026-11-02 §3.1). */
+export interface SectionLink { before: string; text: string; after: string; ai: boolean; bundled: boolean; a: string; b: string }
 
 /** How the threads connect (§5.2): each shown connection under the later of its threads, as "With Thread A: …". */
 export function sectionConnections(threads: Thread[], conns: Connection[]): Map<string, SectionLink[]> {
@@ -71,7 +72,7 @@ export function sectionConnections(threads: Thread[], conns: Connection[]): Map<
     if (!k.shown || a === undefined || b === undefined || a === b) continue;
     const early = Math.min(a, b), late = threads[Math.max(a, b)].id, bundled = k.kind === "bundled";
     const row = { before: `With Thread ${letter(early, threads[early].id)}: `, text: k.text, after: bundled ? " — ask the author" : "",
-                  ai: k.text_source === "llm", bundled };
+                  ai: k.text_source === "llm", bundled, a: threads[early].id, b: late };
     out.set(late, [...(out.get(late) ?? []), row]);
   }
   return out;

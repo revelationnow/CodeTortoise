@@ -7,9 +7,11 @@ import { aiTitle } from "../lib/aiMarks";
 import { setShowSinks, showSinks, sinkLine } from "../lib/sinks";
 import { openCount } from "../reading/causes";
 import { letter } from "../reading/checks";
+import { alsoLine, blockLine, componentBands, conditionTitle, foldGate, gateGroups, showsWhere } from "../reading/design";
 import { cardText, foldTitles, overviewHeading, sectionConnections, startButton, testsLine, threadAction, threadCounts,
   type SectionLink } from "../reading/overview";
-import type { Reading, SinkHit, Thread } from "../reading/types";
+import type { Gate, GatedLine, Reading, ReadingDesign, SinkHit, Thread } from "../reading/types";
+import { connectionWalk } from "../reading/walks";
 import { useWs, type Ws } from "./context";
 import { short } from "./crumbs";
 import { bare, plainNames } from "./names";
@@ -35,9 +37,9 @@ function Count({ n, word, sep = false }: { n: number | string; word: string; sep
 /** A thread (§5.2): a header bar with its letter, name, counts and one action; its intro; its first stories, the rest a
  * click away; how it connects to the threads before it. `read` (the stories the reader has read) and `stories` (every
  * story by id) are worked out once by the overview for all its sections. */
-function ThreadSection({ t, i, r, links, read, stories }: {
+function ThreadSection({ t, i, r, links, read, stories, design }: {
   t: Thread; i: number; r: Reading; links: SectionLink[];
-  read: ReadonlySet<string>; stories: ReadonlyMap<string, Story>;
+  read: ReadonlySet<string>; stories: ReadonlyMap<string, Story>; design: ReadingDesign | null;
 }) {
   const ws = useWs();
   const [all, setAll] = useState(false);
@@ -46,6 +48,7 @@ function ThreadSection({ t, i, r, links, read, stories }: {
   const n = threadCounts(t, r.causes, ws.hidden, r.marks, read), act = threadAction(t.stories, read);
   const paras = cardText(t), full = paras.map((p) => plain(p.text)).join("\n");
   const more = t.stories.length - SHOWN;
+  const walks = design?.walks.filter((w) => w.thread === t.id) ?? [];
   return (
     <section className="ov-sec" id={`thread-${t.id}`} aria-label={`Thread ${L}: ${name}`}>
       <div className="ov-sec-head">
@@ -83,10 +86,21 @@ function ThreadSection({ t, i, r, links, read, stories }: {
       })}</ol>}
       {more > 0 && <button className="link ov-more" aria-expanded={all} onClick={() => setAll(!all)}>
         {all ? "Show fewer ▴" : `Show the other ${more === 1 ? "story" : `${more} stories`} ▸`}</button>}
-      {links.length > 0 && <ul className="ov-links">{links.map((k) => (
-        <li key={k.before + k.text} className={k.bundled ? "bundled" : undefined}>
-          {k.before}<AiText as="span" ai={k.ai}><Ticks text={k.text} /></AiText>{k.after}</li>
+      {walks.length > 0 && <ul className="dz-walks">{walks.map((w) => (
+        <li key={w.id}><Link to={ws.link(ws.item({ kind: "walk", wid: w.id }))} title={`Walk through: ${plain(w.title)}`}
+                             aria-label={`Walk through: ${plain(w.title)}`}>
+          <span aria-hidden>▶ </span>Walk through: <Ticks text={w.title} /> ›</Link></li>
       ))}</ul>}
+      {links.length > 0 && <ul className="ov-links">{links.map((k) => {
+        const cw = connectionWalk(design, k.a, k.b);
+        return (
+          <li key={k.before + k.text} className={k.bundled ? "bundled" : undefined}>
+            {k.before}<AiText as="span" ai={k.ai}><Ticks text={k.text} /></AiText>{k.after}
+            {cw && <> · <Link className="dz-cwalk" to={ws.link(ws.item({ kind: "walk", wid: cw.id }))} title={`Walk through: ${plain(cw.title)}`}
+                              aria-label={`Walk through: ${plain(cw.title)}`}><span aria-hidden>▶ </span>Walk through ›</Link></>}
+          </li>
+        );
+      })}</ul>}
     </section>
   );
 }
@@ -111,13 +125,65 @@ function SinksLine({ hits }: { hits: SinkHit[] }) {
   );
 }
 
+/** Where the change sits (spec 2026-11-02 §5): the map's layer bands with components for blocks, each naming the threads
+ * that change it and its changed files, the calls and fields that cross into it from another component, and what changed
+ * in it. A component that shares no edge with the rest is dashed. It opens nothing: its stories are a thread's. */
+function WhereItSits({ d, r }: { d: ReadingDesign; r: Reading }) {
+  const ws = useWs(), titles = new Map((ws.data.stories?.stories ?? []).map((st) => [st.id, st.title]));
+  return (
+    <section className="dz-where" aria-labelledby="dz-where">
+      <h2 id="dz-where">Where the change sits</h2>
+      {componentBands(d.components).map((b) => (
+        <section key={b.band} className={`ov-band lv${b.level === null ? "x" : b.level % 4}`} aria-label={`Layer ${b.band}`}>
+          <h3>{b.band}</h3>
+          <div className="ov-blocks">{b.components.map((c) => {
+            const also = alsoLine(c.stories, (s) => titles.get(s));
+            return (
+              <div key={c.name} className={`ov-block dz-block${c.quiet ? " quiet" : ""}`}>
+                <div className="nm">{c.name}</div>
+                <div className="ct">{blockLine(c, r.threads)}</div>
+                {c.quiet ? <div className="ln">No calls or fields shared with the rest</div>
+                  : c.crossing.map((l) => <div key={l} className="ln"><Ticks text={l} /></div>)}
+                {also && <div className="also"><Ticks text={also} /></div>}
+              </div>
+            );
+          })}</div>
+        </section>
+      ))}
+    </section>
+  );
+}
+
+/** The condition fold's lines (§7): those that still run when the condition is false, then those that stop, each with its
+ * story, its code and where it is. */
+function ConditionLines({ g }: { g: Gate }) {
+  const ws = useWs(), { runs, stops } = gateGroups(g), titles = new Map((ws.data.stories?.stories ?? []).map((st) => [st.id, st.title]));
+  const row = (l: GatedLine, i: number) => {
+    const title = l.story ? titles.get(l.story) ?? l.story : "";
+    return (
+      <li key={i}>
+        {l.story ? <Link className="ws-handle link" to={storyTo(ws, l.story)} title={bare(title)}
+                         aria-label={`Go to story ${l.story}: ${short(title)}`}>{l.story}</Link>
+          : <span className="ws-handle">no story</span>}
+        {" "}<code>{l.text}</code>
+        <span className="muted"> · {l.path}{l.line ? `:${l.line}` : ""}{l.function && <> in <code>{l.function}</code></>}</span>
+      </li>
+    );
+  };
+  return <>
+    <p className="muted">The condition is <code>{g.test}</code>, in {g.path}{g.line ? `:${g.line}` : ""}.</p>
+    {runs.length > 0 && <><h3>Still runs ({runs.length})</h3><ul className="ov-lines dz-gated">{runs.map(row)}</ul></>}
+    {stops.length > 0 && <><h3>Stops ({stops.length})</h3><ul className="ov-lines dz-gated">{stops.map(row)}</ul></>}
+  </>;
+}
+
 /** A folded row after the threads (§5.3): its summary a heading that says what is inside. It starts open when `open`;
  * after that the reader's clicks are its own. */
 function Fold({ name, title, open, children }: { name: string; title: string; open?: boolean; children: ReactNode }) {
   return (
     <section aria-label={name}>
       <details className="ov-fold" open={open}>
-        <summary><h2>{title}</h2></summary>
+        <summary><h2><Ticks text={title} /></h2></summary>
         {children}
       </details>
     </section>
@@ -125,7 +191,8 @@ function Fold({ name, title, open, children }: { name: string; title: string; op
 }
 
 /** The overview (§5): how many threads and the change as a whole (no paragraph when the rules have nothing to add to the
- * heading), where to start, a section per thread with its counts under one row of column labels, the tests, then Build
+ * heading), where to start, where the change sits (spec 2026-11-02 §5), a section per thread with its counts under one row
+ * of column labels and its walk-throughs, the tests, then what still runs when the change's condition is false (§7), Build
  * impact, Coverage and Discussion folded. */
 export default function Overview({ r }: { r: Reading }) {
   const ws = useWs(), loc = useLocation(), read = new Set(ws.data.ticks?.stories ?? []);
@@ -133,6 +200,7 @@ export default function Overview({ r }: { r: Reading }) {
   const stories = new Map((ws.data.stories?.stories ?? []).map((st) => [st.id, st]));
   const start = startButton(r, read), folds = foldTitles(r, ws.data.comments), links = sectionConnections(r.threads, r.connections);
   const tests = r.tests?.stories[0], testsStory = tests ? stories.get(tests) : undefined;
+  const design = r.design ?? null, gate = foldGate(design);
   return (
     <div className="ws-page"><div className="ws-text ws-whole ov3">
       <section aria-labelledby="ov-whole" className="ov-top">
@@ -141,9 +209,11 @@ export default function Overview({ r }: { r: Reading }) {
         {start ? <Link className="ov-start" to={storyTo(ws, start.sid)}>{start.label}</Link>
           : r.order.length > 0 && <p className="muted">You've read every story.</p>}
       </section>
+      {design && showsWhere(design) && <WhereItSits d={design} r={r} />}
       {r.threads.length > 0 && <>
         <div className="ov-cols" aria-hidden><span /><span>Stories</span><span>Open</span><span>Read</span><span /></div>
-        {r.threads.map((t, i) => <ThreadSection key={t.id} t={t} i={i} r={r} links={links.get(t.id) ?? []} read={read} stories={stories} />)}
+        {r.threads.map((t, i) => <ThreadSection key={t.id} t={t} i={i} r={r} links={links.get(t.id) ?? []} read={read}
+                                                stories={stories} design={design} />)}
         {r.tests && (
           <p className="ov-tests">{testsStory
             ? <Link to={storyTo(ws, testsStory.id)}
@@ -151,6 +221,7 @@ export default function Overview({ r }: { r: Reading }) {
             : testsLine(r.tests, r.threads)}</p>
         )}
       </>}
+      {gate && <Fold name="When the condition is false" title={conditionTitle(gate)}><ConditionLines g={gate} /></Fold>}
       {folds.build && <Fold name="Build impact" title={folds.build}>
         <ul className="ov-lines">{r.build_impact.map((b) => (
           <li key={b.header}><Ticks text={b.text} />{b.note && <span className="muted"> {b.note}</span>}</li>
