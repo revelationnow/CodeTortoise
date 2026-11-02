@@ -15,3 +15,9 @@ test("a stand-in still fetching the server's answer as its page closes fails no 
   await page.evaluate(() => { void fetch("/stand-in").catch(() => {}); });
   await working;
 });
+
+test("a test that closes its own page, stand-ins and all, ends without the harness failing it", async ({ page }) => {
+  await page.goto("/login");
+  await page.route("**/stand-in", (route) => route.fulfill({ body: "" }));
+  await page.close();
+});

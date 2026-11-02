@@ -6,7 +6,8 @@ import { expect, type Locator, type Page, test as base } from "@playwright/test"
 export const test = base.extend({
   page: async ({ page }, use) => {
     await use(page);
-    await page.unrouteAll({ behavior: "ignoreErrors" });
+    // a page the test closed itself can't be told; its stand-ins are let go of all the same
+    await page.unrouteAll({ behavior: "ignoreErrors" }).catch((e) => { if (!page.isClosed()) throw e; });
   },
 });
 
