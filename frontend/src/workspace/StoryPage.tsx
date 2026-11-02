@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { errorText } from "../api";
 import type { StoryDetail } from "../board/types";
@@ -10,6 +10,7 @@ import { storyModel } from "../lib/aiMarks";
 import { isOpen } from "../reading/checks";
 import { nextUnread } from "../reading/plan";
 import { clCounts, stepIn, storyNeighbours, threadCrumb } from "../reading/story";
+import { stepList, storyWalks } from "../reading/walks";
 import { countLine, reviewTargets, stepStory } from "../stories/stories";
 import { type Address, at as addressAt } from "./address";
 import { useWs } from "./context";
@@ -129,6 +130,7 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
     </header>
   );
   const nb = r ? storyNeighbours(r, sid) : { after: null, feeds: null };
+  const onWalks = r ? storyWalks(r.design, sid) : [];
   const titleOf = (id: string) => ss.stories.find((s) => s.id === id)?.title ?? id;
   const storyLink = (id: string) => (
     <Link className="st-nb" to={ws.link(ws.item({ kind: "story", sid: id, view: "steps" }))} title={bare(titleOf(id))}
@@ -147,6 +149,13 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
                          aria-label={`Go to thread ${crumb.letter} on the overview`}>Thread {crumb.letter}</Link> · {crumb.text}</> : "Tests"}
         {nb.after && <> · after: {storyLink(nb.after)}</>}
         {nb.feeds && <> · feeds: {storyLink(nb.feeds)}</>}
+        {onWalks.slice(0, 2).map(({ walk, steps }) => (
+          <Fragment key={walk.id}> · in <Link className="st-nb" to={ws.link(addressAt({ kind: "walk", wid: walk.id }, { step: steps[0] }))}
+                                              title={`Walk through: ${bare(walk.title)}`}
+                                              aria-label={`Walk through: ${bare(walk.title)}, from step ${steps[0]}`}><Ticks text={walk.title} /></Link>
+            {" "}({steps.length === 1 ? "step" : "steps"} {stepList(steps)})</Fragment>
+        ))}
+        {onWalks.length > 2 && <> · and {onWalks.length - 2} more walk-through{onWalks.length === 3 ? "" : "s"}</>}
       </p>
       <div className="st-tools">
         <span className="ws-pos">{step(-1)}{step(1)}</span>

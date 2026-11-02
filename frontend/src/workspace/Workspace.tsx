@@ -97,7 +97,7 @@ export default function Workspace() {
 
   const d = data.detail;
   const r = data.reading;
-  useStoryThread(id, r, addr.place.kind === "story" ? addr.place.sid : null);   // here, not in the outline: a phone shows no outline beside a story
+  useStoryThread(id, r, addr.place.kind === "story" ? addr.place.sid : null, addr.place.kind === "walk" ? addr.place.wid : null);   // here, not in the outline: a phone shows no outline beside a story
   const threadOf = useMemo(() => r ? (sid: string) => threadLabel(r.threads, sid) : undefined, [r]);
   const walks = useMemo(() => r?.design?.walks.map((w) => ({ id: w.id, title: w.title, scope: walkScope(w, r.threads) })), [r]);
   const waiting = r === undefined || !loadedFor(addr.place, data);   // the trail waits, as the centre does

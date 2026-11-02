@@ -927,3 +927,10 @@ a.ws-chip { text-decoration: none; }
 .ov3 .dz-walks a, .ov3 .dz-cwalk { text-decoration: none; font-weight: 600; }
 .ov3 .ov-fold h3 { margin: 10px 0 4px; font-size: 13px; }
 .dz-gated li { overflow-wrap: anywhere; }
+
+/* the links to a walk-through (spec 2026-11-02 §3.2): its outline row after its thread's stories, and a flow's step on the
+   story's Flows row */
+.ws-row.walk .ws-num { color: var(--accent); }
+.dz-mark { flex: none; padding: 0 8px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.dz-on { font-size: 13px; }
+.dz-on a { text-decoration: none; }

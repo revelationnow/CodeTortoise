@@ -7,7 +7,8 @@ import { CHECK_ORDER, KIND_LABEL, letter, placeOf } from "../reading/checks";
 import { causeGroups, causeOpen, doneCount, firstOpenAt, hiddenLabel, openCount, shown } from "../reading/causes";
 import { threadRead } from "../reading/plan";
 import { flowGroups, flowsWord, groupShort, openFlows, placesOf } from "../reading/flowGroups";
-import type { Cause, Check, CheckKind, Reading } from "../reading/types";
+import type { Cause, Check, CheckKind, Reading, Walk } from "../reading/types";
+import { threadName, walkOpen, walksForThread } from "../reading/walks";
 import { INDEX_TABS, type Place } from "./address";
 import { useWs } from "./context";
 import { INDEX_LABEL, short } from "./crumbs";
@@ -63,12 +64,14 @@ function OutlineBody({ onPick, hidden = false, folded }: Props & { folded: boole
   );
 }
 
-/** Going to a story makes its thread the one last opened in this review (spec 2026-10-25-review-ui-redesign §6), for each
- * story, not only when the thread changes, or a bar clicked since would stay the last opened. The workspace keeps it,
- * since on a phone the outline is not there while a story shows; the outline reads it when it mounts. */
-export function useStoryThread(rid: number, r: Reading | null | undefined, sid: string | null) {
-  const holding = r && sid ? r.threads.find((t) => t.stories.includes(sid))?.id ?? null : null;
-  useEffect(() => { if (holding) saveThread(rid, holding); }, [rid, sid, holding]);
+/** Going to a story, or to a walk-through, makes its thread the one last opened in this review (spec 2026-10-25-review-ui-redesign
+ * §6; a walk-through's own thread, spec 2026-11-02 §3.2), for each one, not only when the thread changes, or a bar clicked since
+ * would stay the last opened. The workspace keeps it, since on a phone the outline is not there while a story shows; the outline
+ * reads it when it mounts. */
+export function useStoryThread(rid: number, r: Reading | null | undefined, sid: string | null, wid: string | null = null) {
+  const holding = !r ? null : sid ? r.threads.find((t) => t.stories.includes(sid))?.id ?? null
+    : wid ? r.design?.walks.find((w) => w.id === wid)?.thread ?? null : null;
+  useEffect(() => { if (holding) saveThread(rid, holding); }, [rid, sid, wid, holding]);
 }
 
 /** Stories (spec 2026-10-25-review-ui-redesign §6): the overview; a bar per thread, one open at a time with its stories
@@ -80,21 +83,24 @@ function StoriesView({ r, onPick }: { r: Reading; onPick: () => void }) {
   const open = (pick: (c: Cause) => boolean) => openCount((r.causes ?? []).filter(pick), ws.hidden, r.marks);
   const read = d.ticks ? new Set(d.ticks.stories) : null;
   const here = ws.addr.place.kind === "story" ? ws.addr.place.sid : null;
+  const hereWalk = ws.addr.place.kind === "walk" ? ws.addr.place.wid : null;
+  const spot = here ?? (hereWalk ? `walk:${hereWalk}` : null);                 // where the reader is: a bar clicked there is for there only
   const tests = (ss?.stories ?? []).filter((st) => st.kind === "tests");
   const [last, setLast] = useState(() => loadThread(d.id));
   const [chosen, setChosen] = useState<{ here: string | null; id: string | null } | null>(null);   // a bar clicked at `here`
-  useEffect(() => { setChosen(null); }, [here]);           // a bar clicked at one story does not outlive it: Back, or the overview, return to the rules
-  const holding = here ? r.threads.find((t) => t.stories.includes(here))?.id ?? null : null;
+  useEffect(() => { setChosen(null); }, [spot]);           // a bar clicked at one story does not outlive it: Back, or the overview, return to the rules
+  const holding = here ? r.threads.find((t) => t.stories.includes(here))?.id ?? null
+    : hereWalk ? r.design?.walks.find((w) => w.id === hereWalk)?.thread ?? null : null;
   useEffect(() => {                                        // going to a story opens its thread, and the outline keeps it (stored by
     if (holding) setLast(holding);                         // useStoryThread): for each story, or a bar clicked since stays the last opened
-  }, [here, holding]);
-  const on = chosen && chosen.here === here ? chosen.id : openThread(r.threads, here, last);
+  }, [spot, holding]);
+  const on = chosen && chosen.here === spot ? chosen.id : openThread(r.threads, here, holding ?? last);
   const at = r.threads.findIndex((t) => t.id === on);
   const space = pinnedSpace(at, r.threads.length);          // what the pinned bars take: the rows keep clear of it when focus scrolls them
   const pinned = { ["--pin-top" as string]: `${space.top}px`, ["--pin-bottom" as string]: `${space.bottom}px` };
   const toggle = (id: string) => {
     const next = on === id ? null : id;
-    setChosen({ here, id: next });
+    setChosen({ here: spot, id: next });
     setLast(next);
     saveThread(d.id, next);
   };
@@ -117,6 +123,28 @@ function StoriesView({ r, onPick }: { r: Reading; onPick: () => void }) {
           {reason && <span className="ws-row-sub">{reason}</span>}
         </Link>
         {here === st.id && <StoryFlows sid={st.id} onPick={onPick} />}
+      </li>
+    );
+  };
+  const checks = useMemo(() => new Map(r.checks.map((k) => [k.key, k])), [r.checks]);
+  /** A walk-through's row (spec 2026-11-02 §3.2): "▶ Walk through · title", its steps and the thread at the other end of its
+   * connection, and its open count. */
+  const walkRow = (w: Walk, other: string | null) => {
+    const n = walkOpen(w, checks, ws.hidden, r.marks), steps = `${w.steps.length} step${w.steps.length === 1 ? "" : "s"}`;
+    const also = other ? threadName(r.threads, other) : null;
+    return (
+      <li key={`walk:${w.id}`}>
+        <Link to={ws.link(ws.item({ kind: "walk", wid: w.id }))} className="ws-row walk" aria-current={hereWalk === w.id ? "page" : undefined}
+              title={`Walk through: ${bare(w.title)}`} onClick={onPick}
+              aria-label={`Walk through: ${short(w.title)}, ${steps}${also ? `, with ${also}` : ""}${n ? `, ${n} open` : ""}`}>
+          <span className="ws-row-top">
+            <span className="ws-num" aria-hidden>▶</span>
+            {read && <span className="ws-read" aria-hidden />}
+            <span className="ws-one">Walk through · <Ticks text={w.title} /></span>
+            {n > 0 && <span className="ck-count" aria-hidden>{n}</span>}
+          </span>
+          <span className="ws-row-sub">{steps}{also && ` · with ${also}`}</span>
+        </Link>
       </li>
     );
   };
@@ -143,7 +171,7 @@ function StoriesView({ r, onPick }: { r: Reading; onPick: () => void }) {
           {isOn && <ul className="ws-bar-list" style={pinned}>{t.stories.map((sid, k) => {
             const st = byId.get(sid);
             return st ? story(st, r.reasons[sid], k + 1) : null;
-          })}</ul>}
+          })}{walksForThread(r.design, t.id).map(({ walk, other }) => walkRow(walk, other))}</ul>}
         </Fragment>
       );
     })}

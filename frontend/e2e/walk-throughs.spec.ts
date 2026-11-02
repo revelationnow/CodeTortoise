@@ -170,3 +170,42 @@ test.describe("the overview", () => {
     await expectNamed(page);
   });
 });
+
+test.describe("the links to a walk-through", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("an open thread bar lists its walk-throughs after its stories, one on a connection under both threads", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const rail = page.locator("aside.ws-outline"), walks = rail.locator(".ws-bar-list .ws-row.walk");
+    await expect(walks).toHaveCount(3);
+    await expect(walks.first()).toHaveAttribute("aria-label", "Walk through: When len > 64, 9 steps, with Thread B, 2 open");
+    await expect(walks.first().locator(".ws-row-sub")).toHaveText("9 steps · with Thread B");
+    await expect(walks.first().locator(".ck-count")).toHaveText("2");
+    await rail.getByRole("button", { name: /^Thread B:/ }).click();
+    await expect(walks).toHaveCount(2);
+    await expect(walks.first()).toHaveAttribute("aria-label", "Walk through: When len > 64, 9 steps, with Thread A, 2 open");
+    await expect(walks.nth(1)).toHaveAttribute("aria-label", /^Walk through: From main through logger_init, \d+ steps$/);
+    await walks.first().click();
+    await expect(page).toHaveURL(new RegExp(`${base}/walk/W1$`));
+    await expect(rail.locator(".ws-bar.on > button")).toHaveAttribute("aria-label", /^Thread A:/);   // the walk-through's own thread
+    await expect(rail.locator(".ws-row.walk[aria-current='page']")).toHaveCount(1);
+  });
+
+  test("a story's head names the walk-throughs it is on, and a flow on one says its step", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/s/S1`);
+    const crumb = page.locator(".st-head .st-crumb");
+    await expect(crumb).toContainText("in When len > 64 (steps 1–5, 8)");
+    await expect(crumb.getByRole("link", { name: /^Walk through: / })).toHaveCount(2);
+    await expect(page.locator("#flow-1 .dz-mark")).toHaveText("▶ step 5");
+    await expect(page.locator("#flow-2 .dz-mark")).toHaveText("▶ step 8");
+    await page.locator("#flow-1 .fl-toggle").click();
+    await page.getByRole("link", { name: "Go to step 5 of the walk-through When len > 64" }).click();
+    await expect(page).toHaveURL(new RegExp(`${base}/walk/W1\\?step=5$`));
+    await expect(page.locator("#step-5 .fl-toggle")).toHaveAttribute("aria-expanded", "true");
+    await page.goBack();
+    await crumb.getByRole("link", { name: "Walk through: When len > 64, from step 1" }).click();
+    await expect(page).toHaveURL(new RegExp(`${base}/walk/W1\\?step=1$`));
+  });
+});

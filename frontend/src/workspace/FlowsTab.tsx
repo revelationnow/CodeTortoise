@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigationType } from "react-router-dom";
+import { Link, useLocation, useNavigationType } from "react-router-dom";
 import type { BoardFlow, StoryDetail } from "../board/types";
 import AiText from "../components/AiText";
 import { shown } from "../reading/causes";
@@ -7,6 +7,8 @@ import { FOLD_AT, fieldOf, type FlowGroup, flowGroups, groupCauses, groupLine, g
          rowSentence } from "../reading/flowGroups";
 import { flowPart } from "../reading/story";
 import type { StoryReading } from "../reading/types";
+import { flowSteps } from "../reading/walks";
+import { at } from "./address";
 import Chips from "./Chips";
 import { useWs } from "./context";
 import NameText, { Ticks } from "./NameText";
@@ -34,6 +36,7 @@ export default function FlowsTab({ detail, sr, flows }: { detail: StoryDetail; s
   const { byGroup, rest } = useMemo(() => groupCauses(groups, causes, sr.checks, label), [groups, causes, sr.checks, label]);
   const order = useMemo(() => groups.flatMap((g) => g.rows.map((r) => r.n)), [groups]);   // the rows as they read, group by group
   const parts = sr.account ?? [], effects = parts.find((p) => p.kind === "effects");
+  const design = d.reading?.design, sid = detail.story.id;
   const [open, setOpen] = useState<number | null>(lit);
   const [more, setMore] = useState<ReadonlySet<string>>(new Set());
   const { busy, error, fine, reopen } = useMarks();
@@ -81,6 +84,7 @@ export default function FlowsTab({ detail, sr, flows }: { detail: StoryDetail; s
             <ol className="fl-rows">{rows.map(({ flow, n }) => {
               const sentence = rowSentence(flow, label), mine = places.get(flow.id) ?? [], left = openKeys(mine, marks);
               const done = mine.length > 0 && !left.length, on = open === n, part = flowPart(parts, flow), field = fieldOf(flow);
+              const onWalk = flowSteps(design, sid, flow.id);
               return (
                 <li key={flow.id} id={`flow-${n}`} className={`fl-row${on ? " on" : ""}`} onFocus={() => setCur(n)}>
                   <div className="fl-head">
@@ -91,6 +95,8 @@ export default function FlowsTab({ detail, sr, flows }: { detail: StoryDetail; s
                             onClick={() => { setOpen(on ? null : n); setCur(n); }}>
                       <span className="fl-n">{n}</span><span className="fl-one"><Ticks text={sentence} /></span>
                     </button>
+                    {onWalk.length > 0 && <span className="dz-mark" title={`Step ${onWalk[0].n} of the walk-through ${bare(onWalk[0].walk.title)}`}>
+                      ▶ step {onWalk[0].n}</span>}
                   </div>
                   {on && (
                     <div className="fl-body" role="region" aria-label={`Flow ${n}: ${bare(sentence)}`}>
@@ -101,6 +107,11 @@ export default function FlowsTab({ detail, sr, flows }: { detail: StoryDetail; s
                         : <AiText ai={flow.what_source === "llm"}><NameText text={flow.what} /></AiText>}
                       <p className="fl-check"><NameText text={`Check ${flow.check}`} /></p>
                       {!mine.length && <Chips causes={causes.filter((c) => c.flows.includes(flow.id))} />}
+                      {onWalk.map(({ walk, n: step }) => (
+                        <p key={walk.id} className="dz-on"><Link to={ws.link(at({ kind: "walk", wid: walk.id }, { step }))}
+                            aria-label={`Go to step ${step} of the walk-through ${bare(walk.title)}`}>
+                          On the walk-through: step {step} of <Ticks text={walk.title} /> ›</Link></p>
+                      ))}
                       <div className="fl-acts">
                         {left.length > 0 && <button onClick={() => { fine(left); focusRow(n); }} disabled={busy}>Looks fine</button>}
                         {done && <button className="link" onClick={() => { reopen(mine.map((k) => k.key)); focusRow(n); }} disabled={busy}>Reopen</button>}
