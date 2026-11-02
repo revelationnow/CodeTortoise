@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Check, CheckKind, Mark, ReadingDesign, Walk, WalkStep } from "./types";
-import { connectionWalk, flowSteps, openSteps, stepKeys, stepList, stepRef, stepSentence, storyWalks, threadName, walkOpen,
-         walkScope, walksForThread, walkThreads } from "./walks";
+import { CH, COL, connectionWalk, FRAME, flowSteps, LEFT, openSteps, PAD, ROW, stepKeys, stepList, stepRef, stepSentence, storyWalks,
+         threadName, TOP, walkLayout, walkOpen, walkScope, walksForThread, walkThreads } from "./walks";
 
 const step = (o: Partial<WalkStep>): WalkStep => ({
   kind: "call", src: "N1", dst: "N2", label: "", status: "same", ref: "code", story: null, flow: null, flow_n: null, cause: null,
@@ -117,5 +117,45 @@ describe("a step's line and where it comes from (§3.3)", () => {
     expect(stepRef(step({ kind: "read", src: "F1", dst: "N4" }), label).text).toBe("`uart_errors`, unchanged");
     expect(stepRef(step({ src: "N3", dst: "N2", status: "changed" }), label).text).toBe("`uart_send`, changed");
     expect(stepRef(step({ kind: "fold", src: "N1", dst: "N3", folded: 2 }), label)).toEqual({ text: "unchanged", link: null });
+  });
+});
+
+describe("the drawing's layout (§4.4)", () => {
+  const loop = "for (i = 0; i < len; i++)";
+  const w = walk({ parts: ["N1", "N2", "N3"], steps: [
+    step({ src: "N1", dst: "N2", label: "logger_flush(&g_log)" }),
+    step({ kind: "self", src: "N3", dst: "N3", label: "len > 64", status: "new", loop }),
+    step({ kind: "write", src: "N3", dst: "F1", label: "*err += 1", status: "new", loop }),
+    step({ kind: "return", src: "N3", dst: "N2", label: "-2", status: "new" }),
+    step({ kind: "read", src: "F1", dst: "N4", label: "u->errors" }),
+    step({ kind: "fold", src: "N1", dst: "N3", folded: 3 }),
+    step({ src: "N2", dst: "N2", label: "flush_again()", status: "changed" })] });
+  const lay = walkLayout(w, label, (n) => (n === "N1" ? "app" : n === "N4" ? null : "driver"));
+
+  it("gives each function a column, left to right, and one a step names that the parts miss a column at the end", () => {
+    expect(lay.cols.map((c) => [c.label, c.component, c.x])).toEqual([
+      ["main", "app", 143], ["logger_flush", "driver", 333], ["uart_send", "driver", 523], ["uart_errors", "", 713]]);
+    expect(lay.width).toBe(LEFT + 4 * COL + COL / 2);
+    expect(lay.height).toBe(TOP + 7 * ROW + FRAME + PAD);                              // one frame's label takes a band of its own
+  });
+
+  it("draws calls solid, returns dashed and folds dotted, and a step inside one function as a loop on its column", () => {
+    expect(lay.rows.map((r) => [r.n, r.x1, r.x2, r.loop, r.line, r.status])).toEqual([
+      [1, 143, 333, false, "solid", "same"], [2, 523, 523, true, "solid", "new"], [3, 523, 523, true, "solid", "new"],
+      [4, 523, 333, false, "dashed", "new"], [5, 713, 713, true, "solid", "same"], [6, 143, 523, false, "dotted", "same"],
+      [7, 333, 333, true, "solid", "changed"]]);
+    expect(lay.rows.map((r) => r.y)).toEqual([74, 128, 164, 200, 236, 272, 308]);
+    expect(lay.rows.map((r) => r.text)).toEqual(["logger_flush(&g_log)", "len > 64", "*err += 1", "-2", "u->errors", "… 3 calls",
+                                                 "flush_again()"]);
+  });
+
+  it("frames the steps inside one loop of the code, and cuts what does not fit, keeping the whole for its title", () => {
+    expect(lay.frames.map((f) => [f.x1, f.x2, f.y1, f.y2, f.full])).toEqual([[438, 608, 90, 176, loop]]);
+    expect(lay.frames[0].text).toBe("loop · for (i = 0; i…");
+    const long = walkLayout(walk({ parts: ["N1", "N2"], steps: [step({ src: "N1", dst: "N2", label: "x".repeat(80) })] }), label, () => null);
+    expect(long.rows[0].text).toHaveLength(Math.floor((COL - 16) / CH));
+    expect(long.rows[0].text.endsWith("…")).toBe(true);
+    expect(long.rows[0].full).toBe("x".repeat(80));
+    expect(long.frames).toEqual([]);
   });
 });

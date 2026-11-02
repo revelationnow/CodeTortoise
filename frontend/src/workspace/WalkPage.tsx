@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import AiText, { AiName } from "../components/AiText";
 import { placeOpen } from "../reading/causes";
-import { type StepRef, stepKeys, stepRef, stepSentence, threadName, walkOpen, walkThreads } from "../reading/walks";
+import { openSteps, type StepRef, stepKeys, stepRef, stepSentence, threadName, walkOpen, walkThreads } from "../reading/walks";
 import { at } from "./address";
 import { useWs } from "./context";
 import { short } from "./crumbs";
@@ -10,6 +10,7 @@ import NameText, { Ticks } from "./NameText";
 import { bare } from "./names";
 import useMarks from "./useMarks";
 import useRowKeys from "./useRowKeys";
+import WalkDrawing from "./WalkDrawing";
 
 /** A walk-through (spec 2026-11-02-design-overview §3.2): a story's header (its title; a crumb of its threads, its steps,
  * the stories it is built from and its open count; the lead; how it was built), then its steps as rows that open in place,
@@ -72,6 +73,8 @@ export default function WalkPage({ wid }: { wid: string }) {
             Its checks are the stories' checks: marking a step fine marks that flow fine.</p>
         </div>
       </header>
+      {drawn && <WalkDrawing walk={w} label={label} component={(n) => nodes[n]?.component ?? null}
+                             open={openSteps(w, checks, ws.hidden, marks)} onPick={(n) => { show(n); focusRow(n); }} />}
       <div className="st-flows dz-steps" aria-busy={busy}>
         <div className="vh" aria-live="polite">{said}</div>
         {error && <div className="banner warn" role="alert">{error}</div>}

@@ -880,3 +880,37 @@ a.ws-chip { text-decoration: none; }
   .dz-step .fl-head { flex-wrap: wrap; }
   .dz-ref { max-width: none; flex-basis: 100%; padding: 0 0 6px 40px; }
 }
+
+/* the walk-through's drawing (spec 2026-11-02-design-overview §4.4): the board's colours, in both themes; it scrolls sideways
+   in its own box. Unchanged lines are --bd-muted, not --bd-arrow, which is about 2:1 on white (§18.7). */
+.dz-draw { margin: 14px 0 10px; }
+.dz-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--bd-surface); }
+.dz-scroll svg { display: block; font: 12px var(--bd-mono); }
+.dz-fn { font-weight: 700; fill: var(--bd-ink); }
+.dz-comp { font: 11px var(--bd-sans); fill: var(--bd-muted); }
+.dz-col line { stroke: var(--bd-line); stroke-dasharray: 3 4; }
+.dz-row { cursor: pointer; }
+.dz-hit { fill: transparent; }
+.dz-row:hover .dz-hit { fill: var(--bd-hover); }
+.dz-line { fill: none; stroke-width: 1.6; }
+.dz-row.dashed .dz-line { stroke-dasharray: 6 4; }
+.dz-row.dotted .dz-line { stroke-dasharray: 1.5 4; }
+.dz-row.new .dz-line { stroke: var(--add-ink); }
+.dz-row.new .dz-head { fill: var(--add-ink); }
+.dz-row.changed .dz-line { stroke: var(--chg-deep); }
+.dz-row.changed .dz-head { fill: var(--chg-deep); }
+.dz-row.same .dz-line { stroke: var(--bd-muted); }
+.dz-row.same .dz-head { fill: var(--bd-muted); }
+.dz-say { fill: var(--bd-ink); }
+.dz-num { fill: var(--bd-surface); stroke: var(--bd-muted); }
+.dz-num.open { fill: var(--fx-deep); stroke: var(--fx-deep); }
+.dz-numt { font: 600 11px var(--bd-sans); fill: var(--bd-ink); pointer-events: none; }
+.dz-num.open + .dz-numt { fill: #fff; }
+.dz-frame rect { fill: none; stroke: var(--bd-muted); stroke-dasharray: 4 3; }
+.dz-frame text { font: 600 11px var(--bd-sans); fill: var(--bd-muted); }
+.dz-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; font-size: 12px; color: var(--muted); }
+.dz-key::before { content: ""; display: inline-block; width: 18px; margin-right: 6px; vertical-align: middle; border-top: 2px solid; }
+.dz-key.new::before { border-color: var(--add-ink); }
+.dz-key.changed::before { border-color: var(--chg-deep); }
+.dz-key.same::before { border-color: var(--bd-muted); }
+.dz-key.open::before { width: 10px; height: 10px; border: 0; border-radius: 50%; background: var(--fx-deep); }

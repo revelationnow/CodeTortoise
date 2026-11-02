@@ -114,3 +114,58 @@ export function stepRef(st: WalkStep, label: Label): StepRef {
   if (st.kind === "fold") return { text: "unchanged", link: null };
   return { text: `${code(label(st.kind === "read" ? st.dst : st.src))}, ${st.status === "same" ? "unchanged" : st.status}`, link: null };
 }
+
+/** The drawing's measures in px (§4.4): a column's width, the room left of the first column for the step numbers, the
+ * header's height, a step's row, the margin under the last row, the band a loop's frame takes for its label, and a
+ * character's width at the drawing's 12px monospace. */
+export const COL = 190, LEFT = 48, TOP = 52, ROW = 36, PAD = 20, FRAME = 18, CH = 7.2;
+
+export interface DrawCol { node: string; x: number; label: string; full: string; component: string }
+/** A step's arrow from `x1` to `x2` at `y`, or a loop on `x1` (`x2` the same); `text` is its label cut to fit, `full` the whole. */
+export interface DrawRow {
+  n: number; y: number; x1: number; x2: number; loop: boolean; line: "solid" | "dashed" | "dotted"; status: WalkStep["status"];
+  text: string; full: string;
+}
+/** A frame around the steps inside one loop of the code, its label in a band above its first step. */
+export interface DrawFrame { x1: number; x2: number; y1: number; y2: number; text: string; full: string }
+export interface WalkLayout { width: number; height: number; cols: DrawCol[]; rows: DrawRow[]; frames: DrawFrame[] }
+
+const cut = (text: string, n: number) => (text.length <= n ? text : `${text.slice(0, Math.max(1, n - 1))}…`);
+
+/** A step's ends in the drawing: a write sits on its writer and a read on its reader, for a field is no column. */
+const ends = (st: WalkStep): [string, string] =>
+  st.kind === "write" ? [st.src, st.src] : st.kind === "read" ? [st.dst, st.dst] : [st.src, st.dst];
+
+/** The sequence drawing's layout (§4.4): a column per function, left to right as `parts` lists them (one a step names that
+ * `parts` misses goes last), labelled with its component; a row per step. A call is solid, a return dashed and a fold
+ * dotted, from one function's column to the other's; a step inside one function (a self step, a write, a read, a call to
+ * itself) is a loop on its column. The runs of steps inside one loop of the code are framed. */
+export function walkLayout(w: Pick<Walk, "parts" | "steps">, label: Label, component: (n: string) => string | null): WalkLayout {
+  const cols: string[] = [...w.parts];
+  for (const st of w.steps) for (const n of ends(st)) if (!cols.includes(n)) cols.push(n);
+  const x = (n: string) => LEFT + cols.indexOf(n) * COL + COL / 2;
+  const width = LEFT + cols.length * COL + COL / 2;                            // half a column more, for a loop's label on the last column
+  const rows: DrawRow[] = [], frames: DrawFrame[] = [];
+  let y = TOP, open: { first: number; top: number; loop: string } | null = null;
+  const close = (bottom: number) => {
+    if (!open) return;
+    const xs = rows.slice(open.first).flatMap((r) => [r.x1, r.x2]);
+    const x1 = Math.max(4, Math.min(...xs) - COL / 2 + 10), x2 = Math.min(width - 4, Math.max(...xs) + COL / 2 - 10);
+    frames.push({ x1, x2, y1: open.top + 2, y2: bottom - 2, text: cut(`loop · ${open.loop}`, Math.floor((x2 - x1 - 12) / CH)), full: open.loop });
+    open = null;
+  };
+  w.steps.forEach((st, i) => {
+    if (open && st.loop !== open.loop) close(y);
+    if (st.loop && !open) { open = { first: i, top: y, loop: st.loop }; y += FRAME; }
+    const [a, b] = ends(st), loop = a === b, x1 = x(a), x2 = x(b);
+    const said = st.kind === "fold" ? `… ${st.folded} call${st.folded === 1 ? "" : "s"}` : st.label;
+    const room = Math.floor(((loop ? COL - 24 : Math.abs(x2 - x1)) - 16) / CH);
+    rows.push({ n: i + 1, y: y + ROW / 2 + 4, x1, x2, loop, status: st.status, text: cut(said, room), full: said,
+                line: st.kind === "return" ? "dashed" : st.kind === "fold" ? "dotted" : "solid" });
+    y += ROW;
+  });
+  close(y);
+  return { width, height: y + PAD, rows, frames,
+           cols: cols.map((n) => ({ node: n, x: x(n), label: cut(label(n), Math.floor((COL - 12) / CH)), full: label(n),
+                                    component: component(n) ?? "" })) };
+}

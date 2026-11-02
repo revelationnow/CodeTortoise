@@ -1,5 +1,5 @@
-import { expect, type Page } from "@playwright/test";
-import { expectNamed, expectNoNodeIds, startReview, test } from "./helpers";
+import { devices, expect, type Page } from "@playwright/test";
+import { expectNamed, expectNoNodeIds, sideways, startReview, test } from "./helpers";
 
 /** The design overview's walk-throughs (spec 2026-11-02 §3, §4, §18). CLs 101–104 have four: W1 takes `len > 64` from `main`
  * through `logger_flush` into `uart_send`, returns -2 to `logger_flush` (S1's flow 1) and reaches the reader `uart_errors`
@@ -81,5 +81,42 @@ test.describe("a walk-through's page", () => {
     await expect(page.locator("#step-8 .fl-toggle")).toBeFocused();
     await page.keyboard.press("k");
     await expect(page.locator("#step-7 .fl-toggle")).toBeFocused();
+  });
+});
+
+test.describe("a walk-through's drawing", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("draws a column per function under its component and a row per step; clicking a step opens its row", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/walk/W1`);
+    const draw = page.locator(".dz-draw svg");
+    await expect(draw).toHaveAttribute("role", "img");
+    await expect(draw.locator(".dz-fn")).toHaveText(["main", "logger_flush", "uart_send", "uart_errors"]);
+    await expect(draw.locator(".dz-comp")).toHaveText(["app", "service", "driver", "driver"]);
+    await expect(draw.locator(".dz-row")).toHaveCount(9);
+    await expect(draw.locator(".dz-row.new")).toHaveCount(3);                         // len > 64, *err += 1, return -2
+    await expect(draw.locator(".dz-row.dashed")).toHaveCount(3);                      // the returns
+    await expect(draw.locator(".dz-num.open")).toHaveCount(2);                        // steps 5 and 8
+    await expect(page.locator(".dz-legend .dz-key")).toHaveText(["new in the change", "changed", "unchanged", "a step with an open check"]);
+    await draw.locator(".dz-row").nth(7).click();
+    await expect(page.locator("#step-8 .fl-toggle")).toHaveAttribute("aria-expanded", "true");
+    await expect(page.locator("#step-8 .fl-toggle")).toBeFocused();
+    expect(await sideways(page)).toBeLessThanOrEqual(0);
+  });
+});
+
+test.describe("a walk-through on a phone", () => {
+  test.use({ viewport: devices["iPhone 13"].viewport, userAgent: devices["iPhone 13"].userAgent,
+             deviceScaleFactor: devices["iPhone 13"].deviceScaleFactor, isMobile: true, hasTouch: true });
+
+  test("is its steps, with no drawing, and nothing scrolls sideways", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/walk/W1`);
+    await expect(page.locator(".ws-phonebar")).toHaveText(/^‹ Thread A with Thread B\s*·\s*Walk through: When len > 64$/);
+    await expect(steps(page)).toHaveCount(9);
+    await expect(page.locator(".dz-draw")).toHaveCount(0);
+    await expect(page.locator(".dz-note")).toHaveText(/^Built from the stories' call paths and flows\. Its checks/);
+    expect(await sideways(page)).toBeLessThanOrEqual(0);
   });
 });
