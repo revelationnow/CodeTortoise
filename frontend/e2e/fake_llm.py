@@ -109,7 +109,47 @@ def hypotheses(user: str) -> list[dict]:
     return [{"text": "Another reader of Uart::errors may see the count change between two reads.", "cites": [node.group(1)]}]
 
 
+TITLES = ["A write longer than 64 bytes", "A write that fits", "Setting up the UART"]
+LEADS = ["It follows a long write from `main` into `uart_send` and back.", "It follows a short write down to `hal_write`.",
+         "It follows `uart_init` into the new `hal_write`."]
+
+
+def design(user: str) -> dict:
+    """The design overview's parts (spec 2026-11-02 §10): the verdict names the hazard, three concerns, three ownership
+    lines, a title and a lead for each walk-through and the condition's false case; every part passes its checks."""
+    causes = re.findall(r"^(c[0-9a-f]{10}) \| (\w+) \|", user, re.M)
+    hazard = next((c for c, kind in causes if kind == "hazard"), causes[0][0] if causes else None)
+    listed = re.findall(r"\b(S\d+) ", " ".join(re.findall(r"^  stories: (.*)$", user, re.M)))
+    s1 = "S1" if "S1" in listed else listed[0] if listed else "S1"
+    s2 = "S2" if "S2" in listed else s1
+    path = "driver/uart.c" if "driver/uart.c" in user else s1
+    walks, gates = re.findall(r"^(W\d+) \| ", user, re.M), re.findall(r"^(G\d+) \| ", user, re.M)
+    return {"verdict": "The change holds together, but one new result goes unchecked. Settle whether `logger_flush` "
+                       "must handle the new -2.",
+            "verdict_causes": [hazard] if hazard else [],
+            "concerns": [
+                {"text": "Senders learn when a write is too long",
+                 "how": "`uart_send` now returns -2 for a write longer than 64 bytes.", "stories": [s1],
+                 "assessment": "confirm", "note": "`logger_flush` drops the -2.", "causes": [hazard] if hazard else []},
+                {"text": "Register numbers are never negative", "how": "`hal_write` now takes an unsigned register.",
+                 "stories": [s2], "assessment": "right", "note": "", "causes": []},
+                {"text": "The error count stays readable", "how": "`uart_errors` reads the count that `uart_send` now writes.",
+                 "stories": [s1, s2], "assessment": "note", "note": "", "causes": []}],
+            "ownership": [
+                {"tag": "right", "text": "The driver owns the length check.", "cites": [path]},
+                {"tag": "questionable", "text": "The logger decides what a failed send means, and it drops the result.",
+                 "cites": [s1]},
+                {"tag": "shortfall", "text": "Nothing tells the caller of `logger_write` that a write was dropped.",
+                 "cites": [s1]}],
+            "walks": [{"id": w, "title": TITLES[i] if i < len(TITLES) else f"Path {i + 1} through the change",
+                       "lead": LEADS[i] if i < len(LEADS) else "It follows the call to where the change lands."}
+                      for i, w in enumerate(walks)],
+            "conditions": [{"id": g, "false_case": "Writes that fit (64 bytes or less)"} for g in gates]}
+
+
 def answer(system: str, user: str) -> dict:
+    if "CHECKS BY CAUSE (id" in user:
+        return design(user)
     if "THREAD DETAILS (id" in user:
         return intro(user)
     if "THREADS (id" in user:

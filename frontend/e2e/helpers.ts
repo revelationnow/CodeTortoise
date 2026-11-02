@@ -119,7 +119,7 @@ export async function expectNamed(page: Page) {
 }
 
 /** Opens one of the overview's folded rows (spec 2026-10-25-review-ui-redesign §5.3) if it is shut; returns its region. */
-export async function openFold(page: Page, name: "When the condition is false" | "Build impact" | "Coverage" | "Discussion"): Promise<Locator> {
+export async function openFold(page: Page, name: "Is the design right?" | "When the condition is false" | "Build impact" | "Coverage" | "Discussion"): Promise<Locator> {
   const region = page.getByRole("region", { name, exact: true }), fold = region.locator("details.ov-fold");
   await expect(fold).toBeVisible();
   if ((await fold.getAttribute("open")) === null) await region.locator("summary").click();

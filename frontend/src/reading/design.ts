@@ -84,6 +84,10 @@ export function concernWhere(stories: string[], threads: Pick<Thread, "id" | "st
   return { letters, stories };
 }
 
+/** The concerns a story answers (§3.2), numbered from 1 as the overview's table numbers them: its crumb cites them. */
+export const storyConcerns = (d: Pick<ReadingDesign, "concerns"> | null | undefined, sid: string): number[] =>
+  (d?.concerns ?? []).flatMap((c, i) => (c.stories.includes(sid) ? [i + 1] : []));
+
 /** Whether the model wrote a part — `verdict`, `concerns`, `ownership`, `walk:W1`, `gate:G1` — as the design's sources
  * say (§9); a pinned part is the model's words kept (phase 4). */
 export const byModel = (d: Pick<ReadingDesign, "sources"> | null | undefined, part: string): boolean =>

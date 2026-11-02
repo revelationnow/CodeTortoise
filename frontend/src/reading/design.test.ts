@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { alsoLine, blockLine, byModel, citeName, componentBands, concernWhere, conditionTitle, foldGate, gateGroups,
-  OWNER_TAG, ownershipTitle, showsWhere, verdictCauses } from "./design";
+  OWNER_TAG, ownershipTitle, showsWhere, storyConcerns, verdictCauses } from "./design";
 import type { Cause, Component, Gate, GatedLine } from "./types";
 
 const comp = (o: Partial<Component>): Component => ({
@@ -80,6 +80,13 @@ describe("the model's parts (spec 2026-11-02 §3.1, §6)", () => {
     const threads = [{ id: "T1", stories: ["S2", "S1"] }, { id: "T2", stories: ["S3"] }];
     expect(concernWhere(["S1", "S3", "S2"], threads)).toEqual({ letters: ["A", "B"], stories: ["S1", "S3", "S2"] });
     expect(concernWhere(["S9"], threads)).toEqual({ letters: [], stories: ["S9"] });
+  });
+
+  it("numbers the concerns a story answers, as its crumb cites them", () => {
+    const c = (stories: string[]) => ({ text: "t", how: "h", stories, assessment: "right" as const, note: "", causes: [] });
+    const d = { concerns: [c(["S1"]), c(["S2"]), c(["S2", "S1"])] };
+    expect([storyConcerns(d, "S1"), storyConcerns(d, "S2"), storyConcerns(d, "S3"), storyConcerns(null, "S1")])
+      .toEqual([[1, 3], [2, 3], [], []]);
   });
 
   it("says which parts the model wrote, and names a cited node", () => {

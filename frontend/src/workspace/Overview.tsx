@@ -1,17 +1,19 @@
-import { type ReactNode, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Fragment, type ReactNode, useEffect, useState } from "react";
+import { Link, useLocation, useNavigate, useNavigationType } from "react-router-dom";
 import type { Story } from "../board/types";
 import AiText, { AiName } from "../components/AiText";
 import SinkMark from "../components/SinkMark";
 import { aiTitle } from "../lib/aiMarks";
 import { setShowSinks, showSinks, sinkLine } from "../lib/sinks";
-import { openCount } from "../reading/causes";
+import { openCount, shown } from "../reading/causes";
 import { letter } from "../reading/checks";
-import { alsoLine, blockLine, componentBands, conditionTitle, foldGate, gateGroups, showsWhere } from "../reading/design";
+import { alsoLine, blockLine, byModel, citeName, componentBands, concernWhere, conditionTitle, foldGate, gateGroups,
+  OWNER_TAG, ownershipTitle, showsWhere, verdictCauses } from "../reading/design";
 import { cardText, foldTitles, overviewHeading, sectionConnections, startButton, testsLine, threadAction, threadCounts,
   type SectionLink } from "../reading/overview";
 import type { Gate, GatedLine, Reading, ReadingDesign, SinkHit, Thread } from "../reading/types";
 import { connectionWalk } from "../reading/walks";
+import Chips from "./Chips";
 import { useWs, type Ws } from "./context";
 import { short } from "./crumbs";
 import { bare, plainNames } from "./names";
@@ -89,7 +91,7 @@ function ThreadSection({ t, i, r, links, read, stories, design }: {
       {walks.length > 0 && <ul className="dz-walks">{walks.map((w) => (
         <li key={w.id}><Link to={ws.link(ws.item({ kind: "walk", wid: w.id }))} title={`Walk through: ${plain(w.title)}`}
                              aria-label={`Walk through: ${plain(w.title)}`}>
-          <span aria-hidden>▶ </span>Walk through: <Ticks text={w.title} /> ›</Link></li>
+          <span aria-hidden>▶ </span>Walk through: <AiName ai={w.title_source === "llm"}><Ticks text={w.title} /></AiName> ›</Link></li>
       ))}</ul>}
       {links.length > 0 && <ul className="ov-links">{links.map((k) => {
         const cw = connectionWalk(design, k.a, k.b);
@@ -122,6 +124,79 @@ function SinksLine({ hits }: { hits: SinkHit[] }) {
       <Ticks text={sinkLine(hits, shown)} /> · <button className="link" onClick={flip} aria-pressed={shown}>{shown ? "Hide" : "Show"}</button>
       {hits.filter((h) => h.why === "marked").map((h) => <span key={h.label}> · <SinkMark label={h.label} on /></span>)}
     </li>
+  );
+}
+
+/** The verdict (spec 2026-11-02 §3.1): two or three sentences ending in what to settle, the checks it names as chips (a
+ * chip opens its check, as chips do elsewhere), and where it comes from: the stories alone until a design context
+ * comes (phase 3). */
+function Verdict({ d, r }: { d: ReadingDesign; r: Reading }) {
+  const ws = useWs();
+  return (
+    <div className="dz-verdict">
+      <AiText><Ticks text={d.verdict} /></AiText>
+      <Chips causes={shown(verdictCauses(d, r.causes), ws.hidden)} />
+      <p className="dz-src">AI, from the stories</p>
+    </div>
+  );
+}
+
+/** What it must get right (§6.1): a row per thing the design must get right, numbered as a story's crumb cites it (§3.2),
+ * how the change does it, where (its stories' thread letters and the stories), and the assessment with its note and the
+ * checks it rests on. Nothing here is a new check: a chip is one the review already has. */
+function Concerns({ d, r }: { d: ReadingDesign; r: Reading }) {
+  const ws = useWs(), by = new Map((r.causes ?? []).map((c) => [c.id, c]));
+  const titles = new Map((ws.data.stories?.stories ?? []).map((st) => [st.id, st.title]));
+  return (
+    <section className="dz-concerns" aria-labelledby="dz-concerns">
+      <h2 id="dz-concerns">What it must get right</h2>
+      <p className="dz-src">AI, from the stories</p>
+      <AiText as="div" className="dz-table">
+        <table>
+          <thead><tr><th>Concern</th><th>How the change does it</th><th>Where</th><th>Assessment</th></tr></thead>
+          <tbody>{d.concerns.map((c, i) => {
+            const where = concernWhere(c.stories, r.threads);
+            return (
+              <tr key={i} id={`concern-${i + 1}`}>
+                <td className="dz-c-text"><span className="dz-c-n">{i + 1}</span> <Ticks text={c.text} /></td>
+                <td><Ticks text={c.how} /></td>
+                <td className="dz-c-where">
+                  {where.letters.map((L) => <span key={L} className="ov-letter" title={`Thread ${L}`}>{L}</span>)}
+                  {where.stories.map((s) => (
+                    <Link key={s} className="ws-handle link" to={storyTo(ws, s)} title={bare(titles.get(s) ?? s)}
+                          aria-label={`Go to story ${s}: ${short(titles.get(s) ?? s)}`}>{s}</Link>
+                  ))}
+                </td>
+                <td>
+                  <span className={`ck-tag ${c.assessment}`}>{c.assessment}</span>
+                  {c.note && <span className="dz-c-note"> <Ticks text={c.note} /></span>}
+                  <Chips causes={shown(c.causes.flatMap((id) => by.get(id) ?? []), ws.hidden)} />
+                </td>
+              </tr>
+            );
+          })}</tbody>
+        </table>
+      </AiText>
+    </section>
+  );
+}
+
+/** Is the design right? (§6.2): a line on which part owns each decision the change makes, or what it leaves undone, each
+ * tagged and citing the story, the code or the file it rests on. Opinions, not checks: nothing here is counted. */
+function OwnershipLines({ d }: { d: ReadingDesign }) {
+  const ws = useWs(), titles = new Map((ws.data.stories?.stories ?? []).map((st) => [st.id, st.title]));
+  return (
+    <ul className="ov-lines dz-owner">{d.ownership.map((o, i) => (
+      <AiText as="li" key={i}>
+        <span className={`ck-tag ${OWNER_TAG[o.tag]}`}>{o.tag}</span> <Ticks text={o.text} />
+        <span className="dz-cites">{o.cites.map((c, k) => (
+          <Fragment key={c}>{k > 0 && ", "}{titles.has(c)
+            ? <Link className="ws-handle link" to={storyTo(ws, c)} title={bare(titles.get(c)!)}
+                    aria-label={`Go to story ${c}: ${short(titles.get(c)!)}`}>{c}</Link>
+            : <code>{citeName(d, c)}</code>}</Fragment>
+        ))}</span>
+      </AiText>
+    ))}</ul>
   );
 }
 
@@ -179,11 +254,11 @@ function ConditionLines({ g }: { g: Gate }) {
 
 /** A folded row after the threads (§5.3): its summary a heading that says what is inside. It starts open when `open`;
  * after that the reader's clicks are its own. */
-function Fold({ name, title, open, children }: { name: string; title: string; open?: boolean; children: ReactNode }) {
+function Fold({ name, title, open, ai = false, children }: { name: string; title: string; open?: boolean; ai?: boolean; children: ReactNode }) {
   return (
     <section aria-label={name}>
       <details className="ov-fold" open={open}>
-        <summary><h2><Ticks text={title} /></h2></summary>
+        <summary><h2><AiName ai={ai}><Ticks text={title} /></AiName></h2></summary>
         {children}
       </details>
     </section>
@@ -191,9 +266,11 @@ function Fold({ name, title, open, children }: { name: string; title: string; op
 }
 
 /** The overview (§5): how many threads and the change as a whole (no paragraph when the rules have nothing to add to the
- * heading), where to start, where the change sits (spec 2026-11-02 §5), a section per thread with its counts under one row
- * of column labels and its walk-throughs, the tests, then what still runs when the change's condition is false (§7), Build
- * impact, Coverage and Discussion folded. */
+ * heading), the verdict (spec 2026-11-02 §3.1), where to start, where the change sits (§5), what it must get right (§6.1),
+ * a section per thread with its counts under one row of column labels and its walk-throughs, the tests, then whether the
+ * design is right (§6.2), what still runs when the change's condition is false (§7), Build impact, Coverage and Discussion
+ * folded. A story crumb's concern number (§3.2) arrives with the concern in its navigation state, and the page brings that
+ * row into view; Back and Forward land on an entry that still carries it and are no click. */
 export default function Overview({ r }: { r: Reading }) {
   const ws = useWs(), loc = useLocation(), read = new Set(ws.data.ticks?.stories ?? []);
   const [coverageOpen] = useState(() => (loc.state as { coverage?: boolean } | null)?.coverage === true);   // read once: it only sets how Coverage starts
@@ -201,15 +278,21 @@ export default function Overview({ r }: { r: Reading }) {
   const start = startButton(r, read), folds = foldTitles(r, ws.data.comments), links = sectionConnections(r.threads, r.connections);
   const tests = r.tests?.stories[0], testsStory = tests ? stories.get(tests) : undefined;
   const design = r.design ?? null, gate = foldGate(design);
+  const nav = useNavigationType(), concern = (loc.state as { concern?: number } | null)?.concern;
+  useEffect(() => {
+    if (concern && nav !== "POP") document.getElementById(`concern-${concern}`)?.scrollIntoView({ block: "center" });
+  }, [loc.key]);                                                               // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="ws-page"><div className="ws-text ws-whole ov3">
       <section aria-labelledby="ov-whole" className="ov-top">
         <h2 id="ov-whole">{overviewHeading(r.threads.length)}</h2>
         {r.whole && <AiText className="ws-lead" ai={r.whole_source === "llm"}><Ticks text={r.whole} /></AiText>}
+        {design?.verdict && <Verdict d={design} r={r} />}
         {start ? <Link className="ov-start" to={storyTo(ws, start.sid)}>{start.label}</Link>
           : r.order.length > 0 && <p className="muted">You've read every story.</p>}
       </section>
       {design && showsWhere(design) && <WhereItSits d={design} r={r} />}
+      {design && design.concerns.length > 0 && <Concerns d={design} r={r} />}
       {r.threads.length > 0 && <>
         <div className="ov-cols" aria-hidden><span /><span>Stories</span><span>Open</span><span>Read</span><span /></div>
         {r.threads.map((t, i) => <ThreadSection key={t.id} t={t} i={i} r={r} links={links.get(t.id) ?? []} read={read}
@@ -221,7 +304,11 @@ export default function Overview({ r }: { r: Reading }) {
             : testsLine(r.tests, r.threads)}</p>
         )}
       </>}
-      {gate && <Fold name="When the condition is false" title={conditionTitle(gate)}><ConditionLines g={gate} /></Fold>}
+      {design && design.ownership.length > 0 && (
+        <Fold name="Is the design right?" title={ownershipTitle(design.ownership)}><OwnershipLines d={design} /></Fold>
+      )}
+      {gate && <Fold name="When the condition is false" title={conditionTitle(gate)} ai={byModel(design, `gate:${gate.id}`)}>
+        <ConditionLines g={gate} /></Fold>}
       {folds.build && <Fold name="Build impact" title={folds.build}>
         <ul className="ov-lines">{r.build_impact.map((b) => (
           <li key={b.header}><Ticks text={b.text} />{b.note && <span className="muted"> {b.note}</span>}</li>

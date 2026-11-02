@@ -8,6 +8,7 @@ import AiText, { AiName } from "../components/AiText";
 import { useAi } from "../lib/ai";
 import { storyModel } from "../lib/aiMarks";
 import { isOpen } from "../reading/checks";
+import { storyConcerns } from "../reading/design";
 import { nextUnread } from "../reading/plan";
 import { clCounts, stepIn, storyNeighbours, threadCrumb } from "../reading/story";
 import { stepList, storyWalks } from "../reading/walks";
@@ -130,7 +131,7 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
     </header>
   );
   const nb = r ? storyNeighbours(r, sid) : { after: null, feeds: null };
-  const onWalks = r ? storyWalks(r.design, sid) : [];
+  const onWalks = r ? storyWalks(r.design, sid) : [], onConcerns = r ? storyConcerns(r.design, sid) : [];
   const titleOf = (id: string) => ss.stories.find((s) => s.id === id)?.title ?? id;
   const storyLink = (id: string) => (
     <Link className="st-nb" to={ws.link(ws.item({ kind: "story", sid: id, view: "steps" }))} title={bare(titleOf(id))}
@@ -156,6 +157,10 @@ export default function StoryPage({ sid, view }: { sid: string; view: "steps" | 
             {" "}({steps.length === 1 ? "step" : "steps"} {stepList(steps)})</Fragment>
         ))}
         {onWalks.length > 2 && <> · and {onWalks.length - 2} more walk-through{onWalks.length === 3 ? "" : "s"}</>}
+        {onConcerns.length > 0 && <> · <span>answers concern{onConcerns.length === 1 ? "" : "s"} {onConcerns.map((n, k) => (
+          <Fragment key={n}>{k > 0 && ", "}<Link to={ws.link(addressAt({ kind: "whole" }))} state={{ page: true, concern: n }}
+                                               title={`Go to concern ${n} on the overview`} aria-label={`Go to concern ${n} on the overview`}>{n}</Link></Fragment>
+        ))}</span></>}
       </p>
       <div className="st-tools">
         <span className="ws-pos">{step(-1)}{step(1)}</span>
