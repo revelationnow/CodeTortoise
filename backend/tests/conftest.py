@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -49,12 +50,10 @@ def fx_source(fx):
     return GitFixtureSource(fx.root)
 
 
-@pytest.fixture(scope="session")
-def analysed(fx, fx_source, tmp_path_factory):
-    """CLs 101+102 run through diffmap, TU selection, clang facts and the impact model."""
-    tmp = tmp_path_factory.mktemp("impact")
+def _analyse(fx, fx_source, tmp, cls):
+    """The given CLs run through diffmap, TU selection, clang facts and the impact model."""
     cfg = AnalysisConfig(module_min_files=1)
-    cs = fx_source.load([101, 102])
+    cs = fx_source.load(cls)
     dm = map_changes(cs)
     idx = SymbolIndex(tmp / "s.db")
     idx.build(fx.root)
@@ -67,3 +66,38 @@ def analysed(fx, fx_source, tmp_path_factory):
     after = run_extraction(build_requests(sel, cs, tc, "after"), None, 1)
     im = build_impact(before, after, cs, sel, idx, layers, cfg)
     return SimpleNamespace(cfg=cfg, cs=cs, dm=dm, sel=sel, layers=layers, before=before, after=after, impact=im)
+
+
+@pytest.fixture(scope="session")
+def analysed(fx, fx_source, tmp_path_factory):
+    """CLs 101+102 run through diffmap, TU selection, clang facts and the impact model."""
+    return _analyse(fx, fx_source, tmp_path_factory.mktemp("impact"), [101, 102])
+
+
+def _disk(path: str) -> str | None:
+    try:
+        return Path(path).read_text(errors="replace")
+    except OSError:
+        return None
+
+
+@pytest.fixture(scope="session")
+def demo(fx, fx_source, tmp_path_factory):
+    """CLs 101–105, the design overview's demo (spec 2026-11-02): the reading and what the design stage builds on."""
+    from codetortoise.board import BoardContext, analyse
+    from codetortoise.detectors.base import DetectorContext, run_detectors
+    from codetortoise.gates import Sources
+    from codetortoise.paths import canon
+    from codetortoise.reading import build_reading
+    from codetortoise.sequence import file_lines
+    from codetortoise.stories import build_stories
+    a = _analyse(fx, fx_source, tmp_path_factory.mktemp("demo"), [101, 102, 103, 104, 105])
+    findings = run_detectors(DetectorContext(a.before, a.after, a.dm, a.impact, a.cfg))
+    c = BoardContext(a.cs, a.dm, a.before, a.after, a.impact, findings, a.layers, a.cfg, fx_source.depots_for,
+                     root=canon(str(fx.root)))
+    an = analyse(c)
+    ss, det = build_stories(c, analysis=an)
+    lines = file_lines(a.cs)
+    r, per = build_reading(ss, c, details=det, analysis=an, read_text=_disk, lines=lines)
+    return SimpleNamespace(c=c, a=an, x=an.x, ss=ss, det=det, r=r, per=per, lines=lines, read_text=_disk,
+                           src=Sources(an.x, _disk))
