@@ -28,6 +28,8 @@ from codetortoise.grouping import StoryPlan, rules_plan
 from codetortoise.impact import ImpactModel, build_impact
 from codetortoise.llm.account import write_accounts
 from codetortoise.llm.brief_context import brief_context
+from codetortoise.llm.design import DESIGN_VERSION, apply_design_text, design_text, write_design
+from codetortoise.llm.design import prompt as design_prompt
 from codetortoise.llm.intro import INTRO_VERSION, write_intro
 from codetortoise.llm.intro import prompt as intro_prompt
 from codetortoise.llm.review import apply_verdicts, review_stories
@@ -601,8 +603,26 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
         §9)."""
         store.replace_blobs(rid, ["reading_design"], [], {})
 
+    def design_text_of(d, r, ss, strong):
+        """The strong model's parts of design `d` (spec 2026-11-02 §10), written on a copy: the text kept for this
+        prompt, or a new answer. Returns what the stage says, its notes and the design."""
+        d = d.model_copy(deep=True)
+        key = hashlib.sha256(f"{DESIGN_VERSION}|{strong.model}|{design_prompt(d, r, ss)}".encode()).hexdigest()
+        kept = store.get_blob(rid, "design_text")
+        if kept and kept.get("key") == key and not fresh:
+            apply_design_text(d, kept)
+            return f"; design text by {strong.model}", [], d
+        notes, by = write_design(svc.strong, svc.ledger, rid, d, r, ss, weak=svc.llm)
+        if not notes:
+            store.put_blob(rid, "design_text", {"key": key, **design_text(d)})
+        told = (f"; design text by {by}" if by == strong.model else
+                f"; design text by {by} (the strong model failed)" if by else "; fixed design text")
+        return told, notes, d
+
     def design():
-        """The design overview (spec 2026-11-02 §4, §5, §7): components, walk-throughs and conditions, by rules (R16)."""
+        """The design overview (spec 2026-11-02 §4–§7, §10): components, walk-throughs and conditions by rules (R16), then
+        the strong model's verdict, concerns, ownership, titles and false cases. Any failure of the model's part leaves
+        the rules' design exactly (§15)."""
         if not cfg.analysis.design:
             drop_design()
             return "off (analysis.design: false)"
@@ -616,8 +636,18 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
         except Exception:
             drop_design()
             raise
+        told, notes = "", []
+        strong = cfg.llm.strong
+        if svc.strong is not None and strong is not None and r.threads:
+            try:
+                told, notes, d = design_text_of(d, r, bs.stories, strong)
+            except Exception as e:  # the rules' design stands
+                notes = [f"design text: {type(e).__name__}: {e}"[:200]]
         store.replace_blobs(rid, ["reading_design"], [], {"reading_design": d})
-        return f"{len(d.components)} component(s), {len(d.walks)} walk-through(s), {len(d.gates)} condition(s)"
+        msg = f"{len(d.components)} component(s), {len(d.walks)} walk-through(s), {len(d.gates)} condition(s)" + told
+        if notes:
+            raise Degraded(msg + "; " + "; ".join(notes))
+        return msg
 
     def finalize():
         sb = ctx.get("storyboard")

@@ -429,7 +429,9 @@ def _one_story_per_cl(system, user):
     the first node its prompt shows."""
     import re
 
-    from scripted_llm import intro_answer
+    from scripted_llm import design_answer, intro_answer
+    if "CHECKS BY CAUSE (id" in user:
+        return design_answer(user)
     if "THREAD DETAILS (id" in user:
         return intro_answer(user)
     if "QUESTION:" in user:
@@ -949,3 +951,54 @@ def test_the_design_stage_can_be_turned_off_and_a_failed_one_leaves_the_reading_
     st = {s["name"]: s for s in svc.store.list_stages(rid)}
     assert (st["design"]["status"], st["design"]["message"]) == ("ok", "off (analysis.design: false)")
     assert svc.store.get_blob(rid, "reading_design") is None and svc.store.get_review(rid)["status"] == "degraded"
+
+
+def test_the_strong_model_writes_the_design_text_once_and_a_rerun_reuses_it(fx, tmp_path):
+    svc = make_services(fx, tmp_path)
+    llm = _strong(svc, _one_story_per_cl)
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    st = {s["name"]: s for s in svc.store.list_stages(rid)}
+    assert st["design"]["status"] == "ok" and st["design"]["message"].endswith("; design text by big")
+    d = svc.store.get_blob(rid, "reading_design")
+    assert d["verdict"] == "The change holds together. Settle whether its callers handle the new results."
+    assert d["sources"]["verdict"] == "llm" and [c["text"] for c in d["concerns"]] == ["Callers handle the new results"]
+    assert d["walks"] and all(w["title_source"] == "llm" and w["title"].startswith("Case ") for w in d["walks"])
+    asked = sum("CHECKS BY CAUSE (id" in p for p in llm.prompts)
+    run_review(rid, svc)                                            # unchanged: the kept text, no call
+    assert sum("CHECKS BY CAUSE (id" in p for p in llm.prompts) == asked == 1
+    again = svc.store.get_blob(rid, "reading_design")
+    assert (again["verdict"], again["walks"], again["sources"]) == (d["verdict"], d["walks"], d["sources"])
+    run_review(rid, svc, fresh=True)                                # the owner asked for fresh text
+    assert sum("CHECKS BY CAUSE (id" in p for p in llm.prompts) == 2
+
+
+def test_a_design_call_that_fails_leaves_the_rules_design_and_says_so(fx, tmp_path):
+    svc = make_services(fx, tmp_path)
+    _strong(svc, lambda s, u: RuntimeError("down") if "CHECKS BY CAUSE (id" in u else _one_story_per_cl(s, u))
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    st = {s["name"]: s for s in svc.store.list_stages(rid)}
+    assert st["design"]["status"] == "degraded"
+    assert st["design"]["message"].endswith("; fixed design text; design: big: RuntimeError: down; fresh try: "
+                                            "RuntimeError: down; the fixed text stays")
+    d = svc.store.get_blob(rid, "reading_design")
+    assert (d["verdict"], d["concerns"], d["ownership"], d["sources"]) == ("", [], [], {})
+    assert d["walks"] and all(w["title_source"] == "template" and not w["lead"] for w in d["walks"])
+    assert svc.store.get_blob(rid, "design_text") is None
+
+
+def test_design_text_code_that_breaks_keeps_the_rules_design(fx, tmp_path, monkeypatch):
+    from codetortoise import pipeline
+    svc = make_services(fx, tmp_path)
+    _strong(svc, _one_story_per_cl)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("broken")
+    monkeypatch.setattr(pipeline, "write_design", boom)
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    st = {s["name"]: s for s in svc.store.list_stages(rid)}
+    assert st["design"]["status"] == "degraded" and st["design"]["message"].endswith("; design text: RuntimeError: broken")
+    d = svc.store.get_blob(rid, "reading_design")
+    assert d["walks"] and d["sources"] == {} and all(w["title_source"] == "template" for w in d["walks"])
