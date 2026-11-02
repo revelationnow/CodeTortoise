@@ -220,6 +220,12 @@ analysis:
   entrypoint_patterns: ["main", "*_isr", "*_irq_handler", "*Callback", "*_callback"]
   sink_threshold: 20                # a field more than this many unchanged functions touch is a shared sink; 0 = off
   sink_fields: ["log_t::*", "*::trace_buf"]   # record::field patterns (case-sensitive), always shared sinks
+  components:                       # the overview's "Where the change sits" blocks; first match names a file's
+    - { name: Driver, globs: ["driver/**"] }   #   (fnmatch on workspace-relative paths; empty: layers.py's modules)
+    - { name: HAL, globs: ["hal/**", "include/hal/**"] }
+  walk_depth: 2                     # unchanged calls a walk-through shows either side of a changed function
+  max_walks: 6                      # walk-throughs per review
+  design: true                      # false: no design overview (no walk-throughs, no condition fold)
 ```
 
 A **shared sink** is a field like a log buffer, a trace ring or a statistics counter that so many functions touch that a

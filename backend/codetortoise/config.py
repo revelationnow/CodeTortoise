@@ -63,6 +63,13 @@ class TargetRule(BaseModel):
     name: str                        # the target's name on stories (spec 2026-10-05-two-tier-stories §3.1)
 
 
+class ComponentRule(BaseModel):
+    """A component of the design overview (spec 2026-11-02 §13): a name and the files it holds."""
+    name: str
+    globs: list[str]                 # fnmatch on workspace-relative paths, as TargetRule.match; the first rule a file
+                                     # matches names its component
+
+
 class SwarmConfig(BaseModel):
     url: str | None = None
 
@@ -134,6 +141,11 @@ class AnalysisConfig(BaseModel):
         default_factory=lambda: ["main", "*_isr", "*_irq_handler", "*Callback", "*_callback"])
     sink_threshold: int = 20       # a field more unchanged functions than this touch is a shared sink; 0 = off
     sink_fields: list[str] = Field(default_factory=list)   # fnmatch patterns on record::field: always shared sinks
+    components: list[ComponentRule] = Field(default_factory=list)   # the design overview's components; empty: the
+                                                                     # modules layers.py finds (spec 2026-11-02 §5)
+    walk_depth: int = 2             # unchanged calls a walk-through keeps either side of a changed function (§4.2)
+    max_walks: int = 6              # walk-throughs per review (§4.2)
+    design: bool = True             # false: no design stage, the overview as before it (§13)
     _own_sinks: bool = PrivateAttr(default=False)
 
     @property
