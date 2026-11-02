@@ -1,5 +1,5 @@
-import { expect, type Locator, type Page, test } from "@playwright/test";
-import { AI, commentOnReturn, contrast, explainItem, hold, openAiUsage, openIndex, reviewMenu, startReview } from "./helpers";
+import { expect, type Locator, type Page } from "@playwright/test";
+import { AI, commentOnReturn, contrast, explainItem, hold, openAiUsage, openIndex, reviewMenu, startReview, test } from "./helpers";
 
 /** Open uart.c's diff in the detail panel from the Index's Files and start a comment on its new `return -2;` line. */
 async function commentFromIndex(page: Page) {

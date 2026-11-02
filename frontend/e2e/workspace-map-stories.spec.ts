@@ -1,5 +1,5 @@
-import { expect, type Page, test } from "@playwright/test";
-import { LARGE, startReview, storyLink } from "./helpers";
+import { expect, type Page } from "@playwright/test";
+import { LARGE, startReview, storyLink, test } from "./helpers";
 
 /** The map and the stories, related: each changed node on a map is tagged with its story; a story in the rail lights its
  * nodes on the map; a story's "Show on the map" opens its map with the story lit and in view. */

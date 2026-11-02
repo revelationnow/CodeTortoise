@@ -1,5 +1,5 @@
-import { expect, type JSHandle, type Locator, type Page, test } from "@playwright/test";
-import { AI, commentOnReturn, openAiUsage, openFold, railReady, reviewMenu, startReview } from "./helpers";
+import { expect, type JSHandle, type Locator, type Page } from "@playwright/test";
+import { AI, commentOnReturn, openAiUsage, openFold, railReady, reviewMenu, startReview, test } from "./helpers";
 
 /** The header's one row and its ⋯ menu (spec 2026-10-25-review-ui-redesign §2). */
 test.use({ viewport: { width: 1440, height: 900 } });

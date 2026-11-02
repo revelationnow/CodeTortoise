@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { startReview } from "./helpers";
+import { expect } from "@playwright/test";
+import { startReview, test } from "./helpers";
 
 /** CL descriptions as Perforce authors write them (owner feedback 2026-10-10): HTML spans and blocks mixed with
  * Markdown, indented bullets; the heading and the rail show the first line as text, without tags. */

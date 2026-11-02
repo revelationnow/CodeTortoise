@@ -1,5 +1,5 @@
-import { expect, type Locator, type Page, test } from "@playwright/test";
-import { SCROLLERS, startReview, storyLink } from "./helpers";
+import { expect, type Locator, type Page } from "@playwright/test";
+import { SCROLLERS, startReview, storyLink, test } from "./helpers";
 
 /** Layout (owner feedback 2026-10-08, sub-project C): a wider story page with a divider, code in the side panel, a
  * resizable review header; the overview and the text pages as wide (owner feedback 2026-10-09). */

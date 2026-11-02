@@ -1,5 +1,5 @@
-import { expect, type Locator, type Page, test } from "@playwright/test";
-import { AI, explainItem, login, openAiUsage, openIndex, startReview, storyLink } from "./helpers";
+import { expect, type Locator, type Page } from "@playwright/test";
+import { AI, explainItem, login, openAiUsage, openIndex, startReview, storyLink, test } from "./helpers";
 
 /** An open menu ends on the screen, and the page or panel around it has nothing running past its right edge (a page that
  * scrolls would scroll sideways, one that clips would cut the menu off) and has not been scrolled sideways. */

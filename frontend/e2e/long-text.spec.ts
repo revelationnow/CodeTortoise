@@ -1,5 +1,5 @@
-import { devices, expect, type Page, test } from "@playwright/test";
-import { AI, sideways, startReview } from "./helpers";
+import { devices, expect, type Page } from "@playwright/test";
+import { AI, sideways, startReview, test } from "./helpers";
 
 /** Long names (owner feedback 2026-10-10): nothing sticks out of its box; a one-line label that is cut short ends in
  * "…" and shows the whole text on hover. The fixture's names are made long in every answer from the server. */

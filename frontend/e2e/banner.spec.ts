@@ -1,5 +1,5 @@
-import { devices, expect, test } from "@playwright/test";
-import { login, sideways, startReview, storyLink } from "./helpers";
+import { devices, expect } from "@playwright/test";
+import { login, sideways, startReview, storyLink, test } from "./helpers";
 
 // a second name for the e2e server that is not loopback (spec §14.5); 127.0.0.1 itself is unaffected
 test.use({ launchOptions: { args: ["--host-resolver-rules=MAP ct-lan.test 127.0.0.1"] } });

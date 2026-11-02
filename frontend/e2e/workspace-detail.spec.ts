@@ -1,5 +1,5 @@
-import { devices, expect, type Page, test } from "@playwright/test";
-import { expectIconsOnly, expectNamed, expectNoNodeIds, LARGE, openFold, openIndex, sideways, startReview } from "./helpers";
+import { devices, expect, type Page } from "@playwright/test";
+import { expectIconsOnly, expectNamed, expectNoNodeIds, LARGE, openFold, openIndex, sideways, startReview, test } from "./helpers";
 
 /** The detail panel (spec 2026-10-04-review-workspace §3.7): a node's code or a file's diff, on demand. */
 

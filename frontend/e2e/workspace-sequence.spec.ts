@@ -1,5 +1,5 @@
-import { devices, expect, type Page, test } from "@playwright/test";
-import { sideways, startReview, storyLink } from "./helpers";
+import { devices, expect, type Page } from "@playwright/test";
+import { sideways, startReview, storyLink, test } from "./helpers";
 
 /** CLs as a sequence (spec 2026-10-07-review-reading-phase2): fixture CL 103 adds logger_init's `lg->level = 1;`,
  * CL 104 adds logger_level, CL 105 rewrites CL 103's line to `lg->level = 2;`. */

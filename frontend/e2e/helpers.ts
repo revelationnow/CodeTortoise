@@ -1,4 +1,14 @@
-import { expect, type Locator, type Page } from "@playwright/test";
+import { expect, type Locator, type Page, test as base } from "@playwright/test";
+
+/** Playwright's `test`, whose page lets go of its stand-ins for the server (`page.route`) as the test ends: one still
+ * fetching the server's answer as the page closes would fail the test, or the next one in its worker, with "route.fetch:
+ * Test ended". One that breaks while the test runs still fails it. Every spec takes `test` from here. */
+export const test = base.extend({
+  page: async ({ page }, use) => {
+    await use(page);
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+  },
+});
 
 // The fixture servers beyond the default one: playwright.config.ts starts them, and a spec picks one with `test.use({ baseURL })`.
 

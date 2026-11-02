@@ -1,5 +1,5 @@
-import { expect, type Page, test } from "@playwright/test";
-import { hold, openIndex, startReview } from "./helpers";
+import { expect, type Page } from "@playwright/test";
+import { hold, openIndex, startReview, test } from "./helpers";
 
 /** The side panel, folding and the Index's new views (spec 2026-10-12-story-account-and-panels §2-§5). */
 

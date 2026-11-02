@@ -1,5 +1,5 @@
-import { expect, type Page, test } from "@playwright/test";
-import { hold, login, openFold, openIndex, SINKS, startReview } from "./helpers";
+import { expect, type Page } from "@playwright/test";
+import { hold, login, openFold, openIndex, SINKS, startReview, test } from "./helpers";
 
 const READER = "uart_errors reads Uart::errors";
 /** The marks of this server's one workspace, the seed (spec 2026-10-31 §8). */

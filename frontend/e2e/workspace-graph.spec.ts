@@ -1,5 +1,5 @@
-import { devices, expect, type Page, test } from "@playwright/test";
-import { commentOnReturn, expectNamed, expectNoNodeIds, flowStripHolds, startReview } from "./helpers";
+import { devices, expect, type Page } from "@playwright/test";
+import { commentOnReturn, expectNamed, expectNoNodeIds, flowStripHolds, startReview, test } from "./helpers";
 
 /** Graphs in the workspace (spec 2026-10-04-review-workspace §3.2, §3.6): a node click opens its code and a second
  * click closes it; "+N callers" opens Neighbours; the flow strip keeps its controls in place and never overflows. */
