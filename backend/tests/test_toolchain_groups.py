@@ -2,6 +2,8 @@
 import json
 import os
 import stat
+import sys
+import threading
 
 from codetortoise.config import ToolchainConfig
 from codetortoise.facts.clang_extractor import TuRequest, extract_tu
@@ -120,3 +122,52 @@ def test_an_override_can_pin_the_database_for_its_paths(tmp_path):
     pinned = Toolchain(ToolchainConfig(overrides=[{"match": "dsp/**", "compile_commands": str(dsp_cc)}]), db,
                        tmp_path / "w2", root=ws)
     assert "-DFROM_DSP" in pinned.args_for(str(ws / "dsp/c.c"))
+
+
+def _many(tmp_path, n):
+    """A workspace of `n` files, each built for its own target, so each is its own toolchain group."""
+    ws = tmp_path / "ws"
+    (ws / "src").mkdir(parents=True)
+    entries = []
+    for i in range(n):
+        (ws / "src" / f"f{i}.c").write_text("int x;\n")
+        entries.append({"directory": str(ws), "file": f"src/f{i}.c",
+                        "arguments": ["cc", f"--target=arch{i}-unknown-linux", "-c", f"src/f{i}.c"]})
+    cc = ws / "compile_commands.json"
+    cc.write_text(json.dumps(entries))
+    return ws, cc, [str(ws / "src" / f"f{i}.c") for i in range(n)]
+
+
+def test_health_looks_beside_a_review_adding_groups_never_break_or_miscount(tmp_path):
+    """A review's parse adds toolchain groups while Health page looks count them (review of branch deferred-minors-2,
+    deferred minor): a look neither breaks on the groups changing under it nor drops a group another look is
+    counting."""
+    ws, cc, files = _many(tmp_path, 120)
+    old = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+    try:
+        for _ in range(8):
+            tc = Toolchain(ToolchainConfig(query_compilers="off"), load_databases(cc, ws, None), tmp_path / "tc",
+                           root=ws)
+            errors, wrong = [], []
+            review = threading.Thread(target=lambda tc=tc: [tc.group_of(f) for f in reversed(files)])
+
+            def look(tc=tc, review=review, errors=errors, wrong=wrong):
+                try:
+                    while review.is_alive():
+                        got = tc.groups()
+                        if sorted(g.files for g in got) != [1] * len(files):
+                            wrong.append(len(got))
+                        for g in got:
+                            tc.key_of(g)
+                except Exception as e:  # what a look raises is the finding
+                    errors.append(e)
+            looks = [threading.Thread(target=look) for _ in range(2)]
+            review.start()
+            for t in looks:
+                t.start()
+            for t in [review, *looks]:
+                t.join(60)
+            assert errors == [] and wrong == [], (errors[:1], wrong[:3])
+    finally:
+        sys.setswitchinterval(old)

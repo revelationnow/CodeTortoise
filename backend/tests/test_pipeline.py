@@ -94,6 +94,23 @@ def test_health_ready_on_fixture_and_gates_on_empty_compile_db(fx, tmp_path):
     assert run_health(svc).ready is False
 
 
+def test_a_health_look_reports_the_library_it_prepared_though_another_look_chooses_again(fx, tmp_path, monkeypatch):
+    """Two Health page looks at once: one's again() can have the default library chosen again between the other's
+    prepare() and its report (review of branch deferred-minors-2, deferred minor); the look reports what it
+    prepared."""
+    svc = make_services(fx, tmp_path)
+    tc = svc.toolchain
+    real = tc.prepare
+
+    def raced():
+        got = real()
+        tc.libclang = None                       # another look's again(): chosen and described again when next used
+        return got
+    monkeypatch.setattr(tc, "prepare", raced)
+    rep = run_health(svc)
+    assert {c.name: c.ok for c in rep.checks}["libclang"] and rep.libclang.startswith("clang version")
+
+
 class FakeClientRunner:
     def __init__(self, root, alt=()):
         self.root, self.alt = root, alt

@@ -109,11 +109,10 @@ def run_health(svc: Services, deep: bool = False) -> HealthReport:
     checks.append(Check(name="compile_commands", ok=bool(svc.cdb.entries), hard=True, detail=detail))
     if deep:                                  # the Health page judges afresh what others could change (Recheck)
         svc.toolchain.again()
+    lc = None
     try:
-        svc.toolchain.prepare()
-        lc = svc.toolchain.libclang
-        checks.append(Check(name="libclang", ok=True, hard=True,
-                            detail=f"{lc.version} ({svc.toolchain.choice.reason}) {lc.path}"))
+        choice, lc = svc.toolchain.prepare()  # what it chose: another look may choose again meanwhile
+        checks.append(Check(name="libclang", ok=True, hard=True, detail=f"{lc.version} ({choice.reason}) {lc.path}"))
     except (OSError, RuntimeError) as e:
         checks.append(Check(name="libclang", ok=False, hard=True, detail=str(e)))
     if deep:                                  # the Health page: toolchain groups with one sample parse each
@@ -154,7 +153,6 @@ def run_health(svc: Services, deep: bool = False) -> HealthReport:
         client = svc.swarm()
         checks.append(Check(name="swarm", ok=client is not None, hard=False,
                             detail=cfg.swarm.url if client else "owner must log in for Swarm access"))
-    lc = svc.toolchain.libclang
     day = datetime.now(UTC).date().isoformat()
     today = svc.store._all("SELECT COUNT(*) AS n FROM llm_calls WHERE outcome != 'refused' AND started_at >= ?", (day,))
     ai = {"limits": cfg.llm.budget.model_dump(), "calls_today": today[0]["n"] if today else 0}

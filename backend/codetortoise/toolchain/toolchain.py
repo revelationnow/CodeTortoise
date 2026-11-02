@@ -13,6 +13,7 @@ import re
 import shutil
 import stat
 import subprocess
+import threading
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -295,6 +296,9 @@ class Toolchain:
         self.strip: set[str] = set(cfg.strip_flags)
         self.libclang: LibclangInfo | None = None
         self._groups: dict[tuple, Group] = {}
+        # reviews' parses add groups while Health page looks count them and judge them again: what reads or changes
+        # the groups, or the default library, does so under it (review of branch deferred-minors-2, deferred minor)
+        self._lock = threading.RLock()
         self._machines: dict[str, str | None] = {}
         # where fetch-libclang puts libraries: the server's data folder (a workspace's own folder sits below it)
         self.data_dir = Path(data_dir) if data_dir is not None else self.work_dir.parent
@@ -396,11 +400,13 @@ class Toolchain:
         """Judge afresh what others could change, as the Health page looks again (Recheck after a fix): the verdicts
         and the folders each compiler searches are forgotten, a group refused is tried again with its sample, and a
         library chosen in place of one refused is chosen again."""
-        self._verdicts.clear()
-        self._searched.clear()
-        if self.choice is not None and self.choice.passed and self._default() != self.choice:
-            self.libclang = None                         # prepare() chooses and describes it again
-        for key, g in list(self._groups.items()):
+        with self._lock:
+            self._verdicts.clear()
+            self._searched.clear()
+            if self.choice is not None and self.choice.passed and self._default() != self.choice:
+                self.libclang = None                     # prepare() chooses and describes it again
+            judged = list(self._groups.items())
+        for key, g in judged:                            # compilers may run: reviews go on meanwhile
             own = g.libclang is not None and g.libclang.vendor       # judged as args_for judges it
             changed = g.refused and g.error != (self.refusal(g.compiler) if own else self.not_run(g.compiler))
             if changed:
@@ -422,13 +428,16 @@ class Toolchain:
             _say(p, f"libclang {p} is passed over")
         return choice
 
-    def prepare(self) -> None:
+    def prepare(self) -> tuple[LibclangChoice, LibclangInfo]:
         """Idempotent: chooses and describes this workspace's default library (loading it here when the process has no
-        other). Every parse runs in worker processes that load the request's library; compilers are queried lazily,
-        per group."""
-        if self.libclang is None:
-            self.choice = self._default()
-            self.libclang = library_info(self.choice.path)
+        other), and returns them: another Health page look may choose it again meanwhile (again()), so a caller uses
+        what it returns. Every parse runs in worker processes that load the request's library; compilers are queried
+        lazily, per group."""
+        with self._lock:
+            if self.libclang is None:
+                self.choice = self._default()
+                self.libclang = library_info(self.choice.path)
+            return self.choice, self.libclang
 
     # ---- per file
     def _override(self, file: str) -> ToolchainOverride | None:
@@ -505,10 +514,12 @@ class Toolchain:
         flags = tuple(target_flags(args))
         lib_override = ov.libclang if ov else None
         key = (driver, target, flags, lib_override)
-        if key not in self._groups:
-            lib = self._find(compiler=driver, override=lib_override)
-            self._groups[key] = Group(compiler=driver, target=target, flags=flags, libclang=lib)
-        return self._groups[key]
+        with self._lock:                                 # one group per key, whoever asks first
+            g = self._groups.get(key)
+            if g is None:
+                g = self._groups[key] = Group(compiler=driver, target=target, flags=flags,
+                                              libclang=self._find(compiler=driver, override=lib_override))
+        return g
 
     def _query(self, g: Group, lang: str) -> DriverInfo | None:
         if lang in g.info or g.error:
@@ -594,18 +605,21 @@ class Toolchain:
         return self._group(entry, sanitize_args(entry, self.strip), ov) if entry else None
 
     def groups(self) -> list[Group]:
-        """Every toolchain group in the compile databases, with its file count (queries happen on first use)."""
-        for g in self._groups.values():
-            g.files, g.sample = 0, None
+        """Every toolchain group in the compile databases, with its file count (queries happen on first use). Counted
+        apart from the groups themselves, then set at once, so two looks at a time each count every group."""
+        counted: dict[int, tuple[Group, int, str]] = {}
         for e in self.cdb.entries:
-            ov = self._override(e.file)
-            g = self._group(e, sanitize_args(e, self.strip), ov)
-            g.files += 1
-            g.sample = g.sample or e.file
-        return [g for g in self._groups.values() if g.files]
+            g = self._group(e, sanitize_args(e, self.strip), self._override(e.file))
+            _, n, sample = counted.get(id(g), (g, 0, e.file))
+            counted[id(g)] = (g, n + 1, sample)
+        with self._lock:
+            for g, n, sample in counted.values():
+                g.files, g.sample = n, sample
+            return [g for g in self._groups.values() if id(g) in counted]
 
     def key_of(self, g: Group) -> tuple:
-        return next(k for k, v in self._groups.items() if v is g)
+        with self._lock:
+            return next(k for k, v in self._groups.items() if v is g)
 
     def unmatched_overrides(self) -> list[str]:
         """Overrides whose compile_commands is not one of the loaded databases (so they can never apply)."""
