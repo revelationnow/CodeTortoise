@@ -3,7 +3,7 @@
 import { counted } from "../lib/tidy";
 import { letter } from "./checks";
 import { listed } from "./overview";
-import type { Component, Gate, GatedLine, ReadingDesign, Thread } from "./types";
+import type { Cause, Component, Gate, GatedLine, Ownership, ReadingDesign, Thread } from "./types";
 
 /** Where the change sits shows only with two components or more (§14). */
 export const showsWhere = (d: Pick<ReadingDesign, "components"> | null | undefined): boolean => (d?.components.length ?? 0) >= 2;
@@ -56,3 +56,39 @@ export function conditionTitle(g: Pick<Gate, "false_case" | "test" | "runs">): s
 export function gateGroups(g: Pick<Gate, "lines">): { runs: GatedLine[]; stops: GatedLine[] } {
   return { runs: g.lines.filter((l) => l.runs), stops: g.lines.filter((l) => !l.runs) };
 }
+
+/** The verdict's chips (spec 2026-11-02 §3.1): the causes it names that the review has, in its order. */
+export function verdictCauses(d: Pick<ReadingDesign, "verdict_causes">, causes: Cause[] | null | undefined): Cause[] {
+  const by = new Map((causes ?? []).map((c) => [c.id, c]));
+  return d.verdict_causes.flatMap((id) => by.get(id) ?? []);
+}
+
+/** An ownership line's tag as the check tags draw it (§6.2): a questionable line looks like a `confirm` tag. */
+export const OWNER_TAG: Record<Ownership["tag"], string> = { right: "right", questionable: "confirm", shortfall: "shortfall", note: "note" };
+
+/** The ownership fold's title (§3.1 item 8): how many lines are questionable and how many are shortfalls. */
+export function ownershipTitle(lines: Pick<Ownership, "tag">[]): string {
+  const q = lines.filter((l) => l.tag === "questionable").length, s = lines.filter((l) => l.tag === "shortfall").length;
+  const said = [q ? `${q} questionable` : "", counted(s, "shortfall")].filter(Boolean);
+  return `Is the design right? · ${said.length ? said.join(" · ") : "nothing questionable"}`;
+}
+
+/** Where a concern is done (§6.1): the letters of its stories' threads, each once, then its stories. */
+export function concernWhere(stories: string[], threads: Pick<Thread, "id" | "stories">[]): { letters: string[]; stories: string[] } {
+  const letters: string[] = [];
+  for (const s of stories) {
+    const i = threads.findIndex((t) => t.stories.includes(s));
+    const L = i < 0 ? null : letter(i, threads[i].id);
+    if (L && !letters.includes(L)) letters.push(L);
+  }
+  return { letters, stories };
+}
+
+/** Whether the model wrote a part — `verdict`, `concerns`, `ownership`, `walk:W1`, `gate:G1` — as the design's sources
+ * say (§9); a pinned part is the model's words kept (phase 4). */
+export const byModel = (d: Pick<ReadingDesign, "sources"> | null | undefined, part: string): boolean =>
+  d?.sources[part] === "llm" || d?.sources[part] === "pinned";
+
+/** An ownership line's cite as the reader sees it (§6.2): a function's or field's name for its id; a story id or a path
+ * as cited. */
+export const citeName = (d: Pick<ReadingDesign, "nodes">, cite: string): string => d.nodes[cite]?.label ?? cite;

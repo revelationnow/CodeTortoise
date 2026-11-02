@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { alsoLine, blockLine, componentBands, conditionTitle, foldGate, gateGroups, showsWhere } from "./design";
-import type { Component, Gate, GatedLine } from "./types";
+import { alsoLine, blockLine, byModel, citeName, componentBands, concernWhere, conditionTitle, foldGate, gateGroups,
+  OWNER_TAG, ownershipTitle, showsWhere, verdictCauses } from "./design";
+import type { Cause, Component, Gate, GatedLine } from "./types";
 
 const comp = (o: Partial<Component>): Component => ({
   name: "x", level: null, band: "other", globs: [], threads: [], stories: [], files: [], crossing: [], quiet: false, ...o });
@@ -55,5 +56,37 @@ describe("the condition fold (§7)", () => {
     expect(conditionTitle({ false_case: "", test: "a `b`", runs: 0 })).toBe("When `a 'b'` is false · 0 changes still run");
     const runs = [line(true, { line: 14 }), line(true, { line: 22 })], stops = [line(false, { line: 17 })];
     expect(gateGroups(gate({ lines: [runs[0], stops[0], runs[1]] }))).toEqual({ runs, stops });
+  });
+});
+
+const cause = (id: string): Cause => ({ id, kind: "result", thread: "T1", story: "S1", text: id, places: [], flows: [], finding: null, change: null });
+
+describe("the model's parts (spec 2026-11-02 §3.1, §6)", () => {
+  it("chips the causes the verdict names that the review has, in the verdict's order", () => {
+    const causes = [cause("c1"), cause("c2"), cause("c3")];
+    expect(verdictCauses({ verdict_causes: ["c3", "c9", "c1"] }, causes).map((c) => c.id)).toEqual(["c3", "c1"]);
+    expect(verdictCauses({ verdict_causes: ["c1"] }, null)).toEqual([]);
+  });
+
+  it("titles the ownership fold by its questionable lines and shortfalls", () => {
+    expect(ownershipTitle([{ tag: "right" }, { tag: "questionable" }, { tag: "shortfall" }, { tag: "shortfall" }]))
+      .toBe("Is the design right? · 1 questionable · 2 shortfalls");
+    expect(ownershipTitle([{ tag: "questionable" }])).toBe("Is the design right? · 1 questionable");
+    expect(ownershipTitle([{ tag: "right" }, { tag: "note" }])).toBe("Is the design right? · nothing questionable");
+    expect(OWNER_TAG).toEqual({ right: "right", questionable: "confirm", shortfall: "shortfall", note: "note" });
+  });
+
+  it("places a concern by its stories' thread letters, each once, then its stories", () => {
+    const threads = [{ id: "T1", stories: ["S2", "S1"] }, { id: "T2", stories: ["S3"] }];
+    expect(concernWhere(["S1", "S3", "S2"], threads)).toEqual({ letters: ["A", "B"], stories: ["S1", "S3", "S2"] });
+    expect(concernWhere(["S9"], threads)).toEqual({ letters: [], stories: ["S9"] });
+  });
+
+  it("says which parts the model wrote, and names a cited node", () => {
+    const d = { sources: { verdict: "llm", "gate:G1": "pinned", "walk:W1": "template" } as Record<string, "template" | "llm" | "pinned">,
+                nodes: { N3: { label: "logger_flush", kind: "function" as const, component: "service", path: "service/logger.c", line: 20 } } };
+    expect([byModel(d, "verdict"), byModel(d, "gate:G1"), byModel(d, "walk:W1"), byModel(d, "concerns"), byModel(null, "verdict")])
+      .toEqual([true, true, false, false, false]);
+    expect([citeName(d, "N3"), citeName(d, "S1"), citeName(d, "driver/uart.c")]).toEqual(["logger_flush", "S1", "driver/uart.c"]);
   });
 });
