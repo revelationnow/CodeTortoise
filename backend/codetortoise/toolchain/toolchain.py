@@ -315,6 +315,7 @@ class Toolchain:
         self._searched: dict[str, list[str]] = {}    # per compiler: where it looks for what it runs and reads
         self._verdicts: dict[str, str | None] = {}   # per compiler: why others could change it, until again()
         self.choice: LibclangChoice | None = None    # the library this workspace parses with by default
+        self._agains = 0                             # again()s so far: a library chosen before one is chosen afresh
         self.samples: dict[tuple, str] = {}          # Health's sample parse per group, once per process
 
     def _within(self, real: str) -> bool:
@@ -404,6 +405,7 @@ class Toolchain:
         and the folders each compiler searches are forgotten, a group refused is tried again with its sample, and a
         library chosen in place of one refused is chosen again."""
         with self._lock:
+            self._agains += 1
             self._verdicts.clear()
             self._searched.clear()
             if self.choice is not None and self.choice.passed and self._default() != self.choice:
@@ -435,12 +437,18 @@ class Toolchain:
         """Idempotent: chooses and describes this workspace's default library (loading it here when the process has no
         other), and returns them: another Health page look may choose it again meanwhile (again()), so a caller uses
         what it returns. Every parse runs in worker processes that load the request's library; compilers are queried
-        lazily, per group."""
-        with self._lock:
-            if self.libclang is None:
-                self.choice = self._default()
-                self.libclang = library_info(self.choice.path)
-            return self.choice, self.libclang
+        lazily, per group. Describing may load the library in a worker and wait for it, so it runs outside the lock,
+        and a choice an again() overtook meanwhile is made afresh (final review of branch deferred-minors-3, M2)."""
+        while True:
+            with self._lock:
+                if self.libclang is not None:
+                    return self.choice, self.libclang
+                agains = self._agains
+            choice = self._default()
+            info = library_info(choice.path)
+            with self._lock:
+                if self.libclang is None and self._agains == agains:
+                    self.choice, self.libclang = choice, info
 
     # ---- per file
     def _override(self, file: str) -> ToolchainOverride | None:
@@ -517,7 +525,9 @@ class Toolchain:
         flags = tuple(target_flags(args))
         lib_override = ov.libclang if ov else None
         key = (driver, target, flags, lib_override)
-        with self._lock:                                 # one group per key, whoever asks first
+        # one group per key, whoever asks first; its library is found under the lock as well (find_libclang may search
+        # the toolchain's folders), once per group (final review of branch deferred-minors-3, M2)
+        with self._lock:
             g = self._groups.get(key)
             if g is None:
                 g = self._groups[key] = Group(compiler=driver, target=target, flags=flags,

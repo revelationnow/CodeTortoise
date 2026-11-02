@@ -7,7 +7,9 @@ import threading
 
 from codetortoise.config import ToolchainConfig
 from codetortoise.facts.clang_extractor import TuRequest, extract_tu
+from codetortoise.toolchain import toolchain
 from codetortoise.toolchain.compile_db import load_databases
+from codetortoise.toolchain.libclang import LibclangChoice, LibclangInfo
 from codetortoise.toolchain.toolchain import Toolchain
 
 DRIVER = """#!/bin/sh
@@ -171,3 +173,59 @@ def test_health_looks_beside_a_review_adding_groups_never_break_or_miscount(tmp_
             assert errors == [] and wrong == [], (errors[:1], wrong[:3])
     finally:
         sys.setswitchinterval(old)
+
+
+def test_a_look_describing_the_library_holds_no_review_up(tmp_path, monkeypatch):
+    """Describing the default library can load it in a worker and wait for it (up to LIBRARY_INFO_TIMEOUT): a review's
+    parse finding its toolchain groups meanwhile goes on (final review of branch deferred-minors-3, M2)."""
+    ws, cc, files = _many(tmp_path, 2)
+    tc = Toolchain(ToolchainConfig(query_compilers="off"), load_databases(cc, ws, None), tmp_path / "tc", root=ws)
+    describing, described = threading.Event(), threading.Event()
+
+    def slow(path):
+        describing.set()
+        described.wait(30)
+        return LibclangInfo(path=path or "bundled", version="clang version 99", vendor=False)
+    monkeypatch.setattr(toolchain, "library_info", slow)
+    look = threading.Thread(target=tc.prepare, daemon=True)
+    look.start()
+    assert describing.wait(10)
+    review = threading.Thread(target=lambda: [tc.group_of(f) for f in files], daemon=True)
+    review.start()
+    review.join(5)
+    waited = review.is_alive()
+    described.set()
+    look.join(10)
+    assert not waited, "the review's parse waited for a Health look to describe the library"
+
+
+def test_a_library_chosen_again_while_a_look_describes_the_old_one_is_the_one_kept(tmp_path, monkeypatch):
+    """A Recheck after a fix chooses the default library again (again()) while another look is still describing the
+    one chosen before: the library kept is the one chosen anew, not the one that look described (final review of
+    branch deferred-minors-3, M2)."""
+    ws, cc, _ = _many(tmp_path, 1)
+    tc = Toolchain(ToolchainConfig(query_compilers="off"), load_databases(cc, ws, None), tmp_path / "tc", root=ws)
+    fallback = LibclangChoice(path="/opt/fallback/libclang.so", kind="search", reason="found",
+                              passed=("/opt/tc/lib/libclang.so: others can change it",))
+    own = LibclangChoice(path="/opt/tc/lib/libclang.so", kind="toolchain", reason="the toolchain's own")
+    chosen = [fallback]
+    monkeypatch.setattr(toolchain, "find_libclang", lambda *a, **kw: chosen[0])
+    describing, described = threading.Event(), threading.Event()
+
+    def info(path):
+        if path == fallback.path:
+            describing.set()
+            described.wait(30)
+        return LibclangInfo(path=path, version="clang version 99", vendor=path == own.path)
+    monkeypatch.setattr(toolchain, "library_info", info)
+    look = threading.Thread(target=tc.prepare, daemon=True)
+    look.start()
+    assert describing.wait(10)
+    chosen[0] = own                                  # the owner fixed the toolchain's library, then pressed Recheck
+    recheck = threading.Thread(target=tc.again, daemon=True)
+    recheck.start()
+    recheck.join(5)
+    described.set()
+    look.join(10)
+    recheck.join(10)
+    assert tc.prepare()[0] == own
