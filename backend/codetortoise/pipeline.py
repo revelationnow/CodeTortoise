@@ -17,6 +17,7 @@ from codetortoise.board import BoardContext, analyse, build_boards, is_test_path
 from codetortoise.brief import Brief, cache_key
 from codetortoise.cltext import prompt_text
 from codetortoise.config import seed_name
+from codetortoise.design import build_design
 from codetortoise.detectors.base import DetectorContext, renumber, run_detectors
 from codetortoise.diffmap import map_changes
 from codetortoise.facts.model import Facts, relative_records
@@ -66,11 +67,11 @@ def _read_text(path: str) -> str | None:
         return None
 
 STAGES = ["ingest", "swarm_read", "diffmap", "tu_select", "layers", "facts", "impact", "detectors", "pieces", "stories",
-          "review", "verdicts", "board", "llm", "reading", "finalize"]
+          "review", "verdicts", "board", "llm", "reading", "design", "finalize"]
 DEPS = {"swarm_read": ["ingest"], "diffmap": ["ingest"], "tu_select": ["diffmap"], "facts": ["tu_select"],
         "impact": ["facts", "tu_select", "diffmap"], "detectors": ["impact"], "pieces": ["impact", "detectors"],
         "stories": ["pieces"], "review": ["stories"], "verdicts": ["detectors"], "board": ["impact", "detectors"],
-        "llm": ["detectors"], "reading": ["board"]}
+        "llm": ["detectors"], "reading": ["board"], "design": ["reading"]}
 
 
 class Degraded(Exception):
@@ -153,6 +154,8 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
             store.set_stage(rid, name, "skipped", "missing inputs")
             if name == "reading":
                 drop_reading()
+            elif name == "design":
+                drop_design()
             return
         store.set_stage(rid, name, "running")
         try:
@@ -474,7 +477,7 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
 
     def drop_reading() -> None:
         """A run that builds no reading leaves none: the last run's would read as this one's."""
-        store.replace_blobs(rid, ["reading", "reading_head", "lines"], ["story_reading:"], {})
+        store.replace_blobs(rid, ["reading", "reading_head", "lines", "reading_design"], ["story_reading:"], {})
 
     def reading():
         """How the review reads (spec 2026-10-07-review-reading): threads, connections, To check, each story's tiles."""
@@ -580,17 +583,41 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
                 notes = notes + said           # not one account: the stage is degraded
             elif said:
                 told += "; " + said[0]
-        store.replace_blobs(rid, ["reading", "reading_head", "lines"], ["story_reading:"],
+        store.replace_blobs(rid, ["reading", "reading_head", "lines", "reading_design"], ["story_reading:"],
                             {"reading": r, "reading_head": headline_facts(r, x.c.findings),
                              "lines": {d: fl.model_dump() for d, fl in lines.items()},
                              **{f"story_reading:{sid}": sr for sid, sr in per.items()}})
         ctx["reading_stored"] = True
+        ctx["reading"], ctx["story_readings"], ctx["lines"], ctx["read_text"] = r, per, lines, read_text
         store.prune_marks(rid, {k.key for k in r.checks + r.cleared})
         msg = (f"{len(r.threads)} thread(s), {sum(k.shown for k in r.connections)} connection(s) shown, "
                f"{len(r.checks)} check(s); {told}")
         if notes:
             raise Degraded(msg + "; " + "; ".join(notes))
         return msg
+
+    def drop_design() -> None:
+        """A run that builds no design leaves none: the overview is then exactly as before the design (spec 2026-11-02
+        §9)."""
+        store.replace_blobs(rid, ["reading_design"], [], {})
+
+    def design():
+        """The design overview (spec 2026-11-02 §4, §5, §7): components, walk-throughs and conditions, by rules (R16)."""
+        if not cfg.analysis.design:
+            drop_design()
+            return "off (analysis.design: false)"
+        bs, r, per = ctx.get("boards"), ctx.get("reading"), ctx.get("story_readings")
+        if bs is None or bs.analysis is None or r is None or per is None:
+            drop_design()
+            return "no reading to describe"
+        try:
+            d = build_design(bs.analysis.x, bs.stories, bs.story_details, r, per, lines=ctx.get("lines"),
+                             read_text=ctx.get("read_text"))
+        except Exception:
+            drop_design()
+            raise
+        store.replace_blobs(rid, ["reading_design"], [], {"reading_design": d})
+        return f"{len(d.components)} component(s), {len(d.walks)} walk-through(s), {len(d.gates)} condition(s)"
 
     def finalize():
         sb = ctx.get("storyboard")
@@ -609,7 +636,7 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
                          ("layers", layers), ("facts", facts), ("impact", impact), ("detectors", detectors),
                          ("pieces", pieces), ("stories", stories), ("review", review),
                          ("verdicts", verdicts), ("board", board), ("llm", llm), ("reading", reading),
-                         ("finalize", finalize)]:
+                         ("design", design), ("finalize", finalize)]:
             stage(name, fn)
 
 

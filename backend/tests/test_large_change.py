@@ -6,15 +6,32 @@ from codetortoise import boardstore
 from codetortoise.fixture_large import build_large_fixture
 from codetortoise.pipeline import run_review
 
+DESIGN_SECONDS: list[float] = []
+
 
 @pytest.fixture(scope="module")
 def large(tmp_path_factory):
+    import time
+
+    from codetortoise import pipeline
     d = tmp_path_factory.mktemp("large")
     fx = build_large_fixture(d)
     svc = make_services(fx, d / "data")
     svc.build_index()
     rid = svc.store.create_review("large", "owner", fx.cls)
-    run_review(rid, svc)
+    real = pipeline.build_design
+
+    def timed(*a, **k):
+        t = time.perf_counter()
+        try:
+            return real(*a, **k)
+        finally:
+            DESIGN_SECONDS.append(time.perf_counter() - t)
+    pipeline.build_design = timed
+    try:
+        run_review(rid, svc)
+    finally:
+        pipeline.build_design = real
     return svc, rid
 
 
@@ -182,3 +199,12 @@ def test_a_large_change_is_told_in_at_most_15_stories_with_small_graphs(api):
         assert d["graph"] is None or len(d["graph"]["nodes"]) <= svc.cfg.analysis.story_graph_nodes
         assert not any(n["label"].startswith("/") or "(/" in n["label"] for n in d["board"]["nodes"])
     assert set(ss["node_story"].values()) <= {s["id"] for s in ss["stories"]}
+
+
+def test_the_design_stage_holds_its_limits_on_a_large_change(large):
+    svc, rid = large
+    st = next(s for s in svc.store.list_stages(rid) if s["name"] == "design")
+    d = svc.store.get_blob(rid, "reading_design")
+    assert st["status"] == "ok" and DESIGN_SECONDS and max(DESIGN_SECONDS) < 1.0
+    assert len(d["walks"]) <= 6 and len(d["gates"]) <= 20 and all(len(w["steps"]) <= 40 for w in d["walks"])
+    assert all(len(g["lines"]) <= 200 for g in d["gates"])

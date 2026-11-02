@@ -117,3 +117,35 @@ class ReadingDesign(BaseModel):
     nodes: dict[str, DesignNode] = Field(default_factory=dict)
     sources: dict[str, Literal["template", "llm", "pinned"]] = Field(default_factory=dict)   # per part
     context_hash: str | None = None
+
+
+def build_design(x, ss, details, r, per, *, lines=None, read_text=None) -> ReadingDesign:
+    """The design overview by rules (phase 1): the components, the conditions and the walk-throughs, and every node
+    they cite. `x` is the analysis's `_Ctx`; `details` the story details; `r`, `per` the reading and its stories'."""
+    from codetortoise.components import build_components
+    from codetortoise.gates import Sources, build_gates
+    from codetortoise.walks import build_walks
+    src = Sources(x, read_text)
+    components, node_comp = build_components(x, ss, r, per)
+    gates, branches = build_gates(x, ss, r, per, src, lines)
+    walks = build_walks(x, ss, details, r, per, src, branches, lines)
+    return ReadingDesign(components=components, gates=gates, walks=walks,
+                         nodes=design_nodes(x, walks, gates, node_comp))
+
+
+def design_nodes(x, walks: list[Walk], gates: list[Gate], node_comp: dict[str, str]) -> dict[str, DesignNode]:
+    """Label, kind, component, file and line of each node the walk-throughs and conditions cite (R4)."""
+    from codetortoise.reading import rel_path
+    ids = {g.node for g in gates} | {n for w in walks for n in w.parts}
+    ids |= {n for w in walks for s in w.steps for n in (s.src, s.dst)}
+    out: dict[str, DesignNode] = {}
+    for nid in sorted(ids, key=lambda n: (len(n), n)):
+        n = x.im.nodes.get(nid)
+        if n is None:
+            continue
+        fn = x.fa.get(n.key) or x.fb.get(n.key)
+        loc = x.local(nid)
+        out[nid] = DesignNode(label=n.label, kind=n.kind, component=node_comp.get(nid),
+                              path=rel_path(x, loc) if loc else "",
+                              line=fn.start_line if fn is not None else x.decl_line.get(n.key))
+    return out

@@ -70,7 +70,7 @@ def test_owner_creates_review_others_view_and_comment(env):
     assert r.status_code == 200 and r.json()["title"] == "CLs 101, 102"
     rid = r.json()["id"]
     detail = bob.get(f"/api/reviews/{rid}").json()
-    assert detail["review"]["status"] == "degraded" and len(detail["stages"]) == 16
+    assert detail["review"]["status"] == "degraded" and len(detail["stages"]) == 17
     assert detail["review"]["risk"] == "high"
     # the raw storyboard and impact graph are not served: the board replaced them (spec §14.4)
     assert bob.get(f"/api/reviews/{rid}/storyboard").status_code == 404
@@ -474,6 +474,7 @@ def test_the_reading_endpoint_serves_threads_checks_and_marks_and_the_story_its_
     r = owner.get(f"/api/reviews/{rid}/reading").json()
     assert [t["stories"] for t in r["threads"]] == [["S2", "S1"]] and r["marks"] == {}
     assert r["headline"] == {"text": "Medium risk", "tone": "confirm", "rules_only": True}
+    assert [w["id"] for w in r["design"]["walks"]] == ["W1", "W2", "W3"] and r["design"]["gates"][0]["test"] == "len > 64"
     s1 = owner.get(f"/api/reviews/{rid}/stories/S1").json()
     assert s1["reading"]["thread"] == "T1" and s1["reading"]["position"] == 2
     assert {k["kind"] for k in s1["reading"]["checks"]} >= {"result", "reader"}

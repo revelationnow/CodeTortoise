@@ -20,3 +20,16 @@ def test_a_reading_design_survives_its_json_round_trip():
     back = ReadingDesign.model_validate(d.model_dump(mode="json"))
     assert back == d and back.walks[0].connection == ("T1", "T2")
     assert ReadingDesign().model_dump()["walks"] == [] and ReadingDesign().nodes == {}
+
+
+def test_the_demo_design_names_every_node_it_cites(demo):
+    from codetortoise.design import build_design
+    d = build_design(demo.x, demo.ss, demo.det, demo.r, demo.per, lines=demo.lines, read_text=demo.read_text)
+    assert (len(d.components), len(d.walks), len(d.gates)) == (5, 4, 1)
+    cited = {n for w in d.walks for s in w.steps for n in (s.src, s.dst)} | {g.node for g in d.gates}
+    assert cited <= set(d.nodes)
+    by = {n.label: n for n in d.nodes.values()}
+    assert (by["uart_send"].kind, by["uart_send"].component, by["uart_send"].path, by["uart_send"].line) == (
+        "function", "driver", "driver/uart.c", 11)
+    assert (by["Uart::errors"].kind, by["Uart::errors"].component, by["Uart::errors"].path) == (
+        "field", "driver", "driver/uart.h")

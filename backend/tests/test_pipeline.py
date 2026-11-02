@@ -20,12 +20,16 @@ def test_full_review_without_llm_or_swarm(fx, tmp_path):
     assert stages(svc, rid) == {"ingest": "ok", "swarm_read": "degraded", "diffmap": "ok", "tu_select": "ok",
                                 "layers": "ok", "facts": "ok", "impact": "ok", "detectors": "ok", "pieces": "ok",
                                 "stories": "ok", "review": "ok", "verdicts": "ok", "board": "ok", "llm": "degraded",
-                                "reading": "ok", "finalize": "ok"}
+                                "reading": "ok", "design": "ok", "finalize": "ok"}
     msgs = {s["name"]: s["message"] for s in svc.store.list_stages(rid)}
     assert msgs["pieces"].endswith("target(s): compile_commands")
     assert msgs["stories"].endswith("by the rules (no strong model configured)")
     assert msgs["review"] == "no strong model: 6 finding(s) left to the detectors and the AI's side-effect pass"
     assert msgs["reading"] == "1 thread(s), 0 connection(s) shown, 5 check(s); fixed thread text (no strong model)"
+    assert msgs["design"] == "3 component(s), 3 walk-through(s), 1 condition(s)"
+    design = svc.store.get_blob(rid, "reading_design")
+    assert [w["title"] for w in design["walks"]] == ["When `len > 64`", "When `len > 64` is false",
+                                                     "From `main` through `hal_write`"]
     reading = svc.store.get_blob(rid, "reading")
     assert [t["stories"] for t in reading["threads"]] == [["S2", "S1"]] and reading["headline"]["rules_only"]
     assert svc.store.get_blob(rid, "story_reading:S1")["thread"] == "T1"
@@ -590,12 +594,14 @@ def test_a_rerun_that_builds_no_reading_leaves_none_behind(fx, tmp_path, monkeyp
     rid = svc.store.create_review("t", "owner", [101, 102])
     run_review(rid, svc)
     assert svc.store.get_blob(rid, "reading") and svc.store.blob_keys(rid, "story_reading:")
+    assert svc.store.get_blob(rid, "reading_design")
 
     def boom(*a, **k):
         raise RuntimeError("broken")
     monkeypatch.setattr(pipeline, "build_stories", boom)                       # the stories fail: nothing to read
     run_review(rid, svc)
     assert svc.store.get_blob(rid, "reading") is None and svc.store.blob_keys(rid, "story_reading:") == []
+    assert svc.store.get_blob(rid, "reading_design") is None
     monkeypatch.undo()
     run_review(rid, svc)
     assert svc.store.get_blob(rid, "reading")
@@ -603,6 +609,7 @@ def test_a_rerun_that_builds_no_reading_leaves_none_behind(fx, tmp_path, monkeyp
     run_review(rid, svc)
     assert stages(svc, rid)["reading"] == "skipped"
     assert svc.store.get_blob(rid, "reading") is None and svc.store.blob_keys(rid, "story_reading:") == []
+    assert svc.store.get_blob(rid, "reading_design") is None
 
 
 def test_a_later_cl_rewriting_an_earlier_ones_line_is_a_rewrite_and_each_story_reads_only_the_cls_in_its_code(fx, tmp_path):
@@ -920,3 +927,25 @@ def test_the_diffmap_stage_says_which_files_it_flattened_and_names_functions_it_
     msg = next(s["message"] for s in svc.store.list_stages(rid) if s["name"] == "diffmap")
     assert stages(svc, rid)["diffmap"] == "degraded"
     assert msg.endswith("; 1 function(s) the parser may have misread, shown as added or removed: alpha")
+
+
+def test_the_design_stage_can_be_turned_off_and_a_failed_one_leaves_the_reading_and_no_design(fx, tmp_path, monkeypatch):
+    from codetortoise import pipeline
+    svc = make_services(fx, tmp_path)
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    assert svc.store.get_blob(rid, "reading_design")["walks"]
+
+    def boom(*a, **k):
+        raise RuntimeError("broken")
+    monkeypatch.setattr(pipeline, "build_design", boom)
+    run_review(rid, svc)
+    st = {s["name"]: s for s in svc.store.list_stages(rid)}
+    assert (st["design"]["status"], st["design"]["message"]) == ("failed", "RuntimeError: broken")
+    assert svc.store.get_blob(rid, "reading") and svc.store.get_blob(rid, "reading_design") is None
+    monkeypatch.undo()
+    svc.cfg.analysis.design = False
+    run_review(rid, svc)
+    st = {s["name"]: s for s in svc.store.list_stages(rid)}
+    assert (st["design"]["status"], st["design"]["message"]) == ("ok", "off (analysis.design: false)")
+    assert svc.store.get_blob(rid, "reading_design") is None and svc.store.get_review(rid)["status"] == "degraded"

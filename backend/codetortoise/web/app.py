@@ -452,6 +452,7 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
         view = reading_view(rid)
         if view is None:
             raise HTTPException(404, NO_READING)
+        view["design"] = store.get_blob(rid, "reading_design")       # spec 2026-11-02 §11; null without one
         return view
 
     def checks_or_404(rid: int) -> dict[str, Check]:
