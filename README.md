@@ -45,7 +45,11 @@ checks never do, so it can't change what is flagged. It holds at most 12 000 cha
 from the sites its host lists under `server.design_links` in tortoise.yaml (none by default), so a workspace owner can't
 make it fetch other addresses on its network; it reads only paths under a listed one (refusing spellings such as `..;`
 or `%5C` that some web servers resolve elsewhere), follows no redirect and reads at most 1 MB of text, markdown or a web
-page. Everyone in the review can read the context, the text of linked documents included.
+page (unpacked, when the site sends it gzip- or deflate-packed), within 10 seconds for the whole read. It trusts the
+certificates in certifi's bundle, not the system's: for an intranet site whose certificate your own authority signed,
+start the server with `SSL_CERT_FILE` naming a bundle that holds that authority as well as the public ones (the AI's
+endpoints are then checked against the same bundle). Everyone in the review can read the context, the text of linked
+documents included.
 
 Each part of the opening the strong model wrote — the verdict, what the design must get right, the ownership lines, a
 walk-through's title and lead, a condition's name — carries a **Rewrite ▾** menu. *Rewrite* asks the strong model for

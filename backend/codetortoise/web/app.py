@@ -429,10 +429,12 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
 
     @app.get("/api/reviews/{rid}/design-context")
     def get_design_context(rid: int, a: Access = Depends(in_review)):
-        """The review's design context (spec 2026-11-02 §8), the characters the prompts read of it, its cap, and whether
-        this server reads links (its host lists sites in server.design_links)."""
+        """The review's design context (spec 2026-11-02 §8), the characters the prompts read of it, its cap, whether
+        this server reads links (its host lists sites in server.design_links), and whether its workspace makes the
+        design overview (analysis.design; off, the context reaches only the introduction)."""
         c = load_context(store, rid)
-        return {"context": c, "chars": len(context_text(c)), "cap": CONTEXT_CAP, "links": bool(reg.base.server.design_links)}
+        return {"context": c, "chars": len(context_text(c)), "cap": CONTEXT_CAP, "links": bool(reg.base.server.design_links),
+                "design": a.ws.cfg.analysis.design}
 
     @app.put("/api/reviews/{rid}/design-context", status_code=202)
     def put_design_context(rid: int, body: DesignContext, request: Request, a: Access = Depends(owner_in_review)):
@@ -456,7 +458,7 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
             ready(a.ws, wait=False)
             store.put_blob(rid, CONTEXT_BLOB, c.model_dump())
             a.ws.runner.submit_design(rid)
-        return {"queued": True, "chars": len(context_text(c))}
+        return {"queued": True, "chars": len(context_text(c)), "context": c}     # as stored: a link's text read once
 
     @app.get("/api/reviews/{rid}/events")
     async def events(rid: int, request: Request, a: Access = Depends(in_review)):

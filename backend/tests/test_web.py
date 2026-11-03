@@ -846,11 +846,11 @@ def test_the_owner_saves_a_design_context_and_the_design_stage_runs_again(env):
     rid = owner.post("/api/reviews", json={"cls": [101, 102]}).json()["id"]
     assert owner.get(f"/api/reviews/{rid}/design-context").json() == {
         "context": {"notes": "", "documents": [], "conditions": {"add": [], "remove": []}, "components": []},
-        "chars": 0, "cap": 12000, "links": False}
+        "chars": 0, "cap": 12000, "links": False, "design": True}
     body = {"notes": "Never drop a byte.", "documents": [{"name": "Design note", "text": "Long writes are refused."}],
             "conditions": {"add": [{"test": "reg == REG_CTRL", "function": "hal_write"}], "remove": []}}
     r = owner.put(f"/api/reviews/{rid}/design-context", json=body)
-    assert r.status_code == 202 and r.json() == {"queued": True, "chars": 66}
+    assert r.status_code == 202 and (r.json()["queued"], r.json()["chars"]) == (True, 66)
     got = owner.get(f"/api/reviews/{rid}/design-context").json()
     assert got["context"]["notes"] == "Never drop a byte." and got["chars"] == 66
     d = svc.store.get_blob(rid, "reading_design")
@@ -893,6 +893,28 @@ def test_a_link_is_read_only_when_the_host_lists_its_site(env, monkeypatch):
     assert (doc["text"], doc["url"]) == ("Never drop a byte.", "https://wiki.example.com/design/uart.md")
     assert owner.put(f"/api/reviews/{rid}/design-context", json={"documents": [doc]}).status_code == 202
     assert len(seen) == 1                                           # a document with its text is not read again
+
+
+def test_saving_a_context_answers_with_what_was_stored_and_the_view_says_if_the_design_is_on(env, monkeypatch):
+    """Phase 3 minors 1, 5 and 6: the save answers with the context as stored, a link's read text included, so the
+    panel holds what the server holds; a link whose host is no valid name is refused in words; and the view says whether
+    the design is on."""
+    from codetortoise.web import app as web
+    svc, app, _ = env
+    owner = login(app, "owner")
+    rid = owner.post("/api/reviews", json={"cls": [101]}).json()["id"]
+    svc.cfg.server.design_links = ["https://wiki.example.com/design/"]
+    bad = {"documents": [{"name": "Design note", "url": "https://xn--wiki-.example.com/design/uart.md"}]}
+    r = owner.put(f"/api/reviews/{rid}/design-context", json=bad)
+    assert (r.status_code, r.json()["detail"]) == (422, "Design note: The link's host is not a valid name.")
+    monkeypatch.setattr(web, "read_link", lambda url, sites: "Never drop a byte.")
+    link = {"notes": "Short.", "documents": [{"name": "Design note", "url": "https://wiki.example.com/design/uart.md"}]}
+    r = owner.put(f"/api/reviews/{rid}/design-context", json=link)
+    assert r.status_code == 202 and r.json()["context"]["documents"][0]["text"] == "Never drop a byte."
+    got = owner.get(f"/api/reviews/{rid}/design-context").json()
+    assert r.json()["context"] == got["context"] and got["design"] is True
+    svc.cfg.analysis.design = False
+    assert owner.get(f"/api/reviews/{rid}/design-context").json()["design"] is False
 
 
 def test_a_review_started_with_a_design_context_reads_it_from_its_first_run(env):

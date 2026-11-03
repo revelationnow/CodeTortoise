@@ -41,8 +41,8 @@ def test_a_context_without_text_has_no_hash_though_it_adds_conditions_or_compone
 def test_the_cap_counts_what_the_prompts_read():
     assert over_cap(DesignContext(notes="x" * CAP)) is None
     long = DesignContext(notes="x" * 6000, documents=[ContextDoc(name="d", text="y" * 6000)])
-    assert over_cap(long) == ("The design context is 12,014 characters; it holds at most 12,000. Shorten the notes or a "
-                              "document.")
+    assert over_cap(long) == ("The design context is 12,014 characters; it holds at most 12,000. The longest part is the "
+                              "notes, at 6,000 characters.")
 
 
 def test_tests_that_differ_only_in_spacing_are_the_same():
@@ -129,6 +129,116 @@ def test_a_link_that_leads_elsewhere_fails_holds_no_text_or_too_much_is_refused(
         return httpx.Response(200, headers={"content-type": "text/plain"}, content=b"x" * (MAX_LINK_BYTES + 1))
     c = _client(answer)
     for path, said in [("moved", "leads somewhere else"), ("gone", "answered 404"), ("image", "holds image/png"),
-                       ("down", r"could not be read \(ConnectError\)"), ("big", "more than 1 MB")]:
+                       ("down", "could not be reached"), ("big", "more than 1 MB")]:
         with pytest.raises(LinkRefused, match=said):
             read_link(f"https://wiki.example.com/design/{path}", SITE, c)
+
+
+def test_a_link_with_an_invalid_host_name_is_refused_in_words():
+    """Phase 3 minor 1: a host that is not a valid name (a malformed IDNA label) is refused in words, not with a 500;
+    a listed site with one lets nothing through."""
+    with pytest.raises(LinkRefused, match="The link's host is not a valid name"):
+        read_link("https://xn--wiki-.example.com/design/uart.md", SITE)
+    assert not allowed("https://wiki.example.com/design/uart.md", ["https://xn--wiki-.example.com/design/"])
+
+
+class _Raw(httpx.SyncByteStream):
+    """A body as the network sends it, not read ahead (a `content=` body is unpacked as the response is made)."""
+
+    def __init__(self, body: bytes):
+        self.body = body
+
+    def __iter__(self):
+        for i in range(0, len(self.body), 65536):
+            yield self.body[i:i + 65536]
+
+
+def test_a_link_is_read_within_one_deadline(monkeypatch):
+    """Phase 3 minor 2: the whole read has one deadline; a site that sends a little at a time is cut off at it."""
+    import time
+
+    from codetortoise import design_context as dc
+    monkeypatch.setattr(dc, "LINK_TIMEOUT", 0.3)
+
+    def drip():
+        for _ in range(40):
+            time.sleep(0.05)
+            yield b"x"
+    c = _client(lambda req: httpx.Response(200, headers={"content-type": "text/plain"}, content=drip()))
+    t = time.monotonic()
+    with pytest.raises(LinkRefused, match="took longer than 0.3 s"):
+        read_link("https://wiki.example.com/design/slow.md", SITE, c)
+    assert time.monotonic() - t < 1.0
+
+
+def test_a_compressed_link_is_refused_past_1_mb_without_unpacking_it_all(monkeypatch):
+    """Phase 3 minor 2: a gzip or deflate body is unpacked at most 1 MB at a time and refused past 1 MB; another
+    encoding is refused; a small packed body reads as its text."""
+    import gzip
+    import zlib
+
+    real, sizes, asked = zlib.decompressobj, [], []
+
+    class Counted:
+        def __init__(self, *args):
+            self.d = real(*args)
+
+        def decompress(self, data, max_length=0):
+            out = self.d.decompress(data, max_length)
+            sizes.append(len(out))
+            return out
+
+        def __getattr__(self, name):
+            return getattr(self.d, name)
+    monkeypatch.setattr(zlib, "decompressobj", Counted)
+    raw = zlib.compressobj(wbits=-zlib.MAX_WBITS)
+    pages = {"/design/bomb": ("gzip", gzip.compress(b"\0" * 20_000_000)),
+             "/design/small": ("gzip", gzip.compress(b"Never drop a byte.")),
+             "/design/zipped": ("deflate", zlib.compress(b"Long writes are refused.")),
+             "/design/raw": ("deflate", raw.compress(b"Reads are short.") + raw.flush()),
+             "/design/brotli": ("br", b"\x0b\x02\x80hi\x03")}
+
+    def answer(req):
+        asked.append(req.headers.get("accept-encoding"))
+        enc, body = pages[req.url.path]
+        return httpx.Response(200, headers={"content-type": "text/plain", "content-encoding": enc}, stream=_Raw(body))
+    c = _client(answer)
+    assert read_link("https://wiki.example.com/design/small", SITE, c) == "Never drop a byte."
+    assert read_link("https://wiki.example.com/design/zipped", SITE, c) == "Long writes are refused."
+    assert read_link("https://wiki.example.com/design/raw", SITE, c) == "Reads are short."
+    sizes.clear()
+    with pytest.raises(LinkRefused, match="more than 1 MB"):
+        read_link("https://wiki.example.com/design/bomb", SITE, c)
+    assert sizes and max(sizes) <= MAX_LINK_BYTES + 1
+    with pytest.raises(LinkRefused, match="sent br-encoded; only gzip or deflate is read"):
+        read_link("https://wiki.example.com/design/brotli", SITE, c)
+    assert set(asked) == {"gzip, deflate"}
+
+
+def test_a_transport_failure_says_why():
+    """Phase 3 minor 9: a certificate the server doesn't trust, a site it can't reach and one too slow are each said
+    in words; the first names SSL_CERT_FILE, where its host can add the authority that signed it."""
+    def answer(req):
+        p = req.url.path
+        if p.endswith("/cert"):
+            raise httpx.ConnectError("[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local "
+                                     "issuer certificate (_ssl.c:1006)")
+        if p.endswith("/slow"):
+            raise httpx.ReadTimeout("The read operation timed out")
+        raise httpx.ConnectError("[Errno -2] Name or service not known")
+    c = _client(answer)
+    for path, said in [("cert", "certificate is not trusted by this server.*SSL_CERT_FILE"),
+                       ("slow", "took longer than 10 s"), ("down", "The site could not be reached")]:
+        with pytest.raises(LinkRefused, match=said):
+            read_link(f"https://wiki.example.com/design/{path}", SITE, c)
+
+
+def test_over_the_cap_the_message_names_the_longest_document():
+    """Phase 3 minor 8: over the cap, the message names the longest part (a document, or the notes) and its size, so
+    the owner knows what to shorten."""
+    docs = DesignContext(notes="x" * 3000, documents=[ContextDoc(name="Bus spec", text="y" * 8000),
+                                                      ContextDoc(name="d", text="z" * 1100)])
+    assert over_cap(docs) == (f"The design context is {len(context_text(docs)):,} characters; it holds at most 12,000. "
+                              "The longest part is the document Bus spec, at 8,000 characters.")
+    notes = DesignContext(notes="x" * 9000, documents=[ContextDoc(name="Bus spec", text="y" * 3100)])
+    assert over_cap(notes).endswith("The longest part is the notes, at 9,000 characters.")
