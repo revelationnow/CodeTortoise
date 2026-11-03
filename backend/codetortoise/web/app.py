@@ -16,6 +16,9 @@ from pydantic import BaseModel, Field
 
 from codetortoise import boardstore, filestore
 from codetortoise.config import program_settings
+from codetortoise.design_context import BLOB as CONTEXT_BLOB
+from codetortoise.design_context import CAP as CONTEXT_CAP
+from codetortoise.design_context import DesignContext, LinkRefused, context_text, load_context, over_cap, read_link
 from codetortoise.health import HealthReport
 from codetortoise.impact import ImpactModel, Node
 from codetortoise.init_config import scan
@@ -52,6 +55,7 @@ class ReviewIn(BaseModel):
     workspace_id: int | None = None  # may be left out on a server of one workspace
     cls: list[int] = Field(min_length=1)
     title: str | None = None
+    design_context: str | None = Field(default=None, max_length=CONTEXT_CAP)   # notes for the design (spec 2026-11-02 §8)
 
 
 class FindingStateIn(BaseModel):
@@ -358,6 +362,8 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
             ready(o.ws, wait=False)
             title = body.title or "CLs " + ", ".join(str(c) for c in sorted(set(body.cls)))
             rid = store.create_review(title, o.user, body.cls, workspace_id=o.ws.id)
+            if body.design_context and body.design_context.strip():
+                store.put_blob(rid, CONTEXT_BLOB, DesignContext(notes=body.design_context.strip()).model_dump())
             o.ws.runner.submit_review(rid)
         return store.get_review(rid)
 
@@ -377,6 +383,37 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
             ready(a.ws, wait=False)
             a.ws.runner.submit_review(rid, fresh=fresh)
         return {"queued": True}
+
+    @app.get("/api/reviews/{rid}/design-context")
+    def get_design_context(rid: int, a: Access = Depends(in_review)):
+        """The review's design context (spec 2026-11-02 §8), the characters the prompts read of it, its cap, and whether
+        this server reads links (its host lists sites in server.design_links)."""
+        c = load_context(store, rid)
+        return {"context": c, "chars": len(context_text(c)), "cap": CONTEXT_CAP, "links": bool(reg.base.server.design_links)}
+
+    @app.put("/api/reviews/{rid}/design-context", status_code=202)
+    def put_design_context(rid: int, body: DesignContext, request: Request, a: Access = Depends(owner_in_review)):
+        """Save the review's design context and re-run its design stage alone (§8, §11). A document given as a link with
+        no text yet is read now, once, and only from a site the host lists; refused while its workspace isn't ready."""
+        sites = list(reg.base.server.design_links)
+        docs = []
+        for d in body.documents:
+            if d.url and not d.text.strip():
+                try:
+                    d = d.model_copy(update={"text": read_link(d.url, sites)})
+                except LinkRefused as e:
+                    raise HTTPException(422, f"{d.name}: {e}") from e
+            docs.append(d)
+        c = body.model_copy(update={"documents": docs})
+        if (why := over_cap(c)) is not None:
+            raise HTTPException(422, why)
+        reg.settle(a.ws)                             # waited for without its guard, as a re-run is
+        with reg.guard(a.ws.id):
+            a = owner_in_review(in_review(rid, request))     # as it is now: still its owner
+            ready(a.ws, wait=False)
+            store.put_blob(rid, CONTEXT_BLOB, c.model_dump())
+            a.ws.runner.submit_design(rid)
+        return {"queued": True, "chars": len(context_text(c))}
 
     @app.get("/api/reviews/{rid}/events")
     async def events(rid: int, request: Request, a: Access = Depends(in_review)):
