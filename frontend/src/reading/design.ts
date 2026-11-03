@@ -52,9 +52,12 @@ export function conditionTitle(g: Pick<Gate, "false_case" | "test" | "runs">): s
   return `${g.false_case || `When \`${g.test.replaceAll("`", "'")}\` is false`} · ${n} change${n === 1 ? "" : "s"} still run${n === 1 ? "s" : ""}`;
 }
 
-/** The fold's lines: those that still run when the condition is false, then those that don't. */
-export function gateGroups(g: Pick<Gate, "lines">): { runs: GatedLine[]; stops: GatedLine[] } {
-  return { runs: g.lines.filter((l) => l.runs), stops: g.lines.filter((l) => !l.runs) };
+/** The fold's lines: those that still run when the condition is false, then those that don't, and how many of each the
+ * server's list leaves out (it stops at 200 lines; the title and the counts take them all). */
+export function gateGroups(g: Pick<Gate, "lines" | "runs" | "stops">):
+    { runs: GatedLine[]; stops: GatedLine[]; more: { runs: number; stops: number } } {
+  const runs = g.lines.filter((l) => l.runs), stops = g.lines.filter((l) => !l.runs);
+  return { runs, stops, more: { runs: Math.max(0, g.runs - runs.length), stops: Math.max(0, g.stops - stops.length) } };
 }
 
 /** The verdict's chips (spec 2026-11-02 §3.1): the causes it names that the review has, in its order. */

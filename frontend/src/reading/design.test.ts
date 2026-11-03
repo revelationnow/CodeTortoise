@@ -55,7 +55,15 @@ describe("the condition fold (§7)", () => {
       .toBe("Writes that fit (64 bytes or less) · 1 change still runs");
     expect(conditionTitle({ false_case: "", test: "a `b`", runs: 0 })).toBe("When `a 'b'` is false · 0 changes still run");
     const runs = [line(true, { line: 14 }), line(true, { line: 22 })], stops = [line(false, { line: 17 })];
-    expect(gateGroups(gate({ lines: [runs[0], stops[0], runs[1]] }))).toEqual({ runs, stops });
+    expect(gateGroups(gate({ lines: [runs[0], stops[0], runs[1]], runs: 2, stops: 1 })))
+      .toEqual({ runs, stops, more: { runs: 0, stops: 0 } });
+  });
+
+  it("says how many lines a list cut at the server's limit leaves out, as the title counts them all", () => {
+    const runs = [line(true, { line: 14 })], stops = [line(false, { line: 17 })];
+    expect(gateGroups(gate({ lines: [runs[0], stops[0]], runs: 341, stops: 60 })))
+      .toEqual({ runs, stops, more: { runs: 340, stops: 59 } });
+    expect(gateGroups(gate({ lines: [stops[0]], runs: 0, stops: 0 })).more).toEqual({ runs: 0, stops: 0 });   // never below 0
   });
 });
 

@@ -234,9 +234,10 @@ function WhereItSits({ d, r }: { d: ReadingDesign; r: Reading }) {
 }
 
 /** The condition fold's lines (§7): those that still run when the condition is false, then those that stop, each with its
- * story, its code and where it is. */
+ * story, its code and where it is. Each heading counts every such line, as the title does; a list the server cut says
+ * how many it leaves out. */
 function ConditionLines({ g }: { g: Gate }) {
-  const ws = useWs(), { runs, stops } = gateGroups(g), titles = new Map((ws.data.stories?.stories ?? []).map((st) => [st.id, st.title]));
+  const ws = useWs(), { runs, stops, more } = gateGroups(g), titles = new Map((ws.data.stories?.stories ?? []).map((st) => [st.id, st.title]));
   const row = (l: GatedLine, i: number) => {
     const title = l.story ? titles.get(l.story) ?? l.story : "";
     return (
@@ -251,8 +252,10 @@ function ConditionLines({ g }: { g: Gate }) {
   };
   return <>
     <p className="muted">The condition is <code>{g.test}</code>, in {g.path}{g.line ? `:${g.line}` : ""}.</p>
-    {runs.length > 0 && <><h3>Still runs ({runs.length})</h3><ul className="ov-lines dz-gated">{runs.map(row)}</ul></>}
-    {stops.length > 0 && <><h3>Stops ({stops.length})</h3><ul className="ov-lines dz-gated">{stops.map(row)}</ul></>}
+    {runs.length + more.runs > 0 && <><h3>Still runs ({runs.length + more.runs})</h3>
+      <ul className="ov-lines dz-gated">{runs.map(row)}{more.runs > 0 && <li className="muted">and {more.runs} more, not listed</li>}</ul></>}
+    {stops.length + more.stops > 0 && <><h3>Stops ({stops.length + more.stops})</h3>
+      <ul className="ov-lines dz-gated">{stops.map(row)}{more.stops > 0 && <li className="muted">and {more.stops} more, not listed</li>}</ul></>}
   </>;
 }
 
