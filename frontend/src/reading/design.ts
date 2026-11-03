@@ -101,10 +101,14 @@ export const citeName = (d: Pick<ReadingDesign, "nodes">, cite: string): string 
 export const sourceLine = (d: Pick<ReadingDesign, "context_hash">): string =>
   d.context_hash ? "AI, from the stories and the design context" : "AI, from the stories";
 
-/** A part's source line (§3.1 item 2): where the AI's words come from, and "pinned" when the review's owner pinned
- * them (§10), so a re-run left them as they were. */
-export const partSource = (d: Pick<ReadingDesign, "context_hash" | "sources">, part: string): string =>
-  sourceLine(d) + (d.sources[part] === "pinned" ? " · pinned" : "");
+/** A part's source line (§3.1 item 2): where the AI's words come from; "pinned" when the review's owner pinned them
+ * (§10), so a re-run left them as they were; and who had them written again, with their instruction, so words a reader
+ * steered don't read as the AI's own. */
+export function partSource(d: Pick<ReadingDesign, "context_hash" | "sources" | "rewrites">, part: string): string {
+  const w = d.rewrites?.[part];
+  return sourceLine(d) + (d.sources[part] === "pinned" ? " · pinned" : "")
+    + (!w ? "" : w.instruction ? ` · rewritten as ${w.by} asked: “${w.instruction}”` : ` · rewritten at ${w.by}'s request`);
+}
 
 /** The AI menu's items for one part (§10, §12.3): Rewrite and Rewrite with an instruction… unless the part is pinned,
  * when `why` says so; Pin this text, or Unpin, for the review's owner alone. */

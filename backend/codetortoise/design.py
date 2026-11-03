@@ -106,6 +106,11 @@ class Gate(BaseModel):
     stops: int = 0                    # changed lines that don't
 
 
+class Rewrite(BaseModel):            # the AI menu (§10): who had a part written again, and their instruction
+    by: str
+    instruction: str = ""
+
+
 class ReadingDesign(BaseModel):
     verdict: str = ""
     verdict_causes: list[str] = Field(default_factory=list)
@@ -116,6 +121,7 @@ class ReadingDesign(BaseModel):
     walks: list[Walk] = Field(default_factory=list)
     nodes: dict[str, DesignNode] = Field(default_factory=dict)
     sources: dict[str, Literal["template", "llm", "pinned"]] = Field(default_factory=dict)   # per part
+    rewrites: dict[str, Rewrite] = Field(default_factory=dict)   # per part a reader had rewritten: the last such rewrite
     context_hash: str | None = None
     context_notes: list[str] = Field(default_factory=list)   # what the design context names that the code lacks (§8)
 

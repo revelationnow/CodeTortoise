@@ -111,6 +111,13 @@ describe("the AI menu (§10)", () => {
     expect(partSource({ ...d, context_hash: "0123456789ab" }, "concerns")).toBe("AI, from the stories and the design context");
   });
 
+  it("says who had a part rewritten, and their instruction, after where its words come from (final review I2)", () => {
+    const w = { ...d, rewrites: { verdict: { by: "bob", instruction: "Make it shorter" }, concerns: { by: "ann", instruction: "" } } };
+    expect(partSource(w, "verdict")).toBe("AI, from the stories · pinned · rewritten as bob asked: “Make it shorter”");
+    expect(partSource(w, "concerns")).toBe("AI, from the stories · rewritten at ann's request");
+    expect(partSource(w, "ownership")).toBe("AI, from the stories");
+  });
+
   it("offers a rewrite unless the part is pinned, and the pin to the review's owner alone", () => {
     expect(rewriteItems(d, "concerns", true)).toEqual({ rewrite: true, why: "", pin: "pin" });
     expect(rewriteItems(d, "verdict", true)).toEqual({ rewrite: false, why: "Pinned: unpin it to rewrite it", pin: "unpin" });

@@ -14,7 +14,7 @@ import re
 
 from pydantic import BaseModel, Field
 
-from codetortoise.design import Concern, Ownership, ReadingDesign, WalkStep
+from codetortoise.design import Concern, Ownership, ReadingDesign, Rewrite, WalkStep
 from codetortoise.llm.client import LlmClient
 from codetortoise.llm.ledger import Ledger, Refused
 from codetortoise.llm.storyboard import _styled
@@ -287,7 +287,7 @@ def design_text(d: ReadingDesign) -> dict:
             "concerns": [c.model_dump() for c in d.concerns], "ownership": [o.model_dump() for o in d.ownership],
             "walks": {w.id: [w.title, w.lead] for w in d.walks if w.title_source == "llm"},
             "gates": {g.id: g.false_case for g in d.gates if d.sources.get(f"gate:{g.id}") == "llm"},
-            "sources": dict(d.sources)}
+            "sources": dict(d.sources), "rewrites": {p: w.model_dump() for p, w in d.rewrites.items()}}
 
 
 def apply_design_text(d: ReadingDesign, kept: dict) -> None:
@@ -302,6 +302,7 @@ def apply_design_text(d: ReadingDesign, kept: dict) -> None:
         if g.id in kept["gates"]:
             g.false_case = kept["gates"][g.id]
     d.sources.update(kept["sources"])
+    d.rewrites.update({p: Rewrite(**w) for p, w in kept.get("rewrites", {}).items()})   # none kept before records were
 
 
 def design_key(model: str, text: str) -> str:
@@ -355,9 +356,10 @@ def rewrite_part(strong: LlmClient, ledger: Ledger | None, rid: int | None, user
                  r: Reading, ss: StorySet, part: str, instruction: str = "", context: str = "",
                  weak: LlmClient | None = None) -> tuple[ReadingDesign | None, str]:
     """Ask for part `part` of `d` again (§10's AI menu), charged to `user` as a "rewrite", with their instruction when
-    given, through the tiers as the design call goes. Returns a copy of `d` with that part rewritten and marked the
-    model's (None: the answer, or any one row of it, failed the part's checks) and the model that answered; `d` is
-    left as it was. Raises Refused over a limit and TiersFailed when no model answered."""
+    given, through the tiers as the design call goes. Returns a copy of `d` with that part rewritten, marked the model's
+    and recorded as `user`'s rewrite with their instruction (None: the answer, or any one row of it, failed the part's
+    checks) and the model that answered; `d` is left as it was. Raises Refused over a limit and TiersFailed when no
+    model answered."""
     text = rewrite_prompt(d, r, ss, part, context, instruction)
 
     def ask(llm: LlmClient) -> _Out:
@@ -366,11 +368,17 @@ def rewrite_part(strong: LlmClient, ledger: Ledger | None, rid: int | None, user
     trial = d.model_copy(deep=True)
     trial.sources.pop(part, None)
     bad = apply_answer(trial, r, tried.value, only=part)      # one failing row fails the whole part (final review I1)
-    return (trial if not bad and trial.sources.get(part) == "llm" else None), tried.model
+    if bad or trial.sources.get(part) != "llm":
+        return None, tried.model
+    trial.rewrites.pop(part, None)
+    if user:                                                  # words a reader asked for say so (final review I2)
+        trial.rewrites[part] = Rewrite(by=user, instruction=instruction.strip())
+    return trial, tried.model
 
 
 def put_part(dst: ReadingDesign, src: ReadingDesign, part: str) -> None:
-    """Copy part `part` of `src` into `dst`, its source with it: a rewrite lands on the design as it is by then."""
+    """Copy part `part` of `src` into `dst`, its source and its rewrite's record with it: a rewrite lands on the design
+    as it is by then."""
     kind, _, pid = part.partition(":")
     if kind == "verdict":
         dst.verdict, dst.verdict_causes = src.verdict, list(src.verdict_causes)
@@ -385,12 +393,19 @@ def put_part(dst: ReadingDesign, src: ReadingDesign, part: str) -> None:
         a, b = (next(g for g in x.gates if g.id == pid) for x in (src, dst))
         b.false_case = a.false_case
     dst.sources[part] = src.sources[part]
+    if part in src.rewrites:
+        dst.rewrites[part] = src.rewrites[part].model_copy()
+    else:
+        dst.rewrites.pop(part, None)
 
 
 def patch_kept(kept: dict, d: ReadingDesign, part: str) -> dict:
     """Blob `design_text` with part `part` as `d` now has it: a later run of the same prompt keeps a rewrite."""
     now, (kind, _, pid) = design_text(d), part.partition(":")
-    out = {**kept, "sources": {**kept["sources"], part: "llm"}}
+    rewrites = {p: w for p, w in kept.get("rewrites", {}).items() if p != part}
+    if part in now["rewrites"]:
+        rewrites[part] = now["rewrites"][part]
+    out = {**kept, "sources": {**kept["sources"], part: "llm"}, "rewrites": rewrites}
     if kind == "verdict":
         out["verdict"], out["verdict_causes"] = now["verdict"], now["verdict_causes"]
     elif kind in ("concerns", "ownership"):

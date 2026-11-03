@@ -141,3 +141,24 @@ def test_a_rewrite_outlives_a_re_run_of_the_same_change_and_a_pin_outlives_a_new
     d = _design(owner, rid)                                         # the design stage ran again, on a new prompt
     assert sum("CHECKS BY CAUSE (id" in p for p in llm.prompts) == asked + 1
     assert (d["verdict"], d["sources"]["verdict"]) == (SHORT, "pinned") and d["context_hash"]
+
+
+def test_a_rewrite_says_who_asked_and_how_for_everyone_through_a_re_run_and_a_pin(made):
+    """Final review I2: the design says who had a part rewritten and their instruction; a re-run of the same prompt and a
+    pin keep that with the words, and the model's fresh words on a new prompt carry none."""
+    from codetortoise.pipeline import run_review
+    svc, app, owner, rid, _ = made
+    bob = login(app, "bob")
+    assert _design(owner, rid)["rewrites"] == {}
+    bob.post(f"/api/reviews/{rid}/design/verdict/rewrite", json={"instruction": "  Make it shorter "})
+    steered = {"verdict": {"by": "bob", "instruction": "Make it shorter"}}
+    assert _design(owner, rid)["rewrites"] == steered
+    walk = _design(owner, rid)["walks"][0]["id"]
+    owner.post(f"/api/reviews/{rid}/design/walk:{walk}/rewrite", json={})
+    assert _job(owner, rid)["status"] == "done"
+    run_review(rid, svc)                                            # the same prompt: the kept text, with its records
+    assert _design(owner, rid)["rewrites"] == {**steered, f"walk:{walk}": {"by": "owner", "instruction": ""}}
+    owner.post(f"/api/reviews/{rid}/design/verdict/pin", json={"pinned": True})
+    owner.put(f"/api/reviews/{rid}/design-context", json={"notes": "Never drop a byte."})
+    d = _design(owner, rid)                                         # a new prompt: the walk-through's words are fresh
+    assert (d["sources"]["verdict"], d["rewrites"]) == ("pinned", steered)

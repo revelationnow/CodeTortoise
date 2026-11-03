@@ -79,3 +79,20 @@ def test_a_pin_that_no_longer_fits_is_dropped_with_a_note(demo, written):
                                     "a pinned walk-through title no longer fits the change and was unpinned",
                                     "a pinned condition name no longer fits the change and was unpinned"]
     assert (fresh.verdict, fresh.concerns, fresh.ownership, fresh.sources) == ("", [], [], {})
+
+
+def test_a_pin_keeps_who_had_its_words_rewritten_and_puts_that_back_where_the_part_is_now(demo, written):
+    """Final review I2: the record of a reader's rewrite goes with the pinned words, to the walk-through's id now; a pin
+    without one leaves its part without one."""
+    from codetortoise.design import Rewrite
+    titles = story_titles(demo.ss)
+    written.rewrites = {"walk:W1": Rewrite(by="bob", instruction="Name the 64-byte limit"), "verdict": Rewrite(by="alice")}
+    pins = [pin_of(written, p, titles) for p in ("walk:W1", "verdict", "gate:G1")]
+    fresh = _rules(demo)
+    fresh.walks.reverse()                                            # listed in another order: W1 is W4 now
+    for i, w in enumerate(fresh.walks, 1):
+        w.id = f"W{i}"
+    fresh.rewrites = {"gate:G1": Rewrite(by="carol")}                # a record the pinned words don't carry
+    assert apply_pins(fresh, demo.r, titles, pins) == (pins, [])
+    assert fresh.rewrites == {"walk:W4": Rewrite(by="bob", instruction="Name the 64-byte limit"),
+                              "verdict": Rewrite(by="alice")}

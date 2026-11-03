@@ -176,8 +176,11 @@ export interface Concern {
   text: string; how: string; stories: string[]; assessment: "right" | "note" | "confirm" | "ask"; note: string; causes: string[];
 }
 export interface Ownership { tag: "right" | "questionable" | "shortfall" | "note"; text: string; cites: string[] }
+/** Who had a part of the design overview written again with the AI menu (spec 2026-11-02 §10), and their instruction. */
+export interface PartRewrite { by: string; instruction: string }
 export interface ReadingDesign {
   verdict: string; verdict_causes: string[]; components: Component[]; concerns: Concern[]; ownership: Ownership[]; gates: Gate[];
   walks: Walk[]; nodes: Record<string, DesignNode>; sources: Record<string, "template" | "llm" | "pinned">; context_hash: string | null;
   context_notes: string[];   // what the design context names that the code lacks (spec 2026-11-02 §8)
+  rewrites?: Record<string, PartRewrite>;   // per part a reader had rewritten; absent from a design stored before there were any
 }

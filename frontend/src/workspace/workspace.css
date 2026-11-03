@@ -939,7 +939,7 @@ a.ws-chip { text-decoration: none; }
    the design right?; the tags right, note and shortfall join the check kinds */
 .ov3 .dz-verdict { margin: 10px 0 0; }
 .ov3 .dz-verdict > p.ai-text { margin: 0; font-size: 15px; line-height: 1.6; }
-.dz-src { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+.dz-src { margin: 4px 0 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }   /* a reader's instruction may be long */
 /* a part's source line and its Rewrite ▾ (spec 2026-11-02 §12.3): the menu sits at the row's end and opens leftward,
    so it stays on a phone's screen */
 .dz-srcrow { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 4px 0 0; }

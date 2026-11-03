@@ -5,6 +5,9 @@ import { login, reviewMenu, sideways, startReview, STRONG, test } from "./helper
 // and a walk-through's title as "A long write, told again".
 const SHORT = "One new result goes unchecked. Settle whether logger_flush must handle the new -2.";
 
+// the source line of words a reader steered says so (final review I2); e2e's reader signs in as "demo"
+const STEERED = "rewritten as demo asked: “Make it shorter”";
+
 const verdictRow = (page: Page) => page.locator(".ov-top .dz-verdict");
 
 /** Opens the Rewrite ▾ menu inside `at` (the verdict's row by default) and returns it. */
@@ -24,6 +27,7 @@ async function shorter(page: Page) {
   await v.getByRole("button", { name: "Ask" }).click();
   await expect(v.locator("p.ai-text")).toHaveText(`Written by AI. ${SHORT}`, { timeout: 30_000 });
   await expect(box).toHaveCount(0);
+  await expect(v.locator(".dz-src")).toHaveText(`AI, from the stories · ${STEERED}`);
 }
 
 test.describe("the design overview's AI menu", () => {
@@ -36,7 +40,7 @@ test.describe("the design overview's AI menu", () => {
     page.once("dialog", (d) => d.accept());
     await (await rewriteMenu(page)).getByRole("menuitem", { name: "Rewrite", exact: true }).click();
     await expect(v.locator("p.ai-text")).toContainText("The change holds together once more", { timeout: 30_000 });
-    await expect(v.locator(".dz-src")).toHaveText("AI, from the stories");
+    await expect(v.locator(".dz-src")).toHaveText("AI, from the stories · rewritten at demo's request");
   });
 
   test("a rewrite with an instruction puts the reader's words to the model", async ({ page }) => {
@@ -49,13 +53,14 @@ test.describe("the design overview's AI menu", () => {
     const v = verdictRow(page);
     await shorter(page);
     await (await rewriteMenu(page)).getByRole("menuitem", { name: "Pin this text" }).click();
-    await expect(v.locator(".dz-src")).toHaveText("AI, from the stories · pinned");
+    await expect(v.locator(".dz-src")).toHaveText(`AI, from the stories · pinned · ${STEERED}`);
     // a design context runs the design stage again; its fresh verdict would say it read the context
     await (await reviewMenu(page)).getByRole("menuitem", { name: "Design context…" }).click();
     const panel = page.getByRole("dialog", { name: "Design context" });
     await panel.getByLabel("Notes").fill("The UART must never drop a byte.");
     await panel.getByRole("button", { name: "Save" }).click();
-    await expect(v.locator(".dz-src")).toHaveText("AI, from the stories and the design context · pinned", { timeout: 30_000 });
+    await expect(v.locator(".dz-src")).toHaveText(`AI, from the stories and the design context · pinned · ${STEERED}`,
+                                                  { timeout: 30_000 });
     await expect(v.locator("p.ai-text")).toHaveText(`Written by AI. ${SHORT}`);
     await page.keyboard.press("Escape");
     const menu = await rewriteMenu(page);
@@ -81,6 +86,7 @@ test.describe("the design overview's AI menu", () => {
     page.once("dialog", (d) => d.accept());
     await (await rewriteMenu(page, head)).getByRole("menuitem", { name: "Rewrite", exact: true }).click();
     await expect(head.getByRole("heading", { level: 2 })).toContainText("A long write, told again", { timeout: 30_000 });
+    await expect(head.locator(".dz-src")).toHaveText("AI, from the stories · rewritten at demo's request");
   });
 });
 

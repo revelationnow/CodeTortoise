@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, Field
 
-from codetortoise.design import Concern, Gate, Ownership, ReadingDesign, Walk
+from codetortoise.design import Concern, Gate, Ownership, ReadingDesign, Rewrite, Walk
 from codetortoise.reading import Reading
 
 BLOB = "design_pins"
@@ -33,6 +33,7 @@ class Pin(BaseModel):
     false_case: str = ""
     nodes: dict[str, str] = Field(default_factory=dict)     # each function or field it cites: its name, by id
     stories: dict[str, str] = Field(default_factory=dict)   # each story it cites: its title, by id
+    rewrite: Rewrite | None = None     # the reader who had these words written, and their instruction (final review I2)
 
 
 def _label(d: ReadingDesign, nid: str) -> str:
@@ -58,7 +59,15 @@ def story_titles(ss) -> dict[str, str]:
 
 
 def pin_of(d: ReadingDesign, part: str, titles: dict[str, str]) -> Pin:
-    """Part `part` of `d` as a pin: its words, and the names of what it cites. `titles`: the stories' titles by id."""
+    """Part `part` of `d` as a pin: its words, the names of what it cites, and who had them rewritten. `titles`: the
+    stories' titles by id."""
+    p = _words(d, part, titles)
+    w = d.rewrites.get(part)
+    p.rewrite = w.model_copy() if w is not None else None
+    return p
+
+
+def _words(d: ReadingDesign, part: str, titles: dict[str, str]) -> Pin:
     kind, _, pid = part.partition(":")
     if kind == "verdict":
         return Pin(part=kind, verdict=d.verdict, verdict_causes=list(d.verdict_causes))
@@ -97,43 +106,43 @@ class _Now:
         return c if c in self.files else None
 
 
-def _put(d: ReadingDesign, p: Pin, now: _Now) -> bool:
-    """Put pin `p` into `d` when it fits; whether it did."""
+def _put(d: ReadingDesign, p: Pin, now: _Now) -> str | None:
+    """Put pin `p` into `d` when it fits; the part it filled (None: it doesn't fit)."""
     if p.part == "verdict":
         if not set(p.verdict_causes) <= now.causes:
-            return False
+            return None
         d.verdict, d.verdict_causes, d.sources["verdict"] = p.verdict, list(p.verdict_causes), "pinned"
-        return True
+        return "verdict"
     if p.part == "concerns":
         if any(now.cite(p, s) is None for c in p.concerns for s in c.stories) or \
                 any(x not in now.causes for c in p.concerns for x in c.causes):
-            return False
+            return None
         d.concerns, d.sources["concerns"] = [c.model_copy(deep=True) for c in p.concerns], "pinned"
-        return True
+        return "concerns"
     if p.part == "ownership":
         lines = [o.model_copy(update={"cites": [now.cite(p, c) for c in o.cites]}) for o in p.ownership]
         if any(c is None for o in lines for c in o.cites):
-            return False
+            return None
         d.ownership, d.sources["ownership"] = lines, "pinned"
-        return True
+        return "ownership"
     if p.part == "walk":
         w = next((w for w in d.walks if walk_key(d, w) == p.key), None)
         if w is None:
-            return False
+            return None
         w.title, w.lead, w.title_source, d.sources[f"walk:{w.id}"] = p.title, p.lead, "llm", "pinned"
-        return True
+        return f"walk:{w.id}"
     g = next((g for g in d.gates if gate_key(d, g) == p.key), None)
     if g is None:
-        return False
+        return None
     g.false_case, d.sources[f"gate:{g.id}"] = p.false_case, "pinned"
-    return True
+    return f"gate:{g.id}"
 
 
 def apply_pins(d: ReadingDesign, r: Reading, titles: dict[str, str], pins: list[Pin]) -> tuple[list[Pin], list[str]]:
-    """Put each pin that still fits into `d`, its part marked pinned in `d.sources`; returns the pins that fit and a
-    note for each that no longer does. A pin fits while the review has every check it names, every story it cites under
-    the title it had, every function or field it cites under its name (by whatever id it has now) and every file it
-    cites, and, for a walk-through or a condition, one that is the same."""
+    """Put each pin that still fits into `d`, its part marked pinned in `d.sources` and its rewrite's record, if any, in
+    `d.rewrites`; returns the pins that fit and a note for each that no longer does. A pin fits while the review has
+    every check it names, every story it cites under the title it had, every function or field it cites under its name
+    (by whatever id it has now) and every file it cites, and, for a walk-through or a condition, one that is the same."""
     named: dict[str, list[str]] = {}
     for nid, n in d.nodes.items():
         named.setdefault(n.label, []).append(nid)
@@ -142,10 +151,15 @@ def apply_pins(d: ReadingDesign, r: Reading, titles: dict[str, str], pins: list[
     kept: list[Pin] = []
     notes: list[str] = []
     for p in pins:
-        if _put(d, p, now):
-            kept.append(p)
-        else:
+        part = _put(d, p, now)
+        if part is None:
             notes.append(_DROPPED[p.part])
+            continue
+        kept.append(p)
+        if p.rewrite is not None:                             # the pinned words' own record, or none
+            d.rewrites[part] = p.rewrite.model_copy()
+        else:
+            d.rewrites.pop(part, None)
     return kept, notes
 
 
