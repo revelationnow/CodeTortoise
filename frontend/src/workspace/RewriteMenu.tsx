@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { api, ApiError, errorText } from "../api";
 import { useAi } from "../lib/ai";
 import { callTitle, jobFor } from "../lib/aiState";
@@ -15,8 +15,9 @@ const MAX_INSTRUCTION = 300;                     // as the server takes it
  * Rewrite asks the strong model for the part again, after a confirmation; Rewrite with an instruction… opens a box whose
  * words go into the prompt (Ask sends them, Ctrl+Enter too; Escape shuts it). The review's owner pins the words, so later
  * runs of the design stage keep them, or unpins them. A rewrite is one AI call, shown to everyone once it lands; a pinned
- * part is not rewritten, and says why in words: in the owner's menu, and beside a shut Rewrite ▾ for anyone else. A refusal
- * or a failure shows beside the menu. */
+ * part is not rewritten, and says why in words: in the owner's menu, and beside a shut Rewrite ▾ for anyone else. In the
+ * menu its Rewrite items stay where the keyboard reaches them, shut (aria-disabled) and described by that reason, so a
+ * keyboard or screen reader hears why (final review minor 9). A refusal or a failure shows beside the menu. */
 export default function RewriteMenu({ part, what }: { part: string; what: string }) {
   const ai = useAi(), ws = useWs(), me = useViewer();
   const [open, setOpen] = useState(false);
@@ -24,6 +25,7 @@ export default function RewriteMenu({ part, what }: { part: string; what: string
   const [words, setWords] = useState("");
   const [error, setError] = useState<{ text: string; refused: boolean } | null>(null);
   const { button, menu } = useMenu<HTMLSpanElement>(open, () => setOpen(false));
+  const why = useId();                           // the reason a part can't be rewritten, which describes what it shuts
   const d = ws.data.reading?.design;
   if (!ai?.view?.strong || !d) return null;
   const view = ai.view, items = rewriteItems(d, part, !!me?.is_owner);
@@ -53,27 +55,31 @@ export default function RewriteMenu({ part, what }: { part: string; what: string
     <span className="ai-ask dz-rewrite" title="" onClick={(e) => e.stopPropagation()}>
       <span className="ai-menuwrap">
         <button ref={button} className="ai-btn" aria-haspopup="menu" aria-expanded={open} disabled={barred}
+                aria-describedby={barred ? why : undefined}
                 title={barred ? items.why : `Ask the AI to write the ${what} again`} onClick={() => setOpen(!open)}>
           {running ? "Rewriting…" : "Rewrite"}<span aria-hidden> ▾</span></button>
         {open && (
           <span className="ai-menu" role="menu" aria-label="Rewrite" ref={menu}>
-            <button role="menuitem" disabled={running || !items.rewrite} title={items.why || callTitle(view)}
+            <button role="menuitem" disabled={running} aria-disabled={!items.rewrite || undefined}
+                    aria-describedby={items.why ? why : undefined} title={items.why || callTitle(view)}
                     onClick={() => {
+                      if (!items.rewrite) return;
                       setOpen(false);
                       button.current?.focus();
                       if (window.confirm(`Replace the ${what}? It costs 1 AI call.`)) rewrite("");
                     }}>Rewrite</button>
-            <button role="menuitem" disabled={running || !items.rewrite} title={items.why || callTitle(view)}
-                    onClick={() => { setOpen(false); setAsking(true); }}>Rewrite with an instruction…</button>
+            <button role="menuitem" disabled={running} aria-disabled={!items.rewrite || undefined}
+                    aria-describedby={items.why ? why : undefined} title={items.why || callTitle(view)}
+                    onClick={() => { if (items.rewrite) { setOpen(false); setAsking(true); } }}>Rewrite with an instruction…</button>
             {items.pin && (
               <button role="menuitem" disabled={running} onClick={() => pin(items.pin === "pin")}>
                 {items.pin === "pin" ? "Pin this text" : "Unpin"}</button>
             )}
-            {items.why && <span role="none" className="ai-why">{items.why}</span>}{/* why Rewrite is shut, said (phase 4 M7) */}
+            {items.why && <span role="none" className="ai-why" id={why}>{items.why}</span>}{/* why Rewrite is shut, said (phase 4 M7) */}
           </span>
         )}
       </span>
-      {barred && <span className="ai-why">{items.why}</span>}
+      {barred && <span className="ai-why" id={why}>{items.why}</span>}
       {asking && (
         <span className="ai-askq">
           <textarea aria-label="How should the AI rewrite it?" rows={2} value={words} autoFocus maxLength={MAX_INSTRUCTION}

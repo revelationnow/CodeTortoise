@@ -120,6 +120,54 @@ test.describe("the AI menu says why and keeps focus (phase 4 M6, M7, M8)", () =>
     await context.close();
   });
 
+  test("on a pinned part the menu's shut items take focus and say why, and Rewrite works again once unpinned (final review minor 9)",
+       async ({ page, browser }) => {
+    const base = await startReview(page);
+    const v = verdictRow(page), button = v.getByRole("button", { name: "Rewrite", exact: true });
+    await (await rewriteMenu(page)).getByRole("menuitem", { name: "Pin this text" }).click();
+    await expect(v.locator(".dz-src")).toHaveText("AI, from the stories · pinned");
+    let asked = 0, dialogs = 0;
+    page.on("request", (r) => { if (r.url().endsWith("/design/verdict/rewrite")) asked += 1; });
+    page.on("dialog", (d) => { dialogs += 1; void d.dismiss(); });
+    await button.focus();
+    await page.keyboard.press("Enter");
+    const menu = v.getByRole("menu", { name: "Rewrite" });
+    const again = menu.getByRole("menuitem", { name: "Rewrite", exact: true });
+    const instructed = menu.getByRole("menuitem", { name: "Rewrite with an instruction…" });
+    await expect(again).toBeFocused();
+    for (const item of [again, instructed]) {
+      await expect(item).toHaveAttribute("aria-disabled", "true");
+      await expect(item).toHaveAccessibleDescription("Pinned: unpin it to rewrite it");
+      await expect(item).toHaveCSS("opacity", "0.5");                    // and looks shut
+    }
+    await page.keyboard.press("Enter");                                   // shut: nothing happens, the menu stays
+    await page.keyboard.press("ArrowDown");
+    await expect(instructed).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(v.getByLabel("How should the AI rewrite it?")).toHaveCount(0);
+    await page.keyboard.press("ArrowDown");
+    await expect(menu.getByRole("menuitem", { name: "Unpin" })).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(button).toBeFocused();
+    expect([dialogs, asked]).toEqual([0, 0]);
+    const context = await browser.newContext({ baseURL: STRONG, viewport: { width: 1440, height: 900 } });
+    const other = await context.newPage();
+    await login(other, "bob");
+    await other.goto(base);
+    await expect(verdictRow(other).getByRole("button", { name: "Rewrite", exact: true }))
+      .toHaveAccessibleDescription("Pinned by the review's owner");
+    await context.close();
+    await (await rewriteMenu(page)).getByRole("menuitem", { name: "Unpin" }).click();
+    await expect(v.locator(".dz-src")).toHaveText("AI, from the stories");
+    await button.focus();
+    await page.keyboard.press("Enter");
+    await expect(again).toBeFocused();
+    await expect(again).not.toHaveAttribute("aria-disabled", "true");
+    await page.keyboard.press("Enter");                                   // the confirmation, dismissed: nothing is asked
+    await expect.poll(() => dialogs).toBe(1);
+    expect(asked).toBe(0);
+  });
+
   test("a refused rewrite says so and offers the owner Raise budget; a failed one shows its error", async ({ page }) => {
     await startReview(page);
     const v = verdictRow(page);
