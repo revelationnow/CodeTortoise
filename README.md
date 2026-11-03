@@ -35,6 +35,15 @@ the concerns it answers, each a link to its row. Each part is checked on its own
 concern that says to confirm or ask rests on a check the review already has, and a part that fails keeps its fixed text
 or is left out. None of it adds a check. A re-run of the same change reuses the answer.
 
+A review's owner can give it a **design context**: what the code can't say, such as what the change is for, the
+documents behind it (pasted, from a file, or a link), the conditions that matter (added or left out by hand) and a
+choice of components. It is entered in the review's ⋯ menu ("Design context…") or when starting the review, and
+saving it runs the design stage again on its own. The AI's opening and the design's parts read it; stories, flows and
+checks never do, so it can't change what is flagged. It holds at most 12 000 characters. The server reads a link only
+from the sites its host lists under `server.design_links` in tortoise.yaml (none by default), so a workspace owner can't
+make it fetch other addresses on its network; it follows no redirect and reads at most 1 MB of text, markdown or a web
+page.
+
 The web app is the system of record for review discussion. P4 Swarm is a side channel: CodeTortoise reads review state,
 can create a Swarm review for a shelved CL and posts a summary link.
 
@@ -182,6 +191,7 @@ server:
   # tls_cert: /etc/codetortoise/ct.pem   # both set: serve HTTPS directly (plain HTTP on a network address
   # tls_key: /etc/codetortoise/ct.key    #   is allowed but warned about at startup and in a banner)
   toolchain_folders: [/usr, /opt]   # the only folders a workspace added in the UI runs compilers and loads libclang from
+  # design_links: ["https://wiki.example.com/design/"]   # the only sites a design context's link is read from
 workspace:
   vcs: p4
   name: main                        # optional: its name in the app (default: the client's name; git: the root folder's name)
