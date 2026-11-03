@@ -137,3 +137,18 @@ def test_a_call_known_by_name_is_a_call_site_and_counted_once():
     assert prepare_facts(_Ctx(c), [f], t)[finding_key(f)].splitlines()[1:] == [
         "  drv/old.c:3 in old_user (N2): not updated: `b = 0;`",
         "  1 more caller(s) outside the parsed files, by name only: far"]
+
+
+def test_a_call_known_by_name_says_its_result_handling_was_not_parsed():
+    """Final review I1: tree-sitter knows a call by name only, never how it handles the result; the facts say so and
+    leave the line to the model, instead of calling the result used."""
+    c = _by_name(_world([("send", "s.c", ["a();"], ["a();", "return -2;"]), _same("loose", "a.c")],
+                        calls=[("loose", "send")]), {"loose"})
+    rows = prepare_facts(_Ctx(c), [_finding("contract", "send: new return value(s) -2", ["N1"])], {})
+    assert rows["contract|send: new return value(s) -2"].splitlines() == [
+        "callers of send (N1) and how each handles its result:",
+        "  a.c:3 in loose (N2): handling not parsed (call matched by name): `b = 0;`"]
+    rows = prepare_facts(_Ctx(c), [_finding("other_kind", "send: something", ["N1"])], {})
+    assert rows["other_kind|send: something"].splitlines() == [
+        "send (N1) changed its body; its callers:",
+        "  a.c:3 in loose (N2): result handling not parsed (call matched by name): `b = 0;`"]

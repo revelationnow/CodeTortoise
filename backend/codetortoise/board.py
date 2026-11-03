@@ -338,6 +338,7 @@ class _Ctx:
         # a call tree-sitter knows only by name ("name:foo") goes to the function the impact model's edge goes to
         self.calls_after = [e if (k := resolve(e.callee, e.file)) == e.callee else e.model_copy(update={"callee": k})
                             for fx in c.after for e in fx.calls]
+        self.sites = {(e.caller, e.callee) for e in self.calls_after}     # (caller key, callee key) of each call site
         self.fields_after = [a for fx in c.after for a in fx.fields]
         self.fields_before = [a for fx in c.before for a in fx.fields]
         self.finding_by = defaultdict(list)          # (kind, node id) -> finding ids
@@ -473,7 +474,10 @@ def build_impacts(x: _Ctx) -> list[Impact]:
                 if c.callee != node.key:
                     continue
                 caller = x.id_of.get(c.caller)
-                if not c.result_used:
+                if c.confidence == "heuristic":     # known by name (tree-sitter): what it does with the result is unknown
+                    add(caller, c.file, c.line, "info", "contract", "Contract",
+                        f"how it handles the result was not parsed (name match) — {name} can now return {vtext}", contract)
+                elif not c.result_used:
                     add(caller, c.file, c.line, "warn", "contract", "Contract", f"result ignored — {name} can now return {vtext}",
                         contract, landing=True)
                 elif c.compared and not _covered(c.compared, new_values):
@@ -491,8 +495,8 @@ def build_impacts(x: _Ctx) -> list[Impact]:
                 if c.callee == node.key:
                     add(x.id_of.get(c.caller), c.file, c.line, "warn", "signature", "Signature", text, contract,
                         landing=True)
-            for e in x.im.edges_into(nid, {"call"}):
-                if e.confidence == "heuristic" and e.file:
+            for e in x.im.edges_into(nid, {"call"}):     # a caller matched by name and not parsed as a call site
+                if e.confidence == "heuristic" and e.file and (x.im.nodes[e.src].key, node.key) not in x.sites:
                     add(e.src, e.file, e.line or 0, "info", "signature", "Signature", text + " (name match)", contract)
         # state: fields this function newly writes
         for field, accs in sorted(_new_writes(x, node.key).items()):

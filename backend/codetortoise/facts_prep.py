@@ -82,7 +82,8 @@ def returns_facts(x: _Ctx, nid: str, read: dict[str, str] | None = None) -> list
         caller = x.id_of.get(c.caller)
         text = _line(x, c.file, c.line, read)
         before_call = text.split(c.callee_name, 1)[0] if c.callee_name in text else ""
-        how = ("ignored" if not c.result_used
+        how = ("handling not parsed (call matched by name)" if c.confidence == "heuristic"
+               else "ignored" if not c.result_used
                else "compared with " + ", ".join(f"{c.compared_names[v]} ({v})" if v in c.compared_names else v
                                                  for v in c.compared) if c.compared
                else "propagated" if re.search(r"\breturn\b", before_call)
@@ -116,7 +117,8 @@ def behaviour_facts(x: _Ctx, nid: str, read: dict[str, str] | None = None) -> li
     rows = [f"{x.label(nid)} ({nid}) changed its body; its callers:"]
     for c in _call_sites(x, nid):
         caller = x.id_of.get(c.caller)
-        use = "result ignored" if not c.result_used else "result used"
+        use = ("result handling not parsed (call matched by name)" if c.confidence == "heuristic"
+               else "result ignored" if not c.result_used else "result used")
         rows.append(f"  {_rel(x, c.file)}:{c.line} in {x.label(caller) if caller else c.caller} ({caller or '-'}): {use}: "
                     f"`{_line(x, c.file, c.line, read)}`" + (" — changed in this change" if caller in x.changed else ""))
     return rows

@@ -410,3 +410,39 @@ def test_a_node_the_diff_map_thought_added_but_present_in_both_versions_is_modif
     assert _change_kind("changed", ch) == "modified"
     assert _change_kind("changed", ch.model_copy(update={"kind": "signature_changed"})) == "signature"
     assert _change_kind("added", None) == "added" and _change_kind("removed", ch) == "removed"
+
+
+def _gains(ts: bool):
+    """hal_write gains a return value (-2) and a new signature; old_user calls it and drops the result. With `ts`,
+    old_user was parsed by tree-sitter, which knows the call only by name and not how its result is handled."""
+    from test_stories import _by_name, _edit, _same, _world
+    c = _world([_edit("hal_write", "hal/regs.c"), _same("old_user", "drv/old.c")], calls=[("old_user", "hal_write")])
+    b = next(f for f in c.before[0].functions if f.name == "hal_write")
+    a = next(f for f in c.after[0].functions if f.name == "hal_write")
+    b.returns, a.returns, a.return_lines = ["0"], ["0", "-2"], {"0": a.start_line + 2, "-2": a.start_line + 3}
+    a.signature = "int hal_write(int n)"
+    call = c.after[0].calls[0]
+    for e in c.impact.edges:                        # as build_impact draws them: at the call's file and line
+        e.file, e.line = call.file, call.line
+    if not ts:
+        call.result_used = False
+        return c
+    return _by_name(c, {"old_user"})                 # the call keeps CallEdge's defaults: result used, compared with nothing
+
+
+def test_a_call_known_by_name_makes_no_claim_about_how_its_result_is_handled():
+    """Final review I1: tree-sitter never parses how a call handles its result, so a caller it parsed is told that much,
+    not that it uses the result without checking it; and its one call site gets one signature mark, not a second
+    "(name match)" one."""
+    from codetortoise.board import _Ctx, build_impacts
+
+    def marks(c):
+        x = _Ctx(c)
+        return sorted((i.line, i.severity, i.channel, i.text) for i in build_impacts(x) if x.label(i.node) == "old_user")
+
+    sig = "calls hal_write, whose signature changed: `void hal_write(void)` → `int hal_write(int n)`"
+    assert marks(_gains(ts=False)) == [(3, "warn", "contract", "result ignored — hal_write can now return -2"),
+                                       (3, "warn", "signature", sig)]
+    assert marks(_gains(ts=True)) == [
+        (3, "info", "contract", "how it handles the result was not parsed (name match) — hal_write can now return -2"),
+        (3, "warn", "signature", sig)]
