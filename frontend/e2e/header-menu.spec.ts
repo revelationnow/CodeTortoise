@@ -36,7 +36,7 @@ test("the header keeps one quiet row; the rest is in the review menu, which the 
   await expect(button.locator(".rm-dot")).toHaveCount(0);
   const menu = await reviewMenu(page);
   await expect(button).toHaveAttribute("aria-expanded", "true");
-  await expect(menu.getByRole("menuitem")).toHaveText([/^Stage notes · \d+$/, "How to read this page", "Re-run"]);
+  await expect(menu.getByRole("menuitem")).toHaveText([/^Stage notes · \d+$/, "How to read this page", "Design context…", "Re-run"]);
   await expect(menu.getByRole("menuitem").first()).toBeFocused();
   await page.keyboard.press("ArrowDown");
   await expect(menu.getByRole("menuitem", { name: "How to read this page" })).toBeFocused();
@@ -154,7 +154,7 @@ test("Single-key shortcuts is a checkbox item after the help, on at first; a pic
   const item = (menu: Locator) => menu.getByRole("menuitemcheckbox", { name: "Single-key shortcuts" });
   let menu = await reviewMenu(page);
   await expect(menu.locator('[role="menuitem"],[role="menuitemcheckbox"]'))
-    .toHaveText([/^Stage notes · \d+$/, "How to read this page", "Single-key shortcuts✓", "Re-run"]);
+    .toHaveText([/^Stage notes · \d+$/, "How to read this page", "Single-key shortcuts✓", "Design context…", "Re-run"]);
   await expect(item(menu)).toHaveAttribute("aria-checked", "true");
   await expect(item(menu).locator(".rm-check"), "a ✓ shows it is on, for the eye only").toHaveText("✓");
   await expect(item(menu).locator(".rm-check")).toHaveAttribute("aria-hidden", "true");
@@ -191,7 +191,7 @@ test("Single-key shortcuts is a checkbox item after the help, on at first; a pic
 test("the review menu's items look alike, plain or checkbox: a full-width row, tinted under the pointer and on the keyboard's focus only", async ({ page }) => {
   await startReview(page);
   const menu = await reviewMenu(page), items = menu.locator('[role="menuitem"],[role="menuitemcheckbox"]');
-  await expect(items).toHaveCount(4);                                       // Stage notes, How to read this page, Single-key shortcuts (the checkbox), Re-run
+  await expect(items).toHaveCount(5);    // Stage notes, How to read this page, Single-key shortcuts (the checkbox), Design context…, Re-run
   const clear = "rgba(0, 0, 0, 0)", tint = await page.evaluate(() => {      // --gap-bg as the browser resolves it
     const probe = document.createElement("div");
     probe.style.background = "var(--gap-bg)";
@@ -201,7 +201,7 @@ test("the review menu's items look alike, plain or checkbox: a full-width row, t
     return c;
   });
   expect(tint, "the tint is a colour").not.toBe(clear);
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 5; i++) {
     const item = items.nth(i);
     expect(await item.evaluate((el) => {
       const s = getComputedStyle(el);
@@ -214,7 +214,7 @@ test("the review menu's items look alike, plain or checkbox: a full-width row, t
     await expect(item, `item ${i} under the pointer`).toHaveCSS("background-color", tint);
   }
   await page.mouse.move(2, 2);                                              // off the menu: only the focus tints now
-  for (let i = 1; i < 4; i++) {
+  for (let i = 1; i < 5; i++) {
     await page.keyboard.press("ArrowDown");
     await expect(items.nth(i)).toBeFocused();
     await expect(items.nth(i), `item ${i} with the keyboard's focus`).toHaveCSS("background-color", tint);

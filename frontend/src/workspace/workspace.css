@@ -963,3 +963,19 @@ a.ws-chip { text-decoration: none; }
   .dz-table tr { padding: 8px 0; border-bottom: 1px solid var(--line); }
   .dz-table td { border: 0; padding: 2px 0; }
 }
+
+/* the design context panel (spec 2026-11-02 §8): an rm-panel with a form */
+.dc-panel label { display: block; margin: 8px 0 0; font-size: 13px; font-weight: 600; }
+.dc-panel textarea, .dc-panel input:not([type="file"]) { display: block; width: 100%; box-sizing: border-box; margin-top: 4px;
+  font: 13px var(--sans); }
+.dc-panel input[type="file"] { display: block; margin-top: 4px; max-width: 100%; }
+.dc-panel h3 { margin: 12px 0 0; font-size: 13px; }
+.dc-panel ul { margin: 4px 0 0; overflow-wrap: anywhere; }
+.dc-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+.dc-row label { flex: 1 1 160px; }
+.dc-notes li { color: var(--warn); }
+.dc-count { margin: 8px 0 0; color: var(--muted); }
+.dc-count.over { color: var(--bad); font-weight: 600; }
+.dc-acts { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
+.dc-read .dc-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.dc-read pre { white-space: pre-wrap; overflow-wrap: anywhere; }

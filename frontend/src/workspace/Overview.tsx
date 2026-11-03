@@ -8,7 +8,7 @@ import { setShowSinks, showSinks, sinkLine } from "../lib/sinks";
 import { openCount, shown } from "../reading/causes";
 import { letter } from "../reading/checks";
 import { alsoLine, blockLine, byModel, citeName, componentBands, concernWhere, conditionTitle, foldGate, gateGroups,
-  OWNER_TAG, ownershipTitle, showsWhere, verdictCauses } from "../reading/design";
+  OWNER_TAG, ownershipTitle, showsWhere, sourceLine, verdictCauses } from "../reading/design";
 import { cardText, foldTitles, overviewHeading, sectionConnections, startButton, testsLine, threadAction, threadCounts,
   type SectionLink } from "../reading/overview";
 import type { Gate, GatedLine, Reading, ReadingDesign, SinkHit, Thread } from "../reading/types";
@@ -128,15 +128,15 @@ function SinksLine({ hits }: { hits: SinkHit[] }) {
 }
 
 /** The verdict (spec 2026-11-02 §3.1): two or three sentences ending in what to settle, the checks it names as chips (a
- * chip opens its check, as chips do elsewhere), and where it comes from: the stories alone until a design context
- * comes (phase 3). */
+ * chip opens its check, as chips do elsewhere), and where it comes from: the stories, and the design context when the
+ * model read one. */
 function Verdict({ d, r }: { d: ReadingDesign; r: Reading }) {
   const ws = useWs();
   return (
     <div className="dz-verdict">
       <AiText><Ticks text={d.verdict} /></AiText>
       <Chips causes={shown(verdictCauses(d, r.causes), ws.hidden)} />
-      <p className="dz-src">AI, from the stories</p>
+      <p className="dz-src">{sourceLine(d)}</p>
     </div>
   );
 }
@@ -150,7 +150,7 @@ function Concerns({ d, r }: { d: ReadingDesign; r: Reading }) {
   return (
     <section className="dz-concerns" aria-labelledby="dz-concerns">
       <h2 id="dz-concerns">What it must get right</h2>
-      <p className="dz-src">AI, from the stories</p>
+      <p className="dz-src">{sourceLine(d)}</p>
       <AiText as="div" className="dz-table">
         <table>
           <thead><tr><th>Concern</th><th>How the change does it</th><th>Where</th><th>Assessment</th></tr></thead>

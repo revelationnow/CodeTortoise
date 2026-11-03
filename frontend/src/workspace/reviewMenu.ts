@@ -1,5 +1,5 @@
 /** The review header's ⋯ menu (spec 2026-10-25-review-ui-redesign §2.2): what moved out of the header row. */
-export type MenuId = "drift" | "notes" | "ai" | "help" | "keys" | "rerun" | "fresh";
+export type MenuId = "drift" | "notes" | "ai" | "help" | "keys" | "context" | "rerun" | "fresh";
 /** `checked` is set on a checkbox item (the single-key shortcuts switch), whether it is on; a plain item leaves it out. */
 export interface MenuItem { id: MenuId; label: string; checked?: boolean }
 export interface MenuState {
@@ -22,6 +22,7 @@ export function menuItems(m: MenuState): MenuItem[] {
   if (m.reading) {
     out.push({ id: "help", label: "How to read this page" });
     out.push({ id: "keys", label: "Single-key shortcuts", checked: m.keys });
+    out.push({ id: "context", label: "Design context…" });       // the owner edits it, anyone else reads it (spec 2026-11-02 §8)
   }
   if (m.owner && m.ready) out.push({ id: "rerun", label: "Re-run" });
   if (m.owner && m.ready && m.strong) out.push({ id: "fresh", label: "Re-run stories, fresh" });

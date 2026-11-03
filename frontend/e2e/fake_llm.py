@@ -114,18 +114,24 @@ LEADS = ["It follows a long write from `main` into `uart_send` and back.", "It f
          "It follows `uart_init` into the new `hal_write`."]
 
 
+FALSE_CASES = {"len > 64": "Writes that fit (64 bytes or less)", "reg == REG_CTRL": "Writes to any other register"}
+
+
 def design(user: str) -> dict:
     """The design overview's parts (spec 2026-11-02 §10): the verdict names the hazard, three concerns, three ownership
-    lines, a title and a lead for each walk-through and the condition's false case; every part passes its checks."""
+    lines, a title and a lead for each walk-through and each condition's false case; every part passes its checks. Its
+    verdict says when the prompt carries a design context (spec 2026-11-02 §8)."""
     causes = re.findall(r"^(c[0-9a-f]{10}) \| (\w+) \|", user, re.M)
     hazard = next((c for c, kind in causes if kind == "hazard"), causes[0][0] if causes else None)
     listed = re.findall(r"\b(S\d+) ", " ".join(re.findall(r"^  stories: (.*)$", user, re.M)))
     s1 = "S1" if "S1" in listed else listed[0] if listed else "S1"
     s2 = "S2" if "S2" in listed else s1
     path = "driver/uart.c" if "driver/uart.c" in user else s1
-    walks, gates = re.findall(r"^(W\d+) \| ", user, re.M), re.findall(r"^(G\d+) \| ", user, re.M)
-    return {"verdict": "The change holds together, but one new result goes unchecked. Settle whether `logger_flush` "
-                       "must handle the new -2.",
+    walks, gates = re.findall(r"^(W\d+) \| ", user, re.M), re.findall(r"^(G\d+) \| (.+?) \| ", user, re.M)
+    read = "DESIGN CONTEXT (from the review's owner):" in user
+    verdict = ("The change holds together against its design context, but one new result goes unchecked. "
+               if read else "The change holds together, but one new result goes unchecked. ")
+    return {"verdict": verdict + "Settle whether `logger_flush` must handle the new -2.",
             "verdict_causes": [hazard] if hazard else [],
             "concerns": [
                 {"text": "Senders learn when a write is too long",
@@ -144,7 +150,8 @@ def design(user: str) -> dict:
             "walks": [{"id": w, "title": TITLES[i] if i < len(TITLES) else f"Path {i + 1} through the change",
                        "lead": LEADS[i] if i < len(LEADS) else "It follows the call to where the change lands."}
                       for i, w in enumerate(walks)],
-            "conditions": [{"id": g, "false_case": "Writes that fit (64 bytes or less)"} for g in gates]}
+            "conditions": [{"id": g, "false_case": FALSE_CASES.get(test.strip(), "When the test does not hold")}
+                           for g, test in gates]}
 
 
 def answer(system: str, user: str) -> dict:

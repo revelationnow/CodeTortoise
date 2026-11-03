@@ -115,6 +115,7 @@ export default function Reviews() {
 function StartReview({ owned, only }: { owned: WorkspaceRow[] | null; only?: number }) {
   const [text, setText] = useState("");
   const [title, setTitle] = useState("");
+  const [context, setContext] = useState("");
   const [picked, setPicked] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -128,7 +129,7 @@ function StartReview({ owned, only }: { owned: WorkspaceRow[] | null; only?: num
     setBusy(true);
     setError(null);                                // a new attempt clears the last refusal, so a repeat is told again
     try {
-      const r = await api.createReview(cls, title.trim() || undefined, target);
+      const r = await api.createReview(cls, title.trim() || undefined, target, context.trim() || undefined);
       if (target !== undefined) savePref(keys.lastWorkspace, target);
       navigate(`/r/${r.id}`);
     } catch (err) {
@@ -155,6 +156,11 @@ function StartReview({ owned, only }: { owned: WorkspaceRow[] | null; only?: num
       </label>
       <div className="hint">{cls.length ? `Will analyse: ${cls.join(", ")}` : "Enter one or more CL numbers."}</div>
       <label>Title (optional)<input value={title} onChange={(e) => setTitle(e.target.value)} /></label>
+      <label>Design context (optional)
+        <textarea rows={3} value={context} onChange={(e) => setContext(e.target.value)}
+                  placeholder="What the change is for, and what the code can't say" />
+      </label>
+      <div className="hint">The AI's opening reads it; checks never do. More can be added later from the review's ⋯ menu.</div>
       {error && <div className="err" role="alert">{error}</div>}
       <button className="go" disabled={!cls.length || busy}>{busy ? "Starting…" : "Start review"}</button>
       <div className="hint">The board opens on its own when the analysis finishes.</div>

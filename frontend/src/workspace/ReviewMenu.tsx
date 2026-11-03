@@ -6,6 +6,7 @@ import { useAi } from "../lib/ai";
 import { holdsFocus } from "../lib/focus";
 import { useMenu } from "../lib/useMenu";
 import { useWs } from "./context";
+import DesignContextPanel from "./DesignContextPanel";
 import HowToRead from "./HowToRead";
 import { menuAttention, type MenuId, menuItems, type MenuState } from "./reviewMenu";
 import { setShortcutsOn, shortcutsOn } from "./shortcuts";
@@ -25,7 +26,7 @@ const said = (message: string) => (message.trim() ? `: ${message}` : "");
 export default function ReviewMenu({ under }: { under: () => number }) {
   const ws = useWs(), d = ws.data, me = useViewer(), ai = useAi();
   const [open, setOpen] = useState(false);
-  const [panel, setPanel] = useState<"drift" | "notes" | "help" | "rerun" | null>(null);
+  const [panel, setPanel] = useState<"drift" | "notes" | "help" | "rerun" | "context" | null>(null);
   const [failed, setFailed] = useState("");                  // why the last re-run did not start
   const [keysOn, setKeysOn] = useState(shortcutsOn);          // the single-key shortcuts switch, read again each time the menu opens
   const [top, setTop] = useState(56);
@@ -65,7 +66,7 @@ export default function ReviewMenu({ under }: { under: () => number }) {
   if (!items.length) return null;
   const pick = (id: MenuId) => {
     setOpen(false);
-    if (id === "drift" || id === "notes" || id === "help") { setPanel(id); return; }
+    if (id === "drift" || id === "notes" || id === "help" || id === "context") { setPanel(id); return; }
     button.current?.focus();
     if (id === "keys") { setShortcutsOn(!keysOn); setKeysOn(shortcutsOn()); }   // shows what the keys will do, which blocked storage keeps on
     else if (id === "ai") ai?.setUsageOpen(true);
@@ -116,6 +117,7 @@ export default function ReviewMenu({ under }: { under: () => number }) {
           </div>
         )}
         {panel === "help" && <HowToRead top={top} />}
+        {panel === "context" && <DesignContextPanel style={at} />}
       </div>
     </div>
   );
