@@ -3,6 +3,8 @@ import { login, reviewMenu, sideways, startReview, STRONG, test } from "./helper
 
 // e2e/serve-strong.sh's fake strong model (e2e/fake_llm.py) says in its verdict when the prompt carries a design context.
 const NOTES = "The UART must never drop a byte: a write that is too long is refused whole, and its sender is told.";
+// the specs type-check without Node's types (e2e/tsconfig.json); Node gives them Buffer when they run
+declare const Buffer: { from(text: string): unknown };
 
 async function openPanel(page: import("@playwright/test").Page) {
   await (await reviewMenu(page)).getByRole("menuitem", { name: "Design context…" }).click();
