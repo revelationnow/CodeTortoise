@@ -318,6 +318,21 @@ def test_a_rewritten_title_must_differ_from_the_others_and_an_answer_that_fails_
     assert gone is None
 
 
+def test_a_rewrite_whose_answer_fails_one_row_of_its_part_changes_nothing(demo, made):
+    """Final review I1: a concerns or ownership answer with one good row and one bad row is a failed rewrite, not a
+    part with the bad row left out."""
+    from scripted_llm import ScriptedLlm
+    _write(demo, made, GOOD)
+    bad_concern = {**GOOD["concerns"][1], "stories": ["S99"]}         # a story the review lacks
+    half, _ = dl.rewrite_part(ScriptedLlm(lambda s, u: _with(concerns=[GOOD["concerns"][0], bad_concern])), None, None,
+                              None, made, demo.r, demo.ss, "concerns")
+    assert half is None
+    bad_line = {**GOOD["ownership"][0], "cites": ["nowhere.c"]}       # cites nothing the review shows
+    half, _ = dl.rewrite_part(ScriptedLlm(lambda s, u: _with(ownership=[GOOD["ownership"][1], bad_line])), None, None,
+                              None, made, demo.r, demo.ss, "ownership")
+    assert half is None
+
+
 def test_a_rewrite_over_a_limit_is_refused_and_one_no_model_answers_raises(demo, made):
     from scripted_llm import ScriptedLlm
 

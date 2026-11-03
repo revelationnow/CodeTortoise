@@ -356,8 +356,8 @@ def rewrite_part(strong: LlmClient, ledger: Ledger | None, rid: int | None, user
                  weak: LlmClient | None = None) -> tuple[ReadingDesign | None, str]:
     """Ask for part `part` of `d` again (§10's AI menu), charged to `user` as a "rewrite", with their instruction when
     given, through the tiers as the design call goes. Returns a copy of `d` with that part rewritten and marked the
-    model's (None: the answer failed the part's checks) and the model that answered; `d` is left as it was. Raises
-    Refused over a limit and TiersFailed when no model answered."""
+    model's (None: the answer, or any one row of it, failed the part's checks) and the model that answered; `d` is
+    left as it was. Raises Refused over a limit and TiersFailed when no model answered."""
     text = rewrite_prompt(d, r, ss, part, context, instruction)
 
     def ask(llm: LlmClient) -> _Out:
@@ -365,8 +365,8 @@ def rewrite_part(strong: LlmClient, ledger: Ledger | None, rid: int | None, user
     tried = try_tiers(ledger, rid, "rewrite", part, ask, strong, weak, user=user)
     trial = d.model_copy(deep=True)
     trial.sources.pop(part, None)
-    apply_answer(trial, r, tried.value, only=part)
-    return (trial if trial.sources.get(part) == "llm" else None), tried.model
+    bad = apply_answer(trial, r, tried.value, only=part)      # one failing row fails the whole part (final review I1)
+    return (trial if not bad and trial.sources.get(part) == "llm" else None), tried.model
 
 
 def put_part(dst: ReadingDesign, src: ReadingDesign, part: str) -> None:
