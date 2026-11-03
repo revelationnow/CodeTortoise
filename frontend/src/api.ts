@@ -85,6 +85,15 @@ export interface Comment {
 export interface AiMeta { pending: boolean; round?: number; of?: number; read: string[]; files: string[]; calls: number; error: string | null }
 export type AiKind = "flow" | "finding" | "file" | "story";
 export interface AiJob { id: number; user: string; kind: string; target: string; status: "running" | "done" | "failed" | "refused"; error: string | null }
+/** A review's design context (spec 2026-11-02 §8): what the code can't say, as its owner gave it. */
+export interface ContextDoc { name: string; text: string; url: string | null }
+export interface HandCondition { test: string; function: string | null }
+export interface DesignContext {
+  notes: string; documents: ContextDoc[]; conditions: { add: HandCondition[]; remove: string[] };
+  components: { name: string; globs: string[] }[];
+}
+/** The context and what its panel needs: the characters the prompts read of it, the cap, whether this server reads links. */
+export interface DesignContextView { context: DesignContext; chars: number; cap: number; links: boolean }
 export interface AiCall { id: number; user: string; purpose: string; target: string | null; model: string | null;
   started_at: string; finished_at: string | null; prompt_tokens: number | null; completion_tokens: number | null;
   outcome: "ok" | "failed" | "refused" | "running" | null; error: string | null; requests: number }
@@ -157,11 +166,14 @@ export const api = {
   health: (wid: number) => call<Health>("GET", `/api/workspaces/${wid}/health`),
   rebuildIndex: (wid: number) => call("POST", `/api/workspaces/${wid}/index/rebuild`),
   reviews: () => call<ReviewRow[]>("GET", "/api/reviews"),
-  /** A review in workspace `workspace_id` (left out: the only workspace there is). */
-  createReview: (cls: number[], title?: string, workspace_id?: number) =>
-    call<ReviewRow>("POST", "/api/reviews", { workspace_id, cls, title }),
+  /** A review in workspace `workspace_id` (left out: the only workspace there is), with notes for its design. */
+  createReview: (cls: number[], title?: string, workspace_id?: number, design_context?: string) =>
+    call<ReviewRow>("POST", "/api/reviews", { workspace_id, cls, title, design_context }),
   review: (id: number) => call<ReviewDetail>("GET", `/api/reviews/${id}`),
   rerun: (id: number, fresh = false) => call("POST", `/api/reviews/${id}/rerun${fresh ? "?fresh=true" : ""}`),
+  designContext: (id: number) => call<DesignContextView>("GET", `/api/reviews/${id}/design-context`),
+  saveDesignContext: (id: number, c: DesignContext) =>
+    call<{ queued: boolean; chars: number }>("PUT", `/api/reviews/${id}/design-context`, c),
   board: (id: number, cluster?: string | null) =>
     call<Board>("GET", `/api/reviews/${id}/board${cluster ? `?${new URLSearchParams({ cluster })}` : ""}`)
       .then((b) => quietBoard(b, showSinks())),

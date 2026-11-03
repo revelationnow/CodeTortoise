@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { alsoLine, blockLine, byModel, citeName, componentBands, concernWhere, conditionTitle, foldGate, gateGroups,
-  OWNER_TAG, ownershipTitle, showsWhere, storyConcerns, verdictCauses } from "./design";
+  OWNER_TAG, ownershipTitle, showsWhere, sourceLine, storyConcerns, verdictCauses } from "./design";
 import type { Cause, Component, Gate, GatedLine } from "./types";
 
 const comp = (o: Partial<Component>): Component => ({
@@ -87,6 +87,11 @@ describe("the model's parts (spec 2026-11-02 §3.1, §6)", () => {
     const d = { concerns: [c(["S1"]), c(["S2"]), c(["S2", "S1"])] };
     expect([storyConcerns(d, "S1"), storyConcerns(d, "S2"), storyConcerns(d, "S3"), storyConcerns(null, "S1")])
       .toEqual([[1, 3], [2, 3], [], []]);
+  });
+
+  it("says where the AI's opening comes from: the stories, and the design context when it read one", () => {
+    expect(sourceLine({ context_hash: null })).toBe("AI, from the stories");
+    expect(sourceLine({ context_hash: "0123456789ab" })).toBe("AI, from the stories and the design context");
   });
 
   it("says which parts the model wrote, and names a cited node", () => {

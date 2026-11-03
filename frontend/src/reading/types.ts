@@ -179,4 +179,5 @@ export interface Ownership { tag: "right" | "questionable" | "shortfall" | "note
 export interface ReadingDesign {
   verdict: string; verdict_causes: string[]; components: Component[]; concerns: Concern[]; ownership: Ownership[]; gates: Gate[];
   walks: Walk[]; nodes: Record<string, DesignNode>; sources: Record<string, "template" | "llm" | "pinned">; context_hash: string | null;
+  context_notes: string[];   // what the design context names that the code lacks (spec 2026-11-02 §8)
 }

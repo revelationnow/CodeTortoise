@@ -12,6 +12,9 @@ const missing = <T,>(fallback: T) => (e: unknown): T => {
   if (e instanceof ApiError && e.status === 404) return fallback;
   throw e;
 };
+/** Whether a review's design stage waits or runs: saving a design context re-runs it alone (spec 2026-11-02 §8). */
+const designBusy = (d: ReviewDetail | null | undefined) =>
+  !!d?.stages.some((s) => s.name === "design" && (s.status === "pending" || s.status === "running"));
 
 export function useReview(id: number) {
   const [detail, setDetail] = useState<ReviewDetail | null>(null);
@@ -75,6 +78,23 @@ export function useReview(id: number) {
     return () => { es.close(); clearTimeout(later); };
   }, [id, status, stream, loadResults, loadDetail]);
 
+  // a design context saved re-runs the design stage alone (spec 2026-11-02 §8): the review stays done, so no stream
+  // tells of it. The stage is polled while it waits or runs — from the save on (`awaitDesign`), as it may be done before
+  // the first look — and the reading (its design and its lead) loads again once it is done.
+  const [designWait, setDesignWait] = useState(false);
+  const designing = designWait || designBusy(detail);
+  const awaitDesign = useCallback(() => setDesignWait(true), []);
+  useEffect(() => {
+    if (!designing || !status || !TERMINAL.has(status)) return;
+    const t = setInterval(() => { loadDetail().then((d) => { if (d && !designBusy(d)) setDesignWait(false); }); }, 1500);
+    return () => clearInterval(t);
+  }, [designing, status, loadDetail]);
+  const wasDesigning = useRef(false);
+  useEffect(() => {
+    if (wasDesigning.current && !designing) loadReading();
+    wasDesigning.current = designing;
+  }, [designing, loadReading]);
+
   const ready = !!status && TERMINAL.has(status);
   const people = useMemo(() => [...new Set([detail?.review.created_by ?? "", ...comments.map((c) => c.author)])].filter(Boolean),
                          [detail, comments]);
@@ -104,9 +124,9 @@ export function useReview(id: number) {
   // the findings so far ([] until they come), and whether they came: a finding's page waits for them
   return useMemo(() => ({ id, detail, board, overview, stories, findings: findings ?? NONE, findingsLoaded: findings !== undefined,
                          files, comments, names, reading, ticks, about, reload, error, signIn,
-                         ready, ai, story, loadDetail, loadComments, loadFindings, loadReading, loadTicks, tick }),
-                 [id, detail, board, overview, stories, findings, files, comments, names, reading, ticks, about, reload, error, signIn, ready, ai,
-                  story, loadDetail, loadComments, loadFindings, loadReading, loadTicks, tick]);
+                         ready, designing, awaitDesign, ai, story, loadDetail, loadComments, loadFindings, loadReading, loadTicks, tick }),
+                 [id, detail, board, overview, stories, findings, files, comments, names, reading, ticks, about, reload, error, signIn, ready,
+                  designing, awaitDesign, ai, story, loadDetail, loadComments, loadFindings, loadReading, loadTicks, tick]);
 }
 
 export type ReviewData = ReturnType<typeof useReview>;

@@ -96,3 +96,7 @@ export const byModel = (d: Pick<ReadingDesign, "sources"> | null | undefined, pa
 /** An ownership line's cite as the reader sees it (§6.2): a function's or field's name for its id; a story id or a path
  * as cited. */
 export const citeName = (d: Pick<ReadingDesign, "nodes">, cite: string): string => d.nodes[cite]?.label ?? cite;
+
+/** Where the AI's opening comes from (§3.1 item 2, §6.1): the stories, and the design context when the model read one. */
+export const sourceLine = (d: Pick<ReadingDesign, "context_hash">): string =>
+  d.context_hash ? "AI, from the stories and the design context" : "AI, from the stories";
