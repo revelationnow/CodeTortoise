@@ -15,10 +15,16 @@ from pydantic import BaseModel, Field
 
 from codetortoise import boardstore
 from codetortoise.board import Board
+from codetortoise.design import ReadingDesign
+from codetortoise.design_context import context_text, load_context
+from codetortoise.design_pins import BLOB as PINS
+from codetortoise.design_pins import load_pins, pin_of, story_titles
 from codetortoise.detectors.base import Finding
 from codetortoise.facts.model import Facts
 from codetortoise.impact import ImpactModel
 from codetortoise.llm.brief_context import brief_context
+from codetortoise.llm.design import design_key, has_part, patch_kept, put_part, rewrite_part
+from codetortoise.llm.design import prompt as design_prompt
 from codetortoise.llm.storyboard import (
     AiContext,
     Job,
@@ -31,8 +37,11 @@ from codetortoise.llm.storyboard import (
     story_job,
 )
 from codetortoise.llm.style import MODES, check_style
+from codetortoise.llm.tiers import TiersFailed, tried_note
 from codetortoise.provenance import merge, tag_board
+from codetortoise.reading import Reading
 from codetortoise.services import Services
+from codetortoise.stories import StorySet
 from codetortoise.vcs.model import ChangeSet
 
 KINDS = ("flow", "finding", "file", "story")
@@ -52,8 +61,13 @@ class Changed(ValueError):
     """The review changed (a re-run) while the AI was answering; the answer is about the old change and isn't stored."""
 
 
+class Pinned(ValueError):
+    """The part is pinned: a rewrite would replace words its owner chose to keep."""
+
+
 CHANGED = "the review changed while the AI was answering; nothing was changed. Ask again"
 UNCHECKED = "the AI's answer didn't pass the checks (citations or house style); nothing was changed. Try again"
+PINNED = "this part is pinned: its owner unpins it to rewrite it"
 
 
 class _FileOut(BaseModel):
@@ -219,3 +233,80 @@ def check_target(svc: Services, rid: int, kind: str, target: str) -> None:
             raise NotFound(f"{target} is not in this change")
     else:
         raise NotFound(f"unknown kind {kind}")
+
+
+def _design_now(svc: Services, rid: int) -> tuple[ReadingDesign, Reading, StorySet, str]:
+    """Review `rid`'s design overview as stored now, and what its prompt reads: the reading, the stories and the design
+    context's text. Raises NotFound when the review has none."""
+    raw, read = svc.store.get_blob(rid, "reading_design"), svc.store.get_blob(rid, "reading")
+    ss = boardstore.stories(svc.store, rid)
+    if not raw or not read or ss is None:
+        raise NotFound("the review has no design overview")
+    return ReadingDesign.model_validate(raw), Reading.model_validate(read), ss, context_text(load_context(svc.store, rid))
+
+
+def check_part(svc: Services, rid: int, part: str) -> None:
+    """Fail fast before queueing a rewrite: NotFound for a part the design lacks, Pinned for a pinned one."""
+    d = _design_now(svc, rid)[0]
+    if not has_part(d, part):
+        raise NotFound(f"{part} is not a part of the design overview")
+    if d.sources.get(part) == "pinned":
+        raise Pinned(PINNED)
+
+
+def rewrite_design(svc: Services, rid: int, user: str, part: str, instruction: str = "") -> None:
+    """Write part `part` of review `rid`'s design overview again as `user` (spec 2026-11-02 §10's AI menu), with their
+    instruction when given, and store it for everyone. Raises NotFound, Refused (over a limit), Unchecked, Changed or
+    the LLM's error. The AI call runs without the review's lock; the result lands under it on the design as it is then,
+    only while that design is still the one the AI saw and the part is not pinned meanwhile. A later run of the same
+    prompt keeps it (blob `design_text`)."""
+    if svc.strong is None or svc.cfg.llm.strong is None:
+        raise RuntimeError("no strong model is configured")
+    model = svc.cfg.llm.strong.model
+    d, r, ss, context = _design_now(svc, rid)
+    if not has_part(d, part):
+        raise NotFound(f"{part} is not a part of the design overview")
+    seen = design_key(model, design_prompt(d, r, ss, context))
+    try:
+        new, _ = rewrite_part(svc.strong, svc.ledger, rid, user, d, r, ss, part, instruction, context, weak=svc.llm)
+    except TiersFailed as e:
+        raise Unchecked(tried_note("the AI did not answer", e.failures, "nothing was changed. Try again")) from e
+    if new is None:
+        raise Unchecked(UNCHECKED)
+    with _lock(rid):
+        try:
+            now, r, ss, context = _design_now(svc, rid)
+        except NotFound:
+            raise Changed(CHANGED) from None
+        if design_key(model, design_prompt(now, r, ss, context)) != seen or not has_part(now, part):
+            raise Changed(CHANGED)
+        if now.sources.get(part) == "pinned":
+            raise Changed("the part was pinned while the AI was answering; nothing was changed")
+        put_part(now, new, part)
+        puts: dict = {"reading_design": now}
+        kept = svc.store.get_blob(rid, "design_text")
+        if kept and kept.get("key") == seen:                 # a re-run of this prompt keeps the rewrite
+            puts["design_text"] = patch_kept(kept, now, part)
+        svc.store.replace_blobs(rid, [], [], puts)
+
+
+def pin_design(svc: Services, rid: int, part: str, on: bool) -> None:
+    """Pin part `part` of review `rid`'s design overview (`on`), or unpin it: a pin keeps the model's words through later
+    runs of the design stage while they fit (codetortoise.design_pins). Raises NotFound for a part the design lacks and
+    Unchecked for one whose words are not the model's."""
+    with _lock(rid):
+        raw = svc.store.get_blob(rid, "reading_design")
+        if not raw:
+            raise NotFound("the review has no design overview")
+        d = ReadingDesign.model_validate(raw)
+        if not has_part(d, part):
+            raise NotFound(f"{part} is not a part of the design overview")
+        if on and d.sources.get(part) not in ("llm", "pinned"):
+            raise Unchecked("only the AI's words are pinned; this part has none")
+        pin = pin_of(d, part, story_titles(boardstore.stories(svc.store, rid)))
+        pins = [p for p in load_pins(svc.store, rid) if (p.part, p.key) != (pin.part, pin.key)] + ([pin] if on else [])
+        if on:
+            d.sources[part] = "pinned"
+        elif d.sources.get(part) == "pinned":
+            d.sources[part] = "llm"
+        svc.store.replace_blobs(rid, [], [], {"reading_design": d, PINS: pins})

@@ -24,6 +24,7 @@ from codetortoise.health import HealthReport
 from codetortoise.impact import ImpactModel, Node
 from codetortoise.init_config import scan
 from codetortoise.llm import ondemand, request_log, tortoise
+from codetortoise.llm.design import MAX_INSTRUCTION
 from codetortoise.names import cited, names, neighbours
 from codetortoise.paths import canon
 from codetortoise.pipeline import end_design_reruns
@@ -67,6 +68,14 @@ class FindingStateIn(BaseModel):
 class ExplainIn(BaseModel):
     kind: Literal["flow", "finding", "file", "story"]
     target: str = Field(min_length=1, max_length=2000)
+
+
+class RewriteIn(BaseModel):
+    instruction: str = Field("", max_length=MAX_INSTRUCTION)
+
+
+class PinIn(BaseModel):
+    pinned: bool
 
 
 class BudgetIn(BaseModel):
@@ -865,6 +874,52 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
             raise HTTPException(429, reason)
         return a.ws.runner.submit_ai(rid, a.user, body.kind, body.target,
                                      lambda: ondemand.explain(svc, rid, a.user, body.kind, body.target))
+
+    DESIGNING = "the design stage is running; try again when it finishes"
+
+    def design_at_rest(svc, a: Access, rid: int) -> None:
+        """A part of the design changes only on a finished review whose design stage is not running again (409)."""
+        if a.review["status"] not in TERMINAL:
+            raise HTTPException(409, RERUNNING)
+        if any(s["name"] == "design" and s["status"] in ("pending", "running") for s in svc.store.list_stages(rid)):
+            raise HTTPException(409, DESIGNING)
+
+    @app.post("/api/reviews/{rid}/design/{part}/rewrite", status_code=202)
+    def rewrite_design(rid: int, part: str, body: RewriteIn, a: Access = Depends(in_review)):
+        """Write one part of the design overview again (spec 2026-11-02 §10's AI menu), as an AI job: anyone in the
+        review, one call on the review's budget charged to them; a pinned part waits for its owner to unpin it."""
+        svc = bundle(a.ws)
+        if svc.strong is None or svc.cfg.llm.strong is None:
+            raise HTTPException(409, "no strong model is configured")
+        design_at_rest(svc, a, rid)
+        try:
+            ondemand.check_part(svc, rid, part)
+        except ondemand.NotFound as e:
+            raise HTTPException(404, str(e)) from e
+        except ondemand.Pinned as e:
+            raise HTTPException(409, str(e)) from e
+        if any(j["status"] == "running" and j["kind"] == "design" and j["target"] == part
+               for j in reg.pool.jobs.get(rid, [])):
+            raise HTTPException(409, "this part is being rewritten; wait for it to finish")
+        reason = svc.ledger.check(rid, a.user)
+        if reason:
+            raise HTTPException(429, reason)
+        words = body.instruction.strip()
+        return a.ws.runner.submit_ai(rid, a.user, "design", part,
+                                     lambda: ondemand.rewrite_design(svc, rid, a.user, part, words))
+
+    @app.post("/api/reviews/{rid}/design/{part}/pin")
+    def pin_design(rid: int, part: str, body: PinIn, a: Access = Depends(owner_in_review)):
+        """Pin one part's words, or unpin them (§10): the owner's, as a pin decides what every later run keeps."""
+        svc = bundle(a.ws)
+        design_at_rest(svc, a, rid)
+        try:
+            ondemand.pin_design(svc, rid, part, body.pinned)
+        except ondemand.NotFound as e:
+            raise HTTPException(404, str(e)) from e
+        except ValueError as e:
+            raise HTTPException(409, str(e)) from e
+        return {"pinned": body.pinned}
 
     @app.get("/api/reviews/{rid}/ai")
     def ai_view(rid: int, a: Access = Depends(in_review)):
