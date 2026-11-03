@@ -210,21 +210,32 @@ def test_the_design_stage_holds_its_limits_on_a_large_change(large):
     assert all(len(g["lines"]) <= 200 for g in d["gates"])
 
 
-def _many(n):
-    """A change of n functions, each gaining a condition and writing or reading one of 50 fields, in a call chain."""
+def _many(n, files=None):
+    """A change of n functions, each gaining a condition and writing or reading one of 50 fields, in a call chain; with
+    `files`, laid out in that many files of one folder."""
     from test_stories import _world
     fns, calls, fields = [], [], []
     for i in range(n):
-        fns.append((f"fn{i}", f"d{i % 40}/f{i % 7}.c", [f"x{i} = 1;", f"r->f{i % 50} = 1;"],
+        path = f"d{i % 40}/f{i % 7}.c" if files is None else f"big/f{i % files}.c"
+        fns.append((f"fn{i}", path, [f"x{i} = 1;", f"r->f{i % 50} = 1;"],
                     [f"x{i} = 2;", f"if (v{i} > {i}) {{", f"\tr->f{i % 50} = 2;", "\treturn;", "}", f"n{i}();"]))
         calls += [(f"fn{i}", f"fn{i - 1}")] if i else []
         fields.append((f"fn{i}", "Rec", f"f{i % 50}", "write" if i % 2 else "read", "added"))
     return _world(fns, calls=calls, fields=fields)
 
 
-def _walk_seconds(n):
+def _best(run) -> float:
+    """The best of three runs of `run`, in seconds."""
     import time
+    out = float("inf")
+    for _ in range(3):
+        t = time.perf_counter()
+        run()
+        out = min(out, time.perf_counter() - t)
+    return out
 
+
+def _walk_seconds(n):
     from codetortoise.board import analyse
     from codetortoise.gates import Sources, build_gates
     from codetortoise.reading import build_reading
@@ -236,14 +247,29 @@ def _walk_seconds(n):
     r, per = build_reading(ss, c, details=det, analysis=an)
     src = Sources(an.x)
     _, branches = build_gates(an.x, ss, r, src)
-    best = float("inf")
-    for _ in range(3):
-        t = time.perf_counter()
-        build_walks(an.x, ss, det, r, per, src, branches)
-        best = min(best, time.perf_counter() - t)
-    return best
+    return _best(lambda: build_walks(an.x, ss, det, r, per, src, branches))
 
 
 def test_the_walk_throughs_grow_with_the_change_not_with_its_square():
     """The walker indexes a change once (phase 1 M7): four times the functions takes about four times as long."""
     assert _walk_seconds(1600) < 7 * _walk_seconds(400)
+
+
+def _condition_seconds(n):
+    """build_gates on a change of n functions in four files, each holding n / 4 of them, with its files already parsed
+    and no stories, so every function's conditions are found (stories of a change this crowded take minutes)."""
+    from types import SimpleNamespace
+
+    from codetortoise.board import analyse
+    from codetortoise.gates import Sources, build_gates
+    an = analyse(_many(n, files=4))
+    src, ss, r = Sources(an.x), SimpleNamespace(stories=[]), SimpleNamespace(order=[])
+    build_gates(an.x, ss, r, src)
+    return _best(lambda: build_gates(an.x, ss, r, src))
+
+
+def test_classing_a_condition_s_lines_grows_with_the_change_not_with_its_square():
+    """Classing the strongest condition's lines finds each line's function by bisection (final review minor 10): four
+    times the functions, in files four times as full, takes about four times as long, where a scan of each file's
+    functions would take about sixteen."""
+    assert _condition_seconds(1600) < 7 * _condition_seconds(400)
