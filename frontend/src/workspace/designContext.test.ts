@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { componentsText, contextChars, EMPTY_CONTEXT, noteSentence, parseComponents } from "./designContext";
+import { componentsText, contextChars, docName, EMPTY_CONTEXT, linkName, noteSentence, parseComponents } from "./designContext";
 
 describe("the design context panel's text (spec 2026-11-02 §8)", () => {
   it("holds the components a line each, a name then its globs", () => {
@@ -13,6 +13,21 @@ describe("the design context panel's text (spec 2026-11-02 §8)", () => {
     expect(contextChars(EMPTY_CONTEXT)).toBe(0);
     const c = { ...EMPTY_CONTEXT, notes: " Never drop a byte. ", documents: [{ name: "d", text: "y😀", url: null }, { name: "e", text: " ", url: null }] };
     expect(contextChars(c)).toBe("Never drop a byte.".length + 2 + "DOCUMENT d:\n".length + 2);   // the emoji is one character
+  });
+
+  it("names a link's document by its last path segment, read, and at most 200 characters (final review I4)", () => {
+    expect(linkName(" https://wiki.example.com/display/HW/UART%20Driver%20Design ")).toBe("UART Driver Design");
+    expect(linkName("https://wiki.example.com/pages/viewpage.action?pageId=123456")).toBe("viewpage.action?pageId=123456");
+    expect(linkName("https://wiki.example.com/design/")).toBe("design");
+    expect(linkName("https://wiki.example.com")).toBe("wiki.example.com");
+    expect(linkName("https://wiki.example.com/x/100%25%E0%A4%A")).toBe("100%25%E0%A4%A");      // not an escape: as written
+    expect([...linkName(`https://wiki.example.com/${"😀".repeat(300)}`)]).toHaveLength(200);
+    expect(linkName("not a link")).toBe("not a link");
+  });
+
+  it("cuts a file's name to the 200 characters a document's name holds", () => {
+    expect(docName(" notes.md ")).toBe("notes.md");
+    expect(docName(`${"é".repeat(250)}.md`)).toBe("é".repeat(200));
   });
 
   it("says a note of the design as a sentence", () => {

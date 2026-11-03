@@ -921,3 +921,22 @@ def test_a_design_re_run_cut_off_by_a_restart_is_failed_at_startup_and_its_revie
         assert svc.store.get_review(rid)["status"] == "degraded"
     assert {s["name"]: s["status"] for s in svc.store.list_stages(full)}["design"] == "pending"
     assert svc.store.get_review(full)["status"] == "running"
+
+
+def test_a_field_over_its_own_limit_is_refused_in_a_sentence_without_the_text_sent(env):
+    """Pydantic's limits answer before the route runs; its 422 lists each fault with the value sent, pages of the owner's
+    own text, which the page showed as JSON (final review I4). The answer names the field and its limit instead."""
+    _, app, _ = env
+    owner = login(app, "owner")
+    r = owner.post("/api/reviews", json={"cls": [101], "design_context": "x" * 12001})
+    assert (r.status_code, r.json()) == (422, {"detail": "Design context is longer than 12,000 characters."})
+    assert owner.post("/api/reviews", json={"cls": []}).json()["detail"] == "Cls needs at least 1 item."
+    rid = owner.post("/api/reviews", json={"cls": [101]}).json()["id"]
+    put = lambda body: owner.put(f"/api/reviews/{rid}/design-context", json=body)   # noqa: E731
+    r = put({"documents": [{"name": f"d{i}", "text": "y" * 500} for i in range(11)]})
+    assert (r.status_code, r.json()["detail"]) == (422, "Documents holds more than 10 items.")
+    r = put({"documents": [{"name": "n" * 201, "text": "y"}], "conditions": {"add": [{"test": ""}]}})
+    assert r.json()["detail"] == "Documents #1 name is longer than 200 characters; conditions add #1 test is empty."
+    assert put({"notes": 5}).json()["detail"] == "Notes: Input should be a valid string."
+    assert owner.put(f"/api/reviews/{rid}/design-context", content=b"{", headers={"content-type": "application/json"}
+                     ).json()["detail"] == "The request is not valid JSON."

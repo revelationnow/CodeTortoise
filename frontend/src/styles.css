@@ -133,6 +133,7 @@ button.go:disabled { opacity: .55; }
 .rv-hello textarea::placeholder { color: #9aa0c8; }
 .rv-hello .hint { font-size: 12px; color: #a9addb; }
 .rv-hello .err { color: #ffb3c1; font-size: 13px; }
+.rv-hello .rv-ctx-count.over { color: #ffb3c1; font-weight: 600; }
 .rv-hello .go { margin-top: 6px; }
 .rv-main { padding: 22px 26px; min-width: 0; }
 .rv-head { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }

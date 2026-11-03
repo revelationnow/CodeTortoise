@@ -4,6 +4,27 @@ import type { DesignContext } from "../api";
 
 export const EMPTY_CONTEXT: DesignContext = { notes: "", documents: [], conditions: { add: [], remove: [] }, components: [] };
 
+/** What the server's DesignContext holds (design_context.py): characters the prompts read, then how many of each list,
+ * and a document's name. */
+export const CAP = 12_000;
+export const MAX = { documents: 10, add: 10, remove: 20, components: 30 } as const;
+const NAME_MAX = 200;
+
+const cut = (s: string, n: number) => [...s].slice(0, n).join("");
+
+/** A file's name as its document's name: trimmed, and cut to what a name holds. */
+export const docName = (name: string): string => cut(name.trim(), NAME_MAX);
+
+/** A link's document's name (final review I4): the last segment of its path with its query, read (`%20` a space), or its
+ * host when it has no path; cut to what a name holds, as a wiki page's address is often longer. */
+export function linkName(link: string): string {
+  const raw = link.trim();
+  let u: URL;
+  try { u = new URL(raw); } catch { return docName(raw); }
+  const text = (u.pathname.split("/").filter(Boolean).pop() ?? u.host) + u.search;
+  try { return docName(decodeURIComponent(text)); } catch { return docName(text); }
+}
+
 /** A line per component: its name, a colon, its globs. */
 export const componentsText = (cs: DesignContext["components"]): string =>
   cs.map((c) => `${c.name}: ${c.globs.join(", ")}`).join("\n");

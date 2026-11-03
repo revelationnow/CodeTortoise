@@ -2,7 +2,7 @@ import { type ChangeEvent, type CSSProperties, useEffect, useState } from "react
 import { api, type DesignContext, type DesignContextView, errorText } from "../api";
 import { useViewer } from "../viewer";
 import { useWs } from "./context";
-import { componentsText, contextChars, EMPTY_CONTEXT, noteSentence, parseComponents } from "./designContext";
+import { CAP, componentsText, contextChars, docName, EMPTY_CONTEXT, linkName, MAX, noteSentence, parseComponents } from "./designContext";
 import { Ticks } from "./NameText";
 
 const FILE_MAX = 1_000_000;    // a file read in the browser, as a link the server reads (§14): more than the context holds
@@ -27,16 +27,18 @@ export default function DesignContextPanel({ style }: { style: CSSProperties }) 
   }, [d.id]);
   const design = d.reading?.design ?? null;
   const found = (design?.gates ?? []).filter((g) => g.source === "code" && !c.conditions.remove.includes(g.test));
-  const parsed = parseComponents(comps), chars = contextChars(c), cap = view?.cap ?? 12000;
+  const parsed = parseComponents(comps), chars = contextChars(c), cap = view?.cap ?? CAP;
   const set = (part: Partial<DesignContext>) => { setC({ ...c, ...part }); setSaid(""); };
   const conds = c.conditions;
+  const docsFull = c.documents.length >= MAX.documents, addFull = conds.add.length >= MAX.add;
+  const removeFull = conds.remove.length >= MAX.remove, compsOver = parsed.components.length > MAX.components;
   const addFile = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
     if (file.size > FILE_MAX) { setError(`${file.name} holds more than 1 MB; the design context holds at most 12,000 characters.`); return; }
     setError("");
-    file.text().then((text) => { setC((cur) => ({ ...cur, documents: [...cur.documents, { name: file.name, text, url: null }] })); setSaid(""); },
+    file.text().then((text) => { setC((cur) => ({ ...cur, documents: [...cur.documents, { name: docName(file.name), text, url: null }] })); setSaid(""); },
                      () => setError(`${file.name} could not be read.`));
   };
   const save = () => {
@@ -70,20 +72,23 @@ export default function DesignContextPanel({ style }: { style: CSSProperties }) 
                 {" "}<button className="link" aria-label={`Remove ${doc.name}`}
                                     onClick={() => set({ documents: c.documents.filter((_, k) => k !== i) })}>Remove</button></li>
             ))}</ul>}
-            <label>Add a file<input type="file" accept=".md,.markdown,.txt,text/plain,text/markdown" onChange={addFile} /></label>
+            <label>Add a file<input type="file" accept=".md,.markdown,.txt,text/plain,text/markdown" disabled={docsFull} onChange={addFile} /></label>
             {view.links && <div className="dc-row">
-              <label>Link<input type="url" value={link} placeholder="https://" onChange={(e) => setLink(e.target.value)} /></label>
-              <button disabled={!link.trim()} onClick={() => { set({ documents: [...c.documents, { name: link.trim(), text: "", url: link.trim() }] }); setLink(""); }}>
+              <label>Link<input type="url" value={link} placeholder="https://" maxLength={2000} onChange={(e) => setLink(e.target.value)} /></label>
+              <button disabled={!link.trim() || docsFull}
+                      onClick={() => { set({ documents: [...c.documents, { name: linkName(link), text: "", url: link.trim() }] }); setLink(""); }}>
                 Add the link</button>
             </div>}
+            {docsFull && <p className="muted small">The context holds at most {MAX.documents} documents; remove one to add another.</p>}
           </div>
           <div className="dc-conds">
             <h3>Conditions</h3>
             {found.length > 0 && <ul>{found.map((g) => (
               <li key={g.id}><code>{g.test}</code>{" "}
-                <button className="link" aria-label={`Leave out ${g.test}`}
+                <button className="link" aria-label={`Leave out ${g.test}`} disabled={removeFull}
                         onClick={() => set({ conditions: { ...conds, remove: [...conds.remove, g.test] } })}>Leave out</button></li>
             ))}</ul>}
+            {removeFull && <p className="muted small">The context leaves out at most {MAX.remove} conditions.</p>}
             {conds.remove.length > 0 && <ul>{conds.remove.map((t) => (
               <li key={t}>Left out: <code>{t}</code>{" "}
                 <button className="link" aria-label={`Put back ${t}`}
@@ -95,13 +100,14 @@ export default function DesignContextPanel({ style }: { style: CSSProperties }) 
                         onClick={() => set({ conditions: { ...conds, add: conds.add.filter((_, k) => k !== i) } })}>Remove</button></li>
             ))}</ul>}
             <div className="dc-row">
-              <label>Condition, as the code writes it<input value={test} placeholder="len > 64" onChange={(e) => setTest(e.target.value)} /></label>
-              <label>In the function (optional)<input value={fn} onChange={(e) => setFn(e.target.value)} /></label>
-              <button disabled={!test.trim()} onClick={() => {
+              <label>Condition, as the code writes it<input value={test} placeholder="len > 64" maxLength={300} onChange={(e) => setTest(e.target.value)} /></label>
+              <label>In the function (optional)<input value={fn} maxLength={200} onChange={(e) => setFn(e.target.value)} /></label>
+              <button disabled={!test.trim() || addFull} onClick={() => {
                 set({ conditions: { ...conds, add: [...conds.add, { test: test.trim(), function: fn.trim() || null }] } });
                 setTest(""); setFn("");
               }}>Add the condition</button>
             </div>
+            {addFull && <p className="muted small">The context holds at most {MAX.add} added conditions.</p>}
             {(design?.context_notes.length ?? 0) > 0 && <ul className="dc-notes">{design!.context_notes.map((n) => (
               <li key={n}><Ticks text={noteSentence(n)} /></li>
             ))}</ul>}
@@ -109,10 +115,11 @@ export default function DesignContextPanel({ style }: { style: CSSProperties }) 
           <label>Components<textarea rows={4} value={comps} placeholder={"Driver: driver/**\nHAL: hal/**, include/hal/**"}
                                      onChange={(e) => { setComps(e.target.value); setSaid(""); }} /></label>
           <p className="muted small">A line each: a name, a colon, and the files it holds as globs. None: the workspace's own.
-            {parsed.bad.length > 0 && <> Not read: {parsed.bad.join("; ")}.</>}</p>
+            {parsed.bad.length > 0 && <> Not read: {parsed.bad.join("; ")}.</>}
+            {compsOver && <> The context holds at most {MAX.components} components.</>}</p>
           <p className={`dc-count small${chars > cap ? " over" : ""}`}>{chars.toLocaleString("en-US")} of {cap.toLocaleString("en-US")} characters</p>
           <div className="dc-acts">
-            <button onClick={save} disabled={busy || chars > cap || parsed.bad.length > 0}>{busy ? "Saving…" : "Save"}</button>
+            <button onClick={save} disabled={busy || chars > cap || parsed.bad.length > 0 || compsOver}>{busy ? "Saving…" : "Save"}</button>
             <span role="status" className="muted small">{said && (d.designing ? "Saved. The design stage is running…" : said)}</span>
           </div>
         </div>

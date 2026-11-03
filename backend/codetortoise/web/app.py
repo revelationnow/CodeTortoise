@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -125,6 +126,33 @@ class DetectIn(BaseModel):
     root: str
 
 
+def validation_text(errors: list[dict]) -> str:
+    """A request the models refused, as sentences naming each field and its limit (at most three): never the value sent,
+    which may be pages of the sender's own text (final review I4)."""
+    def field(loc: tuple) -> str:
+        parts = loc[1:] if loc and loc[0] in ("body", "query", "path") else loc
+        return " ".join(f"#{p + 1}" if isinstance(p, int) else str(p).replace("_", " ") for p in parts) or "the request"
+
+    def sentence(e: dict) -> str:
+        kind, ctx, name = e.get("type", ""), e.get("ctx") or {}, field(tuple(e.get("loc", ())))
+        if kind == "json_invalid":
+            return "the request is not valid JSON"
+        if kind == "string_too_long":
+            return f"{name} is longer than {ctx['max_length']:,} characters"
+        if kind == "too_long":
+            return f"{name} holds more than {ctx['max_length']:,} items"
+        if kind == "string_too_short":
+            return f"{name} is empty" if ctx.get("min_length") == 1 else f"{name} is shorter than {ctx['min_length']:,} characters"
+        if kind == "too_short":
+            n = ctx["min_length"]
+            return f"{name} needs at least {n:,} item{'' if n == 1 else 's'}"
+        if kind == "missing":
+            return f"{name} is missing"
+        return f"{name}: {e.get('msg', 'not accepted')}"
+    text = "; ".join(sentence(e) for e in errors[:3]) or "the request was not accepted"
+    return text[0].upper() + text[1:] + ("" if text.endswith(".") else ".")
+
+
 RERUNNING = "the review is being re-run"
 
 
@@ -171,6 +199,10 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
     end_design_reruns(store)                   # a design re-run the stopped queue held (final review I3)
     reg.ledger.fail_running()
     reg.ledger.prune()                         # logged requests past llm.request_log_days
+
+    @app.exception_handler(RequestValidationError)
+    async def not_valid(request: Request, e: RequestValidationError):
+        return JSONResponse({"detail": validation_text(list(e.errors()))}, status_code=422)
 
     @app.exception_handler(SignInRequired)
     async def sign_in_required(request: Request, e: SignInRequired):

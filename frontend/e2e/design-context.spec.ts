@@ -71,6 +71,53 @@ test.describe("the design context", () => {
   });
 });
 
+test.describe("the design context's limits (final review I4)", () => {
+  test.use({ baseURL: STRONG, viewport: { width: 1440, height: 900 } });
+
+  test("the creation form counts the design context and holds back a start over the cap", async ({ page }) => {
+    await login(page);
+    await page.getByLabel("Changelists (shelved or submitted)").fill("101");
+    const field = page.getByLabel("Design context (optional)"), start = page.getByRole("button", { name: "Start review" });
+    await field.fill(`  ${"x".repeat(12_001)}  `);
+    await expect(page.locator(".rv-ctx-count")).toHaveText("12,001 of 12,000 characters");
+    await expect(page.locator(".rv-ctx-count")).toHaveClass(/over/);
+    await expect(start).toBeDisabled();
+    await field.fill("x".repeat(12_000));
+    await expect(page.locator(".rv-ctx-count")).toHaveText("12,000 of 12,000 characters");
+    await expect(start).toBeEnabled();
+  });
+
+  test("a link's document is named by its page, and the lists stop at what the context holds", async ({ page }) => {
+    await startReview(page);
+    await page.route("**/api/reviews/*/design-context", async (r) => {      // a server that lists a site to read links from
+      if (r.request().method() !== "GET") return r.fallback();
+      const res = await r.fetch();
+      await r.fulfill({ response: res, json: { ...(await res.json()), links: true } });
+    });
+    const panel = await openPanel(page);
+    await panel.getByLabel("Link").fill(`https://wiki.example.com/display/${"HW/".repeat(80)}UART%20Driver%20Design`);
+    await panel.getByRole("button", { name: "Add the link" }).click();
+    await expect(panel.locator(".dc-docs li")).toHaveText(["UART Driver Design (read when saved) Remove"]);
+    for (let i = 1; i < 10; i++) {
+      await panel.getByLabel("Add a file").setInputFiles({ name: `note-${i}.md`, mimeType: "text/markdown", buffer: Buffer.from("x") });
+      await expect(panel.locator(".dc-docs li")).toHaveCount(i + 1);
+    }
+    await expect(panel.getByLabel("Add a file")).toBeDisabled();
+    await panel.getByLabel("Link").fill("https://wiki.example.com/design/more");
+    await expect(panel.getByRole("button", { name: "Add the link" })).toBeDisabled();
+    await expect(panel.getByText("The context holds at most 10 documents; remove one to add another.")).toBeVisible();
+    for (let i = 0; i < 10; i++) {
+      await panel.getByLabel("Condition, as the code writes it").fill(`x == ${i}`);
+      await panel.getByRole("button", { name: "Add the condition" }).click();
+    }
+    await panel.getByLabel("Condition, as the code writes it").fill("x == 10");
+    await expect(panel.getByRole("button", { name: "Add the condition" })).toBeDisabled();
+    await expect(panel.getByText("The context holds at most 10 added conditions.")).toBeVisible();
+    await panel.getByRole("button", { name: "Save" }).click();       // this server reads no links: refused in a sentence
+    await expect(panel.getByRole("alert")).toHaveText(/^UART Driver Design: This server reads no links/);
+  });
+});
+
 test.describe("the design context on a phone", () => {
   test.use({ baseURL: STRONG, viewport: devices["iPhone 13"].viewport, userAgent: devices["iPhone 13"].userAgent,
              deviceScaleFactor: devices["iPhone 13"].deviceScaleFactor, isMobile: true, hasTouch: true });

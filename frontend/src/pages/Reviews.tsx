@@ -6,6 +6,7 @@ import { keys, load as loadPref, save as savePref } from "../board/prefs";
 import HeadlinePill from "../components/HeadlinePill";
 import Logo from "../components/Logo";
 import { ago, type Chip, chipCounts, filterReviews, highlight, parseCls, pickOrder, workspaceChips } from "../lib/reviewFilter";
+import { CAP } from "../workspace/designContext";
 
 const CHIPS: [Chip, string][] = [["all", "All"], ["high", "High risk"], ["running", "Running"], ["mine", "Mine"]];
 const RISK_DOT: Record<string, string> = { high: "#ff4d6d", medium: "#ffb020", low: "#16a34a" };   // same as the risk pills
@@ -121,6 +122,7 @@ function StartReview({ owned, only }: { owned: WorkspaceRow[] | null; only?: num
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
   const cls = parseCls(text);
+  const chars = [...context.trim()].length;          // what the server counts of it: characters, as sent (trimmed)
   const choices = owned ?? [];
   const target = choices.length > 1 ? picked ?? choices[0].id : choices[0]?.id ?? only;
 
@@ -161,8 +163,10 @@ function StartReview({ owned, only }: { owned: WorkspaceRow[] | null; only?: num
                   placeholder="What the change is for, and what the code can't say" />
       </label>
       <div className="hint">The AI's opening reads it; checks never do. More can be added later from the review's ⋯ menu.</div>
+      {chars > 0 && <div className={`hint rv-ctx-count${chars > CAP ? " over" : ""}`}>
+        {chars.toLocaleString("en-US")} of {CAP.toLocaleString("en-US")} characters</div>}
       {error && <div className="err" role="alert">{error}</div>}
-      <button className="go" disabled={!cls.length || busy}>{busy ? "Starting…" : "Start review"}</button>
+      <button className="go" disabled={!cls.length || busy || chars > CAP}>{busy ? "Starting…" : "Start review"}</button>
       <div className="hint">The board opens on its own when the analysis finishes.</div>
     </form>
   );
