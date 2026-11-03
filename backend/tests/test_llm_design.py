@@ -216,3 +216,18 @@ def test_the_design_counts_against_the_tier_1_budget():
 def test_the_scripted_design_answer_passes_every_check(demo, made):
     from scripted_llm import ScriptedLlm, design_answer
     assert dl.write_design(ScriptedLlm(lambda s, u: design_answer(u)), None, None, made, demo.r, demo.ss) == ([], "big")
+
+
+def test_the_prompt_reads_the_design_context_first_and_has_no_such_section_without_one(demo, made):
+    text = prompt(made, demo.r, demo.ss, "The UART must never drop a byte.")
+    assert ("\n\nDESIGN CONTEXT (from the review's owner):\nThe UART must never drop a byte.\nEND OF DESIGN CONTEXT\n"
+            "THE CHANGE: ") in text
+    assert "DESIGN CONTEXT (from" not in prompt(made, demo.r, demo.ss)
+    assert "draw the concerns from it" in dl.ASK and dl.DESIGN_VERSION == 2
+
+
+def test_the_model_call_asks_with_the_design_context(demo, made):
+    from scripted_llm import ScriptedLlm, design_answer
+    llm = ScriptedLlm(lambda system, user: design_answer(user))
+    dl.write_design(llm, None, None, made, demo.r, demo.ss, context="Never drop a byte.")
+    assert "DESIGN CONTEXT (from the review's owner):\nNever drop a byte.\n" in llm.prompts[0]

@@ -23,7 +23,7 @@ from codetortoise.llm.tiers import TiersFailed, done_text, tried_note, try_tiers
 from codetortoise.reading import Cause, Reading
 from codetortoise.stories import StorySet
 
-DESIGN_VERSION = 1                    # bump with every change to the prompt or its checks (keys its cache)
+DESIGN_VERSION = 2                    # bump with every change to the prompt or its checks (keys its cache)
 CAUSES_SHOWN = 30                     # §14: about 6k tokens in; only what is listed may be cited
 NODES_SHOWN = 60
 STEPS_SHOWN = 12                      # a walk-through's steps; the rest are counted
@@ -49,7 +49,10 @@ change makes, or what it leaves undone, each with a "tag" ("right", "questionabl
 sentences of "text" and "cites": the ids of the functions or fields, the changed files or the stories it rests on. For \
 each walk-through write a "title" (at most 8 words, naming the case it follows, no final period) and a "lead" (1 or 2 \
 sentences: what it follows and where it lands). For each condition write "false_case": the case when its test is \
-false, in at most 8 words, no final period. Cite only the ids listed. In the words, write names, never ids."""
+false, in at most 8 words, no final period. Cite only the ids listed. In the words, write names, never ids. A DESIGN \
+CONTEXT, when given, is the review owner's word on what the change is for and what the code can't say: draw the \
+concerns from it as well as the stories, and say in the verdict where the change falls short of it; cite nothing from \
+it."""
 
 
 def _shown(d: ReadingDesign, r: Reading) -> tuple[list[Cause], list[str]]:
@@ -81,10 +84,11 @@ def step_line(d: ReadingDesign, s: WalkStep) -> str:
     return f"{said} ({'; '.join(x for x in ('' if s.status == 'same' else s.status, ref) if x)})"
 
 
-def prompt(d: ReadingDesign, r: Reading, ss: StorySet) -> str:
+def prompt(d: ReadingDesign, r: Reading, ss: StorySet, context: str = "") -> str:
     by = {s.id: s for s in ss.stories}
     causes, nodes = _shown(d, r)
-    lines = [f"THE CHANGE: {r.whole or '(no summary)'}", "THREAD LIST (id | name | purpose):"]
+    lines = ([f"DESIGN CONTEXT (from the review's owner):\n{context}\nEND OF DESIGN CONTEXT"] if context else []) + [
+        f"THE CHANGE: {r.whole or '(no summary)'}", "THREAD LIST (id | name | purpose):"]
     for t in r.threads:
         lines.append(f"{t.id} | {t.name} | {t.purpose}")
         lines.append("  stories: " + "; ".join(f"{s} {by[s].title}" + (f": {by[s].purpose}" if by[s].purpose else "")
@@ -237,11 +241,11 @@ def apply_answer(d: ReadingDesign, r: Reading, out: _Out) -> list[str]:
 
 
 def write_design(strong: LlmClient, ledger: Ledger | None, rid: int | None, d: ReadingDesign, r: Reading, ss: StorySet,
-                 weak: LlmClient | None = None) -> tuple[list[str], str | None]:
+                 weak: LlmClient | None = None, context: str = "") -> tuple[list[str], str | None]:
     """Write the model's parts of `d` in place from one checked answer; returns notes on the parts that failed, and the
     model that answered (None: every part keeps its fixed text). The strong model failing is tried fresh, then on the
-    weak model."""
-    text = prompt(d, r, ss)
+    weak model. `context` is the design context's text (§8)."""
+    text = prompt(d, r, ss, context)
 
     def ask(llm: LlmClient) -> _Out:
         return llm.complete_json(SYSTEM, text, _Out)

@@ -18,7 +18,7 @@ from codetortoise.llm.tiers import TiersFailed, done_text, tried_note, try_tiers
 from codetortoise.reading import KIND_LABEL, Reading, RouteStep
 from codetortoise.stories import StorySet
 
-INTRO_VERSION = 2                     # bump with every change to the introduction's prompt or checks (keys its cache)
+INTRO_VERSION = 3                     # bump with every change to the introduction's prompt or checks (keys its cache)
 CHECKS_SHOWN = 6
 
 SYSTEM = ("You are a senior C/C++ reviewer introducing a change to reviewers who have not seen it. Use only what you "
@@ -30,7 +30,8 @@ ASK = """Each thread is a group of stories joined by calls or shared data. Write
 risk. For each thread write "intro": 3 to 5 sentences saying what it changes and why, where in the code, what could go \
 wrong (from its open checks) and how much is open. Then write "route": every thread once, in the order a reviewer \
 should read them, each with a one-sentence "reason"; set "skim" to true for a thread worth only a skim. Cite the ids \
-(T1, S2, CL12) behind each part in "whole_cites" and "cites"; cite nothing that is not listed."""
+(T1, S2, CL12) behind each part in "whole_cites" and "cites"; cite nothing that is not listed. When a DESIGN CONTEXT is \
+given, say in "whole" what the change is for from it."""
 
 
 class _Intro(BaseModel):
@@ -53,7 +54,7 @@ class _Out(BaseModel):
     route: list[_Step] = Field(default_factory=list)
 
 
-def prompt(reading: Reading, ss: StorySet, cls: dict[int, str]) -> str:
+def prompt(reading: Reading, ss: StorySet, cls: dict[int, str], context: str = "") -> str:
     by = {s.id: s for s in ss.stories}
     lines = ["THREAD DETAILS (id | name | purpose | CLs | open checks):"]
     for t in reading.threads:
@@ -76,6 +77,8 @@ def prompt(reading: Reading, ss: StorySet, cls: dict[int, str]) -> str:
         lines.append("CL DESCRIPTIONS:")
         lines += [f"CL {c} (a hint from its author, not the source of truth): {cls.get(c, '').strip() or '(none)'}"
                   for c in used]
+    if context:
+        lines += ["DESIGN CONTEXT (from the review's owner):", context, "END OF DESIGN CONTEXT"]
     return ASK + "\n\n" + "\n".join(lines)
 
 
@@ -87,11 +90,11 @@ def _listed(reading: Reading, ss: StorySet) -> set[str]:
 
 
 def write_intro(strong: LlmClient, ledger: Ledger | None, rid: int | None, reading: Reading, ss: StorySet,
-                cls: dict[int, str], weak: LlmClient | None = None) -> tuple[list[str], str | None]:
+                cls: dict[int, str], weak: LlmClient | None = None, context: str = "") -> tuple[list[str], str | None]:
     """Write `reading`'s introduction in place from one checked answer; returns notes on the parts that kept their fixed
     text, and the model that answered (None: every fixed text stays). The strong model failing is tried fresh, then on
-    the weak model."""
-    text = prompt(reading, ss, cls)
+    the weak model. `context` is the design context's text (spec 2026-11-02 §8)."""
+    text = prompt(reading, ss, cls, context)
 
     def ask(llm: LlmClient) -> _Out:
         return llm.complete_json(SYSTEM, text, _Out)

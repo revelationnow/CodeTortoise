@@ -136,3 +136,19 @@ def test_the_ask_offers_only_the_kinds_of_id_the_prompt_lists():
     r, ss = _intro_reading()
     text = prompt(r, ss, {})
     assert "(T1, S2, CL12)" in text and "N4" not in text
+
+
+def test_the_prompt_reads_the_design_context_last_and_has_no_such_section_without_one():
+    from codetortoise.llm import intro
+    r, ss = _intro_reading()
+    text = prompt(r, ss, {11: "Make send unsigned"}, "The UART must never drop a byte.")
+    assert text.endswith("\nDESIGN CONTEXT (from the review's owner):\nThe UART must never drop a byte.\nEND OF DESIGN CONTEXT")
+    assert "DESIGN CONTEXT (from" not in prompt(r, ss, {11: "Make send unsigned"})
+    assert 'what the change is for from it' in intro.ASK and intro.INTRO_VERSION == 3
+
+
+def test_the_introduction_is_asked_with_the_design_context():
+    r, ss = _intro_reading()
+    llm = ScriptedLlm(lambda system, user: GOOD)
+    write_intro(llm, None, None, r, ss, {}, context="Never drop a byte.")
+    assert "DESIGN CONTEXT (from the review's owner):\nNever drop a byte.\n" in llm.prompts[0]
