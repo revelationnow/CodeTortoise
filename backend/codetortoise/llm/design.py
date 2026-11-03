@@ -23,7 +23,7 @@ from codetortoise.llm.tiers import TiersFailed, done_text, tried_note, try_tiers
 from codetortoise.reading import Cause, Reading
 from codetortoise.stories import StorySet
 
-DESIGN_VERSION = 2                    # bump with every change to the prompt or its checks (keys its cache)
+DESIGN_VERSION = 3                    # bump with every change to the prompt or its checks (keys its cache)
 CAUSES_SHOWN = 30                     # §14: about 6k tokens in; only what is listed may be cited
 NODES_SHOWN = 60
 STEPS_SHOWN = 12                      # a walk-through's steps; the rest are counted
@@ -31,7 +31,8 @@ MAX_CONCERNS = 6
 MAX_OWNERSHIP = 8
 ASSESSMENTS = ("right", "note", "confirm", "ask")
 TAGS = ("right", "questionable", "shortfall", "note")
-_NO_IDS = re.compile(r"\b(?:[NF]\d+|c[0-9a-f]{10})\b")      # a node, finding or cause id: names belong in the words
+# a node, finding, thread, walk-through, condition or cause id: names belong in the words; a reader sees none of these
+_NO_IDS = re.compile(r"\b(?:[NFTWG]\d+|c[0-9a-f]{10})\b")
 
 SYSTEM = ("You are a senior C/C++ reviewer writing the opening of a review for reviewers who have not seen the change. "
           'Use only what you are given. Reply with one JSON object: {"verdict", "verdict_causes", "concerns": [{"text", '

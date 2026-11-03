@@ -152,6 +152,12 @@ def test_each_failing_part_keeps_its_fixed_text_or_is_left_out_and_only_that_par
         "a walk-through with no lead": (_with(walks=[{**w[0], "lead": ""}, *w[1:]]), "1 walk-through title(s)"),
         "a false case naming a node": (_with(conditions=[{"id": "G1", "false_case": "When N10 gets a short write"}]),
                                        "1 condition name(s)"),
+        "thread ids in the verdict": (_with(verdict="T1 now returns -2 that T2 ignores. Settle whether T2 must handle it."),
+                                      "the verdict"),
+        "condition and walk-through ids in a lead": (_with(walks=[{**w[0], "lead": "It follows the G1 true case of W1 into T1."},
+                                                                  *w[1:]]), "1 walk-through title(s)"),
+        "a false case naming a walk-through": (_with(conditions=[{"id": "G1", "false_case": "When W2 takes the short path"}]),
+                                               "1 condition name(s)"),
     }
     for name, (answer, part) in cases.items():
         d = rules.build_design(demo.x, demo.ss, demo.det, demo.r, demo.per, lines=demo.lines, read_text=demo.read_text)
@@ -223,7 +229,7 @@ def test_the_prompt_reads_the_design_context_first_and_has_no_such_section_witho
     assert ("\n\nDESIGN CONTEXT (from the review's owner):\nThe UART must never drop a byte.\nEND OF DESIGN CONTEXT\n"
             "THE CHANGE: ") in text
     assert "DESIGN CONTEXT (from" not in prompt(made, demo.r, demo.ss)
-    assert "draw the concerns from it" in dl.ASK and dl.DESIGN_VERSION == 2
+    assert "draw the concerns from it" in dl.ASK and dl.DESIGN_VERSION >= 2
 
 
 def test_the_model_call_asks_with_the_design_context(demo, made):
