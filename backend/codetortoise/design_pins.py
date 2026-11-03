@@ -3,7 +3,7 @@ for one part of the design overview, and each later run of the design stage puts
 
 Pins are kept in blob `design_pins`. A walk-through's or a condition's pin finds its part by what it is rather than by
 its id, since ids follow the order the rules list them in; a function or field it cites is found again by its name, and
-a story by what the rules made it of (its pieces), or by its title for a pin recorded before pins kept pieces. A pin
+a story by what the rules made it of (what its pieces hold), or by its title for a pin recorded without pieces. A pin
 that no longer fits is dropped, and the design stage says so."""
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from codetortoise.design import Concern, Gate, Ownership, ReadingDesign, Rewrite, Walk
 from codetortoise.reading import Reading
+from codetortoise.stories import StoryDetail, StoryPiece
 
 BLOB = "design_pins"
 _DROPPED = {"verdict": "the pinned verdict no longer fits the change and was unpinned",
@@ -34,7 +35,7 @@ class Pin(BaseModel):
     false_case: str = ""
     nodes: dict[str, str] = Field(default_factory=dict)     # each function or field it cites: its name, by id
     stories: dict[str, str] = Field(default_factory=dict)   # each story it cites: its title, by id
-    pieces: dict[str, list[str]] = Field(default_factory=dict)   # and its pieces (none: a pin from before, by title)
+    pieces: dict[str, list[str]] = Field(default_factory=dict)   # and what its pieces hold (none: by its title)
     rewrite: Rewrite | None = None     # the reader who had these words written, and their instruction (final review I2)
 
 
@@ -69,9 +70,24 @@ def story_titles(ss) -> dict[str, str]:
     return {s.id: s.title for s in ss.stories} if ss is not None else {}
 
 
-def story_pieces(ss) -> dict[str, list[str]]:
-    """The stories' pieces by id: what the rules made each of, by which a pin finds a story whatever its title."""
-    return {s.id: sorted(s.pieces) for s in ss.stories} if ss is not None else {}
+def _held(p: StoryPiece | dict) -> str:
+    """What one piece of a story holds, whatever its id: its kind, changelist, files and names."""
+    p = p if isinstance(p, StoryPiece) else StoryPiece.model_validate(p)
+    return "|".join((p.kind, str(p.cl or ""), ",".join(sorted(p.files)), ",".join(sorted(p.names))))
+
+
+def story_pieces(ss, details: dict | None = None) -> dict[str, list[str]]:
+    """The stories' pieces by story id, each by what it holds: what the rules made each story of, by which a pin finds
+    a story whatever its title or id. A piece's id would not do: ids follow the order the rules list pieces in, so a
+    change that grows renumbers them (final review I1). `details`: each story's detail (or its stored form) by id;
+    without them a pin goes by titles."""
+    out: dict[str, list[str]] = {}
+    for s in ss.stories if ss is not None and details else []:
+        d = details.get(s.id)
+        pieces = d.pieces if isinstance(d, StoryDetail) else (d or {}).get("pieces", [])
+        if pieces:
+            out[s.id] = sorted(_held(p) for p in pieces)
+    return out
 
 
 def pin_of(d: ReadingDesign, part: str, titles: dict[str, str], pieces: dict[str, list[str]] | None = None) -> Pin:

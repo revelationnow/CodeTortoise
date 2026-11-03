@@ -111,7 +111,7 @@ def test_a_pin_keeps_who_had_its_words_rewritten_and_puts_that_back_where_the_pa
 def test_a_pin_keeps_a_story_whose_title_was_told_again(demo, written):
     """Phase 4 M5a: a story a pin cites is found by what the rules made it of (its pieces), whatever its title or id
     now; a pin recorded before (titles only) still matches by title."""
-    titles, pieces = story_titles(demo.ss), story_pieces(demo.ss)
+    titles, pieces = story_titles(demo.ss), story_pieces(demo.ss, demo.det)
     pins = [pin_of(written, p, titles, pieces) for p in ("concerns", "ownership")]
     retold = {**titles, "S1": "The send path, told again"}
     fresh = _rules(demo)
@@ -128,6 +128,27 @@ def test_a_pin_keeps_a_story_whose_title_was_told_again(demo, written):
     old = [pin_of(written, p, titles) for p in ("concerns", "ownership")]       # recorded before: titles only
     assert apply_pins(_rules(demo), demo.r, titles, old, pieces) == (old, [])
     assert apply_pins(_rules(demo), demo.r, retold, old, pieces)[0] == []
+
+
+def test_a_pin_finds_its_story_by_what_its_pieces_hold_when_the_change_renumbers_them(demo, written):
+    """Final review I1: piece ids follow the order the rules list pieces in, so a change that grows renumbers them, and
+    another story may then hold the ids a cited story had. A pin finds the story by what its pieces hold."""
+    titles = story_titles(demo.ss)
+    pins = [pin_of(written, "concerns", titles, story_pieces(demo.ss, demo.det))]
+    assert "S5" in pins[0].stories and [s.pieces for s in demo.ss.stories if s.id in ("S4", "S5")] == [["P6"], ["P8"]]
+    ss, det = demo.ss.model_copy(deep=True), {k: v.model_copy(deep=True) for k, v in demo.det.items()}
+
+    def grown(pid: str) -> str:                                      # two new pieces sort before P6
+        return f"P{int(pid[1:]) + 2}" if int(pid[1:]) >= 6 else pid
+    for st in ss.stories:
+        st.pieces = [grown(x) for x in st.pieces]
+    for d in det.values():
+        for x in d.pieces:
+            x.id = grown(x.id)
+    assert [s.pieces for s in ss.stories if s.id == "S4"] == [["P8"]]   # S5's ids before
+    fresh = _rules(demo)
+    assert apply_pins(fresh, demo.r, titles, pins, story_pieces(ss, det)) == (pins, [])
+    assert fresh.concerns == written.concerns
 
 
 def _alike(d):

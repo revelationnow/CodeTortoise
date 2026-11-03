@@ -214,7 +214,7 @@ def design_part(svc: Services, rid: int, x, ss, details, r: Reading, per, *, lin
             told, notes, d = _design_text(svc, rid, d, r, ss, context_text(dc), fresh)
         except Exception as e:  # the rules' design stands
             notes = [f"design text: {type(e).__name__}: {e}"[:200]]
-    kept, dropped = (apply_pins(d, r, story_titles(ss), pins, story_pieces(ss)) if (pins := load_pins(store, rid))
+    kept, dropped = (apply_pins(d, r, story_titles(ss), pins, story_pieces(ss, details)) if (pins := load_pins(store, rid))
                      else ([], []))
     store.replace_blobs(rid, ["reading_design"], [], {"reading_design": d} | ({PINS: kept} if dropped else {}))
     msg = f"{len(d.components)} component(s), {len(d.walks)} walk-through(s), {len(d.gates)} condition(s)" + told + intro

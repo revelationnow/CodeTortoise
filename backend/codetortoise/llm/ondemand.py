@@ -300,7 +300,8 @@ def pin_design(svc: Services, rid: int, part: str, on: bool) -> None:
             raise NotFound(f"{part} is not a part of the design overview")
         if on and d.sources.get(part) not in ("llm", "pinned"):
             raise Unchecked("only the AI's words are pinned; this part has none")
-        pin = pin_of(d, part, story_titles(ss), story_pieces(ss))
+        held = {s.id: svc.store.get_blob(rid, boardstore.STORY + s.id) for s in ss.stories}   # stored, for their pieces
+        pin = pin_of(d, part, story_titles(ss), story_pieces(ss, held))
         pins = unpin(d, load_pins(svc.store, rid), part) + ([pin] if on else [])   # however its pin was keyed
         puts: dict = {"reading_design": d, PINS: pins}
         if on:
