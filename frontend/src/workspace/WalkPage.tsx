@@ -87,9 +87,10 @@ export default function WalkPage({ wid }: { wid: string }) {
           return (
             <li key={n} id={`step-${n}`} className={`fl-row dz-step ${st.status}${on ? " on" : ""}`} onFocus={() => setCur(n)}>
               <div className="fl-head">
-                {keys.length > 0 && <label className="fl-tickbox"><input type="checkbox" className="fl-tick" checked={done}
+                {keys.length > 0 ? <label className="fl-tickbox"><input type="checkbox" className="fl-tick" checked={done}
                                            aria-label={`Looks fine: step ${n}, ${bare(sentence)}`}
-                                           onChange={() => { setCur(n); if (done) reopen(keys); else fine(left); }} /></label>}
+                                           onChange={() => { setCur(n); if (done) reopen(keys); else fine(left); }} /></label>
+                  : <span className="fl-tickbox" aria-hidden />}{/* its room kept: every step's number lines up */}
                 <button className="fl-toggle" aria-expanded={on} title={bare(sentence)} aria-label={`Step ${n}: ${bare(sentence)}`}
                         onClick={() => { setOpen(on ? null : n); setCur(n); }}>
                   <span className="fl-n">{n}</span><span className="fl-one"><Ticks text={sentence} /></span>

@@ -5,7 +5,7 @@ import AiText, { AiName } from "../components/AiText";
 import SinkMark from "../components/SinkMark";
 import { aiTitle } from "../lib/aiMarks";
 import { setShowSinks, showSinks, sinkLine } from "../lib/sinks";
-import { openCount, shown } from "../reading/causes";
+import { openCount } from "../reading/causes";
 import { letter } from "../reading/checks";
 import { alsoLine, blockLine, byModel, citeName, componentBands, concernWhere, conditionTitle, foldGate, gateGroups,
   OWNER_TAG, ownershipTitle, showsWhere, verdictCauses } from "../reading/design";
@@ -136,11 +136,13 @@ function Verdict({ d, r }: { d: ReadingDesign; r: Reading }) {
   return (
     <div className="dz-verdict">
       <AiText><Ticks text={d.verdict} /></AiText>
-      <Chips causes={shown(verdictCauses(d, r.causes), ws.hidden)} />
+      <Chips causes={verdictCauses(d, r.causes)} muted={ws.hidden} />
       <SourceRow d={d} part="verdict" what="verdict" />
     </div>
   );
 }
+
+const COLS = ["Concern", "How the change does it", "Where", "Assessment"];
 
 /** What it must get right (§6.1): a row per thing the design must get right, numbered as a story's crumb cites it (§3.2),
  * how the change does it, where (its stories' thread letters and the stories), and the assessment with its note and the
@@ -153,25 +155,26 @@ function Concerns({ d, r }: { d: ReadingDesign; r: Reading }) {
       <h2 id="dz-concerns">What it must get right</h2>
       <SourceRow d={d} part="concerns" what="concerns" />
       <AiText as="div" className="dz-table">
-        <table>
-          <thead><tr><th>Concern</th><th>How the change does it</th><th>Where</th><th>Assessment</th></tr></thead>
-          <tbody>{d.concerns.map((c, i) => {
+        {/* the roles keep the table a table for screen readers when a narrow overview stacks its cells (phase 2 minor 4) */}
+        <table role="table">
+          <thead role="rowgroup"><tr role="row">{COLS.map((h) => <th key={h} role="columnheader">{h}</th>)}</tr></thead>
+          <tbody role="rowgroup">{d.concerns.map((c, i) => {
             const where = concernWhere(c.stories, r.threads);
             return (
-              <tr key={i} id={`concern-${i + 1}`}>
-                <td className="dz-c-text"><span className="dz-c-n">{i + 1}</span> <Ticks text={c.text} /></td>
-                <td><Ticks text={c.how} /></td>
-                <td className="dz-c-where">
+              <tr key={i} id={`concern-${i + 1}`} role="row">
+                <td role="cell" className="dz-c-text"><span className="dz-c-n">{i + 1}</span> <Ticks text={c.text} /></td>
+                <td role="cell" data-label={COLS[1]}><Ticks text={c.how} /></td>
+                <td role="cell" data-label={COLS[2]} className="dz-c-where">
                   {where.letters.map((L) => <span key={L} className="ov-letter" title={`Thread ${L}`}>{L}</span>)}
                   {where.stories.map((s) => (
                     <Link key={s} className="ws-handle link" to={storyTo(ws, s)} title={bare(titles.get(s) ?? s)}
                           aria-label={`Go to story ${s}: ${short(titles.get(s) ?? s)}`}>{s}</Link>
                   ))}
                 </td>
-                <td>
+                <td role="cell" data-label={COLS[3]}>
                   <span className={`ck-tag ${c.assessment}`}>{c.assessment}</span>
                   {c.note && <span className="dz-c-note"> <Ticks text={c.note} /></span>}
-                  <Chips causes={shown(c.causes.flatMap((id) => by.get(id) ?? []), ws.hidden)} />
+                  <Chips causes={c.causes.flatMap((id) => by.get(id) ?? [])} muted={ws.hidden} />
                 </td>
               </tr>
             );

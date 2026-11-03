@@ -62,7 +62,7 @@ test.describe("the strong model's design text", () => {
     const titles = ["A write longer than 64 bytes", "A write that fits", "Setting up the UART"];
     for (const [i, t] of titles.entries()) await expect(walks.nth(i)).toHaveAttribute("aria-label", `Walk through: ${t}`);
     await expect(walks.locator(".ai-name")).toHaveCount(3);
-    await expect(page.getByRole("heading", { name: /Writes that fit \(64 bytes or less\) · 7 changes still run$/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Writes that fit \(64 bytes or less\) · 5 changes still run$/ })).toBeVisible();
     await expect(page.getByRole("region", { name: "When the condition is false" }).locator("summary .ai-name")).toHaveCount(1);
     await walks.first().click();
     await expect(page).toHaveURL(new RegExp(`${base}/walk/W1$`));
@@ -70,6 +70,34 @@ test.describe("the strong model's design text", () => {
     await expect(page.locator(".dz-walk p.ai-text").first()).toContainText("It follows a long write from main into uart_send and back.");
     await expect(page.locator("aside.ws-outline .ws-row.walk[aria-current='page']"))
       .toHaveAttribute("aria-label", /^Walk through: A write longer than 64 bytes, 9 steps/);
+  });
+});
+
+test.describe("the concerns table beside an open panel", () => {
+  test.use({ baseURL: STRONG, viewport: { width: 1200, height: 900 } });
+
+  test("stacks by the overview's own width, each cell labelled and still a cell (phase 2 minors 3, 4)", async ({ page }) => {
+    await startReview(page);
+    const section = page.getByRole("region", { name: "What it must get right" }), cells = section.locator("tbody tr").first().locator("td");
+    const box = async (i: number) => (await cells.nth(i).boundingBox())!;
+    expect((await box(1)).y).toBeLessThan((await box(0)).y + (await box(0)).height);       // side by side, the panel shut
+    await section.locator("tbody tr").first().locator(".st-chip").click();
+    await expect(page.locator(".cs")).toBeVisible();                                      // the check opens in the panel
+    await expect.poll(async () => (await box(1)).y - ((await box(0)).y + (await box(0)).height)).toBeGreaterThanOrEqual(-1);
+    await expect(cells.nth(1)).toHaveAttribute("data-label", "How the change does it");
+    expect(await cells.nth(1).evaluate((e) => getComputedStyle(e, "::before").content)).toBe('"How the change does it"');
+    await expect(section.getByRole("cell")).toHaveCount(12);
+    await expect(section.getByRole("columnheader")).toHaveCount(4);
+  });
+
+  test("a check the design cites shows its chip though its kind is hidden, muted (phase 2 minor 7)", async ({ page }) => {
+    // Confirm is hidden by default (the outline's "Showing: all but Confirm")
+    await startReview(page);
+    const chip = page.getByRole("region", { name: "What it must get right" }).locator("tbody tr").nth(2).locator(".st-chip");
+    await expect(chip).toHaveCount(1);
+    await expect(chip).toHaveClass(/\bconfirm\b/);
+    await expect(chip).toHaveClass(/\bmuted\b/);
+    await expect(page.locator(".ov-top .dz-verdict .st-chip")).not.toHaveClass(/\bmuted\b/);
   });
 });
 
@@ -82,7 +110,8 @@ test.describe("the strong model's design text on a phone", () => {
     await page.getByRole("link", { name: "Go to the overview" }).click();
     const section = page.getByRole("region", { name: "What it must get right" }), cells = section.locator("tbody tr").first().locator("td");
     await expect(cells).toHaveCount(4);
-    await expect(section.locator("thead")).toBeHidden();
+    expect((await section.locator("thead").boundingBox())!.height).toBeLessThanOrEqual(1);   // seen by screen readers only
+    await expect(section.getByRole("columnheader")).toHaveCount(4);
     const [a, b] = [await cells.nth(0).boundingBox(), await cells.nth(1).boundingBox()];
     expect(b!.y).toBeGreaterThanOrEqual(a!.y + a!.height - 1);
     expect(await sideways(page)).toBeLessThanOrEqual(0);

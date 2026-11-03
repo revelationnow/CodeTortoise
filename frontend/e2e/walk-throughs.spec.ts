@@ -37,6 +37,15 @@ test.describe("a walk-through's page", () => {
     await expect(page).toHaveURL(new RegExp(`${base}/s/S1\\?sec=paths$`));
   });
 
+  test("every step's number lines up, with a tick box or without (phase 1)", async ({ page }) => {
+    const base = await startReview(page, FOUR);
+    await page.goto(`${base}/walk/W1`);
+    await expect(steps(page).locator(".fl-tick")).toHaveCount(2);
+    const xs = await steps(page).locator(".fl-n").evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().left)));
+    expect(xs).toHaveLength(9);
+    expect(new Set(xs).size).toBe(1);
+  });
+
   test("marking a step fine marks its flow fine everywhere: the story's row, the walk-through's count and the head's", async ({ page }) => {
     const base = await startReview(page, FOUR);
     await page.goto(`${base}/walk/W1`);

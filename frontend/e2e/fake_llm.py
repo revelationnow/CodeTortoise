@@ -123,6 +123,7 @@ def design(user: str) -> dict:
     verdict says when the prompt carries a design context (spec 2026-11-02 §8)."""
     causes = re.findall(r"^(c[0-9a-f]{10}) \| (\w+) \|", user, re.M)
     hazard = next((c for c, kind in causes if kind == "hazard"), causes[0][0] if causes else None)
+    confirm = next((c for c, kind in causes if kind == "confirm"), None)   # a kind the outline hides by default
     listed = re.findall(r"\b(S\d+) ", " ".join(re.findall(r"^  stories: (.*)$", user, re.M)))
     s1 = "S1" if "S1" in listed else listed[0] if listed else "S1"
     s2 = "S2" if "S2" in listed else s1
@@ -140,7 +141,7 @@ def design(user: str) -> dict:
                 {"text": "Register numbers are never negative", "how": "`hal_write` now takes an unsigned register.",
                  "stories": [s2], "assessment": "right", "note": "", "causes": []},
                 {"text": "The error count stays readable", "how": "`uart_errors` reads the count that `uart_send` now writes.",
-                 "stories": [s1, s2], "assessment": "note", "note": "", "causes": []}],
+                 "stories": [s1, s2], "assessment": "note", "note": "", "causes": [confirm] if confirm else []}],
             "ownership": [
                 {"tag": "right", "text": "The driver owns the length check.", "cites": [path]},
                 {"tag": "questionable", "text": "The logger decides what a failed send means, and it drops the result.",

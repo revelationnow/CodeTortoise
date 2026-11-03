@@ -88,9 +88,10 @@ export default function FlowsTab({ detail, sr, flows }: { detail: StoryDetail; s
               return (
                 <li key={flow.id} id={`flow-${n}`} className={`fl-row${on ? " on" : ""}`} onFocus={() => setCur(n)}>
                   <div className="fl-head">
-                    {mine.length > 0 && <label className="fl-tickbox"><input type="checkbox" className="fl-tick" checked={done}
+                    {mine.length > 0 ? <label className="fl-tickbox"><input type="checkbox" className="fl-tick" checked={done}
                                                aria-label={`Looks fine: ${bare(sentence)}`}
-                                               onChange={() => { setCur(n); if (done) reopen(mine.map((k) => k.key)); else fine(left); }} /></label>}
+                                               onChange={() => { setCur(n); if (done) reopen(mine.map((k) => k.key)); else fine(left); }} /></label>
+                      : <span className="fl-tickbox" aria-hidden />}{/* its room kept: every flow's number lines up */}
                     <button className="fl-toggle" aria-expanded={on} title={bare(sentence)} aria-label={`Flow ${n}: ${bare(sentence)}`}
                             onClick={() => { setOpen(on ? null : n); setCur(n); }}>
                       <span className="fl-n">{n}</span><span className="fl-one"><Ticks text={sentence} /></span>
