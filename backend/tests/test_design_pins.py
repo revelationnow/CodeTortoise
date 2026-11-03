@@ -179,6 +179,23 @@ def test_two_conditions_with_one_test_keep_their_own_pins(demo, written):
     assert unpin(again, [old, pins[1]], "gate:G1") == [pins[1]] and unpin(again, [old], "gate:G9") == [old]
 
 
+def test_a_condition_key_counts_its_place_by_line_not_by_strength(demo, written):
+    """Final review minor 7: a condition's place among those alike (one function, test and file) is counted in line
+    order, so a change that makes the later one the stronger, listing it first, keeps each pin on its own condition."""
+    _alike(written)
+    for g in written.gates:
+        g.false_case = {"G1": "Short writes", "G9": "Short retries"}.get(g.id, g.false_case)
+    pin = pin_of(written, "gate:G9", {})
+    fresh = _alike(_rules(demo))
+    g9 = next(g for g in fresh.gates if g.id == "G9")
+    fresh.gates.remove(g9)
+    fresh.gates.insert(0, g9)                                          # the stronger now, so listed first
+    g1 = next(g.false_case for g in fresh.gates if g.id == "G1")
+    assert apply_pins(fresh, demo.r, {}, [pin]) == ([pin], [])
+    assert {g.id: g.false_case for g in fresh.gates if g.id in ("G1", "G9")} == {"G1": g1, "G9": "Short retries"}
+    assert part_of(fresh, pin) == "gate:G9"
+
+
 def test_a_walk_through_pin_keyed_the_old_way_still_finds_it(demo, written):
     """Phase 4 M5b: a walk-through's key holds its condition's; one keyed before still finds its walk-through."""
     pin = pin_of(written, "walk:W1", {})

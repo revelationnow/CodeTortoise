@@ -51,9 +51,11 @@ def _old_gate_key(d: ReadingDesign, g: Gate) -> str:
 
 def gate_key(d: ReadingDesign, g: Gate) -> str:
     """What a condition is, whatever its id: its function's name, its test, its file, and its place (from 1) among the
-    conditions of that function, test and file."""
+    conditions of that function, test and file, counted in line order: the conditions are listed strongest first, and
+    a change can make the later one the stronger (final review minor 7)."""
     head = _old_gate_key(d, g)
-    alike = [o.id for o in d.gates if o.path == g.path and _old_gate_key(d, o) == head]
+    alike = [o.id for o in sorted(d.gates, key=lambda o: (o.line or 0, o.id))
+             if o.path == g.path and _old_gate_key(d, o) == head]
     return f"{head}|{g.path}|{alike.index(g.id) + 1}"
 
 
