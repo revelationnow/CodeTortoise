@@ -198,6 +198,11 @@ class Store:
         for n in names:
             self._exec("INSERT INTO stages(review_id, name, status, message) VALUES(?,?,?,?)", (rid, n, "pending", ""))
 
+    def ensure_stage(self, rid: int, name: str) -> None:
+        """Give review `rid` a row for stage `name` when it has none, as a run before the stage existed left it."""
+        self._exec("INSERT INTO stages(review_id, name, status, message) SELECT ?, ?, 'pending', '' "
+                   "WHERE NOT EXISTS (SELECT 1 FROM stages WHERE review_id=? AND name=?)", (rid, name, rid, name))
+
     def set_stage(self, rid: int, name: str, status: str, message: str = "") -> None:
         if status == "running":
             self._exec("UPDATE stages SET status=?, message=?, started_at=? WHERE review_id=? AND name=?",

@@ -709,6 +709,7 @@ def run_design(rid: int, svc: Services) -> None:
     from codetortoise.llm.ondemand import _lock
     store = svc.store
     with _lock(rid):
+        store.ensure_stage(rid, "design")          # a review last run before the design stage existed has no row
         store.set_stage(rid, "design", "running")
         try:
             msg, notes = _design_again(rid, svc)
@@ -851,6 +852,7 @@ class JobRunner:
     def submit_design(self, rid: int) -> None:
         """Queue a re-run of review `rid`'s design stage alone (spec 2026-11-02 §8): its design context changed. The
         stage reads pending at once, so the page knows to wait for it."""
+        self.svc.store.ensure_stage(rid, "design")      # a review last run before the design stage existed has no row
         self.svc.store.set_stage(rid, "design", "pending", "queued: the design context changed")
         self._count("design", 1)
         self._q.put(("design", rid))

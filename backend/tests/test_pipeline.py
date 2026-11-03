@@ -1083,6 +1083,26 @@ def test_the_queue_marks_a_design_re_run_pending_and_counts_it_as_busy(fx, tmp_p
     assert [(s["status"], s["message"]) for s in svc.store.list_stages(rid)] == [("pending", "queued: the design context changed")]
 
 
+def test_a_review_run_before_the_design_stage_existed_gets_its_row_when_a_context_is_saved(fx, tmp_path):
+    """Reviews run before this stage existed have no design row: saving a context gives them one, which reads pending,
+    then ok, and the review stays done (final review I2)."""
+    from codetortoise.pipeline import STAGES, JobRunner, run_design
+    svc = make_services(fx, tmp_path)
+    rid = svc.store.create_review("t", "owner", [101])
+    svc.store.reset_stages(rid, [s for s in STAGES if s != "design"])     # as a run before the design stage left them
+    for name in STAGES:
+        svc.store.set_stage(rid, name, "ok")
+    svc.store.set_review_status(rid, "done", "low")
+    JobRunner(svc).submit_design(rid)                                    # not started: the job waits in the queue
+    assert {s["name"]: s["status"] for s in svc.store.list_stages(rid)}["design"] == "pending"
+    svc.store.reset_stages(rid, [s for s in STAGES if s != "design"])
+    for name in STAGES:
+        svc.store.set_stage(rid, name, "ok")
+    run_design(rid, svc)                                                 # as the test runner runs it, unqueued
+    st = {s["name"]: (s["status"], s["message"]) for s in svc.store.list_stages(rid)}
+    assert st["design"] == ("ok", "no reading to describe") and svc.store.get_review(rid)["status"] == "done"
+
+
 def test_a_stage_run_again_settles_a_finished_review_between_done_and_degraded(fx, tmp_path):
     from codetortoise.pipeline import STAGES, _settle
     svc = make_services(fx, tmp_path)
