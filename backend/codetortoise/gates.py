@@ -171,20 +171,20 @@ def _leaves(node) -> tuple[bool, bool]:
 
 def _shut(node, ln) -> set[int]:
     """The lines that run on neither side of the condition at `node`: the other arm of each if round it, up to its
-    function. Inside an if's block, its else (an else-if chain and all) doesn't run; inside its else, its block doesn't,
-    though its test does. A line the arm on the path shares is left out: it reads as run."""
+    function. Inside an if's block, its else (an else-if chain and all, from the `} else if (…) {` line its closing brace
+    shares) doesn't run; inside its else, its block doesn't. A line the if's test or the path arm's statements share is
+    left out: it reads as run."""
     out: set[int] = set()
     child, up = node, node.parent
     while up is not None and up.type not in ("function_definition", "lambda_expression"):
         cons, alt = up.child_by_field_name("consequence"), up.child_by_field_name("alternative")
         if up.type == "if_statement" and cons is not None and alt is not None:
-            path = set(range(ln(cons.start_point), ln(cons.end_point) + 1))
+            cond = up.child_by_field_name("condition")
+            test = set(range(ln(up.start_point), ln((cond if cond is not None else up).end_point) + 1))
             other = set(range(ln(alt.start_point), ln(alt.end_point) + 1))
             if child.id == cons.id:
-                out |= other - path
+                out |= other - _span(ln, _stmts(cons)) - test
             elif child.id == alt.id:
-                cond = up.child_by_field_name("condition")
-                test = set(range(ln(up.start_point), ln((cond if cond is not None else up).end_point) + 1))
                 out |= _span(ln, _stmts(cons)) - other - test
         child, up = up, up.parent
     return out

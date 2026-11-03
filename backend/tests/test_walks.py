@@ -252,6 +252,19 @@ def test_nested_conditions_run_only_the_arms_on_their_path():
     assert [s for s in sides[False] if s[0] == "call"] == [*path, ("call", "scan", "d", 15)]
 
 
+def test_a_later_else_if_on_the_closing_brace_s_line_runs_on_neither_side():
+    """Final review M4: in K&R layout the then arm's closing brace shares its line with `} else if (busy(m)) {`; a
+    condition in the then arm runs neither that test nor its arm."""
+    pick = ("pick", "drv/p.c", ["if (idle(m)) {", "\ta();", "} else if (busy(m)) {", "\tc();", "}"],
+            ["if (idle(m)) {", "\ta();", "\tif (m == 2) {", "\t\tb();", "\t}", "} else if (busy(m)) {", "\tc();",
+             "}"])
+    calls = [("pick", "idle"), ("pick", "a"), ("pick", "b"), ("pick", "busy"), ("pick", "c"), ("main", "pick")]
+    sides = _sides([pick, _changed("idle"), _changed("a"), _changed("b"), _changed("busy"), _changed("c"),
+                    ("main", "app/m.c", ["pick();"], ["pick();"])], calls, [3, 4, 6, 8, 9, 3], "pick")
+    path = [("call", "main", "pick", 3), ("call", "pick", "idle", 3), ("call", "pick", "a", 4)]
+    assert [s for s in sides[True] if s[0] == "call"] == [*path, ("call", "pick", "b", 6)]
+    assert [s for s in sides[False] if s[0] == "call"] == path
+
 def test_the_true_side_of_a_case_runs_the_arms_after_it_only_when_it_falls_through():
     def on(after):
         return ("on", "drv/s.c", ["switch (m) {", "case 1:", "\ta();", "\tbreak;", "case 3:", "\tc();", "\tbreak;", "}"],
