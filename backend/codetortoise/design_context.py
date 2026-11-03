@@ -78,6 +78,9 @@ def load_context(store, rid: int) -> DesignContext:
 MAX_LINK_BYTES = 1_000_000   # a document read from a link holds at most this (§14)
 LINK_TIMEOUT = 10.0          # seconds to read it in
 _READ = ("text/plain", "text/markdown", "text/x-markdown", "text/html")
+# in a raw path: a separator or a dot some servers read where this check sees none (Tomcat and Jetty drop `;…` before
+# resolving `..`, IIS reads `\` and `%5C` as `/`, `%2F` is a hidden `/`, `%25` a second decoding)
+_UNSAFE = re.compile(rb"[\\;]|%(?:2f|5c|25)", re.I)
 
 
 class LinkRefused(Exception):
@@ -85,13 +88,16 @@ class LinkRefused(Exception):
 
 
 def allowed(url: str, sites: list[str]) -> bool:
-    """Whether the server may read `url`: http or https, with no user name and no `.` or `..` in its path, on a site the
+    """Whether the server may read `url`: http or https, with no user name and no `.` or `..` in its path, nor any
+    spelling of a separator or a dot that some servers resolve where this check sees none (`_UNSAFE`), on a site the
     host lists (`server.design_links`) — the same scheme, host and port, and a path at or under the listed one."""
     try:
         u = httpx.URL(url)
     except Exception:  # not a URL at all
         return False
-    if u.scheme not in ("http", "https") or not u.host or u.userinfo or any(p in (".", "..") for p in u.path.split("/")):
+    raw = u.raw_path.split(b"?", 1)[0]                  # the path as sent, before any decoding; the query is the page's
+    if (u.scheme not in ("http", "https") or not u.host or u.userinfo or _UNSAFE.search(raw)
+            or any(p in (".", "..") for p in u.path.split("/"))):
         return False
     for site in sites:
         try:

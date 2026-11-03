@@ -41,8 +41,9 @@ choice of components. It is entered in the review's ⋯ menu ("Design context…
 saving it runs the design stage again on its own. The AI's opening and the design's parts read it; stories, flows and
 checks never do, so it can't change what is flagged. It holds at most 12 000 characters. The server reads a link only
 from the sites its host lists under `server.design_links` in tortoise.yaml (none by default), so a workspace owner can't
-make it fetch other addresses on its network; it follows no redirect and reads at most 1 MB of text, markdown or a web
-page.
+make it fetch other addresses on its network; it reads only paths under a listed one (refusing spellings such as `..;`
+or `%5C` that some web servers resolve elsewhere), follows no redirect and reads at most 1 MB of text, markdown or a web
+page. Everyone in the review can read the context, the text of linked documents included.
 
 The web app is the system of record for review discussion. P4 Swarm is a side channel: CodeTortoise reads review state,
 can create a Swarm review for a shelved CL and posts a summary link.

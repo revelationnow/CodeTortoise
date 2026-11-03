@@ -80,6 +80,16 @@ def test_a_link_is_read_only_from_a_site_the_host_lists():
     assert allowed("https://wiki.example.com/x", ["https://wiki.example.com"])     # a site listed without a path: all of it
 
 
+def test_a_link_whose_path_some_servers_read_as_outside_the_listed_folder_is_refused():
+    """Tomcat and Jetty drop a `;…` path parameter before they resolve `..`; IIS reads `\\` and `%5C` as `/`; a `%2F`
+    hides a separator and a `%25` a second decoding from the check (final review I1)."""
+    for path in ["..;/admin", "%2e%2e;/admin", "..;jsessionid=x/admin", "..\\admin", "..%5Cadmin", "..%5cadmin",
+                 "%252e%252e/admin", "x%2F..%2Fadmin", "x%2f..%2fadmin", "notes;v=2.md"]:
+        assert not allowed("https://wiki.example.com/design/" + path, SITE), path
+    assert allowed("https://wiki.example.com/design/uart%20notes.md", SITE)       # an escaped space is still a page
+    assert allowed("https://wiki.example.com/design/page?id=%2Fuart;v=2", SITE)   # the query is the page's own business
+
+
 def test_with_no_site_listed_no_link_is_read_and_one_off_the_list_is_refused():
     with pytest.raises(LinkRefused, match="This server reads no links"):
         read_link("https://wiki.example.com/design/uart.md", [])
