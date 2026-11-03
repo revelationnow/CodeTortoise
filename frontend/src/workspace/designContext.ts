@@ -51,5 +51,14 @@ export function contextChars(c: DesignContext): number {
   return [...parts.join("\n\n")].length;
 }
 
+/** A value with its objects' keys in order, so two that hold the same read the same as JSON. */
+const canon = (v: unknown): unknown =>
+  Array.isArray(v) ? v.map(canon)
+    : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon((v as Record<string, unknown>)[k])]))
+    : v;
+
+/** Whether a draft holds what the saved context holds (final review I5): the panel says when it does not. */
+export const sameContext = (a: DesignContext, b: DesignContext): boolean => JSON.stringify(canon(a)) === JSON.stringify(canon(b));
+
 /** A note of the design on its context ("the condition `x` is not in the changed functions") as a sentence. */
 export const noteSentence = (note: string): string => `${note.charAt(0).toUpperCase()}${note.slice(1)}.`;

@@ -2,10 +2,18 @@ import { type ChangeEvent, type CSSProperties, useEffect, useState } from "react
 import { api, type DesignContext, type DesignContextView, errorText } from "../api";
 import { useViewer } from "../viewer";
 import { useWs } from "./context";
-import { CAP, componentsText, contextChars, docName, EMPTY_CONTEXT, linkName, MAX, noteSentence, parseComponents } from "./designContext";
+import { CAP, componentsText, contextChars, docName, EMPTY_CONTEXT, linkName, MAX, noteSentence, parseComponents, sameContext } from "./designContext";
 import { Ticks } from "./NameText";
 
 const FILE_MAX = 1_000_000;    // a file read in the browser, as a link the server reads (§14): more than the context holds
+
+/** What the owner typed and has not saved: the context, the components' text, and the link and condition half entered. */
+type Draft = { c: DesignContext; comps: string; link: string; test: string; fn: string };
+
+/** The owner's unsaved draft by review (final review I5). The panel closes on Escape or a press outside it, and its state
+ * goes with it; the draft stays here, so opening the panel again brings it back. A save or Discard drops it, and so does
+ * a reload of the page. */
+const drafts = new Map<number, Draft>();
 
 /** The design context panel (spec 2026-11-02 §8): what the code can't say — notes, documents, conditions added or left
  * out by hand, and a choice of components. The owner edits and saves it, which re-runs the design stage alone; anyone
@@ -21,10 +29,22 @@ export default function DesignContextPanel({ style }: { style: CSSProperties }) 
   const [error, setError] = useState("");
   const [said, setSaid] = useState("");
   const [busy, setBusy] = useState(false);
+  const saved = (v: DesignContextView) => { setView(v); setC(v.context); setComps(componentsText(v.context.components)); };
+  const show = (v: DesignContextView, draft?: Draft) => {         // the saved context, or the draft kept over it
+    saved(v);
+    if (draft) { setC(draft.c); setComps(draft.comps); }
+    setLink(draft?.link ?? ""); setTest(draft?.test ?? ""); setFn(draft?.fn ?? "");
+  };
   useEffect(() => {
-    api.designContext(d.id).then((v) => { setView(v); setC(v.context); setComps(componentsText(v.context.components)); },
+    api.designContext(d.id).then((v) => show(v, drafts.get(d.id)),
                                  (e) => setError(errorText(e, "The design context could not be loaded.")));
   }, [d.id]);
+  const dirty = !!view && owner && (!sameContext(c, view.context) || comps !== componentsText(view.context.components)
+                                    || !!(link.trim() || test.trim() || fn.trim()));
+  useEffect(() => {                         // keep the draft while it differs from what was saved
+    if (dirty) drafts.set(d.id, { c, comps, link, test, fn });
+    else if (view) drafts.delete(d.id);
+  }, [dirty, d.id, view, c, comps, link, test, fn]);
   const design = d.reading?.design ?? null;
   const found = (design?.gates ?? []).filter((g) => g.source === "code" && !c.conditions.remove.includes(g.test));
   const parsed = parseComponents(comps), chars = contextChars(c), cap = view?.cap ?? CAP;
@@ -44,8 +64,14 @@ export default function DesignContextPanel({ style }: { style: CSSProperties }) 
   const save = () => {
     setBusy(true);
     setError("");
-    api.saveDesignContext(d.id, { ...c, components: parsed.components })
-      .then(() => { setSaid("Saved. The overview reads it now."); d.awaitDesign(); })
+    const sent = { ...c, components: parsed.components };
+    api.saveDesignContext(d.id, sent)
+      .then(() => {
+        saved({ ...view!, context: sent });                     // no longer a draft; the link or condition half typed stays
+        setSaid("Saved. The overview reads it now.");
+        d.awaitDesign();
+        api.designContext(d.id).then(saved, () => {});          // as the server keeps it: a link's document holds its text
+      })
       .catch((e) => setError(errorText(e, "The design context could not be saved.")))
       .finally(() => setBusy(false));
   };
@@ -120,6 +146,8 @@ export default function DesignContextPanel({ style }: { style: CSSProperties }) 
           <p className={`dc-count small${chars > cap ? " over" : ""}`}>{chars.toLocaleString("en-US")} of {cap.toLocaleString("en-US")} characters</p>
           <div className="dc-acts">
             <button onClick={save} disabled={busy || chars > cap || parsed.bad.length > 0 || compsOver}>{busy ? "Saving…" : "Save"}</button>
+            {dirty && !busy && <span className="dc-unsaved small">Unsaved changes{" "}
+              <button className="link" onClick={() => { drafts.delete(d.id); show(view!); setSaid(""); }}>Discard</button></span>}
             <span role="status" className="muted small">{said && (d.designing ? "Saved. The design stage is running…" : said)}</span>
           </div>
         </div>

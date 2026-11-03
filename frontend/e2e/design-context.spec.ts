@@ -61,6 +61,36 @@ test.describe("the design context", () => {
     await context.close();
   });
 
+  test("the owner's unsaved draft comes back when the panel closes, until it is saved or discarded (final review I5)", async ({ page }) => {
+    await startReview(page);
+    let panel = await openPanel(page);
+    await expect(panel.getByText("Unsaved changes")).toHaveCount(0);
+    await panel.getByLabel("Notes").fill(NOTES);
+    await panel.getByLabel("Condition, as the code writes it").fill("len > 64");
+    await expect(panel.getByText("Unsaved changes")).toBeVisible();
+    await panel.getByLabel("Notes").press("Escape");                                   // Escape, even in a text field, closes it
+    await expect(panel).toBeHidden();
+    panel = await openPanel(page);
+    await expect(panel.getByLabel("Notes")).toHaveValue(NOTES);
+    await expect(panel.getByLabel("Condition, as the code writes it")).toHaveValue("len > 64");
+    await page.getByRole("region", { name: "Centre" }).click({ position: { x: 5, y: 5 } });   // and so does a press outside
+    await expect(panel).toBeHidden();
+    panel = await openPanel(page);
+    await expect(panel.getByLabel("Notes")).toHaveValue(NOTES);
+    await panel.getByRole("button", { name: "Discard" }).click();
+    await expect(panel.getByLabel("Notes")).toHaveValue("");
+    await expect(panel.getByLabel("Condition, as the code writes it")).toHaveValue("");
+    await expect(panel.getByText("Unsaved changes")).toHaveCount(0);
+    await panel.getByLabel("Notes").fill(NOTES);
+    await panel.getByRole("button", { name: "Save" }).click();
+    await expect(panel.getByRole("status")).toContainText("Saved");
+    await expect(panel.getByText("Unsaved changes")).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    panel = await openPanel(page);
+    await expect(panel.getByLabel("Notes")).toHaveValue(NOTES);                        // as saved, not as a draft
+    await expect(panel.getByText("Unsaved changes")).toHaveCount(0);
+  });
+
   test("a review started with a design context opens with the opening that read it", async ({ page }) => {
     await login(page);
     await page.getByLabel("Changelists (shelved or submitted)").fill("101 102");

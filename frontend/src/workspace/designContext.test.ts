@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { componentsText, contextChars, docName, EMPTY_CONTEXT, linkName, noteSentence, parseComponents } from "./designContext";
+import { componentsText, contextChars, docName, EMPTY_CONTEXT, linkName, noteSentence, parseComponents, sameContext } from "./designContext";
 
 describe("the design context panel's text (spec 2026-11-02 §8)", () => {
   it("holds the components a line each, a name then its globs", () => {
@@ -28,6 +28,16 @@ describe("the design context panel's text (spec 2026-11-02 §8)", () => {
   it("cuts a file's name to the 200 characters a document's name holds", () => {
     expect(docName(" notes.md ")).toBe("notes.md");
     expect(docName(`${"é".repeat(250)}.md`)).toBe("é".repeat(200));
+  });
+
+  it("tells a draft from the saved context whatever order its keys come in (final review I5)", () => {
+    const saved = { notes: "n", documents: [{ name: "d", text: "t", url: null }],
+                    conditions: { add: [{ test: "x", function: null }], remove: [] }, components: [{ name: "A", globs: ["a/**"] }] };
+    const draft = { components: [{ globs: ["a/**"], name: "A" }], conditions: { remove: [], add: [{ function: null, test: "x" }] },
+                    documents: [{ url: null, text: "t", name: "d" }], notes: "n" };
+    expect(sameContext(draft, saved)).toBe(true);
+    expect(sameContext({ ...draft, notes: "m" }, saved)).toBe(false);
+    expect(sameContext({ ...draft, documents: [] }, saved)).toBe(false);
   });
 
   it("says a note of the design as a sentence", () => {
