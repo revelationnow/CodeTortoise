@@ -107,6 +107,29 @@ def test_a_function_called_only_under_the_condition_stops_with_it_and_one_called
     assert (runs, stops) == (1, 3)
 
 
+def test_a_function_also_called_from_a_file_not_parsed_still_runs():
+    from test_stories import W
+
+    from codetortoise.impact import Edge, Node
+    c = _world([("send", "drv/u.c", ["go();"], ["if (len > 64) {", "\tonly();", "\treturn -2;", "}", "go();"]),
+                ("only", "drv/u.c", ["a = 1;"], ["a = 2;"])], calls=[("send", "only")])
+    c.after[0].calls[0].line = 4
+    c.impact.nodes["N9"] = Node(id="N9", key="c:@F@remote", label="remote", file=f"{W}/far/r.c", line=1, layer=1)
+    c.impact.edges.append(Edge(id="E9", src="N9", dst="N2", kind="call", confidence="heuristic", file=f"{W}/far/r.c",
+                               line=3))                            # a caller found by name in a file not parsed
+    x, found = _found(c)
+    lines, runs, stops = classify(found[0], x, Sources(x), {}, [])
+    assert [(g.where, g.function, g.runs) for g in lines if g.where == "elsewhere"] == [("elsewhere", "only", True)]
+
+
+def test_a_file_with_a_guard_and_an_unrelated_parse_error_keeps_its_else_branches():
+    c = _world([("send", "drv/u.c", ["go();"], ["go();"])])
+    c.cs.files[0].after = ("#ifndef U_H\n#define U_H\nint broken = ;\nint fine = 1;\nvoid send(void)\n{\n#ifdef FAST\n"
+                           "\tgo();\n#else\n\tif (len > 64)\n\t\treturn;\n#endif\n}\n#endif\n")
+    tree, src, _ = Sources(_Ctx(c)).tree(c.cs.files[0].local)
+    assert tree.root_node.has_error and b"if (len > 64)" in src
+
+
 def test_the_fold_leaves_out_test_files_preprocessor_lines_and_lines_in_no_function():
     c = _world([("send", "drv/u.c", ["both();"],
                  ["if (len > 64) {", "\treturn -2;", "}", "#ifdef TRACE", "trace(len);", "#endif", "both();"]),

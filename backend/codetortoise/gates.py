@@ -12,7 +12,7 @@ from dataclasses import dataclass, field, replace
 
 from codetortoise import linediff
 from codetortoise.board import is_test_path
-from codetortoise.cparse import _COND, _at, _line_starts, _parser_for, _txt, flatten_preproc, norm_ws
+from codetortoise.cparse import _at, _collect, _line_starts, _parser_for, _tangled, _txt, flatten_preproc, norm_ws
 from codetortoise.design import Gate, GatedLine
 from codetortoise.design_context import same_test
 from codetortoise.reading import rel_path
@@ -249,15 +249,16 @@ class Sources:
         return self._marks[path]
 
     def tree(self, path: str, side: str = "after") -> tuple:
-        """(tree, source bytes, row starts). A parse an `#if` tangles is redone on `flatten_preproc`'s text, which keeps
-        every kept line's number and bytes."""
+        """(tree, source bytes, row starts). A parse an `#if` tangles (as `parse_source` decides) is redone on
+        `flatten_preproc`'s text, which keeps every kept line's number and bytes; a parse error elsewhere keeps every
+        branch."""
         key = (path, side)
         if key not in self._trees:
             text = self.text(path, side)
             parser = _parser_for(path)
             src = text.encode("utf-8", errors="replace")
             tree = parser.parse(src)
-            if tree.root_node.has_error and any(_COND.match(t) for t in text.split("\n")):
+            if tree.root_node.has_error and _tangled(tree, text, _collect(tree, src)):
                 src = flatten_preproc(text).encode("utf-8", errors="replace")
                 tree = parser.parse(src)
             self._trees[key] = (tree, src, _line_starts(text))
@@ -407,8 +408,10 @@ def find_gates(x, src: Sources, story_of: dict[str, str], order: list[str]) -> l
 
 def _only_guarded(x, g: Branch) -> set[str]:
     """Functions reached only through the guarded block: every call to them sits in its body, or in a function already
-    reached only through it."""
+    reached only through it. One the impact model finds called by name from a file not parsed is not."""
     usr = x.im.nodes[g.node].key
+    afar = {x.im.nodes[e.dst].key for e in x.im.edges
+            if e.kind == "call" and e.confidence == "heuristic" and e.dst in x.im.nodes}
     sites: dict[str, list] = {}
     for e in x.calls_after:
         sites.setdefault(e.callee, []).append(e)
@@ -417,7 +420,7 @@ def _only_guarded(x, g: Branch) -> set[str]:
     while grew:
         grew = False
         for callee, es in sites.items():
-            if callee in inside or callee == usr:
+            if callee in inside or callee == usr or callee in afar:
                 continue
             if all((e.caller == usr and e.line in g.body) or e.caller in inside for e in es):
                 inside.add(callee)
