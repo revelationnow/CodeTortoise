@@ -947,6 +947,10 @@ a.ws-chip { text-decoration: none; }
 .dz-srcrow > .dz-src { margin: 0; }
 .dz-rewrite { margin-left: auto; }
 .dz-rewrite .ai-menu { left: auto; right: 0; }
+/* why a part can't be rewritten (phase 4 M7): under the items of the owner's menu, and beside a shut Rewrite ▾ for anyone
+   else */
+.dz-rewrite .ai-why { font-size: 12px; color: var(--muted); }
+.dz-rewrite .ai-menu .ai-why { padding: 5px 12px; border-top: 1px solid var(--line); }
 .ov3 .dz-concerns { margin: 18px 0 10px; }
 .ov3 .dz-concerns > h2 { margin: 0; }
 .dz-table table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 8px; font-size: 13px; }

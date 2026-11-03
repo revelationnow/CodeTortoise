@@ -15,7 +15,8 @@ const MAX_INSTRUCTION = 300;                     // as the server takes it
  * Rewrite asks the strong model for the part again, after a confirmation; Rewrite with an instruction… opens a box whose
  * words go into the prompt (Ask sends them, Ctrl+Enter too; Escape shuts it). The review's owner pins the words, so later
  * runs of the design stage keep them, or unpins them. A rewrite is one AI call, shown to everyone once it lands; a pinned
- * part is not rewritten. A refusal or a failure shows beside the menu. */
+ * part is not rewritten, and says why in words: in the owner's menu, and beside a shut Rewrite ▾ for anyone else. A refusal
+ * or a failure shows beside the menu. */
 export default function RewriteMenu({ part, what }: { part: string; what: string }) {
   const ai = useAi(), ws = useWs(), me = useViewer();
   const [open, setOpen] = useState(false);
@@ -41,16 +42,18 @@ export default function RewriteMenu({ part, what }: { part: string; what: string
   const pin = (on: boolean) => {
     setOpen(false);
     setError(null);
+    button.current?.focus();                     // the menu shuts under the item: focus goes back to Rewrite ▾ (phase 4 M6)
     api.pinDesign(ws.data.id, part, on).then(() => ws.data.loadReading())
       .catch((e) => setError({ text: errorText(e, on ? "The words could not be pinned." : "The words could not be unpinned."),
                                refused: false }));
   };
+  const barred = !items.rewrite && !items.pin;   // nothing this reader may do here: a part the owner pinned
   // title="": nothing here is the AI's text; an empty title keeps the hover of whatever surrounds these controls off them
   return (
     <span className="ai-ask dz-rewrite" title="" onClick={(e) => e.stopPropagation()}>
       <span className="ai-menuwrap">
-        <button ref={button} className="ai-btn" aria-haspopup="menu" aria-expanded={open}
-                title={`Ask the AI to write the ${what} again`} onClick={() => setOpen(!open)}>
+        <button ref={button} className="ai-btn" aria-haspopup="menu" aria-expanded={open} disabled={barred}
+                title={barred ? items.why : `Ask the AI to write the ${what} again`} onClick={() => setOpen(!open)}>
           {running ? "Rewriting…" : "Rewrite"}<span aria-hidden> ▾</span></button>
         {open && (
           <span className="ai-menu" role="menu" aria-label="Rewrite" ref={menu}>
@@ -66,9 +69,11 @@ export default function RewriteMenu({ part, what }: { part: string; what: string
               <button role="menuitem" disabled={running} onClick={() => pin(items.pin === "pin")}>
                 {items.pin === "pin" ? "Pin this text" : "Unpin"}</button>
             )}
+            {items.why && <span role="none" className="ai-why">{items.why}</span>}{/* why Rewrite is shut, said (phase 4 M7) */}
           </span>
         )}
       </span>
+      {barred && <span className="ai-why">{items.why}</span>}
       {asking && (
         <span className="ai-askq">
           <textarea aria-label="How should the AI rewrite it?" rows={2} value={words} autoFocus maxLength={MAX_INSTRUCTION}

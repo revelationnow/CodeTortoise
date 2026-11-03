@@ -163,7 +163,9 @@ def rewrite(user: str) -> dict:
     asks for that; a walk-through's title and lead again. The rest is the design's answer, which a rewrite leaves unread."""
     out = design(user)
     asked = user.split("THE REVIEWER'S INSTRUCTION", 1)[1].lower() if "THE REVIEWER'S INSTRUCTION" in user else ""
-    if "REWRITE: write the verdict again" in user:
+    if "REWRITE: write the verdict again" in user and "fail the checks" in asked:
+        out["verdict"] = "Too short."                      # an answer the verdict's checks refuse: the job fails
+    elif "REWRITE: write the verdict again" in user:
         out["verdict"] = SHORT_VERDICT if "shorter" in asked else (
             "The change holds together once more, but one new result goes unchecked. "
             "Settle whether `logger_flush` must handle the new -2.")

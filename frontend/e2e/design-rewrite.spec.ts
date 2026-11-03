@@ -90,6 +90,55 @@ test.describe("the design overview's AI menu", () => {
   });
 });
 
+test.describe("the AI menu says why and keeps focus (phase 4 M6, M7, M8)", () => {
+  test.use({ baseURL: STRONG, viewport: { width: 1440, height: 900 } });
+
+  test("after Pin or Unpin, focus is back on the Rewrite button", async ({ page }) => {
+    await startReview(page);
+    const v = verdictRow(page), button = v.getByRole("button", { name: "Rewrite", exact: true });
+    await (await rewriteMenu(page)).getByRole("menuitem", { name: "Pin this text" }).click();
+    await expect(v.locator(".dz-src")).toHaveText("AI, from the stories · pinned");
+    await expect(button).toBeFocused();
+    await (await rewriteMenu(page)).getByRole("menuitem", { name: "Unpin" }).click();
+    await expect(v.locator(".dz-src")).toHaveText("AI, from the stories");
+    await expect(button).toBeFocused();
+  });
+
+  test("a pinned part says why it can't be rewritten: in the owner's menu, and beside a shut Rewrite for anyone else",
+       async ({ page, browser }) => {
+    const base = await startReview(page);
+    await (await rewriteMenu(page)).getByRole("menuitem", { name: "Pin this text" }).click();
+    await expect(verdictRow(page).locator(".dz-src")).toHaveText("AI, from the stories · pinned");
+    await expect((await rewriteMenu(page)).getByText("Pinned: unpin it to rewrite it")).toBeVisible();
+    const context = await browser.newContext({ baseURL: STRONG, viewport: { width: 1440, height: 900 } });
+    const other = await context.newPage();
+    await login(other, "bob");
+    await other.goto(base);
+    const theirs = verdictRow(other);
+    await expect(theirs.getByRole("button", { name: "Rewrite", exact: true })).toBeDisabled();
+    await expect(theirs.getByText("Pinned by the review's owner")).toBeVisible();
+    await context.close();
+  });
+
+  test("a refused rewrite says so and offers the owner Raise budget; a failed one shows its error", async ({ page }) => {
+    await startReview(page);
+    const v = verdictRow(page);
+    await page.route("**/api/reviews/*/design/verdict/rewrite", (r) =>
+      r.fulfill({ status: 429, json: { detail: "you've used your 20 AI calls today" } }));
+    page.once("dialog", (d) => d.accept());
+    await (await rewriteMenu(page)).getByRole("menuitem", { name: "Rewrite", exact: true }).click();
+    await expect(v.getByRole("alert")).toContainText("you've used your 20 AI calls today");
+    await expect(v.getByRole("alert").getByRole("button", { name: "Raise budget" })).toBeVisible();
+    await page.unroute("**/api/reviews/*/design/verdict/rewrite");
+    await (await rewriteMenu(page)).getByRole("menuitem", { name: "Rewrite with an instruction…" }).click();
+    await v.getByLabel("How should the AI rewrite it?").fill("Make it fail the checks");
+    await v.getByRole("button", { name: "Ask" }).click();
+    await expect(v.getByRole("alert")).toHaveText(/^the AI's answer didn't pass the checks \(citations or house style\); nothing was changed/,
+                                                  { timeout: 30_000 });
+    await expect(v.getByRole("alert").getByRole("button", { name: "Raise budget" })).toHaveCount(0);
+  });
+});
+
 test.describe("the AI menu on a phone", () => {
   test.use({ baseURL: STRONG, viewport: devices["iPhone 13"].viewport, userAgent: devices["iPhone 13"].userAgent,
              deviceScaleFactor: devices["iPhone 13"].deviceScaleFactor, isMobile: true, hasTouch: true });
