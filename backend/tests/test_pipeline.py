@@ -1153,3 +1153,47 @@ def test_a_design_re_run_that_breaks_leaves_no_design_as_a_run_that_breaks_does(
     st = {s["name"]: s for s in svc.store.list_stages(rid)}
     assert (st["design"]["status"], st["design"]["message"]) == ("failed", "RuntimeError: broken")
     assert svc.store.get_blob(rid, "reading_design") is None and svc.store.get_review(rid)["status"] == "degraded"
+
+
+def test_a_pinned_part_outlives_a_design_re_run_that_writes_the_rest_again(fx, tmp_path):
+    from codetortoise import boardstore
+    from codetortoise.design import ReadingDesign
+    from codetortoise.design_pins import BLOB, load_pins, pin_of, story_titles
+    from codetortoise.pipeline import run_design
+
+    def answer(system, user):
+        out = _one_story_per_cl(system, user)
+        if "CHECKS BY CAUSE (id" in user and "DESIGN CONTEXT (from" in user:
+            out = {**out, "verdict": "The change holds against its context. Settle whether its callers handle the new "
+                                     "results.",
+                   "ownership": [{**out["ownership"][0], "text": "The driver owns the new checks, as the context asks."}]}
+        return out
+    svc = make_services(fx, tmp_path)
+    _strong(svc, answer)
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    d = ReadingDesign.model_validate(svc.store.get_blob(rid, "reading_design"))
+    svc.store.put_blob(rid, BLOB, [pin_of(d, "verdict", story_titles(boardstore.stories(svc.store, rid)))])
+    _context(svc, rid, notes="Never drop a byte.")
+    run_design(rid, svc)
+    again = svc.store.get_blob(rid, "reading_design")
+    assert (again["verdict"], again["sources"]["verdict"]) == (d.verdict, "pinned")
+    assert again["ownership"][0]["text"] == "The driver owns the new checks, as the context asks."
+    assert again["sources"]["ownership"] == "llm" and len(load_pins(svc.store, rid)) == 1
+
+
+def test_a_pin_that_no_longer_fits_is_dropped_and_the_design_stage_says_so(fx, tmp_path):
+    from codetortoise.design import ReadingDesign
+    from codetortoise.design_pins import BLOB, load_pins, pin_of
+    from codetortoise.pipeline import run_design
+    svc = make_services(fx, tmp_path)
+    _strong(svc, _one_story_per_cl)
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    d = ReadingDesign.model_validate(svc.store.get_blob(rid, "reading_design"))
+    svc.store.put_blob(rid, BLOB, [pin_of(d, "concerns", {})])     # pinned under titles its stories no longer have
+    run_design(rid, svc)
+    st = {s["name"]: s for s in svc.store.list_stages(rid)}["design"]
+    assert st["status"] == "ok"
+    assert st["message"].endswith("; the pinned concerns no longer fit the change and were unpinned")
+    assert load_pins(svc.store, rid) == [] and svc.store.get_blob(rid, "reading_design")["sources"]["concerns"] == "llm"

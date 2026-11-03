@@ -19,6 +19,8 @@ from codetortoise.cltext import prompt_text
 from codetortoise.config import seed_name
 from codetortoise.design import build_design
 from codetortoise.design_context import context_text, load_context
+from codetortoise.design_pins import BLOB as PINS
+from codetortoise.design_pins import apply_pins, load_pins, story_titles
 from codetortoise.detectors.base import DetectorContext, renumber, run_detectors
 from codetortoise.diffmap import DiffMap, map_changes
 from codetortoise.facts.model import Facts, relative_records
@@ -191,7 +193,8 @@ def design_part(svc: Services, rid: int, x, ss, details, r: Reading, per, *, lin
     """The design stage's work on review `rid`'s reading (spec 2026-11-02 §4–§10): the rules' design with the review's
     design context (§8), then the strong model's parts; any failure of the model's part leaves the rules' design exactly
     (§15). Stores blob `reading_design`; returns the stage's message and its notes. A design the rules can't build
-    leaves none. `intro` is what a design-only re-run says of the introduction it asked again."""
+    leaves none. The owner's pins (codetortoise.design_pins) go back on the model's words; one that no longer fits is
+    dropped and said. `intro` is what a design-only re-run says of the introduction it asked again."""
     store, cfg = svc.store, svc.cfg
     dc = load_context(store, rid)
     try:
@@ -205,10 +208,13 @@ def design_part(svc: Services, rid: int, x, ss, details, r: Reading, per, *, lin
             told, notes, d = _design_text(svc, rid, d, r, ss, context_text(dc), fresh)
         except Exception as e:  # the rules' design stands
             notes = [f"design text: {type(e).__name__}: {e}"[:200]]
-    store.replace_blobs(rid, ["reading_design"], [], {"reading_design": d})
+    kept, dropped = apply_pins(d, r, story_titles(ss), pins) if (pins := load_pins(store, rid)) else ([], [])
+    store.replace_blobs(rid, ["reading_design"], [], {"reading_design": d} | ({PINS: kept} if dropped else {}))
     msg = f"{len(d.components)} component(s), {len(d.walks)} walk-through(s), {len(d.gates)} condition(s)" + told + intro
     if d.context_notes:
         msg += "; design context: " + "; ".join(d.context_notes)
+    if dropped:                                  # said, not degraded: the design is whole, only a pin let go
+        msg += "; " + "; ".join(dropped)
     return msg, notes
 
 
