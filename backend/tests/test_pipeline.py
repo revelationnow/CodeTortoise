@@ -1197,3 +1197,64 @@ def test_a_pin_that_no_longer_fits_is_dropped_and_the_design_stage_says_so(fx, t
     assert st["status"] == "ok"
     assert st["message"].endswith("; the pinned concerns no longer fit the change and were unpinned")
     assert load_pins(svc.store, rid) == [] and svc.store.get_blob(rid, "reading_design")["sources"]["concerns"] == "llm"
+
+
+def test_a_re_run_s_failed_introduction_shows_the_fixed_text(fx, tmp_path):
+    """Phase 3 minor 7: a re-run asks the introduction from its fixed text, so when the call fails the reading shows the
+    text the stage says stays (the whole as the thread text left it), not the last answer, written without this
+    context."""
+    from codetortoise.pipeline import run_design
+    svc = make_services(fx, tmp_path)
+    llm = _strong(svc, _one_story_per_cl)
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    r = svc.store.get_blob(rid, "reading")
+    assert {t["intro_source"] for t in r["threads"]} == {"llm"} and r["route_source"] == "llm"
+    told = svc.store.get_blob(rid, "thread_text")
+    llm.answer = lambda s, u: RuntimeError("down") if "THREAD DETAILS (id" in u else _one_story_per_cl(s, u)
+    _context(svc, rid, notes="Never drop a byte.")
+    run_design(rid, svc)
+    r = svc.store.get_blob(rid, "reading")
+    assert {t["intro_source"] for t in r["threads"]} == {"template"} and r["route_source"] == "template"
+    assert (r["whole"], r["whole_source"]) == (told["whole"], told["whole_source"])
+    st = {s["name"]: s for s in svc.store.list_stages(rid)}["design"]
+    assert st["status"] == "degraded" and "introduction: " in st["message"] and "the fixed text stays" in st["message"]
+
+
+def test_with_the_design_off_saving_a_context_asks_the_introduction_again(fx, tmp_path):
+    """Phase 3 minor 6: the context reaches the introduction too, so a design turned off still has it asked again."""
+    from codetortoise.pipeline import run_design
+    svc = make_services(fx, tmp_path)
+    llm = _strong(svc, _one_story_per_cl)
+    svc.cfg.analysis.design = False
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    asked = len(llm.prompts)
+    _context(svc, rid, notes="Never drop a byte.")
+    run_design(rid, svc)
+    new = llm.prompts[asked:]
+    assert len(new) == 1 and "THREAD DETAILS (id" in new[0] and "Never drop a byte." in new[0]
+    st = {s["name"]: s for s in svc.store.list_stages(rid)}["design"]
+    assert (st["status"], st["message"]) == ("ok", "off (analysis.design: false); introduction by big")
+    assert svc.store.get_blob(rid, "reading_design") is None
+
+
+def test_a_design_re_run_with_another_waiting_leaves_the_stage_pending(fx, tmp_path):
+    """Phase 3 minor 3: a context saved twice queues two re-runs; the first to finish leaves the stage pending, so the
+    page waits on for the second, and the review's status is left as it is until the second settles it."""
+    from codetortoise.pipeline import JobRunner
+    svc = make_services(fx, tmp_path)
+    rid = svc.store.create_review("t", "owner", [101])
+    run_review(rid, svc)
+    before = {s["name"]: (s["status"], s["message"]) for s in svc.store.list_stages(rid)}
+    status = svc.store.get_review(rid)["status"]
+    runner = JobRunner(svc)                          # not started: the queue's jobs are run here, one by one
+    runner.submit_design(rid)
+    runner.submit_design(rid)
+    runner._run(*runner._q.get())
+    st = {s["name"]: (s["status"], s["message"]) for s in svc.store.list_stages(rid)}
+    assert st["design"] == ("pending", "queued: the design context changed")
+    assert svc.store.get_review(rid)["status"] == status
+    runner._run(*runner._q.get())
+    assert {s["name"]: (s["status"], s["message"]) for s in svc.store.list_stages(rid)} == before
+    assert runner.busy() is None

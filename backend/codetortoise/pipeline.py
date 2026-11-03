@@ -51,6 +51,7 @@ from codetortoise.reading import (
     StoryReading,
     build_reading,
     fixed_introduction,
+    fixed_whole,
     headline_facts,
     thread_files,
 )
@@ -712,12 +713,16 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
             stage(name, fn)
 
 
-def run_design(rid: int, svc: Services) -> None:
+QUEUED = "queued: the design context changed"
+
+
+def run_design(rid: int, svc: Services, waiting: Callable[[], bool] = lambda: False) -> None:
     """Run review `rid`'s design stage again, alone (spec 2026-11-02 §8, §18.9), as saving a design context does: the
     introduction is asked again with the context, and the design built again from the reading the last run stored; the
     stories, flows and checks stay as they are. Only the design stage's row changes, and the review's status moves only
     between done and degraded (`_settle`), so its page stays readable meanwhile. A re-run that breaks leaves no design,
-    as a run's design stage that breaks does (§9)."""
+    as a run's design stage that breaks does (§9). `waiting`: whether another re-run of the review waits in the queue;
+    the stage then stays pending, so the page waits on for it, and the review's status is left for it to settle."""
     from codetortoise.llm.ondemand import _lock
     store = svc.store
     with _lock(rid):
@@ -725,14 +730,15 @@ def run_design(rid: int, svc: Services) -> None:
         store.set_stage(rid, "design", "running")
         try:
             msg, notes = _design_again(rid, svc)
-            if notes:
-                store.set_stage(rid, "design", "degraded", msg + "; " + "; ".join(notes))
-            else:
-                store.set_stage(rid, "design", "ok", msg)
+            status, said = ("degraded", msg + "; " + "; ".join(notes)) if notes else ("ok", msg)
         except Exception as e:  # recorded as run_review records a stage's failure
             log.error("design re-run of review %s failed: %s", rid, traceback.format_exc())
             store.replace_blobs(rid, ["reading_design"], [], {})
-            store.set_stage(rid, "design", "failed", f"{type(e).__name__}: {e}")
+            status, said = "failed", f"{type(e).__name__}: {e}"
+        if waiting():
+            store.set_stage(rid, "design", "pending", QUEUED)
+            return
+        store.set_stage(rid, "design", status, said)
         _settle(store, rid)
 
 
@@ -759,21 +765,42 @@ def _settle(store, rid: int) -> None:
     store.set_review_status(rid, "done" if all(st.get(s) == "ok" for s in STAGES if s != "finalize") else "degraded")
 
 
+def _intro_from_fixed(store, rid: int, r: Reading, ss) -> None:
+    """Reading `r` as it stood before its introduction was asked, which a re-run asks again (phase 3 minor 7): each
+    thread's fixed intro and the fixed route, and the whole as the thread text left it (the fixed whole when the stored
+    thread text is not the reading's), so a part the call fails shows the fixed text the stage says stays."""
+    tt = store.get_blob(rid, "thread_text") or {}
+    if tt.get("threads") == {t.id: [t.name, t.purpose, t.text_source] for t in r.threads}:
+        r.whole, r.whole_source = tt["whole"], tt["whole_source"]
+    else:
+        r.whole, r.whole_source = fixed_whole(r.threads, r.connections), "template"
+    for t in r.threads:
+        t.intro_source = "template"
+    r.route_source = "template"
+    fixed_introduction(r, ss)
+
+
 def _design_again(rid: int, svc: Services) -> tuple[str, list[str]]:
     """The design stage's inputs as the review's last run stored them, and the stage's work on them: the analysis from
     the stored change, the stories and their details, the reading and its stories', the files' lines."""
     store, cfg = svc.store, svc.cfg
-    if not cfg.analysis.design:
+    ss, raw, rcs = boardstore.stories(store, rid), store.get_blob(rid, "reading"), store.get_blob(rid, "changeset")
+    r = Reading.model_validate(raw) if ss is not None and raw and rcs else None
+    told, notes = "", []
+    if r is not None and svc.strong is not None and cfg.llm.strong is not None and r.threads:
+        cls_text = {m.cl: prompt_text(m.description) for m in ChangeSet.model_validate(rcs).cls}
+        _intro_from_fixed(store, rid, r, ss)
+        told, notes = _intro_text(svc, rid, r, ss, cls_text, context_text(load_context(store, rid)), fresh=False)
+        store.put_blob(rid, "reading", r)
+    if not cfg.analysis.design:                  # the context reaches the introduction all the same (phase 3 minor 6)
         store.replace_blobs(rid, ["reading_design"], [], {})
-        return "off (analysis.design: false)", []
-    ss, raw = boardstore.stories(store, rid), store.get_blob(rid, "reading")
-    if ss is None or not raw or not store.get_blob(rid, "changeset"):
+        return "off (analysis.design: false)" + told, notes
+    if r is None:
         store.replace_blobs(rid, ["reading_design"], [], {})
         return "no reading to describe", []
-    r = Reading.model_validate(raw)
     per = {s.id: StoryReading.model_validate(v) for s in ss.stories if (v := store.get_blob(rid, f"story_reading:{s.id}"))}
     details = {s.id: d for s in ss.stories if (d := boardstore.story(store, rid, s.id)) is not None}
-    cs = ChangeSet.model_validate(store.get_blob(rid, "changeset"))
+    cs = ChangeSet.model_validate(rcs)
     lines = file_lines(cs)                       # as the run made them
     layers = store.get_blob(rid, "layers")
     bctx = BoardContext(cs, DiffMap.model_validate(store.get_blob(rid, "diffmap")),
@@ -789,11 +816,6 @@ def _design_again(rid: int, svc: Services) -> tuple[str, list[str]]:
         if path not in texts:
             texts[path] = _read_text(path)
         return texts[path]
-    told, notes = "", []
-    if svc.strong is not None and cfg.llm.strong is not None and r.threads:
-        cls_text = {m.cl: prompt_text(m.description) for m in cs.cls}
-        told, notes = _intro_text(svc, rid, r, ss, cls_text, context_text(load_context(store, rid)), fresh=False)
-        store.put_blob(rid, "reading", r)
     msg, more = design_part(svc, rid, x, ss, details, r, per, lines=lines, read_text=read_text, intro=told)
     return msg, notes + more
 
@@ -821,6 +843,7 @@ class JobRunner:
         self.pool = pool if pool is not None else AiPool(svc.cfg.llm.concurrency)
         self.ai_jobs = self.pool.jobs
         self._pending: Counter[str] = Counter()          # jobs queued or running, by kind
+        self._designs: Counter[int] = Counter()          # design re-runs queued and not yet started, by review
         self._pending_lock = threading.Lock()
         self._stop = threading.Event()                   # set by stop(): an index build ends early
 
@@ -870,8 +893,10 @@ class JobRunner:
         """Why this workspace's bundle can't be replaced now (an edit swaps it, spec 2026-10-31 §6), or None: a review
         waits or runs. An index build is stopped instead (final review M3)."""
         with self._pending_lock:
-            if self._pending["review"] or self._pending["design"]:
+            if self._pending["review"]:
                 return "a review is running in this workspace; try again when it finishes"
+            if self._pending["design"]:
+                return "a design overview is being made again in this workspace; try again when it finishes"
         return None
 
     def submit_review(self, rid: int, fresh: bool = False) -> None:
@@ -883,7 +908,9 @@ class JobRunner:
         """Queue a re-run of review `rid`'s design stage alone (spec 2026-11-02 §8): its design context changed. The
         stage reads pending at once, so the page knows to wait for it."""
         self.svc.store.ensure_stage(rid, "design")      # a review last run before the design stage existed has no row
-        self.svc.store.set_stage(rid, "design", "pending", "queued: the design context changed")
+        self.svc.store.set_stage(rid, "design", "pending", QUEUED)
+        with self._pending_lock:
+            self._designs[rid] += 1
         self._count("design", 1)
         self._q.put(("design", rid))
 
@@ -908,23 +935,32 @@ class JobRunner:
             job = self._q.get()
             if job is None:
                 return
-            kind, arg = job
-            try:
-                if kind == "review":
-                    run_review(arg[0], self.svc, fresh=arg[1])
-                elif kind == "design":
-                    run_design(arg, self.svc)
-                elif kind == "index" and not self._stop.is_set():
-                    self.index_building = True
-                    self.svc.build_index(cancel=self._stop)
-            except Exception as e:
-                if kind == "index" and self._stop.is_set():
-                    # a removal stops the queue, then takes the folder away under the build, which may then break: not
-                    # said as the workspace's error (final review of branch deferred-minors-4, declined item 1)
-                    log.debug("workspace %s: its index build ended as its queue was stopped: %s: %s",
-                              seed_name(self.svc.cfg), type(e).__name__, e)
-                else:
-                    log.error("workspace %s: job %s failed: %s", seed_name(self.svc.cfg), job, traceback.format_exc())
-            finally:
-                self.index_building = False
-                self._count(kind, -1)
+            self._run(*job)
+
+    def _waiting(self, rid: int) -> bool:
+        with self._pending_lock:
+            return self._designs[rid] > 0
+
+    def _run(self, kind: str, arg) -> None:
+        """Run one job the queue took."""
+        try:
+            if kind == "review":
+                run_review(arg[0], self.svc, fresh=arg[1])
+            elif kind == "design":
+                with self._pending_lock:
+                    self._designs[arg] -= 1
+                run_design(arg, self.svc, waiting=lambda: self._waiting(arg))
+            elif kind == "index" and not self._stop.is_set():
+                self.index_building = True
+                self.svc.build_index(cancel=self._stop)
+        except Exception as e:
+            if kind == "index" and self._stop.is_set():
+                # a removal stops the queue, then takes the folder away under the build, which may then break: not
+                # said as the workspace's error (final review of branch deferred-minors-4, declined item 1)
+                log.debug("workspace %s: its index build ended as its queue was stopped: %s: %s",
+                          seed_name(self.svc.cfg), type(e).__name__, e)
+            else:
+                log.error("workspace %s: job %s failed: %s", seed_name(self.svc.cfg), (kind, arg), traceback.format_exc())
+        finally:
+            self.index_building = False
+            self._count(kind, -1)

@@ -242,3 +242,14 @@ def test_a_worker_that_has_described_its_library_ends_by_itself(monkeypatch):
     info = lc.library_info(None)                                  # the bundled library, described by a worker
     assert not info.vendor and info.version
     assert [(w.killed, w.exitcode) for w in workers] == [(False, 0)]
+
+
+def test_busy_names_a_design_re_run(fx, tmp_path):
+    """Phase 3 minor 10c: a queue that waits on a design re-run says so, not that a review is running."""
+    svc = make_services(fx, tmp_path)
+    runner = JobRunner(svc)                             # not started: what is submitted waits
+    rid = svc.store.create_review("t", "owner", [101])
+    runner.submit_design(rid)
+    assert runner.busy() == "a design overview is being made again in this workspace; try again when it finishes"
+    runner.submit_review(rid)
+    assert runner.busy() == "a review is running in this workspace; try again when it finishes"
