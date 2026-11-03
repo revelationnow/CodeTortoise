@@ -901,3 +901,23 @@ def test_a_review_started_with_a_design_context_reads_it_from_its_first_run(env)
     rid = owner.post("/api/reviews", json={"cls": [101], "design_context": "  Never drop a byte. "}).json()["id"]
     assert owner.get(f"/api/reviews/{rid}/design-context").json()["context"]["notes"] == "Never drop a byte."
     assert owner.post("/api/reviews", json={"cls": [101], "design_context": "x" * 12001}).status_code == 422
+
+
+def test_a_design_re_run_cut_off_by_a_restart_is_failed_at_startup_and_its_review_settles(fx, tmp_path):
+    """Saving a design context queues the design stage alone; a restart drops the queue, so a finished review's design
+    stage left pending or running would wait for ever (final review I3). A full run's own stages are its own."""
+    from codetortoise.pipeline import INTERRUPTED
+    svc = make_services(fx, tmp_path)
+    queued, cut, full = (svc.store.create_review("t", "owner", [101]) for _ in range(3))
+    for rid, design, status in ((queued, "pending", "done"), (cut, "running", "degraded"), (full, "pending", "running")):
+        svc.store.reset_stages(rid, ["ingest", "design"])
+        svc.store.set_stage(rid, "ingest", "ok")
+        svc.store.set_stage(rid, "design", design)
+        svc.store.set_review_status(rid, status)
+    make_app(svc, InlineRunner(svc))                                   # the server starts again
+    for rid in (queued, cut):
+        st = {s["name"]: (s["status"], s["message"]) for s in svc.store.list_stages(rid)}
+        assert st["design"] == ("failed", INTERRUPTED)
+        assert svc.store.get_review(rid)["status"] == "degraded"
+    assert {s["name"]: s["status"] for s in svc.store.list_stages(full)}["design"] == "pending"
+    assert svc.store.get_review(full)["status"] == "running"

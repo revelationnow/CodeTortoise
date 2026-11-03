@@ -198,6 +198,13 @@ class Store:
         for n in names:
             self._exec("INSERT INTO stages(review_id, name, status, message) VALUES(?,?,?,?)", (rid, n, "pending", ""))
 
+    def waiting_reruns(self, name: str) -> list[int]:
+        """Finished reviews (done, degraded) whose stage `name` waits or runs: a re-run of that stage alone, queued by a
+        server that stopped before it finished."""
+        return [r["id"] for r in self._all(
+            "SELECT r.id FROM reviews r JOIN stages s ON s.review_id = r.id WHERE r.status IN ('done', 'degraded') "
+            "AND s.name = ? AND s.status IN ('pending', 'running') ORDER BY r.id", (name,))]
+
     def ensure_stage(self, rid: int, name: str) -> None:
         """Give review `rid` a row for stage `name` when it has none, as a run before the stage existed left it."""
         self._exec("INSERT INTO stages(review_id, name, status, message) SELECT ?, ?, 'pending', '' "

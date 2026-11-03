@@ -25,6 +25,7 @@ from codetortoise.init_config import scan
 from codetortoise.llm import ondemand, request_log, tortoise
 from codetortoise.names import cited, names, neighbours
 from codetortoise.paths import canon
+from codetortoise.pipeline import end_design_reruns
 from codetortoise.provenance import tag_board
 from codetortoise.reading import Check, Reading, headline_from, with_marks
 from codetortoise.services import Services
@@ -167,6 +168,7 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
     store = reg.store
     # work a stopped server left unfinished: answers can't resume, so end them (spec 2026-10-03 §5); once per server
     store.end_pending_ai_replies("I couldn't answer: CodeTortoise restarted before the answer was finished. Ask again.")
+    end_design_reruns(store)                   # a design re-run the stopped queue held (final review I3)
     reg.ledger.fail_running()
     reg.ledger.prune()                         # logged requests past llm.request_log_days
 

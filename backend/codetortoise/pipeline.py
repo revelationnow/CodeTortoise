@@ -724,6 +724,20 @@ def run_design(rid: int, svc: Services) -> None:
         _settle(store, rid)
 
 
+INTERRUPTED = "interrupted: CodeTortoise restarted before the design stage ran again; save the design context again"
+
+
+def end_design_reruns(store) -> int:
+    """At startup: a design stage re-run that a stopped server left waiting or running is lost with its queue (saving a
+    design context queues the stage alone, §8), so it fails with INTERRUPTED and its review settles; the page stops
+    waiting for it, and the design the last run stored stays. Returns how many were ended."""
+    rids = store.waiting_reruns("design")
+    for rid in rids:
+        store.set_stage(rid, "design", "failed", INTERRUPTED)
+        _settle(store, rid)
+    return len(rids)
+
+
 def _settle(store, rid: int) -> None:
     """A finished review's status once a stage ran again: done when every stage is ok, else degraded. A review that is
     not finished (queued, running, failed) is left alone: its own run settles it."""
