@@ -272,6 +272,51 @@ def test_a_compressed_link_is_refused_past_1_mb_without_unpacking_it_all(monkeyp
     assert set(asked) == {"gzip, deflate"}
 
 
+class _Sent(httpx.SyncByteStream):
+    """A body sent as the given chunks then, when `on`, 64 KiB of zeros at a time with no end: a reader that reads on
+    past 50 of them fails the test."""
+
+    def __init__(self, *chunks: bytes, on: bool = False):
+        self.chunks, self.on = chunks, on
+
+    def __iter__(self):
+        yield from self.chunks
+        if self.on:
+            for _ in range(50):
+                yield b"\0" * 65536
+            raise AssertionError("read on past the packed body's end")
+
+
+def test_a_packed_body_is_read_to_its_end_and_no_further():
+    """Final review minor 2: what a site sends after a packed body's end is not read on (zlib would keep it, counted by
+    no limit), except another gzip member, read as part of the body, the two held to 1 MB together; a body of exactly
+    1 MB with a newline after its end is read."""
+    import gzip
+    import zlib
+    raw = zlib.compressobj(wbits=-zlib.MAX_WBITS)
+    one, two = gzip.compress(b"one "), gzip.compress(b"two")
+    pages = {"/design/tail": ("gzip", _Sent(gzip.compress(b"Reads are short."), on=True)),
+             "/design/zipped": ("deflate", _Sent(zlib.compress(b"Writes are long."), on=True)),
+             "/design/raw": ("deflate", _Sent(raw.compress(b"Never drop a byte.") + raw.flush(), on=True)),
+             "/design/members": ("gzip", _Sent(one + two)),
+             "/design/split": ("gzip", _Sent(one + two[:1], two[1:])),
+             "/design/full": ("gzip", _Sent(gzip.compress(b"x" * MAX_LINK_BYTES) + b"\n")),
+             "/design/over": ("gzip", _Sent(gzip.compress(b"y" * 600_000) + gzip.compress(b"z" * 600_000)))}
+
+    def answer(req):
+        enc, stream = pages[req.url.path]
+        return httpx.Response(200, headers={"content-type": "text/plain", "content-encoding": enc}, stream=stream)
+    c = _client(answer)
+    assert read_link("https://wiki.example.com/design/tail", SITE, c) == "Reads are short."
+    assert read_link("https://wiki.example.com/design/zipped", SITE, c) == "Writes are long."
+    assert read_link("https://wiki.example.com/design/raw", SITE, c) == "Never drop a byte."
+    assert read_link("https://wiki.example.com/design/members", SITE, c) == "one two"
+    assert read_link("https://wiki.example.com/design/split", SITE, c) == "one two"
+    assert len(read_link("https://wiki.example.com/design/full", SITE, c)) == MAX_LINK_BYTES
+    with pytest.raises(LinkRefused, match="more than 1 MB"):
+        read_link("https://wiki.example.com/design/over", SITE, c)
+
+
 def test_a_transport_failure_says_why():
     """Phase 3 minor 9: a certificate the server doesn't trust, a site it can't reach and one too slow are each said
     in words; the first names SSL_CERT_FILE, where its host can add the authority that signed it."""

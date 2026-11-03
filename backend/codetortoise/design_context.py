@@ -189,31 +189,42 @@ def _why(e: httpx.HTTPError) -> str:
 
 def _body(resp: httpx.Response, deadline: float) -> bytes:
     """`resp`'s body by `deadline`, at most MAX_LINK_BYTES: as sent, or unpacked when sent gzip- or deflate-encoded, at
-    most what is left of MAX_LINK_BYTES at a time, so a small packed body can't fill memory before it is refused."""
+    most what is left of MAX_LINK_BYTES at a time, so a small packed body can't fill memory before it is refused. A
+    packed body is read to its end and no further: zlib would keep what follows, counted by no limit. Only another gzip
+    member may follow one, read as more of the body (final review minor 2)."""
     enc = resp.headers.get("content-encoding", "").strip().lower() or "identity"
     if enc != "identity" and enc not in _PACKED:
         raise LinkRefused(f"The link is sent {enc}-encoded; only gzip or deflate is read.")
     unpack = zlib.decompressobj(_PACKED[enc]) if enc in _PACKED else None
+    gz = enc in ("gzip", "x-gzip")
     raw = False                                        # a deflate body without zlib's header, as some servers send
+    held = b""                                         # what follows a gzip member's end, too short yet to tell
     body = bytearray()
     for chunk in resp.iter_raw() if unpack is not None else resp.iter_bytes():
         if time.monotonic() > deadline:
             raise LinkRefused(_slow())
-        while chunk:
-            if unpack is None:
-                body += chunk
-                chunk = b""
-            else:
-                try:
-                    body += unpack.decompress(chunk, MAX_LINK_BYTES + 1 - len(body))
-                except zlib.error as e:
-                    if enc != "deflate" or raw or body:
-                        raise LinkRefused("The link's packed body could not be unpacked.") from e
-                    unpack, raw = zlib.decompressobj(-zlib.MAX_WBITS), True
-                    continue
-                chunk = unpack.unconsumed_tail
-            if len(body) > MAX_LINK_BYTES:
-                raise LinkRefused("The link holds more than 1 MB.")
+        if unpack is None:
+            body += chunk
+        else:
+            chunk, held = held + chunk, b""
+        while unpack is not None and chunk and len(body) <= MAX_LINK_BYTES:
+            if unpack.eof:                             # the packed body ended: only another gzip member may follow
+                if gz and len(chunk) < 2 and b"\x1f\x8b".startswith(chunk):
+                    held = chunk
+                    break
+                if not (gz and chunk.startswith(b"\x1f\x8b")):
+                    return bytes(body)
+                unpack = zlib.decompressobj(_PACKED[enc])
+            try:
+                body += unpack.decompress(chunk, MAX_LINK_BYTES + 1 - len(body))
+            except zlib.error as e:
+                if enc != "deflate" or raw or body:
+                    raise LinkRefused("The link's packed body could not be unpacked.") from e
+                unpack, raw = zlib.decompressobj(-zlib.MAX_WBITS), True
+                continue
+            chunk = unpack.unused_data if unpack.eof else unpack.unconsumed_tail
+        if len(body) > MAX_LINK_BYTES:
+            raise LinkRefused("The link holds more than 1 MB.")
     return bytes(body)
 
 
