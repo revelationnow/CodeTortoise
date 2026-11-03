@@ -67,10 +67,9 @@ def signature_facts(x: _Ctx, nid: str, targets: dict[str, list[str]], read: dict
                 else "updated in this change" if caller in x.changed else "not updated")
         rows.append(f"  {_rel(x, c.file)}:{c.line} in {x.label(caller) if caller else c.caller} ({caller or '-'}): "
                     f"{mark}: `{_line(x, c.file, c.line, read)}`")
-    heur = [e for e in x.im.edges if e.dst == nid and e.kind == "call" and e.confidence == "heuristic"]
-    if heur:
-        rows.append(f"  {len(heur)} more caller(s) outside the parsed files, by name only: "
-                    + ", ".join(sorted({x.label(e.src) for e in heur})[:10]))
+    if afar := x.outside_callers(nid):
+        rows.append(f"  {len(afar)} more caller(s) outside the parsed files, by name only: "
+                    + ", ".join(sorted({x.label(n) for n in afar})[:10]))
     if len(rows) == 1:
         rows.append("  none found in the parsed files")
     return rows

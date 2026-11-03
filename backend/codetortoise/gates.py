@@ -412,10 +412,8 @@ def find_gates(x, src: Sources, story_of: dict[str, str], order: list[str]) -> l
 
 def _only_guarded(x, g: Branch) -> set[str]:
     """Functions reached only through the guarded block: every call to them sits in its body, or in a function already
-    reached only through it. One the impact model finds called by name from a file not parsed is not."""
+    reached only through it. One the impact model finds called from a file not parsed is not."""
     usr = x.im.nodes[g.node].key
-    afar = {x.im.nodes[e.dst].key for e in x.im.edges
-            if e.kind == "call" and e.confidence == "heuristic" and e.dst in x.im.nodes}
     sites: dict[str, list] = {}
     for e in x.calls_after:
         sites.setdefault(e.callee, []).append(e)
@@ -424,7 +422,7 @@ def _only_guarded(x, g: Branch) -> set[str]:
     while grew:
         grew = False
         for callee, es in sites.items():
-            if callee in inside or callee == usr or callee in afar:
+            if callee in inside or callee == usr or x.outside_callers(x.id_of.get(callee, "")):
                 continue
             if all((e.caller == usr and e.line in g.body) or e.caller in inside for e in es):
                 inside.add(callee)

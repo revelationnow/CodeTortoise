@@ -1,5 +1,5 @@
 """The conditions a change adds and the lines that still run when one is false (spec 2026-11-02 §7)."""
-from test_stories import _world
+from test_stories import _by_name, _world
 
 from codetortoise.board import _Ctx
 from codetortoise.gates import Sources, build_gates, classify, find_gates, line_marks, trivial
@@ -211,3 +211,32 @@ def test_the_design_context_s_components_replace_the_config_s_and_its_text_marks
     assert d.context_hash == context_hash(ctx) and d.context_notes == []
     plain = build_design(demo.x, demo.ss, demo.det, demo.r, demo.per, lines=demo.lines, read_text=demo.read_text)
     assert plain.context_hash is None and "Firmware" not in {c.name for c in plain.components}
+
+
+def _guard_world(other_file="drv/u.c"):
+    """send calls only() and shared() inside its new guard; other, in `other_file`, calls shared() too."""
+    c = _world([("send", "drv/u.c", ["x = 1;"],
+                 ["if (len > 64) {", "\tonly();", "\tshared();", "\treturn -2;", "}", "x = 1;"]),
+                ("only", "drv/u.c", ["a = 1;"], ["a = 2;"]),
+                ("shared", "drv/u.c", ["b = 1;"], ["b = 2;"]),
+                ("other", other_file, ["shared();"], ["shared();"])],
+               calls=[("send", "only"), ("send", "shared"), ("other", "shared")])
+    c.after[0].calls[0].line, c.after[0].calls[1].line = 4, 5
+    return c
+
+
+def _elsewhere(c):
+    x, found = _found(c)
+    lines, _, _ = classify(found[0], x, Sources(x), {}, [])
+    return {g.function: g.runs for g in lines if g.where == "elsewhere"}
+
+
+def test_a_function_called_only_from_the_guarded_block_stops_in_a_tree_sitter_file():
+    """Final review, carried: tree-sitter names a call's callee only by name, so in a file it parsed nothing was classed
+    as stopping with a condition. Calls now find their function as the impact model's edges do: a tree-sitter file
+    classes as a clang one, and so does a change parsed partly by each (a caller in the other parse's file still makes
+    its callee run)."""
+    want = {"only": False, "shared": True}
+    assert _elsewhere(_guard_world()) == want
+    assert _elsewhere(_by_name(_guard_world(), {"send", "only", "shared", "other"})) == want
+    assert _elsewhere(_by_name(_guard_world("drv/v.c"), {"other"})) == want

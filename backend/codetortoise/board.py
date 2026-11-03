@@ -23,7 +23,7 @@ from codetortoise.config import AnalysisConfig
 from codetortoise.detectors.base import SEVERITY_RANK, Finding
 from codetortoise.diffmap import DiffMap, FunctionChange
 from codetortoise.facts.model import CallEdge, Facts, FieldAccess, Function
-from codetortoise.impact import Edge, ImpactModel
+from codetortoise.impact import Edge, ImpactModel, _name_resolver
 from codetortoise.layers import LayerModel
 from codetortoise.linediff import opcodes as _opcodes
 from codetortoise.sinks import why_text
@@ -334,7 +334,10 @@ class _Ctx:
         self.changed = set(c.impact.changed)
         self.changed_keys = {c.impact.nodes[n].key for n in self.changed}
         self.texts = {f.local: f for f in c.cs.files}                 # local path -> the file's before/after text
-        self.calls_after = [e for fx in c.after for e in fx.calls]
+        resolve = _name_resolver({**self.fb, **self.fa})
+        # a call tree-sitter knows only by name ("name:foo") goes to the function the impact model's edge goes to
+        self.calls_after = [e if (k := resolve(e.callee, e.file)) == e.callee else e.model_copy(update={"callee": k})
+                            for fx in c.after for e in fx.calls]
         self.fields_after = [a for fx in c.after for a in fx.fields]
         self.fields_before = [a for fx in c.before for a in fx.fields]
         self.finding_by = defaultdict(list)          # (kind, node id) -> finding ids
@@ -346,10 +349,19 @@ class _Ctx:
         self.decl_line = {f"field:{a.field}": a.decl_line for a in self.fields_before + self.fields_after if a.decl_line}
         self.callers: dict[str, set[str]] = defaultdict(set)
         self.callees: dict[str, set[str]] = defaultdict(set)
+        self._outside: dict[str, set[str]] = defaultdict(set)
         for e in c.impact.edges:
             if e.kind in ("call", "virtual"):
                 self.callers[e.dst].add(e.src)
                 self.callees[e.src].add(e.dst)
+            if (e.kind == "call" and e.confidence == "heuristic" and e.status != "removed" and e.src in c.impact.nodes
+                    and c.impact.nodes[e.src].key not in self.fa):
+                self._outside[e.dst].add(e.src)
+
+    def outside_callers(self, nid: str) -> set[str]:
+        """The functions calling `nid` from files this review did not parse, found by name in the symbol index; a caller
+        in a parsed file is a call site in `calls_after` instead."""
+        return self._outside.get(nid, set())
 
     def is_test(self, nid: str) -> bool:
         """Test code is never a flow entry or landing, and is not shown as blast radius."""

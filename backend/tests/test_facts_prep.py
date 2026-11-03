@@ -1,5 +1,5 @@
 """Facts prepared for each finding (spec 2026-10-05-two-tier-stories §5.1)."""
-from test_stories import W, _edit, _same, _world
+from test_stories import W, _by_name, _edit, _same, _world
 
 from codetortoise.board import _Ctx
 from codetortoise.detectors.base import Evidence, Finding
@@ -118,3 +118,22 @@ def test_a_shared_sinks_facts_are_one_line_without_its_users():
     f = _finding("field_mutation", "uart_send now writes Uart::errors", ["N1", "N3"], side_effect=True)
     assert prepare_facts(_Ctx(c), [f], {})[finding_key(f)] == \
         "Uart::errors (N3) is a shared sink (312 functions); its users are not listed"
+
+
+def test_a_call_known_by_name_is_a_call_site_and_counted_once():
+    """Final review, carried: a call tree-sitter knows only by name is a call site like any other, not one more caller
+    outside the parsed files; only a caller in a file not parsed is counted there, once."""
+    from codetortoise.impact import Edge, Node
+    c = _by_name(_world([_edit("hal_write", "hal/regs.c"), _same("old_user", "drv/old.c")],
+                        calls=[("old_user", "hal_write")]), {"hal_write", "old_user"})
+    t = {f"{W}/hal/regs.c": ["fw"], f"{W}/drv/old.c": ["fw"]}
+    f = _finding("contract", "hal_write: signature changed", ["N1"])
+    assert prepare_facts(_Ctx(c), [f], t)[finding_key(f)].splitlines() == [
+        "call sites of hal_write (N1):",
+        "  drv/old.c:3 in old_user (N2): not updated: `b = 0;`"]
+    c.impact.nodes["N3"] = Node(id="N3", key=f"ts:{W}/far.c#far", label="far", file=f"{W}/far.c", line=1, layer=1,
+                                confidence="heuristic")
+    c.impact.edges.append(Edge(id="E9", src="N3", dst="N1", kind="call", status="added", confidence="heuristic"))
+    assert prepare_facts(_Ctx(c), [f], t)[finding_key(f)].splitlines()[1:] == [
+        "  drv/old.c:3 in old_user (N2): not updated: `b = 0;`",
+        "  1 more caller(s) outside the parsed files, by name only: far"]

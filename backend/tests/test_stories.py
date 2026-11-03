@@ -74,6 +74,28 @@ def _world(fns, calls=(), fields=(), cfg=None):
                         im, [], None, cfg or AnalysisConfig(), lambda ps: {p: "//d" + p for p in ps}, root=W)
 
 
+def _by_name(c, names):
+    """World `c` with the functions `names` parsed by tree-sitter, as a file clang could not parse is: each keyed
+    ts:<file>#<name>, its calls naming their callee only by name, its call edges heuristic."""
+    key = {}
+    for fx in c.before + c.after:
+        for f in fx.functions:
+            if f.name in names:
+                key.setdefault(f.usr, f"ts:{f.file}#{f.qualname}")
+                f.usr = key[f.usr]
+    for fx in c.after:
+        for e in fx.calls:
+            if e.caller in key:
+                e.caller, e.callee, e.confidence = key[e.caller], f"name:{e.callee_name}", "heuristic"
+    ids = {n.id for n in c.impact.nodes.values() if n.key in key}
+    for n in c.impact.nodes.values():
+        n.key = key.get(n.key, n.key)
+    for e in c.impact.edges:
+        if e.src in ids and e.kind == "call":
+            e.confidence = "heuristic"
+    return c
+
+
 def _mech(name, rel, var="a"):
     return (name, rel, ["x = 1;", f"git_vector_free(&{var});"], ["x = 1;", f"git_vector_dispose(&{var});"])
 

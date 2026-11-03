@@ -106,9 +106,9 @@ def test_unchanged_calls_more_than_walk_depth_from_the_change_fold_into_one_step
     assert [s.kind for s in fold(flowed, {"N6"}, 2)] == ["call", "call", "call", "call", "call", "self"]
 
 
-def _sides(fns, calls, lines, of):
+def _sides(fns, calls, lines, of, shape=None):
     """Each side's walk-through of function `of` in a small world, before any ranking: (kind, from, to, line) a step.
-    `lines` puts each call, in `calls` order, on its line of the after text."""
+    `lines` puts each call, in `calls` order, on its line of the after text; `shape` reshapes the world first."""
     from test_stories import _world
 
     from codetortoise.board import analyse
@@ -119,6 +119,7 @@ def _sides(fns, calls, lines, of):
     c = _world(fns, calls=calls)
     for i, ln in enumerate(lines):
         c.after[0].calls[i].line = ln
+    c = shape(c) if shape is not None else c
     an = analyse(c)
     ss, det = build_stories(c, analysis=an)
     r, per = build_reading(ss, c, details=det, analysis=an)
@@ -157,6 +158,19 @@ def test_a_new_condition_after_an_early_guard_return_still_splits_the_walk_throu
                            ("return", "drop", "send", None), ("return", "send", "main", 7)]
     assert sides[False] == [("call", "main", "send", 3), ("self", "send", "send", 5), ("call", "send", "go", 9),
                             ("return", "go", "send", None), ("return", "send", "main", None)]
+
+
+def test_a_walk_through_in_a_tree_sitter_file_takes_the_calls_it_knows_by_name():
+    """Final review, carried: tree-sitter names a call's callee only by name; found as the impact model finds it, a
+    walk-through of a file tree-sitter parsed takes the steps a clang parse gives."""
+    from test_stories import _by_name
+    send = ("send", "drv/s.c", ["if (!u)", "\treturn;", "go();"],
+            ["if (!u)", "\treturn;", "if (len > 64) {", "\tdrop();", "\treturn;", "}", "go();"])
+    world = ([send, _changed("go"), _changed("drop"), MAIN], [("send", "go"), ("send", "drop"), ("main", "send")],
+             [9, 6, 3], "send")
+    clang = _sides(*world)
+    assert ("call", "send", "drop", 6) in clang[True]
+    assert _sides(*world, shape=lambda c: _by_name(c, {"send", "go", "drop", "main"})) == clang
 
 
 def test_a_new_block_with_no_return_runs_on_to_the_function_s_end_on_both_sides():
