@@ -1002,3 +1002,134 @@ def test_design_text_code_that_breaks_keeps_the_rules_design(fx, tmp_path, monke
     assert st["design"]["status"] == "degraded" and st["design"]["message"].endswith("; design text: RuntimeError: broken")
     d = svc.store.get_blob(rid, "reading_design")
     assert d["walks"] and d["sources"] == {} and all(w["title_source"] == "template" for w in d["walks"])
+
+
+def _context(svc, rid, **part):
+    from codetortoise.design_context import BLOB, DesignContext
+    svc.store.put_blob(rid, BLOB, DesignContext(**part).model_dump())
+
+
+def test_the_design_context_reaches_the_introduction_and_the_design_and_no_other_prompt(fx, tmp_path):
+    svc = make_services(fx, tmp_path)
+    llm = _strong(svc, _one_story_per_cl)
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    _context(svc, rid, notes="The UART must never drop a byte.")
+    run_review(rid, svc)
+    read = [p for p in llm.prompts if "The UART must never drop a byte." in p]
+    assert len(read) == 2 and "THREAD DETAILS (id" in read[0] and "CHECKS BY CAUSE (id" in read[1]
+    d = svc.store.get_blob(rid, "reading_design")
+    assert d["context_hash"] and d["concerns"]
+
+
+def test_a_design_re_run_with_an_unchanged_context_builds_the_same_design(fx, tmp_path):
+    from codetortoise.pipeline import run_design
+    svc = make_services(fx, tmp_path)
+    rid = svc.store.create_review("t", "owner", [101, 102, 103, 104, 105])
+    run_review(rid, svc)
+    before = {s["name"]: (s["status"], s["message"]) for s in svc.store.list_stages(rid)}
+    d = svc.store.get_blob(rid, "reading_design")
+    run_design(rid, svc)
+    assert svc.store.get_blob(rid, "reading_design") == d
+    after = {s["name"]: (s["status"], s["message"]) for s in svc.store.list_stages(rid)}
+    assert after == before and svc.store.get_review(rid)["status"] == "degraded"   # no LLM: the llm stage degrades
+
+
+def test_saving_a_context_re_runs_the_design_stage_alone_and_the_review_keeps_its_stories(fx, tmp_path):
+    from codetortoise.design_context import HandCondition, HandConditions
+    from codetortoise.pipeline import run_design
+    svc = make_services(fx, tmp_path)
+    llm = _strong(svc, _one_story_per_cl)
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    stories, stages, status = svc.store.get_blob(rid, "stories"), svc.store.list_stages(rid), svc.store.get_review(rid)["status"]
+    asked = len(llm.prompts)
+    _context(svc, rid, notes="Never drop a byte.",
+             conditions=HandConditions(add=[HandCondition(test="reg == REG_CTRL", function="hal_write"),
+                                            HandCondition(test="x == 1")]))
+    run_design(rid, svc)
+    new = llm.prompts[asked:]
+    assert [("THREAD DETAILS (id" in p, "CHECKS BY CAUSE (id" in p) for p in new] == [(True, False), (False, True)]
+    assert all("Never drop a byte." in p for p in new)
+    d = svc.store.get_blob(rid, "reading_design")
+    assert [(g["test"], g["source"]) for g in d["gates"]][:2] == [("reg == REG_CTRL", "context"), ("len > 64", "code")]
+    assert d["context_notes"] == ["the condition `x == 1` is not in the changed functions"]
+    st = {s["name"]: s for s in svc.store.list_stages(rid)}
+    assert st["design"]["status"] == "ok"
+    assert st["design"]["message"].endswith("; design text by big; introduction by big; design context: the condition "
+                                            "`x == 1` is not in the changed functions")
+    assert [s for s in svc.store.list_stages(rid) if s["name"] != "design"] == [s for s in stages if s["name"] != "design"]
+    assert svc.store.get_blob(rid, "stories") == stories and svc.store.get_review(rid)["status"] == status
+
+
+def test_a_design_re_run_without_a_reading_says_so_and_leaves_the_status(fx, tmp_path):
+    from codetortoise.pipeline import run_design
+    svc = make_services(fx, tmp_path)
+    rid = svc.store.create_review("t", "owner", [101])
+    svc.store.reset_stages(rid, ["design"])
+    svc.store.set_review_status(rid, "failed")
+    run_design(rid, svc)
+    assert [(s["status"], s["message"]) for s in svc.store.list_stages(rid)] == [("ok", "no reading to describe")]
+    assert svc.store.get_review(rid)["status"] == "failed"
+
+
+def test_the_queue_marks_a_design_re_run_pending_and_counts_it_as_busy(fx, tmp_path):
+    from codetortoise.pipeline import JobRunner
+    svc = make_services(fx, tmp_path)
+    rid = svc.store.create_review("t", "owner", [101])
+    svc.store.reset_stages(rid, ["design"])
+    runner = JobRunner(svc)                          # not started: the job waits in the queue
+    runner.submit_design(rid)
+    assert runner.busy() is not None
+    assert [(s["status"], s["message"]) for s in svc.store.list_stages(rid)] == [("pending", "queued: the design context changed")]
+
+
+def test_a_stage_run_again_settles_a_finished_review_between_done_and_degraded(fx, tmp_path):
+    from codetortoise.pipeline import STAGES, _settle
+    svc = make_services(fx, tmp_path)
+    rid = svc.store.create_review("t", "owner", [101])
+    svc.store.reset_stages(rid, STAGES)
+    for name in STAGES:
+        svc.store.set_stage(rid, name, "ok")
+    svc.store.set_review_status(rid, "degraded", "high")
+    _settle(svc.store, rid)
+    assert (svc.store.get_review(rid)["status"], svc.store.get_review(rid)["risk"]) == ("done", "high")
+    svc.store.set_stage(rid, "design", "degraded", "design text: the strong model failed")
+    _settle(svc.store, rid)
+    assert svc.store.get_review(rid)["status"] == "degraded"
+    svc.store.set_review_status(rid, "running")                  # a full run under way settles its own status
+    svc.store.set_stage(rid, "design", "ok")
+    _settle(svc.store, rid)
+    assert svc.store.get_review(rid)["status"] == "running"
+
+
+def test_a_design_re_run_the_model_fails_keeps_the_rules_design_and_says_so(fx, tmp_path):
+    from codetortoise.llm.client import LlmError
+    from codetortoise.pipeline import run_design
+    svc = make_services(fx, tmp_path)
+    llm = _strong(svc, _one_story_per_cl)
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    _context(svc, rid, notes="Never drop a byte.")
+    llm.answer = lambda system, user: LlmError("the model is down")
+    run_design(rid, svc)
+    st = {s["name"]: s for s in svc.store.list_stages(rid)}
+    assert st["design"]["status"] == "degraded" and "the model is down" in st["design"]["message"]
+    d = svc.store.get_blob(rid, "reading_design")
+    assert d["walks"] and d["verdict"] == "" and d["context_hash"]          # the rules' design, read with the context
+    assert svc.store.get_review(rid)["status"] == "degraded"
+
+
+def test_a_design_re_run_that_breaks_leaves_no_design_as_a_run_that_breaks_does(fx, tmp_path, monkeypatch):
+    from codetortoise import pipeline
+    svc = make_services(fx, tmp_path)
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+    assert svc.store.get_blob(rid, "reading_design")
+
+    def boom(c):
+        raise RuntimeError("broken")
+    monkeypatch.setattr(pipeline, "analyse", boom)
+    pipeline.run_design(rid, svc)
+    st = {s["name"]: s for s in svc.store.list_stages(rid)}
+    assert (st["design"]["status"], st["design"]["message"]) == ("failed", "RuntimeError: broken")
+    assert svc.store.get_blob(rid, "reading_design") is None and svc.store.get_review(rid)["status"] == "degraded"

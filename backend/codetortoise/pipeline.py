@@ -18,14 +18,16 @@ from codetortoise.brief import Brief, cache_key
 from codetortoise.cltext import prompt_text
 from codetortoise.config import seed_name
 from codetortoise.design import build_design
+from codetortoise.design_context import context_text, load_context
 from codetortoise.detectors.base import DetectorContext, renumber, run_detectors
-from codetortoise.diffmap import map_changes
+from codetortoise.diffmap import DiffMap, map_changes
 from codetortoise.facts.model import Facts, relative_records
 from codetortoise.facts.runner import build_requests, parse_summary, run_extraction
 from codetortoise.facts.treesitter_extractor import extract_tu_treesitter
 from codetortoise.facts_prep import prepare_facts
 from codetortoise.grouping import StoryPlan, rules_plan
 from codetortoise.impact import ImpactModel, build_impact
+from codetortoise.layers import LayerModel
 from codetortoise.llm.account import write_accounts
 from codetortoise.llm.brief_context import brief_context
 from codetortoise.llm.design import DESIGN_VERSION, apply_design_text, design_text, write_design
@@ -42,7 +44,9 @@ from codetortoise.pieces import build_pieces
 from codetortoise.provenance import finding_files, impact_node_files, local_files
 from codetortoise.reading import (
     READING_VERSION,
+    Reading,
     RouteStep,
+    StoryReading,
     build_reading,
     fixed_introduction,
     headline_facts,
@@ -136,6 +140,77 @@ def system_include_dirs(toolchain) -> list[str]:
     for info in getattr(toolchain, "driver", {}).values():
         dirs += [*info.include_dirs, *([info.resource_dir] if info.resource_dir else [])]
     return dirs
+
+def _intro_text(svc: Services, rid: int, r: Reading, ss, cls_text: dict[int, str], context: str,
+                fresh: bool) -> tuple[str, list[str]]:
+    """The strong model's introduction of reading `r` (spec 2026-10-09), written into it: the answer kept for this
+    prompt, or a new one, kept when it passes. `context` is the design context's text (spec 2026-11-02 §8). Returns what
+    the stage says of it, and its notes."""
+    store, strong = svc.store, svc.cfg.llm.strong
+    ikey = hashlib.sha256(f"{INTRO_VERSION}|{strong.model}|{intro_prompt(r, ss, cls_text, context)}".encode()).hexdigest()
+    icached = store.get_blob(rid, "intro_text")
+    said: list[str] = []
+    if icached and icached.get("key") == ikey and not fresh:
+        iby: str | None = strong.model
+        r.whole, r.whole_source = icached["whole"], icached["whole_source"]
+        for t in r.threads:
+            t.intro, t.intro_source = icached["threads"].get(t.id, (t.intro, t.intro_source))
+        r.route, r.route_source = [RouteStep(**s) for s in icached["route"]], icached["route_source"]
+    else:
+        said, iby = write_intro(svc.strong, svc.ledger, rid, r, ss, cls_text, weak=svc.llm, context=context)
+        if not said:
+            store.put_blob(rid, "intro_text", {
+                "key": ikey, "whole": r.whole, "whole_source": r.whole_source,
+                "threads": {t.id: (t.intro, t.intro_source) for t in r.threads},
+                "route": [s.model_dump() for s in r.route], "route_source": r.route_source})
+    told = (f"; introduction by {iby}" if iby == strong.model else
+            f"; introduction by {iby} (the strong model failed)" if iby else "; fixed introduction")
+    return told, said
+
+
+def _design_text(svc: Services, rid: int, d, r: Reading, ss, context: str, fresh: bool):
+    """The strong model's parts of design `d` (spec 2026-11-02 §10), written on a copy: the text kept for this prompt,
+    or a new answer. Returns what the stage says, its notes and the design."""
+    store, strong = svc.store, svc.cfg.llm.strong
+    d = d.model_copy(deep=True)
+    key = hashlib.sha256(f"{DESIGN_VERSION}|{strong.model}|{design_prompt(d, r, ss, context)}".encode()).hexdigest()
+    kept = store.get_blob(rid, "design_text")
+    if kept and kept.get("key") == key and not fresh:
+        apply_design_text(d, kept)
+        return f"; design text by {strong.model}", [], d
+    notes, by = write_design(svc.strong, svc.ledger, rid, d, r, ss, weak=svc.llm, context=context)
+    if not notes:
+        store.put_blob(rid, "design_text", {"key": key, **design_text(d)})
+    told = (f"; design text by {by}" if by == strong.model else
+            f"; design text by {by} (the strong model failed)" if by else "; fixed design text")
+    return told, notes, d
+
+
+def design_part(svc: Services, rid: int, x, ss, details, r: Reading, per, *, lines, read_text, fresh: bool = False,
+                intro: str = "") -> tuple[str, list[str]]:
+    """The design stage's work on review `rid`'s reading (spec 2026-11-02 §4–§10): the rules' design with the review's
+    design context (§8), then the strong model's parts; any failure of the model's part leaves the rules' design exactly
+    (§15). Stores blob `reading_design`; returns the stage's message and its notes. A design the rules can't build
+    leaves none. `intro` is what a design-only re-run says of the introduction it asked again."""
+    store, cfg = svc.store, svc.cfg
+    dc = load_context(store, rid)
+    try:
+        d = build_design(x, ss, details, r, per, lines=lines, read_text=read_text, context=dc)
+    except Exception:
+        store.replace_blobs(rid, ["reading_design"], [], {})
+        raise
+    told, notes = "", []
+    if svc.strong is not None and cfg.llm.strong is not None and r.threads:
+        try:
+            told, notes, d = _design_text(svc, rid, d, r, ss, context_text(dc), fresh)
+        except Exception as e:  # the rules' design stands
+            notes = [f"design text: {type(e).__name__}: {e}"[:200]]
+    store.replace_blobs(rid, ["reading_design"], [], {"reading_design": d})
+    msg = f"{len(d.components)} component(s), {len(d.walks)} walk-through(s), {len(d.gates)} condition(s)" + told + intro
+    if d.context_notes:
+        msg += "; design context: " + "; ".join(d.context_notes)
+    return msg, notes
+
 
 def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
     """Run every stage of review `rid`. `fresh`: the strong model forms the stories again, even for a change it has
@@ -551,25 +626,10 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
             told = (f"thread text by {by}" if by == strong.model else
                     f"thread text by {by} (the strong model failed)" if by else "fixed thread text (the AI's answer failed)")
             if r.threads:
-                ikey = hashlib.sha256(f"{INTRO_VERSION}|{strong.model}|{intro_prompt(r, bs.stories, cls_text)}"
-                                      .encode()).hexdigest()
-                icached = store.get_blob(rid, "intro_text")
-                if icached and icached.get("key") == ikey and not fresh:
-                    iby: str | None = strong.model
-                    r.whole, r.whole_source = icached["whole"], icached["whole_source"]
-                    for t in r.threads:
-                        t.intro, t.intro_source = icached["threads"].get(t.id, (t.intro, t.intro_source))
-                    r.route, r.route_source = [RouteStep(**s) for s in icached["route"]], icached["route_source"]
-                else:
-                    said, iby = write_intro(svc.strong, svc.ledger, rid, r, bs.stories, cls_text, weak=svc.llm)
-                    notes = notes + said
-                    if not said:
-                        store.put_blob(rid, "intro_text", {
-                            "key": ikey, "whole": r.whole, "whole_source": r.whole_source,
-                            "threads": {t.id: (t.intro, t.intro_source) for t in r.threads},
-                            "route": [s.model_dump() for s in r.route], "route_source": r.route_source})
-                told += (f"; introduction by {iby}" if iby == strong.model else
-                         f"; introduction by {iby} (the strong model failed)" if iby else "; fixed introduction")
+                itold, inotes = _intro_text(svc, rid, r, bs.stories, cls_text, context_text(load_context(store, rid)),
+                                            fresh)
+                notes = notes + inotes
+                told += itold
         if svc.llm is not None:                # each behaviour story's account (spec 2026-10-12 §1.4)
             aictx = AiContext(ctx["impact"], x.c.findings, collect_snippets(ctx["impact"], ctx["cs"], ctx["after"]),
                               cfg.llm.max_context_tokens, ctx.get("node_files"))
@@ -603,26 +663,9 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
         §9)."""
         store.replace_blobs(rid, ["reading_design"], [], {})
 
-    def design_text_of(d, r, ss, strong):
-        """The strong model's parts of design `d` (spec 2026-11-02 §10), written on a copy: the text kept for this
-        prompt, or a new answer. Returns what the stage says, its notes and the design."""
-        d = d.model_copy(deep=True)
-        key = hashlib.sha256(f"{DESIGN_VERSION}|{strong.model}|{design_prompt(d, r, ss)}".encode()).hexdigest()
-        kept = store.get_blob(rid, "design_text")
-        if kept and kept.get("key") == key and not fresh:
-            apply_design_text(d, kept)
-            return f"; design text by {strong.model}", [], d
-        notes, by = write_design(svc.strong, svc.ledger, rid, d, r, ss, weak=svc.llm)
-        if not notes:
-            store.put_blob(rid, "design_text", {"key": key, **design_text(d)})
-        told = (f"; design text by {by}" if by == strong.model else
-                f"; design text by {by} (the strong model failed)" if by else "; fixed design text")
-        return told, notes, d
-
     def design():
-        """The design overview (spec 2026-11-02 §4–§7, §10): components, walk-throughs and conditions by rules (R16), then
-        the strong model's verdict, concerns, ownership, titles and false cases. Any failure of the model's part leaves
-        the rules' design exactly (§15)."""
+        """The design overview (spec 2026-11-02 §4–§10): components, walk-throughs and conditions by rules (R16), then
+        the strong model's verdict, concerns, ownership, titles and false cases, with the review's design context."""
         if not cfg.analysis.design:
             drop_design()
             return "off (analysis.design: false)"
@@ -630,21 +673,8 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
         if bs is None or bs.analysis is None or r is None or per is None:
             drop_design()
             return "no reading to describe"
-        try:
-            d = build_design(bs.analysis.x, bs.stories, bs.story_details, r, per, lines=ctx.get("lines"),
-                             read_text=ctx.get("read_text"))
-        except Exception:
-            drop_design()
-            raise
-        told, notes = "", []
-        strong = cfg.llm.strong
-        if svc.strong is not None and strong is not None and r.threads:
-            try:
-                told, notes, d = design_text_of(d, r, bs.stories, strong)
-            except Exception as e:  # the rules' design stands
-                notes = [f"design text: {type(e).__name__}: {e}"[:200]]
-        store.replace_blobs(rid, ["reading_design"], [], {"reading_design": d})
-        msg = f"{len(d.components)} component(s), {len(d.walks)} walk-through(s), {len(d.gates)} condition(s)" + told
+        msg, notes = design_part(svc, rid, bs.analysis.x, bs.stories, bs.story_details, r, per, lines=ctx.get("lines"),
+                                 read_text=ctx.get("read_text"), fresh=fresh)
         if notes:
             raise Degraded(msg + "; " + "; ".join(notes))
         return msg
@@ -668,6 +698,77 @@ def run_review(rid: int, svc: Services, fresh: bool = False) -> None:
                          ("verdicts", verdicts), ("board", board), ("llm", llm), ("reading", reading),
                          ("design", design), ("finalize", finalize)]:
             stage(name, fn)
+
+
+def run_design(rid: int, svc: Services) -> None:
+    """Run review `rid`'s design stage again, alone (spec 2026-11-02 §8, §18.9), as saving a design context does: the
+    introduction is asked again with the context, and the design built again from the reading the last run stored; the
+    stories, flows and checks stay as they are. Only the design stage's row changes, and the review's status moves only
+    between done and degraded (`_settle`), so its page stays readable meanwhile. A re-run that breaks leaves no design,
+    as a run's design stage that breaks does (§9)."""
+    from codetortoise.llm.ondemand import _lock
+    store = svc.store
+    with _lock(rid):
+        store.set_stage(rid, "design", "running")
+        try:
+            msg, notes = _design_again(rid, svc)
+            if notes:
+                store.set_stage(rid, "design", "degraded", msg + "; " + "; ".join(notes))
+            else:
+                store.set_stage(rid, "design", "ok", msg)
+        except Exception as e:  # recorded as run_review records a stage's failure
+            log.error("design re-run of review %s failed: %s", rid, traceback.format_exc())
+            store.replace_blobs(rid, ["reading_design"], [], {})
+            store.set_stage(rid, "design", "failed", f"{type(e).__name__}: {e}")
+        _settle(store, rid)
+
+
+def _settle(store, rid: int) -> None:
+    """A finished review's status once a stage ran again: done when every stage is ok, else degraded. A review that is
+    not finished (queued, running, failed) is left alone: its own run settles it."""
+    if store.get_review(rid)["status"] not in ("done", "degraded"):
+        return
+    st = {s["name"]: s["status"] for s in store.list_stages(rid)}
+    store.set_review_status(rid, "done" if all(st.get(s) == "ok" for s in STAGES if s != "finalize") else "degraded")
+
+
+def _design_again(rid: int, svc: Services) -> tuple[str, list[str]]:
+    """The design stage's inputs as the review's last run stored them, and the stage's work on them: the analysis from
+    the stored change, the stories and their details, the reading and its stories', the files' lines."""
+    store, cfg = svc.store, svc.cfg
+    if not cfg.analysis.design:
+        store.replace_blobs(rid, ["reading_design"], [], {})
+        return "off (analysis.design: false)", []
+    ss, raw = boardstore.stories(store, rid), store.get_blob(rid, "reading")
+    if ss is None or not raw or not store.get_blob(rid, "changeset"):
+        store.replace_blobs(rid, ["reading_design"], [], {})
+        return "no reading to describe", []
+    r = Reading.model_validate(raw)
+    per = {s.id: StoryReading.model_validate(v) for s in ss.stories if (v := store.get_blob(rid, f"story_reading:{s.id}"))}
+    details = {s.id: d for s in ss.stories if (d := boardstore.story(store, rid, s.id)) is not None}
+    cs = ChangeSet.model_validate(store.get_blob(rid, "changeset"))
+    lines = file_lines(cs)                       # as the run made them
+    layers = store.get_blob(rid, "layers")
+    bctx = BoardContext(cs, DiffMap.model_validate(store.get_blob(rid, "diffmap")),
+                        [Facts.model_validate(f) for f in store.get_blob(rid, "facts_before") or []],
+                        [Facts.model_validate(f) for f in store.get_blob(rid, "facts_after") or []],
+                        ImpactModel.model_validate(store.get_blob(rid, "impact")), store.list_findings(rid),
+                        LayerModel.model_validate(layers) if layers else None, cfg.analysis, lambda paths: {},
+                        root=canon(str(cfg.workspace.root)))
+    x = analyse(bctx).x
+    texts: dict[str, str | None] = {}
+
+    def read_text(path: str) -> str | None:
+        if path not in texts:
+            texts[path] = _read_text(path)
+        return texts[path]
+    told, notes = "", []
+    if svc.strong is not None and cfg.llm.strong is not None and r.threads:
+        cls_text = {m.cl: prompt_text(m.description) for m in cs.cls}
+        told, notes = _intro_text(svc, rid, r, ss, cls_text, context_text(load_context(store, rid)), fresh=False)
+        store.put_blob(rid, "reading", r)
+    msg, more = design_part(svc, rid, x, ss, details, r, per, lines=lines, read_text=read_text, intro=told)
+    return msg, notes + more
 
 
 class AiPool:
@@ -738,7 +839,7 @@ class JobRunner:
         """Why this workspace's bundle can't be replaced now (an edit swaps it, spec 2026-10-31 §6), or None: a review
         waits or runs. An index build is stopped instead (final review M3)."""
         with self._pending_lock:
-            if self._pending["review"]:
+            if self._pending["review"] or self._pending["design"]:
                 return "a review is running in this workspace; try again when it finishes"
         return None
 
@@ -746,6 +847,13 @@ class JobRunner:
         self.svc.store.set_review_status(rid, "queued")
         self._count("review", 1)
         self._q.put(("review", (rid, fresh)))
+
+    def submit_design(self, rid: int) -> None:
+        """Queue a re-run of review `rid`'s design stage alone (spec 2026-11-02 §8): its design context changed. The
+        stage reads pending at once, so the page knows to wait for it."""
+        self.svc.store.set_stage(rid, "design", "pending", "queued: the design context changed")
+        self._count("design", 1)
+        self._q.put(("design", rid))
 
     def submit_index(self) -> None:
         self._count("index", 1)
@@ -772,6 +880,8 @@ class JobRunner:
             try:
                 if kind == "review":
                     run_review(arg[0], self.svc, fresh=arg[1])
+                elif kind == "design":
+                    run_design(arg, self.svc)
                 elif kind == "index" and not self._stop.is_set():
                     self.index_building = True
                     self.svc.build_index(cancel=self._stop)
