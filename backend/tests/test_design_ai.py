@@ -254,3 +254,19 @@ def test_two_requests_at_once_start_one_rewrite(made):
     finally:
         hold.set()
     assert first is not None and second is None and other is not None
+
+
+def test_a_pin_outlives_a_re_run_that_tells_its_stories_titles_again(made):
+    """Phase 4 M5a: a pin records the pieces of each story it cites, and a re-run finds the story by them though its
+    title was told again."""
+    from codetortoise.pipeline import run_design
+    svc, _, owner, rid, _ = made
+    assert owner.post(f"/api/reviews/{rid}/design/concerns/pin", json={"pinned": True}).status_code == 200
+    cited = {s for c in _design(owner, rid)["concerns"] for s in c["stories"]}
+    ss = svc.store.get_blob(rid, "stories")
+    for s in ss["stories"]:
+        if s["id"] in cited:
+            s["title"] += ", told again"
+    svc.store.put_blob(rid, "stories", ss)
+    run_design(rid, svc)
+    assert cited and _design(owner, rid)["sources"]["concerns"] == "pinned"

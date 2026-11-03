@@ -18,7 +18,7 @@ from codetortoise.board import Board
 from codetortoise.design import ReadingDesign
 from codetortoise.design_context import context_text, load_context
 from codetortoise.design_pins import BLOB as PINS
-from codetortoise.design_pins import load_pins, pin_of, story_titles
+from codetortoise.design_pins import load_pins, pin_of, story_pieces, story_titles, unpin
 from codetortoise.detectors.base import Finding
 from codetortoise.facts.model import Facts
 from codetortoise.impact import ImpactModel
@@ -300,8 +300,8 @@ def pin_design(svc: Services, rid: int, part: str, on: bool) -> None:
             raise NotFound(f"{part} is not a part of the design overview")
         if on and d.sources.get(part) not in ("llm", "pinned"):
             raise Unchecked("only the AI's words are pinned; this part has none")
-        pin = pin_of(d, part, story_titles(ss))
-        pins = [p for p in load_pins(svc.store, rid) if (p.part, p.key) != (pin.part, pin.key)] + ([pin] if on else [])
+        pin = pin_of(d, part, story_titles(ss), story_pieces(ss))
+        pins = unpin(d, load_pins(svc.store, rid), part) + ([pin] if on else [])   # however its pin was keyed
         puts: dict = {"reading_design": d, PINS: pins}
         if on:
             d.sources[part] = "pinned"

@@ -3,7 +3,7 @@ import pytest
 from test_llm_design import GOOD
 
 from codetortoise import design as rules
-from codetortoise.design_pins import apply_pins, pin_of, story_titles, walk_key
+from codetortoise.design_pins import Pin, apply_pins, part_of, pin_of, story_pieces, story_titles, unpin, walk_key
 from codetortoise.llm import design as dl
 
 
@@ -29,7 +29,7 @@ def test_a_pin_keeps_the_part_s_words_and_the_names_of_what_it_cites(demo, writt
     w = pin_of(written, "walk:W1", titles)
     assert (w.part, w.title, w.key) == ("walk", "A write longer than 64 bytes", walk_key(written, written.walks[0]))
     g = pin_of(written, "gate:G1", titles)
-    assert (g.part, g.false_case, g.key) == ("gate", "Writes that fit (64 bytes or less)", "uart_send|len > 64")
+    assert (g.part, g.false_case, g.key) == ("gate", "Writes that fit (64 bytes or less)", "uart_send|len > 64|driver/uart.c|1")
 
 
 def test_a_fresh_design_takes_each_pin_and_marks_its_part_pinned(demo, written):
@@ -106,3 +106,63 @@ def test_a_pin_keeps_who_had_its_words_rewritten_and_puts_that_back_where_the_pa
     assert apply_pins(fresh, demo.r, titles, pins) == (pins, [])
     assert fresh.rewrites == {"walk:W4": Rewrite(by="bob", instruction="Name the 64-byte limit"),
                               "verdict": Rewrite(by="alice")}
+
+
+def test_a_pin_keeps_a_story_whose_title_was_told_again(demo, written):
+    """Phase 4 M5a: a story a pin cites is found by what the rules made it of (its pieces), whatever its title or id
+    now; a pin recorded before (titles only) still matches by title."""
+    titles, pieces = story_titles(demo.ss), story_pieces(demo.ss)
+    pins = [pin_of(written, p, titles, pieces) for p in ("concerns", "ownership")]
+    retold = {**titles, "S1": "The send path, told again"}
+    fresh = _rules(demo)
+    assert apply_pins(fresh, demo.r, retold, pins, pieces) == (pins, [])
+    assert (fresh.concerns, fresh.ownership) == (written.concerns, written.ownership)
+    r = demo.r.model_copy(deep=True)                                  # and listed under another id now
+    for t in r.threads:
+        t.stories = ["S9" if s == "S1" else s for s in t.stories]
+    moved = {("S9" if k == "S1" else k): v for k, v in pieces.items()}
+    fresh = _rules(demo)
+    assert apply_pins(fresh, r, {("S9" if k == "S1" else k): v for k, v in retold.items()}, pins, moved) == (pins, [])
+    assert fresh.ownership[1].cites == ["N3", "S9"]
+    assert {s for c in fresh.concerns for s in c.stories} == {"S9", "S2", "S5", "S3"}
+    old = [pin_of(written, p, titles) for p in ("concerns", "ownership")]       # recorded before: titles only
+    assert apply_pins(_rules(demo), demo.r, titles, old, pieces) == (old, [])
+    assert apply_pins(_rules(demo), demo.r, retold, old, pieces)[0] == []
+
+
+def _alike(d):
+    """`d` with two more conditions of G1's function and test: G8 in another file, G9 later in G1's."""
+    g = d.gates[0]
+    d.gates += [g.model_copy(update={"id": "G8", "path": "driver/spi.c", "line": 40, "false_case": ""}),
+                g.model_copy(update={"id": "G9", "line": 30, "false_case": ""})]
+    return d
+
+
+def test_two_conditions_with_one_test_keep_their_own_pins(demo, written):
+    """Phase 4 M5b: a condition's pin holds its file and its order among the conditions alike; one keyed the old way
+    (its function and test) still finds the first of them, and unpinning that condition lets it go."""
+    _alike(written)
+    words = {"G1": "Short writes", "G8": "Short SPI writes", "G9": "Short retries"}
+    for g in written.gates:
+        g.false_case = words.get(g.id, g.false_case)
+    pins = [pin_of(written, f"gate:{gid}", {}) for gid in words]
+    fresh = _alike(_rules(demo))
+    fresh.gates.insert(0, fresh.gates.pop(-2))                        # G8 listed first now
+    assert apply_pins(fresh, demo.r, {}, pins) == (pins, [])
+    assert {g.id: g.false_case for g in fresh.gates if g.id in words} == words
+    old = Pin(part="gate", key="uart_send|len > 64", false_case="Writes that fit")
+    again = _alike(_rules(demo))
+    assert apply_pins(again, demo.r, {}, [old]) == ([old], [])
+    assert [g.false_case for g in again.gates if g.id in words] == ["Writes that fit", "", ""]
+    assert (part_of(again, old), part_of(again, pins[2])) == ("gate:G1", "gate:G9")
+    assert unpin(again, [old, pins[1]], "gate:G1") == [pins[1]] and unpin(again, [old], "gate:G9") == [old]
+
+
+def test_a_walk_through_pin_keyed_the_old_way_still_finds_it(demo, written):
+    """Phase 4 M5b: a walk-through's key holds its condition's; one keyed before still finds its walk-through."""
+    pin = pin_of(written, "walk:W1", {})
+    old = pin.model_copy(update={"key": pin.key.replace("uart_send|len > 64|driver/uart.c|1|", "uart_send|len > 64|", 1)})
+    assert old.key != pin.key
+    fresh = _rules(demo)
+    assert apply_pins(fresh, demo.r, {}, [old]) == ([old], [])
+    assert fresh.walks[0].title == "A write longer than 64 bytes" and part_of(fresh, old) == "walk:W1"

@@ -20,7 +20,7 @@ from codetortoise.config import seed_name
 from codetortoise.design import build_design
 from codetortoise.design_context import context_text, load_context
 from codetortoise.design_pins import BLOB as PINS
-from codetortoise.design_pins import apply_pins, load_pins, story_titles
+from codetortoise.design_pins import apply_pins, load_pins, story_pieces, story_titles
 from codetortoise.detectors.base import DetectorContext, renumber, run_detectors
 from codetortoise.diffmap import DiffMap, map_changes
 from codetortoise.facts.model import Facts, relative_records
@@ -213,7 +213,8 @@ def design_part(svc: Services, rid: int, x, ss, details, r: Reading, per, *, lin
             told, notes, d = _design_text(svc, rid, d, r, ss, context_text(dc), fresh)
         except Exception as e:  # the rules' design stands
             notes = [f"design text: {type(e).__name__}: {e}"[:200]]
-    kept, dropped = apply_pins(d, r, story_titles(ss), pins) if (pins := load_pins(store, rid)) else ([], [])
+    kept, dropped = (apply_pins(d, r, story_titles(ss), pins, story_pieces(ss)) if (pins := load_pins(store, rid))
+                     else ([], []))
     store.replace_blobs(rid, ["reading_design"], [], {"reading_design": d} | ({PINS: kept} if dropped else {}))
     msg = f"{len(d.components)} component(s), {len(d.walks)} walk-through(s), {len(d.gates)} condition(s)" + told + intro
     if d.context_notes:
