@@ -969,14 +969,16 @@ a.ws-chip { text-decoration: none; }
 .dz-owner li { overflow-wrap: anywhere; }
 .dz-cites { margin-left: 6px; font-size: 12px; color: var(--muted); }
 /* stacked by the overview's own width, so a panel open beside it stacks it too (phase 2 minor 3): the header row is left
-   to screen readers, and each cell after the concern says what it holds */
+   to screen readers, and each cell after the concern says what it holds, for the eye only: its label's alternative text
+   is empty, so a screen reader reads it once, as the column's header (final review minor 8); a browser that doesn't know
+   the alternative takes the first `content` */
 @container (max-width: 640px) {
   .dz-table table, .dz-table tbody, .dz-table tr, .dz-table td { display: block; width: auto; }
   .dz-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .dz-table tr { padding: 8px 0; border-bottom: 1px solid var(--line); }
   .dz-table td { border: 0; padding: 2px 0; }
-  .dz-table td[data-label]::before { content: attr(data-label); display: block; margin-top: 4px; font: 600 11px var(--sans);
-    color: var(--muted); }
+  .dz-table td[data-label]::before { content: attr(data-label); content: attr(data-label) / ""; display: block; margin-top: 4px;
+    font: 600 11px var(--sans); color: var(--muted); }
 }
 
 /* the design context panel (spec 2026-11-02 §8): an rm-panel with a form */

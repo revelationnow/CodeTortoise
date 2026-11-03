@@ -88,7 +88,7 @@ test.describe("the concerns table beside an open panel", () => {
     await expect(page.locator(".cs")).toBeVisible();                                      // the check opens in the panel
     await expect.poll(async () => (await box(1)).y - ((await box(0)).y + (await box(0)).height)).toBeGreaterThanOrEqual(-1);
     await expect(cells.nth(1)).toHaveAttribute("data-label", "How the change does it");
-    expect(await cells.nth(1).evaluate((e) => getComputedStyle(e, "::before").content)).toBe('"How the change does it"');
+    expect(await cells.nth(1).evaluate((e) => getComputedStyle(e, "::before").content)).toContain('"How the change does it"');
     await expect(section.getByRole("cell")).toHaveCount(12);
     await expect(section.getByRole("columnheader")).toHaveCount(4);
   });
@@ -120,6 +120,17 @@ test.describe("the strong model's design text on a phone", () => {
     await expect(section.getByRole("columnheader")).toHaveCount(4);
     const [a, b] = [await cells.nth(0).boundingBox(), await cells.nth(1).boundingBox()];
     expect(b!.y).toBeGreaterThanOrEqual(a!.y + a!.height - 1);
+    // each stacked cell's label is drawn for the eye and read once, as its column's header: the cell's own name, as the
+    // browser's accessibility tree has it, leaves the label out (final review minor 8)
+    expect(await cells.nth(1).evaluate((e) => getComputedStyle(e, "::before").content)).toContain('"How the change does it"');
+    const cdp = await page.context().newCDPSession(page);
+    const { root } = await cdp.send("DOM.getDocument", { depth: -1 });
+    const { nodeId } = await cdp.send("DOM.querySelector", { nodeId: root.nodeId,
+                                                             selector: ".dz-table tbody tr:first-child td:nth-child(2)" });
+    const { nodes } = await cdp.send("Accessibility.getPartialAXTree", { nodeId, fetchRelatives: false });
+    const name = String(nodes[0]?.name?.value ?? "");
+    expect(name).toContain((await cells.nth(1).innerText()).trim().slice(0, 24));
+    expect(name).not.toContain("How the change does it");
     expect(await sideways(page)).toBeLessThanOrEqual(0);
     const fold = await openFold(page, "Is the design right?");
     await expect(fold.locator("ul.dz-owner > li").nth(2)).toContainText("Logger::pending_lines_waiting_for_the_uart_to_drain");
