@@ -208,3 +208,42 @@ def test_the_design_stage_holds_its_limits_on_a_large_change(large):
     assert st["status"] == "ok" and DESIGN_SECONDS and max(DESIGN_SECONDS) < 1.0
     assert len(d["walks"]) <= 6 and len(d["gates"]) <= 20 and all(len(w["steps"]) <= 40 for w in d["walks"])
     assert all(len(g["lines"]) <= 200 for g in d["gates"])
+
+
+def _many(n):
+    """A change of n functions, each gaining a condition and writing or reading one of 50 fields, in a call chain."""
+    from test_stories import _world
+    fns, calls, fields = [], [], []
+    for i in range(n):
+        fns.append((f"fn{i}", f"d{i % 40}/f{i % 7}.c", [f"x{i} = 1;", f"r->f{i % 50} = 1;"],
+                    [f"x{i} = 2;", f"if (v{i} > {i}) {{", f"\tr->f{i % 50} = 2;", "\treturn;", "}", f"n{i}();"]))
+        calls += [(f"fn{i}", f"fn{i - 1}")] if i else []
+        fields.append((f"fn{i}", "Rec", f"f{i % 50}", "write" if i % 2 else "read", "added"))
+    return _world(fns, calls=calls, fields=fields)
+
+
+def _walk_seconds(n):
+    import time
+
+    from codetortoise.board import analyse
+    from codetortoise.gates import Sources, build_gates
+    from codetortoise.reading import build_reading
+    from codetortoise.stories import build_stories
+    from codetortoise.walks import build_walks
+    c = _many(n)
+    an = analyse(c)
+    ss, det = build_stories(c, analysis=an)
+    r, per = build_reading(ss, c, details=det, analysis=an)
+    src = Sources(an.x)
+    _, branches = build_gates(an.x, ss, r, src)
+    best = float("inf")
+    for _ in range(3):
+        t = time.perf_counter()
+        build_walks(an.x, ss, det, r, per, src, branches)
+        best = min(best, time.perf_counter() - t)
+    return best
+
+
+def test_the_walk_throughs_grow_with_the_change_not_with_its_square():
+    """The walker indexes a change once (phase 1 M7): four times the functions takes about four times as long."""
+    assert _walk_seconds(1600) < 7 * _walk_seconds(400)

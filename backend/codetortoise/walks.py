@@ -274,6 +274,14 @@ class _Walker:
         self.access: dict[str, list] = defaultdict(list)
         for a in sorted(x.fields_after, key=lambda a: (a.line, a.field)):
             self.access[a.fn].append(a)
+        self.readers_of: dict[str, list[str]] = defaultdict(list)    # each field's changed readers, in node order
+        for n in sorted(x.changed, key=lambda n: (len(n), n)):
+            k = x.im.nodes[n].key
+            for f in dict.fromkeys(f"field:{a.field}" for a in self.access.get(k, []) if a.mode == "read" and k in x.fa):
+                self.readers_of[f].append(n)
+        self.checks_at: dict[tuple, list] = defaultdict(list)       # the checks by the cause and node they name
+        for k in r.checks:
+            self.checks_at[(k.related, k.node)].append(k)
         self.file_threads: dict[str, set[str]] = defaultdict(set)
         for sid, sr in per.items():
             t = self.thread_of.get(sid)
@@ -323,13 +331,16 @@ class _Walker:
 
     def _flow_ref(self, st: WalkStep, fl) -> None:
         sid = self.flow_story.get(fl.id)
-        keys = flow_keys(fl, self.r.checks, self.x)
+        keys = self._keys(fl)
         st.ref, st.story, st.flow, st.flow_n, st.keys = "flow", sid, fl.id, self.flow_n.get((sid, fl.id)), keys
         st.cause = next((self.check[k].cause for k in keys if k in self.check and self.check[k].cause), None)
 
+    def _keys(self, fl) -> list[str]:
+        return flow_keys(fl, self.checks_at.get((fl.cause, fl.lands), []), self.x)
+
     def _attach(self, fl) -> str:
         """Where a contract flow's checks sit on the walk (R31): a result row on the return, other rows on the call."""
-        kinds = {self.check[k].kind for k in flow_keys(fl, self.r.checks, self.x) if k in self.check}
+        kinds = {self.check[k].kind for k in self._keys(fl) if k in self.check}
         if "result" in kinds:
             return "return"
         if kinds:
@@ -388,15 +399,8 @@ class _Walker:
 
     def _readers(self, fid: str, F: str, sid: str) -> list[str]:
         """Changed functions of other stories that read a field F wrote."""
-        x, fkey = self.x, self.x.im.nodes[fid].key
-        out = []
-        for n in sorted(x.changed, key=lambda n: (len(n), n)):
-            s, k = self.story_of.get(n), x.im.nodes[n].key
-            if n == F or s is None or s == sid or k not in x.fa:
-                continue
-            if any(f"field:{a.field}" == fkey and a.mode == "read" for a in self.access.get(k, [])):
-                out.append(n)
-        return out
+        return [n for n in self.readers_of.get(self.x.im.nodes[fid].key, [])
+                if n != F and self.story_of.get(n) not in (None, sid)]
 
     def _reach(self, a: str, target: str) -> list[str] | None:
         """A shortest chain of live calls from a down to target, at most REACH long."""

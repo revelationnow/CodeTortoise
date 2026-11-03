@@ -5,7 +5,9 @@ returns; `line_marks` finds its new and changed lines. `Sources` reads, parses a
 conditions here and the walk-throughs (walks.py) alike. Lines are numbered as clang numbers them (`linediff.lines`)."""
 from __future__ import annotations
 
+import bisect
 import difflib
+import itertools
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -428,13 +430,27 @@ def _only_guarded(x, g: Branch) -> set[str]:
     return {x.id_of[k] for k in inside if k in x.id_of}
 
 
-def _holder(spans: list[tuple[int, int, str]], n: int) -> str | None:
-    """The innermost function holding line n."""
-    best = None
-    for a, b, nid in spans:
-        if a <= n <= b and (best is None or b - a < best[1] - best[0]):
-            best = (a, b, nid)
-    return best[2] if best else None
+class _Spans:
+    """Each file's functions by line, for the innermost one holding a line."""
+
+    def __init__(self, x):
+        by: dict[str, list[tuple[int, int, str]]] = {}
+        for key, fn in x.fa.items():
+            if key in x.id_of:
+                by.setdefault(fn.file, []).append((fn.start_line, fn.end_line, x.id_of[key]))
+        self.by = {p: sorted(s, key=lambda t: (t[0], -t[1])) for p, s in by.items()}
+        self.starts = {p: [a for a, _, _ in s] for p, s in self.by.items()}
+        self.reach = {p: list(itertools.accumulate((b for _, b, _ in s), max)) for p, s in self.by.items()}
+
+    def holder(self, path: str, n: int) -> str | None:
+        """The innermost function holding line n of `path`: the last to start by n that ends at n or later."""
+        spans = self.by.get(path, [])
+        k = bisect.bisect_right(self.starts.get(path, []), n) - 1
+        while k >= 0 and self.reach[path][k] >= n:            # no function before k reaches n: none holds it
+            if spans[k][1] >= n:
+                return spans[k][2]
+            k -= 1
+        return None
 
 
 def classify(g: Branch, x, src: Sources, story_of: dict[str, str], order: list[str], lines=None
@@ -445,10 +461,7 @@ def classify(g: Branch, x, src: Sources, story_of: dict[str, str], order: list[s
     that never run either way: test files, preprocessor lines, lines in no function (declarations, globals)."""
     pos = {s: i for i, s in enumerate(order)}
     guarded = _only_guarded(x, g)
-    spans: dict[str, list[tuple[int, int, str]]] = {}
-    for key, fn in x.fa.items():
-        if key in x.id_of:
-            spans.setdefault(fn.file, []).append((fn.start_line, fn.end_line, x.id_of[key]))
+    spans = _Spans(x)
     rows: list[tuple] = []
     for fc in x.c.cs.files:
         path = fc.local
@@ -456,7 +469,7 @@ def classify(g: Branch, x, src: Sources, story_of: dict[str, str], order: list[s
             continue
         for n in sorted(src.marks(path)):
             text = src.line(path, n)
-            nid = _holder(spans.get(path, []), n)
+            nid = spans.holder(path, n)
             if nid is None or trivial(text) or text.lstrip().startswith("#"):
                 continue
             if nid == g.node:
