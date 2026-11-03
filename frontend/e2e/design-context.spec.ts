@@ -143,6 +143,31 @@ test.describe("the design context panel and page (phase 3 minors)", () => {
     expect(looks).toBe(seen);
   });
 
+  test("after signing in again in place, the re-run's polling picks up and loads the reading it made (final review M3)",
+       async ({ page }) => {
+    await startReview(page);
+    const verdict = page.locator(".ov-top .dz-verdict");
+    await expect(verdict.locator(".dz-src")).toHaveText("AI, from the stories");
+    const panel = await openPanel(page);
+    await panel.getByLabel("Notes").fill(NOTES);
+    let out = false;                                   // the session ended: a look at the review asks to sign in again
+    await page.route(/\/api\/reviews\/\d+$/, (r) => {
+      if (r.request().method() !== "GET" || !out) return r.fallback();
+      return r.fulfill({ status: 401, contentType: "application/json",
+                         body: JSON.stringify({ detail: "Sign in to open this review.", server: "main:1666" }) });
+    });
+    await page.route("**/api/login", (r) => r.fulfill({ json: { server: "main:1666", user: "demo" } }));
+    const saved = page.waitForResponse((r) => r.request().method() === "PUT" && r.url().endsWith("/design-context"));
+    await panel.getByRole("button", { name: "Save" }).click();
+    await saved;
+    out = true;
+    await expect(page.getByText("Sign in to main:1666 to open this review")).toBeVisible({ timeout: 10_000 });
+    out = false;
+    await page.getByLabel("P4 user").fill("demo");
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(verdict.locator(".dz-src")).toHaveText("AI, from the stories and the design context", { timeout: 30_000 });
+  });
+
   test("a saved link shows the text the server read, folded under its first lines (minors 5, 8)", async ({ page }) => {
     await startReview(page);
     const read = "# UART\nNever drop a byte.\nA long write is refused whole.";

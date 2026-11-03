@@ -31,12 +31,14 @@ export function useReview(id: number) {
   const [error, setError] = useState<string | null>(null);
   const [signIn, setSignIn] = useState<string | null>(null);   // the server to sign in to before this review opens (spec 2026-10-31 §9)
   const [stream, setStream] = useState(0);                // the progress stream opened again: it dropped while the run went on
+  const [gone, setGone] = useState(false);                // the server refused a look at the review for good (see below)
 
   const fail = useCallback((e: unknown) => {
     if (e instanceof ApiError && e.status === 401 && e.server) setSignIn(e.server);   // a review on a server the session isn't signed in to
     else setError(errorText(e, "The review could not be loaded."));
   }, []);
-  const loadDetail = useCallback(() => api.review(id).then((d) => { setSignIn(null); setDetail(d); return d; }).catch(fail), [id, fail]);
+  const loadDetail = useCallback(() => api.review(id).then((d) => { setSignIn(null); setGone(false); setDetail(d); return d; })
+    .catch(fail), [id, fail]);
   const loadComments = useCallback(() => api.comments(id).then(setComments), [id]);
   const loadFindings = useCallback(() => api.findings(id).then(setFindings), [id]);
   const loadStories = useCallback(() => api.stories(id).then(setStories, (e) => setStories(missing(null)(e))), [id]);
@@ -83,12 +85,11 @@ export function useReview(id: number) {
   // the first look — and the reading (its design and its lead) loads again once it is done. A look that fails for a
   // while (no answer, a server error) is skipped until the next (phase 3 minor 4); one the server refuses for good (the
   // session ended, the review was taken away or removed: 401, 403, 404) ends the polling and says why (final review
-  // minor 6). A full run's design stage is not a re-run: its end loads the results, the reading among them, once (phase 3
-  // minor 10d).
+  // minor 6), until the review loads again — signed in again in place — or a new save waits (final review M3). A full
+  // run's design stage is not a re-run: its end loads the results, the reading among them, once (phase 3 minor 10d).
   const [designWait, setDesignWait] = useState(false);
-  const [gone, setGone] = useState(false);
   const designing = designWait || designBusy(detail);
-  const awaitDesign = useCallback(() => setDesignWait(true), []);
+  const awaitDesign = useCallback(() => { setGone(false); setDesignWait(true); }, []);
   const rerun = designing && !gone && !!status && TERMINAL.has(status);
   useEffect(() => {
     if (!rerun) return;
