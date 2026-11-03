@@ -171,6 +171,21 @@ def test_a_new_block_with_no_return_runs_on_to_the_function_s_end_on_both_sides(
                             ("return", "go", "send", None), ("return", "send", "main", None)]
 
 
+def test_fixed_titles_that_repeat_name_their_function():
+    from codetortoise.design import Walk
+    from codetortoise.walks import _Cand, _keep
+
+    def cand(title, gate, fn, path, story):
+        w = Walk(id="", title=title, condition=gate, case=True if gate else None, parts=[], stories=[story], steps=[])
+        return _Cand(w, {"c1"}, {story}, gate or f"{story}:{fn}", 0, fn, path)
+    walks = _keep([cand("When `ret < 0`", "G1", "f", "drv/a.c", "S1"), cand("When `ret < 0`", "G2", "g", "drv/b.c", "S2"),
+                   cand("When `ret < 0`", "G3", "g", "drv/c.c", "S3"), cand("In `h`", None, "h", "drv/d.c", "S4"),
+                   cand("In `h`", None, "h", "drv/e.c", "S5"), cand("When `n == 0`", "G4", "k", "drv/k.c", "S6")], 10)
+    assert [w.title for w in walks] == [
+        "When `ret < 0` in `f`", "When `ret < 0` in `g` (drv/b.c)", "When `ret < 0` in `g` (drv/c.c)", "When `n == 0`",
+        "In `h` (drv/d.c)", "In `h` (drv/e.c)"]
+
+
 def test_the_true_side_of_an_else_if_runs_no_other_arm_of_its_chain():
     pick = ("pick", "drv/p.c", ["if (ready(m)) {", "\ta();", "} else {", "\tc();", "}"],
             ["if (ready(m)) {", "\ta();", "} else if (m == 2) {", "\tb();", "} else {", "\tc();", "}"])

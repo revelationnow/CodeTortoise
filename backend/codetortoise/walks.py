@@ -8,7 +8,7 @@ stories that no other walk-through already covers (§4.2, R2)."""
 from __future__ import annotations
 
 import re
-from collections import defaultdict, deque
+from collections import Counter, defaultdict, deque
 from dataclasses import dataclass
 
 from codetortoise.cparse import _negate, _txt, norm_ws
@@ -198,6 +198,8 @@ class _Cand:
     cover: set[str]
     group: str                        # its condition, else story:function
     pos: int                          # its story's place in the reading
+    fn: str = ""                      # the changed function's name, and its file: what tells repeated titles apart
+    path: str = ""
 
 
 def _keep(cands: list[_Cand], max_walks: int) -> list[Walk]:
@@ -216,10 +218,26 @@ def _keep(cands: list[_Cand], max_walks: int) -> list[Walk]:
         if any(c.cover < o.cover for o in cands) or any(c.cover == o.cover for o in kept):
             continue
         kept.append(c)
-    out = [c.walk for c in kept[:max(max_walks, 0)]]
+    kept = kept[:max(max_walks, 0)]
+    _distinct(kept)
+    out = [c.walk for c in kept]
     for i, w in enumerate(out, 1):
         w.id = f"W{i}"
     return out
+
+
+def _distinct(kept: list[_Cand]) -> None:
+    """Fixed titles that repeat say where they are: a condition's side names its function (two functions gaining
+    `ret < 0`), and a title still repeated names the file."""
+    for step in ("function", "file"):
+        seen = Counter(c.walk.title.lower() for c in kept)
+        for c in kept:
+            if seen[c.walk.title.lower()] < 2:
+                continue
+            if step == "file":
+                c.walk.title += f" ({c.path})"
+            elif c.walk.condition is not None:             # the other titles name their function already
+                c.walk.title += f" in {_code(c.fn)}"
 
 
 class _Walker:
@@ -581,7 +599,8 @@ class _Walker:
                  condition=gate.id if gate is not None else None, case=case, parts=parts, stories=stories, steps=steps)
         cover = {s.story for s in whole if s.story} | {f"flow:{s.flow}" for s in whole if s.ref == "flow" and s.flow}
         group = gate.id if gate is not None else f"{sid}:{F}"
-        return _Cand(w, causes, cover, group, self.pos.get(sid, len(self.pos)))
+        return _Cand(w, causes, cover, group, self.pos.get(sid, len(self.pos)), x.label(F),
+                     rel_path(x, x.im.nodes[F].file))
 
     def _anchor(self, sid: str, steps: list[WalkStep]) -> tuple[str | None, tuple[str, str] | None]:
         """Its thread, and the connection it crosses (§2, R8): a step from another thread's story, or a flow landing in

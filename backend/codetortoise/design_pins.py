@@ -127,8 +127,8 @@ def _put(d: ReadingDesign, p: Pin, now: _Now) -> str | None:
         return "ownership"
     if p.part == "walk":
         w = next((w for w in d.walks if walk_key(d, w) == p.key), None)
-        if w is None:
-            return None
+        if w is None or any(o is not w and o.title.lower() == p.title.lower() for o in d.walks):
+            return None                                    # gone, or its title is another walk-through's now
         w.title, w.lead, w.title_source, d.sources[f"walk:{w.id}"] = p.title, p.lead, "llm", "pinned"
         return f"walk:{w.id}"
     g = next((g for g in d.gates if gate_key(d, g) == p.key), None)

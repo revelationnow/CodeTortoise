@@ -81,6 +81,16 @@ def test_a_pin_that_no_longer_fits_is_dropped_with_a_note(demo, written):
     assert (fresh.verdict, fresh.concerns, fresh.ownership, fresh.sources) == ("", [], [], {})
 
 
+def test_a_pinned_title_another_walk_through_now_has_is_dropped(demo, written):
+    titles = story_titles(demo.ss)
+    pins = [pin_of(written, "walk:W1", titles)]
+    fresh = _rules(demo)
+    fresh.walks[1].title = "A write longer than 64 bytes"            # the fresh answer gave W2 the pinned title
+    assert apply_pins(fresh, demo.r, titles, pins) == (
+        [], ["a pinned walk-through title no longer fits the change and was unpinned"])
+    assert fresh.walks[0].title == "When `len > 64`" and "walk:W1" not in fresh.sources
+
+
 def test_a_pin_keeps_who_had_its_words_rewritten_and_puts_that_back_where_the_part_is_now(demo, written):
     """Final review I2: the record of a reader's rewrite goes with the pinned words, to the walk-through's id now; a pin
     without one leaves its part without one."""

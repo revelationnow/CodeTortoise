@@ -229,20 +229,31 @@ def apply_answer(d: ReadingDesign, r: Reading, out: _Out, only: str | None = Non
             d.ownership, d.sources["ownership"] = lines, "llm"
         if dropped:
             bad.append(f"{dropped} ownership line(s)")
-    got, failed = {w.id: w for w in out.walks}, 0
-    taken = {w.title.lower() for w in d.walks if not asks(f"walk:{w.id}")}
-    for w in d.walks:
-        if not asks(f"walk:{w.id}"):
-            continue
+    got = {w.id: w for w in out.walks}
+    asked = [w for w in d.walks if asks(f"walk:{w.id}")]
+    passing: dict[str, tuple[str, str]] = {}
+    for w in asked:
         a = got.get(w.id)
         title, lead = (a.title.strip(), a.lead.strip()) if a else ("", "")
-        if _headline(title) and title.lower() not in taken and _prose(lead, 1, 2):
-            w.title, w.lead, w.title_source, d.sources[f"walk:{w.id}"] = title, lead, "llm", "llm"
-            taken.add(title.lower())
-        else:
-            failed += 1
-    if failed:
-        bad.append(f"{failed} walk-through title(s)")
+        if _headline(title) and _prose(lead, 1, 2):
+            passing[w.id] = (title, lead)
+    while True:               # a title must differ from every title that stays and from each passing one before it
+        stays = {w.title.lower() for w in d.walks if w.id not in passing}
+        seen: set[str] = set()
+        clash: list[str] = []
+        for wid, (t, _) in passing.items():
+            if t.lower() in stays or t.lower() in seen:
+                clash.append(wid)
+            seen.add(t.lower())
+        if not clash:
+            break
+        for wid in clash:
+            del passing[wid]
+    for w in asked:
+        if w.id in passing:
+            (w.title, w.lead), w.title_source, d.sources[f"walk:{w.id}"] = passing[w.id], "llm", "llm"
+    if len(asked) > len(passing):
+        bad.append(f"{len(asked) - len(passing)} walk-through title(s)")
     cases, failed = {g.id: g for g in out.conditions}, 0
     for g in d.gates:
         if not asks(f"gate:{g.id}"):

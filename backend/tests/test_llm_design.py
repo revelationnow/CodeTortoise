@@ -170,6 +170,20 @@ def test_a_walk_through_whose_title_fails_keeps_its_fixed_title_and_no_lead(demo
     assert "walk:W1" not in made.sources and made.walks[1].title == "A write that fits"
 
 
+def test_a_model_title_equal_to_a_fixed_title_that_stays_fails(demo, made):
+    fails = {**GOOD["walks"][0], "title": "A long write."}
+    taken = {**GOOD["walks"][1], "title": "When `len > 64`"}           # W1's fixed title, which stays
+    assert _write(demo, made, _with(walks=[fails, taken, *GOOD["walks"][2:]])) == (
+        ["design: 2 walk-through title(s) failed the checks"], "big")
+    assert [w.title for w in made.walks[:2]] == ["When `len > 64`", "When `len > 64` is false"]
+    assert "walk:W2" not in made.sources
+    d = rules.build_design(demo.x, demo.ss, demo.det, demo.r, demo.per, lines=demo.lines, read_text=demo.read_text)
+    first = {**GOOD["walks"][0], "title": "When `len > 64` is false"}   # W2's fixed title, while W2's answer fails
+    assert _write(demo, d, _with(walks=[first, {**GOOD["walks"][1], "lead": ""}, *GOOD["walks"][2:]]))[0] == [
+        "design: 2 walk-through title(s) failed the checks"]
+    assert [w.title for w in d.walks[:2]] == ["When `len > 64`", "When `len > 64` is false"]
+
+
 def test_several_failing_parts_are_named_together(demo, made):
     answer = {"verdict": "", "concerns": [], "ownership": [{"tag": "note", "text": "Uncited.", "cites": []}],
               "walks": [], "conditions": []}
