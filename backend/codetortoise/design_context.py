@@ -6,7 +6,9 @@ from __future__ import annotations
 
 import hashlib
 import re
+from html.parser import HTMLParser
 
+import httpx
 from pydantic import BaseModel, Field
 
 from codetortoise.config import ComponentRule
@@ -71,3 +73,104 @@ def load_context(store, rid: int) -> DesignContext:
     """A review's design context; an empty one when it has none."""
     raw = store.get_blob(rid, BLOB)
     return DesignContext.model_validate(raw) if raw else DesignContext()
+
+
+MAX_LINK_BYTES = 1_000_000   # a document read from a link holds at most this (§14)
+LINK_TIMEOUT = 10.0          # seconds to read it in
+_READ = ("text/plain", "text/markdown", "text/x-markdown", "text/html")
+
+
+class LinkRefused(Exception):
+    """A link the server will not or could not read; the message says why, in words for the owner."""
+
+
+def allowed(url: str, sites: list[str]) -> bool:
+    """Whether the server may read `url`: http or https, with no user name and no `.` or `..` in its path, on a site the
+    host lists (`server.design_links`) — the same scheme, host and port, and a path at or under the listed one."""
+    try:
+        u = httpx.URL(url)
+    except Exception:  # not a URL at all
+        return False
+    if u.scheme not in ("http", "https") or not u.host or u.userinfo or any(p in (".", "..") for p in u.path.split("/")):
+        return False
+    for site in sites:
+        try:
+            s = httpx.URL(site)
+        except Exception:  # a listed site that is no URL lets nothing through
+            continue
+        base = s.path or "/"
+        under = u.path == base or u.path.startswith(base if base.endswith("/") else base + "/")
+        if (u.scheme, u.host.lower(), u.port) == (s.scheme, s.host.lower(), s.port) and under:
+            return True
+    return False
+
+
+class _Words(HTMLParser):
+    """A web page's words: tags dropped, scripts and styles left out, a line break at each block."""
+    SKIP = {"script", "style", "noscript", "template"}
+    BLOCK = {"p", "div", "br", "li", "tr", "pre", "section", "article", "table", "ul", "ol", "h1", "h2", "h3", "h4",
+             "h5", "h6"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.out: list[str] = []
+        self.skip = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self.SKIP:
+            self.skip += 1
+        elif tag in self.BLOCK:
+            self.out.append("\n")
+
+    def handle_endtag(self, tag):
+        if tag in self.SKIP:
+            self.skip = max(0, self.skip - 1)
+        elif tag in self.BLOCK:
+            self.out.append("\n")
+
+    def handle_data(self, data):
+        if not self.skip:
+            self.out.append(data)
+
+
+def page_text(html: str) -> str:
+    """A web page as the prompts read it: its words, a blank line at most between blocks."""
+    p = _Words()
+    p.feed(html)
+    p.close()
+    rows = [" ".join(r.split()) for r in "".join(p.out).splitlines()]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(rows)).strip()
+
+
+def read_link(url: str, sites: list[str], client: httpx.Client | None = None) -> str:
+    """The text behind a link, read once when the context is saved (§8): only from a site the host lists, with no
+    redirect followed, at most MAX_LINK_BYTES, as text or markdown, or a web page's words."""
+    if not sites:
+        raise LinkRefused("This server reads no links: its host lists the sites it may read under server.design_links "
+                          "in tortoise.yaml. Paste the text or add the file instead.")
+    if not allowed(url, sites):
+        raise LinkRefused(f"This server reads links only from {', '.join(sites)}.")
+    own = client is None
+    http = client if client is not None else httpx.Client(timeout=LINK_TIMEOUT, follow_redirects=False)
+    try:
+        with http.stream("GET", url, follow_redirects=False) as resp:
+            if resp.is_redirect:
+                raise LinkRefused("The link leads somewhere else; give the address it leads to.")
+            if resp.status_code != 200:
+                raise LinkRefused(f"The link answered {resp.status_code}.")
+            kind = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+            if kind not in _READ:
+                raise LinkRefused(f"The link holds {kind or 'something of no stated type'}; only text, markdown or a "
+                                  "web page is read.")
+            body = bytearray()
+            for chunk in resp.iter_bytes():
+                body += chunk
+                if len(body) > MAX_LINK_BYTES:
+                    raise LinkRefused("The link holds more than 1 MB.")
+            text = bytes(body).decode(resp.encoding or "utf-8", errors="replace")
+    except httpx.HTTPError as e:
+        raise LinkRefused(f"The link could not be read ({type(e).__name__}).") from e
+    finally:
+        if own:
+            http.close()
+    return page_text(text) if kind == "text/html" else text

@@ -21,6 +21,9 @@ class ServerConfig(BaseModel):
     # the only folders a workspace added in the UI runs compilers and loads libclang from (final review I3 of spec
     # 2026-10-31); the workspace described here is not held to them
     toolchain_folders: list[str] = Field(default_factory=lambda: ["/usr", "/opt"])
+    # the sites a design context's link may be read from (spec 2026-11-02 §8): the server reads a link only under one of
+    # these, so a workspace owner can't make it fetch other addresses on its network; none: no link is read
+    design_links: list[str] = Field(default_factory=list)
 
 
 class WorkspaceConfig(BaseModel):
