@@ -171,6 +171,63 @@ def test_a_link_is_read_within_one_deadline(monkeypatch):
     assert time.monotonic() - t < 1.0
 
 
+def _site(gap: float, stop) -> int:
+    """A site on this machine that answers "hi" as text, sending its status line and headers a byte every `gap`
+    seconds until `stop` is set; its port."""
+    import socket
+    import threading
+    import time
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    s.listen(4)
+
+    def run():
+        with s:
+            conn, _ = s.accept()
+            with conn:
+                try:
+                    conn.recv(65536)
+                    for b in b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\n":
+                        if stop.is_set():
+                            return
+                        conn.sendall(bytes([b]))
+                        time.sleep(gap)
+                    conn.sendall(b"hi")
+                except OSError:     # the reader gave up and closed its end
+                    pass
+    threading.Thread(target=run, daemon=True).start()
+    return s.getsockname()[1]
+
+
+def test_a_site_that_trickles_its_headers_is_refused_within_the_deadline(monkeypatch):
+    """Final review minor 1: the deadline holds for the whole read, not only between body chunks: a listed site that
+    sends its headers a byte at a time (each within httpx's per-step timeout) is refused at the deadline, the read left
+    behind ends rather than waiting on the site, and the next link is read at once."""
+    import threading
+    import time
+
+    from codetortoise import design_context as dc
+    monkeypatch.setattr(dc, "LINK_TIMEOUT", 0.5)
+    stop = threading.Event()
+    try:
+        port = _site(0.08, stop)                     # about 5 s for its 64 bytes of head
+        base = threading.active_count()
+        t = time.monotonic()
+        with pytest.raises(LinkRefused, match="took longer than 0.5 s"):
+            read_link(f"http://127.0.0.1:{port}/a.md", [f"http://127.0.0.1:{port}/"])
+        assert time.monotonic() - t < 1.5
+        end = time.monotonic() + 2
+        while threading.active_count() > base and time.monotonic() < end:
+            time.sleep(0.05)
+        assert threading.active_count() <= base      # the site still trickles; the read gave up on it
+    finally:
+        stop.set()
+    port = _site(0, threading.Event())
+    t = time.monotonic()
+    assert read_link(f"http://127.0.0.1:{port}/b.md", [f"http://127.0.0.1:{port}/"]) == "hi"
+    assert time.monotonic() - t < 0.5
+
+
 def test_a_compressed_link_is_refused_past_1_mb_without_unpacking_it_all(monkeypatch):
     """Phase 3 minor 2: a gzip or deflate body is unpacked at most 1 MB at a time and refused past 1 MB; another
     encoding is refused; a small packed body reads as its text."""

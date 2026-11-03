@@ -7,6 +7,7 @@ from __future__ import annotations
 import hashlib
 import re
 import ssl
+import threading
 import time
 import zlib
 from html.parser import HTMLParser
@@ -219,7 +220,12 @@ def _body(resp: httpx.Response, deadline: float) -> bytes:
 def read_link(url: str, sites: list[str], client: httpx.Client | None = None) -> str:
     """The text behind a link, read once when the context is saved (§8): only from a site the host lists, with no
     redirect followed, at most MAX_LINK_BYTES (unpacked, when packed), within LINK_TIMEOUT for the whole read, as text or
-    markdown, or a web page's words."""
+    markdown, or a web page's words.
+
+    httpx bounds each step of a read (the connect, each wait for bytes) but not the whole, so a site that sends its
+    headers a byte at a time would hold the save past the deadline. The read runs in a thread of its own instead: one
+    still going at the deadline is refused, and the client it reads with, when it is this function's own, is closed
+    under it, so the thread ends at the site's next byte or step timeout rather than waiting on the site."""
     if not sites:
         raise LinkRefused("This server reads no links: its host lists the sites it may read under server.design_links "
                           "in tortoise.yaml. Paste the text or add the file instead.")
@@ -232,8 +238,28 @@ def read_link(url: str, sites: list[str], client: httpx.Client | None = None) ->
     if not allowed(url, sites):
         raise LinkRefused(f"This server reads links only from {', '.join(sites)}.")
     deadline = time.monotonic() + LINK_TIMEOUT
-    own = client is None
     http = client if client is not None else httpx.Client(timeout=LINK_TIMEOUT, follow_redirects=False)
+    box: dict = {}
+
+    def work() -> None:
+        try:
+            box["text"] = _read(url, deadline, http)
+        except BaseException as e:  # noqa: BLE001 - raised again in the caller's thread below
+            box["error"] = e
+    reader = threading.Thread(target=work, name="read-link", daemon=True)
+    reader.start()
+    reader.join(max(0.0, deadline - time.monotonic()))
+    if client is None:
+        http.close()
+    if reader.is_alive():
+        raise LinkRefused(_slow())
+    if "error" in box:
+        raise box["error"]
+    return box["text"]
+
+
+def _read(url: str, deadline: float, http: httpx.Client) -> str:
+    """The read itself, with `http`: the answer checked, its body by `deadline`, a web page as its words."""
     try:
         with http.stream("GET", url, follow_redirects=False, headers={"Accept-Encoding": "gzip, deflate"}) as resp:
             if resp.is_redirect:
@@ -247,7 +273,4 @@ def read_link(url: str, sites: list[str], client: httpx.Client | None = None) ->
             text = _body(resp, deadline).decode(resp.encoding or "utf-8", errors="replace")
     except httpx.HTTPError as e:
         raise LinkRefused(_why(e)) from e
-    finally:
-        if own:
-            http.close()
     return page_text(text) if kind == "text/html" else text
