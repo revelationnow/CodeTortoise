@@ -32,7 +32,7 @@ def test_the_prompt_lists_the_threads_checks_components_names_conditions_and_eac
     assert "\ncpp | cpp, include/hal | T3 | cpp/engine.cpp\n  shares no calls or fields with the rest\n" in text
     assert "\nN10 | uart_send | driver | driver/uart.c:11\n" in text
     assert "\nN26 | Uart::errors | driver | driver/uart.h:15\n" in text
-    assert "\nG1 | len > 64 | uart_send | driver/uart.c:16 | 13 | 2\n" in text
+    assert "\nG1 | len > 64 | uart_send | driver/uart.c:16 | 9 | 2\n" in text
     w1 = _walk(text, "W1")
     assert w1.startswith("G1 true | T1 with T2 | S1\n")
     assert "\n  1. `main` calls `logger_flush(&g_log)` (S1's call path)" in w1

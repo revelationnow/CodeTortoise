@@ -139,7 +139,7 @@ def build_design(x, ss, details, r, per, *, lines=None, read_text=None, context=
     rules = context.components if context is not None and context.components else None
     components, node_comp = build_components(x, ss, r, per, rules)
     notes: list[str] = []
-    gates, branches = build_gates(x, ss, r, per, src, lines, hand=context.conditions if context is not None else None,
+    gates, branches = build_gates(x, ss, r, src, lines, hand=context.conditions if context is not None else None,
                                   notes=notes)
     walks = build_walks(x, ss, details, r, per, src, branches, lines)
     return ReadingDesign(components=components, gates=gates, walks=walks,

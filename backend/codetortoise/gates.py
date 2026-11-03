@@ -11,6 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
 from codetortoise import linediff
+from codetortoise.board import is_test_path
 from codetortoise.cparse import _COND, _at, _line_starts, _parser_for, _txt, flatten_preproc, norm_ws
 from codetortoise.design import Gate, GatedLine
 from codetortoise.design_context import same_test
@@ -20,8 +21,10 @@ MAX_GATES = 20            # conditions kept per review (§14)
 MAX_LINES = 200           # lines the strongest condition lists
 SIMILAR = 0.6             # an added line this like one its block replaced is "changed", not "new"
 PAIRS = 400               # a replaced block bigger than this (old lines × new lines) is all "changed", unpaired
+SKIP = {"mechanical", "tests"}  # stories with no condition (M1) and no walk-through (R18)
 _TRIVIAL = re.compile(r"[{}();,\s]*")
-_COMMENT = re.compile(r"//|/\*|\*(\s|/|$)")   # a comment, or a block comment's next line: "* more", "*/"
+_GOES_ON = re.compile(r"\*(\s|$)")              # a block comment's next line: "* more" ("*err += 1;" is code)
+_BLOCK = re.compile(r"/\*.*?\*/")
 _LOOPS = {"for_statement", "while_statement", "do_statement", "for_range_loop"}
 _EXITS = {"return_statement", "goto_statement", "break_statement", "continue_statement"}
 _PLAIN = {"compound_statement", "labeled_statement", "preproc_if", "preproc_ifdef", "preproc_else", "preproc_elif",
@@ -30,9 +33,15 @@ _INDEXED = ("call_expression", "field_expression")
 
 
 def trivial(text: str) -> bool:
-    """A line that says nothing alone: braces and punctuation, a blank, a comment."""
+    """A line that says nothing alone: braces and punctuation, a blank, a comment. Code after a comment is code:
+    `/* why */ x = 1;`, `*/ x();`."""
     t = text.strip()
-    return bool(_TRIVIAL.fullmatch(t) or _COMMENT.match(t))         # "*err += 1;" is code
+    if t.startswith("*/"):                    # the end of a block comment begun on an earlier line
+        t = t[2:]
+    elif _GOES_ON.match(t):
+        return True
+    t = _BLOCK.sub(" ", t).split("//", 1)[0].split("/*", 1)[0]
+    return bool(_TRIVIAL.fullmatch(t.strip()))
 
 
 def line_marks(before: str, after: str) -> dict[int, str]:
@@ -420,11 +429,12 @@ def _holder(spans: list[tuple[int, int, str]], n: int) -> str | None:
     return best[2] if best else None
 
 
-def classify(g: Branch, x, src: Sources, story_of: dict[str, str], path_story: dict[str, str], order: list[str],
-             lines=None) -> tuple[list[GatedLine], int, int]:
+def classify(g: Branch, x, src: Sources, story_of: dict[str, str], order: list[str], lines=None
+             ) -> tuple[list[GatedLine], int, int]:
     """Every new or changed line of the review against the strongest condition (§7, R24): under it (it doesn't run when
     the condition is false), outside it (it still runs), or elsewhere (another function: it runs unless that function is
-    reached only through the guarded block). The test's own lines and lines that say nothing alone are left out."""
+    reached only through the guarded block). Left out: the test's own lines, lines that say nothing alone, and lines
+    that never run either way: test files, preprocessor lines, lines in no function (declarations, globals)."""
     pos = {s: i for i, s in enumerate(order)}
     guarded = _only_guarded(x, g)
     spans: dict[str, list[tuple[int, int, str]]] = {}
@@ -434,23 +444,24 @@ def classify(g: Branch, x, src: Sources, story_of: dict[str, str], path_story: d
     rows: list[tuple] = []
     for fc in x.c.cs.files:
         path = fc.local
+        if is_test_path(rel_path(x, path)):
+            continue
         for n in sorted(src.marks(path)):
             text = src.line(path, n)
-            if trivial(text):
-                continue
             nid = _holder(spans.get(path, []), n)
+            if nid is None or trivial(text) or text.lstrip().startswith("#"):
+                continue
             if nid == g.node:
                 if n in g.own:
                     continue
                 where, runs = ("under", False) if n in g.body else ("outside", True)
             else:
                 where, runs = "elsewhere", nid not in guarded
-            story = story_of.get(nid) if nid else path_story.get(rel_path(x, path))
-            rows.append((where, story, path, n, text, runs, nid))
+            rows.append((where, story_of.get(nid), path, n, text, runs, nid))
     rank = {"under": 0, "outside": 1, "elsewhere": 2}
     rows.sort(key=lambda r: (rank[r[0]], pos.get(r[1], len(pos)), r[2], r[3]))
     out = [GatedLine(story=s, cl=line_cl(x, p, n, lines), text=norm_ws(t), runs=run, where=w, path=rel_path(x, p), line=n,
-                     function=x.label(nid) if nid else None)
+                     function=x.label(nid))
            for w, s, p, n, t, run, nid in rows[:MAX_LINES]]
     return out, sum(1 for r in rows if r[5]), sum(1 for r in rows if not r[5])
 
@@ -481,18 +492,18 @@ def hand_gates(x, src: Sources, hand) -> tuple[list[Branch], list[str]]:
     return out, notes
 
 
-def build_gates(x, ss, r, per, src: Sources, lines=None, hand=None, notes: list[str] | None = None
+def build_gates(x, ss, r, src: Sources, lines=None, hand=None, notes: list[str] | None = None
                 ) -> tuple[list[Gate], list[Branch]]:
     """The review's conditions, at most MAX_GATES: those the design context adds first (§8), then those the rules find,
-    strongest first, less those the context leaves out; only the first lists its lines (R14). `notes` gathers what the
-    context names that the code lacks."""
+    strongest first, less those the context leaves out; only the first lists its lines (R14). The rules find none in a
+    function whose every story is mechanical or tests (M1). `notes` gathers what the context names that the code
+    lacks."""
     story_of = node_stories(ss)
-    path_story: dict[str, str] = {}
-    for sid in r.order:
-        sr = per.get(sid)
-        for w in sr.where if sr is not None else []:
-            path_story.setdefault(w.path, sid)
-    found = find_gates(x, src, story_of, r.order)
+    kinds: dict[str, set[str]] = {}
+    for s in ss.stories:
+        for n in s.nodes:
+            kinds.setdefault(n, set()).add(s.kind)
+    found = [b for b in find_gates(x, src, story_of, r.order) if not (b.node in kinds and kinds[b.node] <= SKIP)]
     added: list[Branch] = []
     if hand is not None:
         added, said = hand_gates(x, src, hand)
@@ -509,6 +520,6 @@ def build_gates(x, ss, r, per, src: Sources, lines=None, hand=None, notes: list[
         g = Gate(id=b.id, node=b.node, test=b.test, story=story_of.get(b.node), path=rel_path(x, b.path), line=b.line,
                  guarded=[b.first, b.last], source="context" if b.kind == "context" else "code")
         if i == 1:
-            g.lines, g.runs, g.stops = classify(b, x, src, story_of, path_story, r.order, lines)
+            g.lines, g.runs, g.stops = classify(b, x, src, story_of, r.order, lines)
         gates.append(g)
     return gates, branches

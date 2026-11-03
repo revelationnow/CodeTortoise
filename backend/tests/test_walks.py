@@ -5,7 +5,7 @@ from codetortoise.walks import build_walks, fold
 
 
 def _walks(demo, **kw):
-    _, branches = build_gates(demo.x, demo.ss, demo.r, demo.per, demo.src, demo.lines)
+    _, branches = build_gates(demo.x, demo.ss, demo.r, demo.src, demo.lines)
     return build_walks(demo.x, demo.ss, demo.det, demo.r, demo.per, demo.src, branches, demo.lines, **kw)
 
 
@@ -123,7 +123,7 @@ def _sides(fns, calls, lines, of):
     ss, det = build_stories(c, analysis=an)
     r, per = build_reading(ss, c, details=det, analysis=an)
     x, src = an.x, Sources(an.x)
-    _, branches = build_gates(x, ss, r, per, src)
+    _, branches = build_gates(x, ss, r, src)
     w = _Walker(x, ss, det, r, per, src, branches, None, 2)
     F = next(n for n in x.changed if x.label(n) == of)
     sid = next(s.id for s in ss.stories if F in s.nodes)

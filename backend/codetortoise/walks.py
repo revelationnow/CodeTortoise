@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from codetortoise.cparse import _negate, _txt, norm_ws
 from codetortoise.design import Walk, WalkStep
-from codetortoise.gates import Branch, FnShape, Sources, line_cl, node_stories
+from codetortoise.gates import SKIP, Branch, FnShape, Sources, line_cl, node_stories
 from codetortoise.reading import rel_path
 
 LABEL = 60            # a step's label, in characters (R11)
@@ -21,7 +21,6 @@ TITLE = 40            # a condition's test, in a title
 MAX_STEPS = 40        # steps per walk-through, after folding (R19)
 MAX_LANDINGS = 4      # flows and follow-on reads per walk-through (R19)
 REACH = 6             # calls searched down from a frame to a reader
-SKIP = {"mechanical", "tests"}          # stories with no walk-through (R18)
 CONTRACT_KINDS = ("caller", "result", "target", "unanalysed")
 _LAST = re.compile(r"[\w~]+$")
 

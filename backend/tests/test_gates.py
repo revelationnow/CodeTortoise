@@ -25,6 +25,13 @@ def test_a_line_of_braces_or_a_comment_says_nothing_alone():
     assert not any(trivial(t) for t in ["\t} else {", "break;", "x++;", "\t*err += 1;", "*(p + 1) = 0;"])
 
 
+def test_a_comment_followed_by_code_is_code():
+    for code in ("/* why */ x = 1;", "*/ x();", "/* a */ /* b */ f();", "} /* end */ else {", "x = 1; // note"):
+        assert not trivial(code), code
+    for said in ("/* a */ /* b */", "} /* end */", "*/", "  * more", "/* starts", "// note"):
+        assert trivial(said), said
+
+
 def test_a_new_if_with_an_early_return_outranks_a_changed_condition():
     c = _world([("check", "drv/u.c", ["if (len > 32) {", "\tgo();", "}"], ["if (len > 64) {", "\tgo();", "}"]),
                 ("send", "drv/u.c", ["x = 1;", "go();"],
@@ -93,15 +100,28 @@ def test_a_function_called_only_under_the_condition_stops_with_it_and_one_called
                calls=[("send", "only"), ("send", "both"), ("other", "both")])
     c.after[0].calls[0].line, c.after[0].calls[1].line = 4, 7          # inside the new block, and after it
     x, found = _found(c)
-    lines, runs, stops = classify(found[0], x, Sources(x), {}, {}, [])
+    lines, runs, stops = classify(found[0], x, Sources(x), {}, [])
     assert [(g.where, g.function, g.line, g.runs) for g in lines] == [
         ("under", "send", 4, False), ("under", "send", 5, False), ("elsewhere", "only", 11, False),
         ("elsewhere", "both", 15, True)]
     assert (runs, stops) == (1, 3)
 
 
+def test_the_fold_leaves_out_test_files_preprocessor_lines_and_lines_in_no_function():
+    c = _world([("send", "drv/u.c", ["both();"],
+                 ["if (len > 64) {", "\treturn -2;", "}", "#ifdef TRACE", "trace(len);", "#endif", "both();"]),
+                ("both", "drv/u.c", ["b = 1;"], ["b = 1;"]),
+                ("check_send", "tests/test_u.c", ["send();"], ["send();", "x = 1;"])])
+    c.cs.files[0].after += "int limit = 64;\n"                       # a global: in no function
+    x, found = _found(c)
+    lines, runs, stops = classify(found[0], x, Sources(x), {}, [])
+    assert [(g.where, g.path, g.line, g.text) for g in lines] == [
+        ("under", "drv/u.c", 4, "return -2;"), ("outside", "drv/u.c", 7, "trace(len);")]
+    assert (runs, stops) == (1, 1)
+
+
 def test_the_demo_has_one_condition_and_its_false_case_still_runs_the_other_changes(demo):
-    gates, branches = build_gates(demo.x, demo.ss, demo.r, demo.per, demo.src, demo.lines)
+    gates, branches = build_gates(demo.x, demo.ss, demo.r, demo.src, demo.lines)
     assert [(g.id, demo.x.label(g.node), g.test, g.story, g.path, g.line, g.guarded) for g in gates] == [
         ("G1", "uart_send", "len > 64", "S1", "driver/uart.c", 16, [16, 19])]
     assert [b.id for b in branches] == ["G1"]
@@ -114,6 +134,14 @@ def test_the_demo_has_one_condition_and_its_false_case_still_runs_the_other_chan
     tx = next(k for k in g.lines if (k.path, k.line) == ("driver/uart.c", 22))
     assert (tx.story, tx.cl, tx.text, tx.function) == ("S1", 101, "st->tx++;", "uart_send")
     assert (g.stops, g.runs) == (2, len(g.lines) - 2)
+
+
+def test_a_condition_in_a_mechanical_or_tests_story_is_not_one(demo):
+    for kind in ("mechanical", "tests"):
+        ss = demo.ss.model_copy(deep=True)
+        next(s for s in ss.stories if s.id == "S1").kind = kind
+        gates, branches = build_gates(demo.x, ss, demo.r, demo.src, demo.lines)
+        assert (gates, branches) == ([], []), kind
 
 
 def test_a_condition_changed_only_on_a_continuation_line_is_a_changed_condition():
@@ -129,7 +157,7 @@ def test_a_condition_the_design_context_adds_leads_and_lists_its_lines(demo):
     from codetortoise.design_context import HandCondition, HandConditions
     notes: list[str] = []
     hand = HandConditions(add=[HandCondition(test="reg==REG_CTRL", function="hal_write")])
-    gates, branches = build_gates(demo.x, demo.ss, demo.r, demo.per, demo.src, demo.lines, hand=hand, notes=notes)
+    gates, branches = build_gates(demo.x, demo.ss, demo.r, demo.src, demo.lines, hand=hand, notes=notes)
     assert [(g.id, demo.x.label(g.node), g.test, g.source, g.path) for g in gates] == [
         ("G1", "hal_write", "reg == REG_CTRL", "context", "hal/regs.c"),
         ("G2", "uart_send", "len > 64", "code", "driver/uart.c")]
@@ -141,7 +169,7 @@ def test_a_condition_the_design_context_leaves_out_is_gone_and_what_it_names_but
     from codetortoise.design_context import HandCondition, HandConditions
     notes: list[str] = []
     hand = HandConditions(add=[HandCondition(test="x == 1")], remove=["len>64", "y > 2"])
-    gates, branches = build_gates(demo.x, demo.ss, demo.r, demo.per, demo.src, demo.lines, hand=hand, notes=notes)
+    gates, branches = build_gates(demo.x, demo.ss, demo.r, demo.src, demo.lines, hand=hand, notes=notes)
     assert gates == [] and branches == []
     assert notes == ["the condition `x == 1` is not in the changed functions",
                      "the condition `y > 2` to leave out is not among those the rules found"]
