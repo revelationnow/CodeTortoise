@@ -87,7 +87,10 @@ class Branch:
     skips: tuple[int, int] | None = None                  # the lines after the block its own return or jump skips
     exit: tuple[str, int, object] | None = None           # that statement: its kind, line, and where it goes (a
                                                           # break's or continue's construct end, a goto's label)
-    alt: tuple[int, int] | None = None                    # a plain else's lines (an else-if is a branch of its own)
+    chain: tuple[int, int] | None = None                  # the lines its true side settles besides its own block: its
+                                                          # whole if … else if … else, or its switch up to its own end
+                                                          # (the cases after it run when it falls through)
+    tried: set[int] = field(default_factory=set)          # of those, the ones that still run: the tests before it
     kind: str = "if"                  # if | else if | case; as a gate also changed (its test) or return (a new one)
     strength: int = 0                 # new or changed lines it guards
     id: str = ""
@@ -169,16 +172,15 @@ def _if_branch(node, src: bytes, ln, nid: str, path: str) -> Branch | None:
         return None
     body = _span(ln, _stmts(cons))
     own = (set(range(ln(node.start_point), ln(cond.end_point) + 1)) | {ln(cons.start_point), ln(cons.end_point)}) - body
-    alt = None
-    other = node.child_by_field_name("alternative")
-    if other is not None:
-        inner = next((c for c in other.named_children if c.type != "comment"), None)
-        if inner is not None and inner.type != "if_statement":
-            alt = (ln(other.start_point), ln(other.end_point))
-    kind = "else if" if node.parent is not None and node.parent.type == "else_clause" else "if"
+    head, tried = node, set()
+    while head.parent is not None and head.parent.type == "else_clause" and head.parent.parent is not None:
+        head = head.parent.parent                          # the arm before: its test runs (and fails) first
+        test = head.child_by_field_name("condition")
+        tried |= set(range(ln(head.start_point), ln(test.end_point if test is not None else head.start_point) + 1))
+    kind = "else if" if head is not node else "if"
     return Branch(nid, path, ln(node.start_point), _cond_text(src, cond), ln(cons.start_point), ln(cons.end_point),
-                  body, own, alt=alt, kind=kind, test_lines=set(range(ln(node.start_point), ln(cond.end_point) + 1)),
-                  exit=_exit(_stmts(cons), src, ln))
+                  body, own, kind=kind, test_lines=set(range(ln(node.start_point), ln(cond.end_point) + 1)),
+                  exit=_exit(_stmts(cons), src, ln), chain=(ln(head.start_point), ln(head.end_point)), tried=tried)
 
 
 def _case_branch(node, src: bytes, ln, nid: str, path: str) -> Branch | None:
@@ -186,13 +188,16 @@ def _case_branch(node, src: bytes, ln, nid: str, path: str) -> Branch | None:
     if value is None:                                      # default: no condition of its own
         return None
     sw = node.parent.parent if node.parent is not None else None
-    subject = _cond_text(src, sw.child_by_field_name("condition")) if sw is not None and sw.type == "switch_statement" else ""
+    test = sw.child_by_field_name("condition") if sw is not None and sw.type == "switch_statement" else None
+    subject = _cond_text(src, test)
     v = norm_ws(_txt(src, value))
     stmts = [c for c in node.named_children if c.id != value.id and c.type != "comment"]
     body = _span(ln, stmts)
     line = ln(node.start_point)
+    chain = (ln(sw.start_point), ln(node.end_point)) if test is not None else None   # a switch jumps to its case
+    tried = set(range(ln(sw.start_point), ln(test.end_point) + 1)) if test is not None else set()
     return Branch(nid, path, line, f"{subject} == {v}" if subject else v, line, ln(node.end_point), body, {line} - body,
-                  kind="case", test_lines={line}, exit=_exit(stmts, src, ln))
+                  kind="case", test_lines={line}, exit=_exit(stmts, src, ln), chain=chain, tried=tried)
 
 
 def _loop_text(node, src: bytes) -> str:

@@ -171,6 +171,31 @@ def test_a_new_block_with_no_return_runs_on_to_the_function_s_end_on_both_sides(
                             ("return", "go", "send", None), ("return", "send", "main", None)]
 
 
+def test_the_true_side_of_an_else_if_runs_no_other_arm_of_its_chain():
+    pick = ("pick", "drv/p.c", ["if (ready(m)) {", "\ta();", "} else {", "\tc();", "}"],
+            ["if (ready(m)) {", "\ta();", "} else if (m == 2) {", "\tb();", "} else {", "\tc();", "}"])
+    calls = [("pick", "ready"), ("pick", "a"), ("pick", "b"), ("pick", "c"), ("main", "pick")]
+    sides = _sides([pick, _changed("ready"), _changed("a"), _changed("b"), _changed("c"),
+                    ("main", "app/m.c", ["pick();"], ["pick();"])], calls, [3, 4, 6, 8, 3], "pick")
+    assert [s for s in sides[True] if s[0] == "call"] == [            # the first arm's test runs, its body doesn't
+        ("call", "main", "pick", 3), ("call", "pick", "ready", 3), ("call", "pick", "b", 6)]
+    assert [s for s in sides[False] if s[0] == "call"] == [
+        ("call", "main", "pick", 3), ("call", "pick", "ready", 3), ("call", "pick", "a", 4), ("call", "pick", "c", 8)]
+
+
+def test_the_true_side_of_a_case_runs_the_arms_after_it_only_when_it_falls_through():
+    def on(after):
+        return ("on", "drv/s.c", ["switch (m) {", "case 1:", "\ta();", "\tbreak;", "case 3:", "\tc();", "\tbreak;", "}"],
+                ["switch (m) {", "case 1:", "\ta();", "\tbreak;", *after, "case 3:", "\tc();", "\tbreak;", "}"])
+    rest = [_changed("a"), _changed("b"), _changed("c"), ("main", "app/m.c", ["on();"], ["on();"])]
+    calls = [("on", "a"), ("on", "b"), ("on", "c"), ("main", "on")]
+    breaks = _sides([on(["case 2:", "\tb();", "\tbreak;"]), *rest], calls, [5, 8, 11, 3], "on")
+    assert [s for s in breaks[True] if s[0] == "call"] == [("call", "main", "on", 3), ("call", "on", "b", 8)]
+    falls = _sides([on(["case 2:", "\tb();"]), *rest], calls, [5, 8, 10, 3], "on")
+    assert [s for s in falls[True] if s[0] == "call"] == [
+        ("call", "main", "on", 3), ("call", "on", "b", 8), ("call", "on", "c", 10)]
+
+
 def test_a_block_that_jumps_away_skips_the_lines_up_to_where_it_lands():
     goto = ("send", "drv/s.c", ["go();", "done();"], ["if (len > 64)", "\tgoto out;", "go();", "out:", "done();"])
     sides = _sides([goto, _changed("go"), _changed("done"), MAIN], [("send", "go"), ("send", "done"), ("main", "send")],

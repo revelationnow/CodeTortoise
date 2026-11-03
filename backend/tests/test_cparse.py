@@ -1,4 +1,4 @@
-from codetortoise.cparse import flatten_preproc, is_header, is_source, parse_source, preproc_spans
+from codetortoise.cparse import _negate, flatten_preproc, is_header, is_source, parse_source, preproc_spans
 from codetortoise.linediff import lines
 
 CPP = """
@@ -332,3 +332,12 @@ def test_tree_sitter_facts_count_lines_the_way_the_line_diff_does():
     text = (HEAD + tail(2)).replace("\n", "\r\r\n")
     facts = extract_tu_treesitter(TuRequest(file="/w/a.c", args=[], variant="after", unsaved={"/w/a.c": text}))
     assert [(f.name, f.start_line, f.end_line) for f in facts.functions] == [("first", 1, 1), ("g0", 3, 3), ("g1", 5, 5)]
+
+
+def test_negating_a_not_drops_it_and_anything_else_is_wrapped():
+    assert [_negate(t) for t in ("!p", "!f(x)", "!(a && b)", "!defined(X)", "!a->b[i]", "! p")] == [
+        "p", "f(x)", "a && b", "defined(X)", "a->b[i]", "p"]
+    assert [_negate(t) for t in ("!p && q", "!(a) || (b)", "!defined(A) && !defined(B)", "!strcmp(s, \")\") && n",
+                                 "len > 64", "defined(X)")] == [
+        "!(!p && q)", "!(!(a) || (b))", "!(!defined(A) && !defined(B))", "!(!strcmp(s, \")\") && n)", "!(len > 64)",
+        "!defined(X)"]

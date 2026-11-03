@@ -50,7 +50,7 @@ def test_a_new_else_if_is_a_condition_of_its_own_and_a_plain_else_its_other_side
                  ["if (m == 1) {", "\ta();", "} else if (m == 2) {", "\tb();", "} else {", "\tc();", "}"])])
     x, found = _found(c)
     assert [_gate(b) for b in found] == [("else if", "m == 2", 5, [6])]
-    assert found[0].alt == (7, 9)
+    assert (found[0].chain, found[0].tried) == ((3, 9), {3})        # the first arm's test runs before it
 
 
 def test_a_new_case_is_a_condition_on_the_switch_subject():

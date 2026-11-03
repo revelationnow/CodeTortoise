@@ -91,15 +91,17 @@ def _raising(x, nid: str) -> int | None:
 
 def _runs(g: Branch | None, case: bool | None, line: int) -> bool:
     """Whether a line of the gated function runs on this side of its condition."""
-    if g is None or case is None or line == g.line:
+    if g is None or case is None or line == g.line or line in g.test_lines:
         return True
     inside = g.first <= line <= g.last
     if not case:
         return not inside
-    if inside or line < g.line:
+    if inside:
         return True
-    if g.alt is not None and g.alt[0] <= line <= g.alt[1]:
-        return False
+    if g.chain is not None and g.chain[0] <= line <= g.chain[1]:
+        return line in g.tried            # no other arm of its chain runs, only the tests before it
+    if line < g.line:
+        return True
     return g.skips is None or not g.skips[0] <= line <= g.skips[1]   # after the block: unless its return or jump skips it
 
 

@@ -443,9 +443,58 @@ def flatten_preproc(text: str) -> str:
 _GUARD = re.compile(r"(_H|_HH|_HPP|_HXX|_INCLUDED)_*$")
 
 
+_NAME = re.compile(r"[A-Za-z_]\w*")
+_PAIRS = {"(": ")", "[": "]"}
+
+
+def _close(t: str, i: int) -> int:
+    """Where the bracket at `t[i]` closes (brackets and quotes inside skipped); -1 when it doesn't."""
+    want: list[str] = []
+    j = i
+    while j < len(t):
+        c = t[j]
+        if c in "\"'":
+            j += 1
+            while j < len(t) and t[j] != c:
+                j += 2 if t[j] == "\\" else 1
+        elif c in _PAIRS:
+            want.append(_PAIRS[c])
+        elif want and c == want[-1]:
+            want.pop()
+            if not want:
+                return j
+        j += 1
+    return -1
+
+
+def _one_operand(t: str) -> bool:
+    """Whether a test is one operand: a name with its calls, indexes and members (`p`, `f(x)`, `a->b[i]`), or one
+    parenthesized whole."""
+    t = t.strip()
+    if t.startswith("("):
+        return _close(t, 0) == len(t) - 1
+    m = _NAME.match(t)
+    i = m.end() if m else 0
+    while m and i < len(t):
+        if t[i] in _PAIRS:
+            j = _close(t, i)
+            if j < 0:
+                return False
+            i = j + 1
+        elif t.startswith(("->", "."), i):
+            m = _NAME.match(t, i + (2 if t[i] == "-" else 1))
+            i = m.end() if m else i
+        else:
+            return False
+    return bool(m)
+
+
 def _negate(cond: str) -> str:
-    if cond.startswith("!defined(") and cond.endswith(")"):
-        return cond[1:]
+    """A test's other side: `!` over one operand drops (`!p` → `p`, `!(a && b)` → `a && b`), `defined(X)` takes one;
+    anything else is wrapped: `!(len > 64)`."""
+    if cond.startswith("!") and _one_operand(cond[1:]):
+        inner = cond[1:].strip()
+        return inner[1:-1].strip() if inner.startswith("(") else inner
     if cond.startswith("defined(") and cond.endswith(")") and cond.count("(") == 1:
         return "!" + cond
     return f"!({cond})"
