@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { componentsText, contextChars, docName, EMPTY_CONTEXT, linkName, noteSentence, parseComponents, sameContext } from "./designContext";
+import { componentsText, contextChars, docName, EMPTY_CONTEXT, firstLines, linkName, noteSentence, parseComponents,
+  sameContext } from "./designContext";
 
 describe("the design context panel's text (spec 2026-11-02 §8)", () => {
   it("holds the components a line each, a name then its globs", () => {
@@ -38,6 +39,12 @@ describe("the design context panel's text (spec 2026-11-02 §8)", () => {
     expect(sameContext(draft, saved)).toBe(true);
     expect(sameContext({ ...draft, notes: "m" }, saved)).toBe(false);
     expect(sameContext({ ...draft, documents: [] }, saved)).toBe(false);
+  });
+
+  it("shows a document's first lines that hold text, each at most 200 characters (phase 3 minor 8)", () => {
+    expect(firstLines("# UART\n\n  Never drop a byte.  \n\nA\nB\nC\nD\nE")).toBe("# UART\n  Never drop a byte.\nA\nB\nC");
+    expect(firstLines(`${"é".repeat(250)}\nx`, 1)).toBe(`${"é".repeat(200)}…`);
+    expect(firstLines("  \n ")).toBe("");
   });
 
   it("says a note of the design as a sentence", () => {

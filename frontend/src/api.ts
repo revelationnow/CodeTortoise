@@ -92,8 +92,9 @@ export interface DesignContext {
   notes: string; documents: ContextDoc[]; conditions: { add: HandCondition[]; remove: string[] };
   components: { name: string; globs: string[] }[];
 }
-/** The context and what its panel needs: the characters the prompts read of it, the cap, whether this server reads links. */
-export interface DesignContextView { context: DesignContext; chars: number; cap: number; links: boolean }
+/** The context and what its panel needs: the characters the prompts read of it, the cap, whether this server reads links,
+ * and whether its workspace makes the design overview (off, the context reaches only the AI's opening). */
+export interface DesignContextView { context: DesignContext; chars: number; cap: number; links: boolean; design: boolean }
 export interface AiCall { id: number; user: string; purpose: string; target: string | null; model: string | null;
   started_at: string; finished_at: string | null; prompt_tokens: number | null; completion_tokens: number | null;
   outcome: "ok" | "failed" | "refused" | "running" | null; error: string | null; requests: number }
@@ -173,7 +174,7 @@ export const api = {
   rerun: (id: number, fresh = false) => call("POST", `/api/reviews/${id}/rerun${fresh ? "?fresh=true" : ""}`),
   designContext: (id: number) => call<DesignContextView>("GET", `/api/reviews/${id}/design-context`),
   saveDesignContext: (id: number, c: DesignContext) =>
-    call<{ queued: boolean; chars: number }>("PUT", `/api/reviews/${id}/design-context`, c),
+    call<{ queued: boolean; chars: number; context: DesignContext }>("PUT", `/api/reviews/${id}/design-context`, c),
   board: (id: number, cluster?: string | null) =>
     call<Board>("GET", `/api/reviews/${id}/board${cluster ? `?${new URLSearchParams({ cluster })}` : ""}`)
       .then((b) => quietBoard(b, showSinks())),

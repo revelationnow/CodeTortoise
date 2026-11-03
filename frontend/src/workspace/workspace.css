@@ -985,3 +985,8 @@ a.ws-chip { text-decoration: none; }
 .dc-acts { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
 .dc-read .dc-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .dc-read pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.dc-doc { display: inline-block; vertical-align: top; max-width: 100%; }
+.dc-doc summary { cursor: pointer; }
+.dc-doc-text { margin: 4px 0 0; padding: 6px 8px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px;
+  background: var(--surface); border-left: 2px solid var(--line); }
+.dc-off { margin: 8px 0 0; color: var(--warn); }

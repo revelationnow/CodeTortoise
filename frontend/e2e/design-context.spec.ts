@@ -103,6 +103,104 @@ test.describe("the design context", () => {
   });
 });
 
+test.describe("the design context panel and page (phase 3 minors)", () => {
+  test.use({ baseURL: STRONG, viewport: { width: 1440, height: 900 } });
+
+  test("a failed look at the review while the design runs again is skipped and the page stays (minor 4)", async ({ page }) => {
+    await startReview(page);
+    let failed = 0;
+    await page.route(/\/api\/reviews\/\d+$/, (r) => {
+      if (r.request().method() !== "GET" || failed >= 2) return r.fallback();
+      failed += 1;
+      return r.fulfill({ status: 502, body: "Bad gateway" });
+    });
+    const panel = await openPanel(page);
+    await panel.getByLabel("Notes").fill(NOTES);
+    await panel.getByRole("button", { name: "Save" }).click();
+    await expect(page.locator(".ov-top .dz-verdict .dz-src")).toHaveText("AI, from the stories and the design context",
+                                                                          { timeout: 30_000 });
+    expect(failed).toBe(2);
+    await expect(page.getByText("The review could not be loaded.")).toHaveCount(0);
+  });
+
+  test("a saved link shows the text the server read, folded under its first lines (minors 5, 8)", async ({ page }) => {
+    await startReview(page);
+    const read = "# UART\nNever drop a byte.\nA long write is refused whole.";
+    await page.route("**/api/reviews/*/design-context", async (r) => {     // a server that lists the site and reads the link
+      if (r.request().method() === "GET") {
+        const res = await r.fetch();
+        return r.fulfill({ response: res, json: { ...(await res.json()), links: true } });
+      }
+      const sent = r.request().postDataJSON();
+      const context = { ...sent, documents: sent.documents.map((doc: { url: string | null }) => (doc.url ? { ...doc, text: read } : doc)) };
+      return r.fulfill({ status: 202, json: { queued: true, chars: "DOCUMENT uart.md:\n".length + read.length, context } });
+    });
+    const panel = await openPanel(page);
+    await panel.getByLabel("Link").fill("https://wiki.example.com/design/uart.md");
+    await panel.getByRole("button", { name: "Add the link" }).click();
+    await expect(panel.locator(".dc-docs li")).toHaveText(["uart.md (read when saved) Remove"]);
+    await panel.getByRole("button", { name: "Save" }).click();
+    await expect(panel.getByRole("status")).toContainText("Saved");
+    const doc = panel.locator(".dc-docs li").first();
+    await expect(doc.locator("summary")).toHaveText(`uart.md · ${read.length} characters`);
+    await expect(doc.locator(".dc-doc-text")).toBeHidden();
+    await doc.locator("summary").click();
+    await expect(doc.locator(".dc-doc-text")).toHaveText(read);
+    await expect(panel.getByText("Unsaved changes")).toHaveCount(0);
+    await expect(panel.locator(".dc-count")).toHaveText(`${"DOCUMENT uart.md:\n".length + read.length} of 12,000 characters`);
+  });
+
+  test("someone else in the review reads each document's first lines and a hand condition's function (minors 8, 10a)",
+       async ({ page, browser }) => {
+    const base = await startReview(page);
+    const panel = await openPanel(page);
+    await panel.getByLabel("Add a file").setInputFiles({ name: "uart.md", mimeType: "text/markdown",
+                                                         buffer: Buffer.from("# UART\nNever drop a byte.") });
+    for (const fn of ["uart_send", "uart_write"]) {                  // one test in two functions
+      await panel.getByLabel("Condition, as the code writes it").fill("len > 64");
+      await panel.getByLabel("In the function (optional)").fill(fn);
+      await panel.getByRole("button", { name: "Add the condition" }).click();
+    }
+    await panel.getByRole("button", { name: "Save" }).click();
+    await expect(panel.getByRole("status")).toContainText("Saved");
+    const context = await browser.newContext({ baseURL: STRONG });
+    const other = await context.newPage();
+    await login(other, "bob");
+    await other.goto(base);
+    const theirs = await openPanel(other);
+    const doc = theirs.locator(".dc-read details");
+    await expect(doc.locator("summary")).toHaveText("Document: uart.md · 25 characters");
+    await doc.locator("summary").click();
+    await expect(doc.locator(".dc-doc-text")).toHaveText("# UART\nNever drop a byte.");
+    await expect(theirs.locator(".dc-read .dc-hand")).toHaveText(["Condition added: len > 64 in uart_send",
+                                                                  "Condition added: len > 64 in uart_write"]);
+    await context.close();
+  });
+
+  test("with the design off, the panel keeps only what reaches the opening and says so (minor 6)", async ({ page }) => {
+    await startReview(page);
+    await page.route("**/api/reviews/*/design-context", async (r) => {      // a workspace with analysis.design: false
+      if (r.request().method() !== "GET") return r.fallback();
+      const res = await r.fetch();
+      await r.fulfill({ response: res, json: { ...(await res.json()), design: false } });
+    });
+    const panel = await openPanel(page);
+    await expect(panel.getByText("This workspace makes no design overview")).toBeVisible();
+    await expect(panel.getByRole("heading", { name: "Conditions" })).toHaveCount(0);
+    await expect(panel.getByLabel("Components")).toHaveCount(0);
+    await expect(panel.getByLabel("Notes")).toBeVisible();
+  });
+
+  test("a run's end fetches the reading once (minor 10d)", async ({ page }) => {
+    const reads: string[] = [];
+    page.on("request", (r) => { if (/\/api\/reviews\/\d+\/reading$/.test(new URL(r.url()).pathname)) reads.push(r.url()); });
+    await startReview(page);
+    await expect(page.locator(".ov-top .dz-verdict .dz-src")).toHaveText("AI, from the stories");
+    await page.waitForTimeout(2_000);                                   // a second fetch would follow at once
+    expect(reads).toHaveLength(1);
+  });
+});
+
 test.describe("the design context's limits (final review I4)", () => {
   test.use({ baseURL: STRONG, viewport: { width: 1440, height: 900 } });
 

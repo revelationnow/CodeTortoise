@@ -60,5 +60,12 @@ const canon = (v: unknown): unknown =>
 /** Whether a draft holds what the saved context holds (final review I5): the panel says when it does not. */
 export const sameContext = (a: DesignContext, b: DesignContext): boolean => JSON.stringify(canon(a)) === JSON.stringify(canon(b));
 
+/** A document's first lines that hold text, as its folded preview shows them (phase 3 minor 8): at most `n`, each cut
+ * to 200 characters and marked when cut. */
+export function firstLines(text: string, n = 5): string {
+  return text.split("\n").map((l) => l.trimEnd()).filter((l) => l.trim()).slice(0, n)
+    .map((l) => ([...l].length > 200 ? `${cut(l, 200)}…` : l)).join("\n");
+}
+
 /** A note of the design on its context ("the condition `x` is not in the changed functions") as a sentence. */
 export const noteSentence = (note: string): string => `${note.charAt(0).toUpperCase()}${note.slice(1)}.`;

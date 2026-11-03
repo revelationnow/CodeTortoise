@@ -2,7 +2,8 @@ import { type ChangeEvent, type CSSProperties, useEffect, useState } from "react
 import { api, type DesignContext, type DesignContextView, errorText } from "../api";
 import { useViewer } from "../viewer";
 import { useWs } from "./context";
-import { CAP, componentsText, contextChars, docName, EMPTY_CONTEXT, linkName, MAX, noteSentence, parseComponents, sameContext } from "./designContext";
+import { CAP, componentsText, contextChars, docName, EMPTY_CONTEXT, firstLines, linkName, MAX, noteSentence, parseComponents,
+  sameContext } from "./designContext";
 import { Ticks } from "./NameText";
 
 const FILE_MAX = 1_000_000;    // a file read in the browser, as a link the server reads (§14): more than the context holds
@@ -14,6 +15,18 @@ type Draft = { c: DesignContext; comps: string; link: string; test: string; fn: 
  * goes with it; the draft stays here, so opening the panel again brings it back. A save or Discard drops it, and so does
  * a reload of the page. */
 const drafts = new Map<number, Draft>();
+
+/** A document as the panel lists it: its name and size, its first lines folded under them (phase 3 minor 8); a link not
+ * read yet says so. */
+function Doc({ doc, lead = "" }: { doc: DesignContext["documents"][number]; lead?: string }) {
+  if (!doc.text) return <>{lead}{doc.name}{doc.url ? " (read when saved)" : " · 0 characters"}</>;
+  return (
+    <details className="dc-doc">
+      <summary>{lead}{doc.name} · {[...doc.text].length.toLocaleString("en-US")} characters</summary>
+      <pre className="dc-doc-text">{firstLines(doc.text)}</pre>
+    </details>
+  );
+}
 
 /** The design context panel (spec 2026-11-02 §8): what the code can't say — notes, documents, conditions added or left
  * out by hand, and a choice of components. The owner edits and saves it, which re-runs the design stage alone; anyone
@@ -66,11 +79,12 @@ export default function DesignContextPanel({ style }: { style: CSSProperties }) 
     setError("");
     const sent = { ...c, components: parsed.components };
     api.saveDesignContext(d.id, sent)
-      .then(() => {
-        saved({ ...view!, context: sent });                     // no longer a draft; the link or condition half typed stays
+      .then((r) => {
+        // as the server keeps it, a link's document holding the text it read (phase 3 minor 5): no longer a draft, and
+        // the link or condition half typed stays
+        saved({ ...view!, context: r.context, chars: r.chars });
         setSaid("Saved. The overview reads it now.");
         d.awaitDesign();
-        api.designContext(d.id).then(saved, () => {});          // as the server keeps it: a link's document holds its text
       })
       .catch((e) => setError(errorText(e, "The design context could not be saved.")))
       .finally(() => setBusy(false));
@@ -81,20 +95,25 @@ export default function DesignContextPanel({ style }: { style: CSSProperties }) 
       <p className="muted small">What the code can't say: what the change is for, the documents behind it, the conditions
         that matter. The AI's opening reads it; the checks never do.</p>
       {error && <div className="banner error" role="alert">{error}</div>}
+      {view && !view.design && <p className="dc-off small">This workspace makes no design overview (analysis.design is off in its
+        tortoise.yaml): the notes and documents reach the AI's opening only.</p>}
       {!view ? !error && <p className="muted">Loading…</p> : !owner ? (
         <div className="dc-read">
           {view.context.notes ? <p className="dc-text">{view.context.notes}</p> : <p className="muted">No notes.</p>}
-          {view.context.documents.map((doc, i) => <p key={`${doc.name}-${i}`} className="small">Document: {doc.name}</p>)}
-          {view.context.conditions.add.map((h) => <p key={h.test} className="small">Condition added: <code>{h.test}</code></p>)}
-          {view.context.conditions.remove.map((t) => <p key={t} className="small">Condition left out: <code>{t}</code></p>)}
-          {view.context.components.length > 0 && <pre className="small">{componentsText(view.context.components)}</pre>}
+          {view.context.documents.map((doc, i) => <div key={`${doc.name}-${i}`} className="small"><Doc doc={doc} lead="Document: " /></div>)}
+          {view.design && view.context.conditions.add.map((h, i) => (
+            <p key={`${h.test}-${i}`} className="small dc-hand">Condition added: <code>{h.test}</code>
+              {h.function && <> in <code>{h.function}</code></>}</p>
+          ))}
+          {view.design && view.context.conditions.remove.map((t) => <p key={t} className="small">Condition left out: <code>{t}</code></p>)}
+          {view.design && view.context.components.length > 0 && <pre className="small">{componentsText(view.context.components)}</pre>}
         </div>
       ) : (
         <div className="dc-form">
           <label>Notes<textarea rows={5} value={c.notes} onChange={(e) => set({ notes: e.target.value })} /></label>
           <div className="dc-docs">
             {c.documents.length > 0 && <ul>{c.documents.map((doc, i) => (
-              <li key={`${doc.name}-${i}`}>{doc.name}{doc.url && !doc.text ? " (read when saved)" : ` · ${[...doc.text].length} characters`}
+              <li key={`${doc.name}-${i}`}><Doc doc={doc} />
                 {" "}<button className="link" aria-label={`Remove ${doc.name}`}
                                     onClick={() => set({ documents: c.documents.filter((_, k) => k !== i) })}>Remove</button></li>
             ))}</ul>}
@@ -107,7 +126,7 @@ export default function DesignContextPanel({ style }: { style: CSSProperties }) 
             </div>}
             {docsFull && <p className="muted small">The context holds at most {MAX.documents} documents; remove one to add another.</p>}
           </div>
-          <div className="dc-conds">
+          {view.design && <div className="dc-conds">
             <h3>Conditions</h3>
             {found.length > 0 && <ul>{found.map((g) => (
               <li key={g.id}><code>{g.test}</code>{" "}
@@ -137,12 +156,14 @@ export default function DesignContextPanel({ style }: { style: CSSProperties }) 
             {(design?.context_notes.length ?? 0) > 0 && <ul className="dc-notes">{design!.context_notes.map((n) => (
               <li key={n}><Ticks text={noteSentence(n)} /></li>
             ))}</ul>}
-          </div>
-          <label>Components<textarea rows={4} value={comps} placeholder={"Driver: driver/**\nHAL: hal/**, include/hal/**"}
-                                     onChange={(e) => { setComps(e.target.value); setSaid(""); }} /></label>
-          <p className="muted small">A line each: a name, a colon, and the files it holds as globs. None: the workspace's own.
-            {parsed.bad.length > 0 && <> Not read: {parsed.bad.join("; ")}.</>}
-            {compsOver && <> The context holds at most {MAX.components} components.</>}</p>
+          </div>}
+          {view.design && <>
+            <label>Components<textarea rows={4} value={comps} placeholder={"Driver: driver/**\nHAL: hal/**, include/hal/**"}
+                                       onChange={(e) => { setComps(e.target.value); setSaid(""); }} /></label>
+            <p className="muted small">A line each: a name, a colon, and the files it holds as globs. None: the workspace's own.
+              {parsed.bad.length > 0 && <> Not read: {parsed.bad.join("; ")}.</>}
+              {compsOver && <> The context holds at most {MAX.components} components.</>}</p>
+          </>}
           <p className={`dc-count small${chars > cap ? " over" : ""}`}>{chars.toLocaleString("en-US")} of {cap.toLocaleString("en-US")} characters</p>
           <div className="dc-acts">
             <button onClick={save} disabled={busy || chars > cap || parsed.bad.length > 0 || compsOver}>{busy ? "Saving…" : "Save"}</button>

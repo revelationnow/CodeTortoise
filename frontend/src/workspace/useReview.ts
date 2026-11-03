@@ -80,20 +80,25 @@ export function useReview(id: number) {
 
   // a design context saved re-runs the design stage alone (spec 2026-11-02 §8): the review stays done, so no stream
   // tells of it. The stage is polled while it waits or runs — from the save on (`awaitDesign`), as it may be done before
-  // the first look — and the reading (its design and its lead) loads again once it is done.
+  // the first look; a look that fails is skipped until the next (phase 3 minor 4) — and the reading (its design and its
+  // lead) loads again once it is done. A full run's design stage is not a re-run: its end loads the results, the reading
+  // among them, once (phase 3 minor 10d).
   const [designWait, setDesignWait] = useState(false);
   const designing = designWait || designBusy(detail);
   const awaitDesign = useCallback(() => setDesignWait(true), []);
+  const rerun = designing && !!status && TERMINAL.has(status);
   useEffect(() => {
-    if (!designing || !status || !TERMINAL.has(status)) return;
-    const t = setInterval(() => { loadDetail().then((d) => { if (d && !designBusy(d)) setDesignWait(false); }); }, 1500);
+    if (!rerun) return;
+    const t = setInterval(() => {
+      api.review(id).then((d) => { setDetail(d); if (!designBusy(d)) setDesignWait(false); }, () => { /* the next look */ });
+    }, 1500);
     return () => clearInterval(t);
-  }, [designing, status, loadDetail]);
-  const wasDesigning = useRef(false);
+  }, [rerun, id]);
+  const wasRerun = useRef(false);
   useEffect(() => {
-    if (wasDesigning.current && !designing) loadReading();
-    wasDesigning.current = designing;
-  }, [designing, loadReading]);
+    if (wasRerun.current && !rerun && status && TERMINAL.has(status)) loadReading();
+    wasRerun.current = rerun;
+  }, [rerun, status, loadReading]);
 
   const ready = !!status && TERMINAL.has(status);
   const people = useMemo(() => [...new Set([detail?.review.created_by ?? "", ...comments.map((c) => c.author)])].filter(Boolean),
