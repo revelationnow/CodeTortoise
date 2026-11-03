@@ -270,3 +270,40 @@ def test_a_pin_outlives_a_re_run_that_tells_its_stories_titles_again(made):
     svc.store.put_blob(rid, "stories", ss)
     run_design(rid, svc)
     assert cited and _design(owner, rid)["sources"]["concerns"] == "pinned"
+
+
+def test_two_rewrites_of_different_parts_asked_at_once_both_land(fx, tmp_path):
+    """Phase 4 M8: two readers rewrite different parts at the same time. Both calls are out before either lands; each
+    lands on the design as it is by then, and a re-run of the same prompt keeps both."""
+    import threading
+
+    from codetortoise.pipeline import run_review
+    both = threading.Barrier(2, timeout=10)
+
+    def answer(system, user):
+        if "REWRITE:" in user:
+            both.wait()                                             # neither call answers until both are asked
+        return _answer(system, user)
+    svc = make_services(fx, tmp_path)
+    _strong(svc, answer)
+    owner = login(make_app(svc, InlineRunner(svc)), "owner")
+    rid = owner.post("/api/reviews", json={"cls": [101, 102]}).json()["id"]
+    walk = f"walk:{_design(owner, rid)['walks'][0]['id']}"
+    failed: list[Exception] = []
+
+    def rewrite(user: str, part: str, instruction: str) -> None:
+        try:
+            ondemand.rewrite_design(svc, rid, user, part, instruction)
+        except Exception as e:                                      # noqa: BLE001 - asserted below
+            failed.append(e)
+    threads = [threading.Thread(target=rewrite, args=("bob", "verdict", "shorter")),
+               threading.Thread(target=rewrite, args=("owner", walk, ""))]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(30)
+    landed = {"verdict": {"by": "bob", "instruction": "shorter"}, walk: {"by": "owner", "instruction": ""}}
+    assert failed == [] and (_design(owner, rid)["verdict"], _design(owner, rid)["rewrites"]) == (SHORT, landed)
+    assert sorted(svc.store.get_blob(rid, "design_chosen")["parts"]) == sorted(landed)
+    run_review(rid, svc)                                            # the same prompt: both rewrites stay
+    assert (_design(owner, rid)["verdict"], _design(owner, rid)["rewrites"]) == (SHORT, landed)

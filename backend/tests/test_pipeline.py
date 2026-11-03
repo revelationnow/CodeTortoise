@@ -973,6 +973,27 @@ def test_the_strong_model_writes_the_design_text_once_and_a_rerun_reuses_it(fx, 
     assert sum("CHECKS BY CAUSE (id" in p for p in llm.prompts) == 2
 
 
+def test_a_re_run_whose_prompt_changed_asks_the_strong_model_again(fx, tmp_path):
+    """Phase 2 minor 9: the design text is kept under its prompt. A re-run on a prompt that changed asks the model again
+    and keeps the new answer under the new prompt."""
+    from codetortoise.pipeline import run_design
+    svc = make_services(fx, tmp_path)
+    llm = _strong(svc, _one_story_per_cl)
+    rid = svc.store.create_review("t", "owner", [101, 102])
+    run_review(rid, svc)
+
+    def asked() -> list[str]:
+        return [p for p in llm.prompts if "CHECKS BY CAUSE (id" in p]
+    assert len(asked()) == 1
+    ss = svc.store.get_blob(rid, "stories")
+    ss["stories"][0]["title"] += ", told again"                    # the prompt names each story by its title
+    svc.store.put_blob(rid, "stories", ss)
+    run_design(rid, svc)
+    assert len(asked()) == 2 and ", told again" in asked()[-1]
+    run_design(rid, svc)                                            # the same prompt now: the kept text, no call
+    assert len(asked()) == 2
+
+
 def test_a_design_call_that_fails_leaves_the_rules_design_and_says_so(fx, tmp_path):
     svc = make_services(fx, tmp_path)
     _strong(svc, lambda s, u: RuntimeError("down") if "CHECKS BY CAUSE (id" in u else _one_story_per_cl(s, u))

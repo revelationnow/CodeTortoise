@@ -3,7 +3,9 @@ import { expectNamed, expectNoNodeIds, openFold, sideways, startReview, STRONG, 
 
 // e2e/serve-strong.sh: CLs 101 and 102, stories from the fake strong model (e2e/fake_llm.py), whose design answer
 // writes the verdict, three concerns, three ownership lines, the walk-throughs' titles and the condition's false case.
-const VERDICT = "The change holds together, but one new result goes unchecked. Settle whether logger_flush must handle the new -2.";
+// Some of its words run as long as a real model's: a code span in the verdict, the second concern, the last ownership line.
+const SPAN = "g_logger.pending_lines_waiting_for_the_uart_to_drain";
+const VERDICT = `The change holds together, but one new result goes unchecked. Settle whether logger_flush must handle the new -2 in ${SPAN}.`;
 const HAZARD = "logger_flush ignores the new -2, so a failed send goes unnoticed.";
 
 test.describe("the strong model's design text", () => {
@@ -52,6 +54,7 @@ test.describe("the strong model's design text", () => {
     await expect(lines.first()).toContainText("The driver owns the length check.");
     await expect(lines.first().locator(".dz-cites code")).toHaveText(["driver/uart.c"]);
     await expect(lines.nth(1).locator(".dz-cites a")).toHaveText(["S1"]);
+    await expect(lines.nth(2).locator(".dz-cites code")).toHaveText(["logger_flush"]);   // cited by its node id, shown by name
     await expectNoNodeIds(page);
   });
 
@@ -105,17 +108,21 @@ test.describe("the strong model's design text on a phone", () => {
   test.use({ baseURL: STRONG, viewport: devices["iPhone 13"].viewport, userAgent: devices["iPhone 13"].userAgent,
              deviceScaleFactor: devices["iPhone 13"].deviceScaleFactor, isMobile: true, hasTouch: true });
 
-  test("each concern's cells stack under one another, and nothing scrolls sideways", async ({ page }) => {
+  test("each concern's cells stack under one another, and nothing scrolls sideways, though the AI's words run long (phase 2 minor 9)",
+       async ({ page }) => {
     await startReview(page);
     await page.getByRole("link", { name: "Go to the overview" }).click();
     const section = page.getByRole("region", { name: "What it must get right" }), cells = section.locator("tbody tr").first().locator("td");
+    await expect(page.locator(".ov-top .dz-verdict p.ai-text")).toContainText(SPAN);
+    await expect(section.locator("tbody tr").nth(1)).toContainText("HalRegisterBank::write_unsigned_register_value");
     await expect(cells).toHaveCount(4);
     expect((await section.locator("thead").boundingBox())!.height).toBeLessThanOrEqual(1);   // seen by screen readers only
     await expect(section.getByRole("columnheader")).toHaveCount(4);
     const [a, b] = [await cells.nth(0).boundingBox(), await cells.nth(1).boundingBox()];
     expect(b!.y).toBeGreaterThanOrEqual(a!.y + a!.height - 1);
     expect(await sideways(page)).toBeLessThanOrEqual(0);
-    await openFold(page, "Is the design right?");
+    const fold = await openFold(page, "Is the design right?");
+    await expect(fold.locator("ul.dz-owner > li").nth(2)).toContainText("Logger::pending_lines_waiting_for_the_uart_to_drain");
     expect(await sideways(page)).toBeLessThanOrEqual(0);
   });
 

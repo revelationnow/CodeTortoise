@@ -120,7 +120,9 @@ FALSE_CASES = {"len > 64": "Writes that fit (64 bytes or less)", "reg == REG_CTR
 def design(user: str) -> dict:
     """The design overview's parts (spec 2026-11-02 §10): the verdict names the hazard, three concerns, three ownership
     lines, a title and a lead for each walk-through and each condition's false case; every part passes its checks. Its
-    verdict says when the prompt carries a design context (spec 2026-11-02 §8)."""
+    verdict says when the prompt carries a design context (spec 2026-11-02 §8). Some of its words are as long as a real
+    model's: a long code span in the verdict, a long second concern and a long last ownership line, which cites a
+    function by its node id (the overview shows its name)."""
     causes = re.findall(r"^(c[0-9a-f]{10}) \| (\w+) \|", user, re.M)
     hazard = next((c for c, kind in causes if kind == "hazard"), causes[0][0] if causes else None)
     confirm = next((c for c, kind in causes if kind == "confirm"), None)   # a kind the outline hides by default
@@ -130,24 +132,33 @@ def design(user: str) -> dict:
     path = "driver/uart.c" if "driver/uart.c" in user else s1
     walks, gates = re.findall(r"^(W\d+) \| ", user, re.M), re.findall(r"^(G\d+) \| (.+?) \| ", user, re.M)
     read = "DESIGN CONTEXT (from the review's owner):" in user
+    node = re.search(r"^(N\d+) \| logger_flush \|", user, re.M) or re.search(r"^(N\d+) \| uart_send \|", user, re.M)
     verdict = ("The change holds together against its design context, but one new result goes unchecked. "
                if read else "The change holds together, but one new result goes unchecked. ")
-    return {"verdict": verdict + "Settle whether `logger_flush` must handle the new -2.",
+    return {"verdict": verdict + "Settle whether `logger_flush` must handle the new -2 in "
+                       "`g_logger.pending_lines_waiting_for_the_uart_to_drain`.",
             "verdict_causes": [hazard] if hazard else [],
             "concerns": [
                 {"text": "Senders learn when a write is too long",
                  "how": "`uart_send` now returns -2 for a write longer than 64 bytes.", "stories": [s1],
                  "assessment": "confirm", "note": "`logger_flush` drops the -2.", "causes": [hazard] if hazard else []},
-                {"text": "Register numbers are never negative", "how": "`hal_write` now takes an unsigned register.",
-                 "stories": [s2], "assessment": "right", "note": "", "causes": []},
+                {"text": "Register numbers stay unsigned through `HalRegisterBank::write_unsigned_register_value`",
+                 "how": "`hal_write` now takes an unsigned register, so a caller that once passed -1 to mean the control "
+                        "register now writes to register 4294967295 through "
+                        "`HalRegisterBank::write_unsigned_register_value`.",
+                 "stories": [s2], "assessment": "right",
+                 "note": "Every caller in `driver/uart_register_map_for_the_second_channel.c` already passes a named register.",
+                 "causes": []},
                 {"text": "The error count stays readable", "how": "`uart_errors` reads the count that `uart_send` now writes.",
                  "stories": [s1, s2], "assessment": "note", "note": "", "causes": [confirm] if confirm else []}],
             "ownership": [
                 {"tag": "right", "text": "The driver owns the length check.", "cites": [path]},
                 {"tag": "questionable", "text": "The logger decides what a failed send means, and it drops the result.",
                  "cites": [s1]},
-                {"tag": "shortfall", "text": "Nothing tells the caller of `logger_write` that a write was dropped.",
-                 "cites": [s1]}],
+                {"tag": "shortfall", "text": "Nothing tells the caller of `logger_write` that a write was dropped, so a log "
+                                             "line longer than 64 bytes leaves no trace in "
+                                             "`Logger::pending_lines_waiting_for_the_uart_to_drain`.",
+                 "cites": [node.group(1)] if node else [s1]}],
             "walks": [{"id": w, "title": TITLES[i] if i < len(TITLES) else f"Path {i + 1} through the change",
                        "lead": LEADS[i] if i < len(LEADS) else "It follows the call to where the change lands."}
                       for i, w in enumerate(walks)],
