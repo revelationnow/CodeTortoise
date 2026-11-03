@@ -123,3 +123,40 @@ def test_a_condition_changed_only_on_a_continuation_line_is_a_changed_condition(
     c = _world([("check", "drv/u.c", ["if (p == NULL ||", "    len > 32) {", "\treturn -1;", "}"],
                  ["if (p == NULL ||", "    len > 64) {", "\treturn -1;", "}"])])
     assert [_gate(b) for b in _found(c)[1]] == [("changed", "p == NULL || len > 64", 3, [5])]
+
+
+def test_a_condition_the_design_context_adds_leads_and_lists_its_lines(demo):
+    from codetortoise.design_context import HandCondition, HandConditions
+    notes: list[str] = []
+    hand = HandConditions(add=[HandCondition(test="reg==REG_CTRL", function="hal_write")])
+    gates, branches = build_gates(demo.x, demo.ss, demo.r, demo.per, demo.src, demo.lines, hand=hand, notes=notes)
+    assert [(g.id, demo.x.label(g.node), g.test, g.source, g.path) for g in gates] == [
+        ("G1", "hal_write", "reg == REG_CTRL", "context", "hal/regs.c"),
+        ("G2", "uart_send", "len > 64", "code", "driver/uart.c")]
+    assert gates[0].lines and not gates[1].lines and notes == []
+    assert [b.id for b in branches] == ["G1", "G2"]
+
+
+def test_a_condition_the_design_context_leaves_out_is_gone_and_what_it_names_but_lacks_is_said(demo):
+    from codetortoise.design_context import HandCondition, HandConditions
+    notes: list[str] = []
+    hand = HandConditions(add=[HandCondition(test="x == 1")], remove=["len>64", "y > 2"])
+    gates, branches = build_gates(demo.x, demo.ss, demo.r, demo.per, demo.src, demo.lines, hand=hand, notes=notes)
+    assert gates == [] and branches == []
+    assert notes == ["the condition `x == 1` is not in the changed functions",
+                     "the condition `y > 2` to leave out is not among those the rules found"]
+
+
+def test_the_design_context_s_components_replace_the_config_s_and_its_text_marks_the_design(demo):
+    from codetortoise.config import ComponentRule
+    from codetortoise.design import build_design
+    from codetortoise.design_context import DesignContext, context_hash
+    ctx = DesignContext(notes="The UART must never drop a byte.", components=[
+        ComponentRule(name="Firmware", globs=["driver/*", "hal/*", "include/*"]),
+        ComponentRule(name="Service", globs=["service/*"])])
+    d = build_design(demo.x, demo.ss, demo.det, demo.r, demo.per, lines=demo.lines, read_text=demo.read_text, context=ctx)
+    holder = {f: c.name for c in d.components for f in c.files}
+    assert holder["driver/uart.c"] == holder["hal/regs.c"] == "Firmware" and holder["service/logger.c"] == "Service"
+    assert d.context_hash == context_hash(ctx) and d.context_notes == []
+    plain = build_design(demo.x, demo.ss, demo.det, demo.r, demo.per, lines=demo.lines, read_text=demo.read_text)
+    assert plain.context_hash is None and "Firmware" not in {c.name for c in plain.components}

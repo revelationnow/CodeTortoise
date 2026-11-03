@@ -13,6 +13,7 @@ from dataclasses import dataclass, field, replace
 from codetortoise import linediff
 from codetortoise.cparse import _COND, _at, _line_starts, _parser_for, _txt, flatten_preproc, norm_ws
 from codetortoise.design import Gate, GatedLine
+from codetortoise.design_context import same_test
 from codetortoise.reading import rel_path
 
 MAX_GATES = 20            # conditions kept per review (§14)
@@ -454,20 +455,59 @@ def classify(g: Branch, x, src: Sources, story_of: dict[str, str], path_story: d
     return out, sum(1 for r in rows if r[5]), sum(1 for r in rows if not r[5])
 
 
-def build_gates(x, ss, r, per, src: Sources, lines=None) -> tuple[list[Gate], list[Branch]]:
-    """The review's conditions, strongest first, at most MAX_GATES; only the first lists its lines (R14)."""
+def hand_gates(x, src: Sources, hand) -> tuple[list[Branch], list[str]]:
+    """The conditions the design context adds (§8), in its order: an if, else if or case in a changed function outside
+    the tests whose test is the one given (spacing aside), in the function named when one is (`Engine::step` answers to
+    `step`). The notes say which the code lacks."""
+    out: list[Branch] = []
+    notes: list[str] = []
+    for h in hand.add:
+        hit = None
+        for nid in sorted(x.changed, key=lambda n: (len(n), n)):
+            n, name = x.im.nodes[nid], x.label(nid)
+            if n.kind != "function" or x.is_test_path(nid) or (h.function and h.function not in (name, name.rsplit("::", 1)[-1])):
+                continue
+            shape = src.shape(nid)
+            hit = next((b for b in shape.branches if same_test(b.test, h.test)), None) if shape is not None else None
+            if hit is not None:
+                break
+        if hit is None:
+            where = f" in `{h.function}`" if h.function else ""
+            notes.append(f"the condition `{h.test}`{where} is not in the changed functions")
+        elif not any((b.node, b.line) == (hit.node, hit.line) for b in out):
+            marks = src.marks(hit.path)
+            strength = sum(1 for k in hit.body if k in marks and not trivial(src.line(hit.path, k)))
+            out.append(replace(hit, kind="context", strength=strength))
+    return out, notes
+
+
+def build_gates(x, ss, r, per, src: Sources, lines=None, hand=None, notes: list[str] | None = None
+                ) -> tuple[list[Gate], list[Branch]]:
+    """The review's conditions, at most MAX_GATES: those the design context adds first (§8), then those the rules find,
+    strongest first, less those the context leaves out; only the first lists its lines (R14). `notes` gathers what the
+    context names that the code lacks."""
     story_of = node_stories(ss)
     path_story: dict[str, str] = {}
     for sid in r.order:
         sr = per.get(sid)
         for w in sr.where if sr is not None else []:
             path_story.setdefault(w.path, sid)
-    branches = find_gates(x, src, story_of, r.order)[:MAX_GATES]
+    found = find_gates(x, src, story_of, r.order)
+    added: list[Branch] = []
+    if hand is not None:
+        added, said = hand_gates(x, src, hand)
+        said += [f"the condition `{t}` to leave out is not among those the rules found"
+                 for t in hand.remove if not any(same_test(b.test, t) for b in found)]
+        found = [b for b in found if not any(same_test(b.test, t) for t in hand.remove)
+                 and not any((a.node, a.line) == (b.node, b.line) for a in added)]
+        if notes is not None:
+            notes += said
+    branches = (added + found)[:MAX_GATES]
     gates: list[Gate] = []
     for i, b in enumerate(branches, 1):
         b.id = f"G{i}"
         g = Gate(id=b.id, node=b.node, test=b.test, story=story_of.get(b.node), path=rel_path(x, b.path), line=b.line,
-                 guarded=[b.first, b.last])
+                 guarded=[b.first, b.last], source="context" if b.kind == "context" else "code")
         if i == 1:
             g.lines, g.runs, g.stops = classify(b, x, src, story_of, path_story, r.order, lines)
         gates.append(g)

@@ -117,20 +117,28 @@ class ReadingDesign(BaseModel):
     nodes: dict[str, DesignNode] = Field(default_factory=dict)
     sources: dict[str, Literal["template", "llm", "pinned"]] = Field(default_factory=dict)   # per part
     context_hash: str | None = None
+    context_notes: list[str] = Field(default_factory=list)   # what the design context names that the code lacks (§8)
 
 
-def build_design(x, ss, details, r, per, *, lines=None, read_text=None) -> ReadingDesign:
+def build_design(x, ss, details, r, per, *, lines=None, read_text=None, context=None) -> ReadingDesign:
     """The design overview by rules (phase 1): the components, the conditions and the walk-throughs, and every node
-    they cite. `x` is the analysis's `_Ctx`; `details` the story details; `r`, `per` the reading and its stories'."""
+    they cite. `x` is the analysis's `_Ctx`; `details` the story details; `r`, `per` the reading and its stories'.
+    `context`, the review's design context (§8): its components replace the config's, its conditions lead the rules' or
+    leave them out, and its text's hash marks the design as written with it."""
     from codetortoise.components import build_components
+    from codetortoise.design_context import context_hash
     from codetortoise.gates import Sources, build_gates
     from codetortoise.walks import build_walks
     src = Sources(x, read_text)
-    components, node_comp = build_components(x, ss, r, per)
-    gates, branches = build_gates(x, ss, r, per, src, lines)
+    rules = context.components if context is not None and context.components else None
+    components, node_comp = build_components(x, ss, r, per, rules)
+    notes: list[str] = []
+    gates, branches = build_gates(x, ss, r, per, src, lines, hand=context.conditions if context is not None else None,
+                                  notes=notes)
     walks = build_walks(x, ss, details, r, per, src, branches, lines)
     return ReadingDesign(components=components, gates=gates, walks=walks,
-                         nodes=design_nodes(x, walks, gates, node_comp))
+                         nodes=design_nodes(x, walks, gates, node_comp),
+                         context_hash=context_hash(context) if context is not None else None, context_notes=notes)
 
 
 def design_nodes(x, walks: list[Walk], gates: list[Gate], node_comp: dict[str, str]) -> dict[str, DesignNode]:
