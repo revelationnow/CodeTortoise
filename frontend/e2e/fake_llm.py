@@ -154,7 +154,28 @@ def design(user: str) -> dict:
                            for g, test in gates]}
 
 
+SHORT_VERDICT = "One new result goes unchecked. Settle whether `logger_flush` must handle the new -2."
+
+
+def rewrite(user: str) -> dict:
+    """A rewrite of one part (spec 2026-11-02 §10's AI menu): the verdict again, shorter when the reader's instruction
+    asks for that; a walk-through's title and lead again. The rest is the design's answer, which a rewrite leaves unread."""
+    out = design(user)
+    asked = user.split("THE REVIEWER'S INSTRUCTION", 1)[1].lower() if "THE REVIEWER'S INSTRUCTION" in user else ""
+    if "REWRITE: write the verdict again" in user:
+        out["verdict"] = SHORT_VERDICT if "shorter" in asked else (
+            "The change holds together once more, but one new result goes unchecked. "
+            "Settle whether `logger_flush` must handle the new -2.")
+    walk = re.search(r"REWRITE: write walk-through (W\d+)'s title", user)
+    if walk:
+        out["walks"] = [{"id": walk.group(1), "title": "A long write, told again",
+                         "lead": "It follows a long write to where `uart_send` refuses it."}]
+    return out
+
+
 def answer(system: str, user: str) -> dict:
+    if "REWRITE: write " in user:
+        return rewrite(user)
     if "CHECKS BY CAUSE (id" in user:
         return design(user)
     if "THREAD DETAILS (id" in user:

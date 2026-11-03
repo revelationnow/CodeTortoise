@@ -1,0 +1,99 @@
+import { devices, expect, type Locator, type Page } from "@playwright/test";
+import { login, reviewMenu, sideways, startReview, STRONG, test } from "./helpers";
+
+// e2e/serve-strong.sh's fake strong model (e2e/fake_llm.py) writes the verdict again, shorter when the instruction asks,
+// and a walk-through's title as "A long write, told again".
+const SHORT = "One new result goes unchecked. Settle whether logger_flush must handle the new -2.";
+
+const verdictRow = (page: Page) => page.locator(".ov-top .dz-verdict");
+
+/** Opens the Rewrite ▾ menu inside `at` (the verdict's row by default) and returns it. */
+async function rewriteMenu(page: Page, at: Locator = verdictRow(page)) {
+  await at.getByRole("button", { name: "Rewrite", exact: true }).click();
+  const menu = at.getByRole("menu", { name: "Rewrite" });
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+async function shorter(page: Page) {
+  const v = verdictRow(page);
+  await (await rewriteMenu(page)).getByRole("menuitem", { name: "Rewrite with an instruction…" }).click();
+  const box = v.getByLabel("How should the AI rewrite it?");
+  await expect(box).toBeFocused();
+  await box.fill("Make it shorter");
+  await v.getByRole("button", { name: "Ask" }).click();
+  await expect(v.locator("p.ai-text")).toHaveText(`Written by AI. ${SHORT}`, { timeout: 30_000 });
+  await expect(box).toHaveCount(0);
+}
+
+test.describe("the design overview's AI menu", () => {
+  test.use({ baseURL: STRONG, viewport: { width: 1440, height: 900 } });
+
+  test("anyone in the review rewrites the verdict, after a confirmation, and the new words show", async ({ page }) => {
+    await startReview(page);
+    const v = verdictRow(page);
+    await expect(v.locator("p.ai-text")).toContainText("The change holds together, but one new result goes unchecked.");
+    page.once("dialog", (d) => d.accept());
+    await (await rewriteMenu(page)).getByRole("menuitem", { name: "Rewrite", exact: true }).click();
+    await expect(v.locator("p.ai-text")).toContainText("The change holds together once more", { timeout: 30_000 });
+    await expect(v.locator(".dz-src")).toHaveText("AI, from the stories");
+  });
+
+  test("a rewrite with an instruction puts the reader's words to the model", async ({ page }) => {
+    await startReview(page);
+    await shorter(page);
+  });
+
+  test("the owner pins the verdict; a design re-run keeps it, and a pinned part is not rewritten", async ({ page }) => {
+    await startReview(page);
+    const v = verdictRow(page);
+    await shorter(page);
+    await (await rewriteMenu(page)).getByRole("menuitem", { name: "Pin this text" }).click();
+    await expect(v.locator(".dz-src")).toHaveText("AI, from the stories · pinned");
+    // a design context runs the design stage again; its fresh verdict would say it read the context
+    await (await reviewMenu(page)).getByRole("menuitem", { name: "Design context…" }).click();
+    const panel = page.getByRole("dialog", { name: "Design context" });
+    await panel.getByLabel("Notes").fill("The UART must never drop a byte.");
+    await panel.getByRole("button", { name: "Save" }).click();
+    await expect(v.locator(".dz-src")).toHaveText("AI, from the stories and the design context · pinned", { timeout: 30_000 });
+    await expect(v.locator("p.ai-text")).toHaveText(`Written by AI. ${SHORT}`);
+    await page.keyboard.press("Escape");
+    const menu = await rewriteMenu(page);
+    await expect(menu.getByRole("menuitem", { name: "Rewrite", exact: true })).toBeDisabled();
+    await expect(menu.getByRole("menuitem", { name: "Unpin" })).toBeVisible();
+  });
+
+  test("someone else in the review may rewrite but has no pin", async ({ page, browser }) => {
+    const base = await startReview(page);
+    const context = await browser.newContext({ baseURL: STRONG, viewport: { width: 1440, height: 900 } });
+    const other = await context.newPage();
+    await login(other, "bob");
+    await other.goto(base);
+    await expect((await rewriteMenu(other)).getByRole("menuitem")).toHaveText(["Rewrite", "Rewrite with an instruction…"]);
+    await context.close();
+  });
+
+  test("a walk-through's title and lead are rewritten on its page", async ({ page }) => {
+    await startReview(page);
+    await page.locator(".dz-walks a").first().click();
+    const head = page.locator(".dz-walk .st-head");
+    await expect(head.locator(".dz-src")).toHaveText("AI, from the stories");
+    page.once("dialog", (d) => d.accept());
+    await (await rewriteMenu(page, head)).getByRole("menuitem", { name: "Rewrite", exact: true }).click();
+    await expect(head.getByRole("heading", { level: 2 })).toContainText("A long write, told again", { timeout: 30_000 });
+  });
+});
+
+test.describe("the AI menu on a phone", () => {
+  test.use({ baseURL: STRONG, viewport: devices["iPhone 13"].viewport, userAgent: devices["iPhone 13"].userAgent,
+             deviceScaleFactor: devices["iPhone 13"].deviceScaleFactor, isMobile: true, hasTouch: true });
+
+  test("the open menu stays on the phone's screen and nothing scrolls sideways", async ({ page }) => {
+    await startReview(page);
+    await page.getByRole("link", { name: "Go to the overview" }).click();       // a phone opens on the outline
+    const box = await (await rewriteMenu(page)).boundingBox();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(devices["iPhone 13"].viewport.width);
+    expect(await sideways(page)).toBeLessThanOrEqual(0);
+  });
+});

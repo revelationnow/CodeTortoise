@@ -45,6 +45,13 @@ make it fetch other addresses on its network; it reads only paths under a listed
 or `%5C` that some web servers resolve elsewhere), follows no redirect and reads at most 1 MB of text, markdown or a web
 page. Everyone in the review can read the context, the text of linked documents included.
 
+Each part of the opening the strong model wrote — the verdict, what the design must get right, the ownership lines, a
+walk-through's title and lead, a condition's name — carries a **Rewrite ▾** menu. *Rewrite* asks the strong model for
+that part alone again; *Rewrite with an instruction…* adds your words (at most 300 characters) to its prompt. Either is
+one AI call on the review's budget, charged to whoever asked, and everyone sees the new words; an answer that fails the
+part's checks changes nothing. The review's owner can *Pin this text*: later runs of the design stage keep the pinned
+words while the review still has what they cite, and a pinned part is not rewritten until it is unpinned.
+
 The web app is the system of record for review discussion. P4 Swarm is a side channel: CodeTortoise reads review state,
 can create a Swarm review for a shelved CL and posts a summary link.
 
