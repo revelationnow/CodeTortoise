@@ -310,12 +310,13 @@ def write_design(strong: LlmClient, ledger: Ledger | None, rid: int | None, d: R
 
 
 def design_text(d: ReadingDesign) -> dict:
-    """The model's parts of `d`, as blob `design_text` keeps them for a re-run of the same prompt."""
+    """The model's parts of `d`, as blob `design_text` keeps them for a re-run of the same prompt: the model's own
+    answer, which passed every check (what readers chose is kept apart, in blob `design_chosen`)."""
     return {"verdict": d.verdict, "verdict_causes": d.verdict_causes,
             "concerns": [c.model_dump() for c in d.concerns], "ownership": [o.model_dump() for o in d.ownership],
             "walks": {w.id: [w.title, w.lead] for w in d.walks if w.title_source == "llm"},
             "gates": {g.id: g.false_case for g in d.gates if d.sources.get(f"gate:{g.id}") == "llm"},
-            "sources": dict(d.sources), "rewrites": {p: w.model_dump() for p, w in d.rewrites.items()}}
+            "sources": dict(d.sources)}
 
 
 def apply_design_text(d: ReadingDesign, kept: dict) -> None:
@@ -330,7 +331,56 @@ def apply_design_text(d: ReadingDesign, kept: dict) -> None:
         if g.id in kept["gates"]:
             g.false_case = kept["gates"][g.id]
     d.sources.update(kept["sources"])
-    d.rewrites.update({p: Rewrite(**w) for p, w in kept.get("rewrites", {}).items()})   # none kept before records were
+
+
+def chosen_part(d: ReadingDesign, part: str) -> dict:
+    """Part `part` of `d` as blob `design_chosen` keeps what readers chose for a prompt (a rewrite, or the words left
+    showing when a pin goes): its words and its rewrite's record."""
+    kind, _, pid = part.partition(":")
+    if kind == "verdict":
+        words: object = [d.verdict, list(d.verdict_causes)]
+    elif kind in ("concerns", "ownership"):
+        words = [x.model_dump() for x in getattr(d, kind)]
+    elif kind == "walk":
+        w = next(w for w in d.walks if w.id == pid)
+        words = [w.title, w.lead]
+    else:
+        words = next(g for g in d.gates if g.id == pid).false_case
+    rec = d.rewrites.get(part)
+    return {"words": words, "rewrite": rec.model_dump() if rec is not None else None}
+
+
+def apply_chosen(d: ReadingDesign, chosen: dict) -> None:
+    """Put the parts readers chose (blob `design_chosen`, of the same prompt) into `d` over the model's answer, each
+    marked the model's with its rewrite's record, if any."""
+    for part, c in chosen["parts"].items():
+        if not has_part(d, part):
+            continue
+        kind, _, pid = part.partition(":")
+        words = c["words"]
+        if kind == "verdict":
+            d.verdict, d.verdict_causes = words[0], list(words[1])
+        elif kind == "concerns":
+            d.concerns = [Concern(**x) for x in words]
+        elif kind == "ownership":
+            d.ownership = [Ownership(**x) for x in words]
+        elif kind == "walk":
+            w = next(w for w in d.walks if w.id == pid)
+            (w.title, w.lead), w.title_source = words, "llm"
+        else:
+            next(g for g in d.gates if g.id == pid).false_case = words
+        d.sources[part] = "llm"
+        if c.get("rewrite"):
+            d.rewrites[part] = Rewrite(**c["rewrite"])
+        else:
+            d.rewrites.pop(part, None)
+
+
+def choose(chosen: dict | None, key: str, d: ReadingDesign, part: str) -> dict:
+    """Blob `design_chosen` with part `part` as `d` now shows it, for the prompt `key` (a blob of another prompt
+    goes)."""
+    parts = dict(chosen["parts"]) if chosen and chosen.get("key") == key else {}
+    return {"key": key, "parts": {**parts, part: chosen_part(d, part)}}
 
 
 def design_key(model: str, text: str) -> str:
@@ -425,21 +475,3 @@ def put_part(dst: ReadingDesign, src: ReadingDesign, part: str) -> None:
         dst.rewrites[part] = src.rewrites[part].model_copy()
     else:
         dst.rewrites.pop(part, None)
-
-
-def patch_kept(kept: dict, d: ReadingDesign, part: str) -> dict:
-    """Blob `design_text` with part `part` as `d` now has it: a later run of the same prompt keeps a rewrite."""
-    now, (kind, _, pid) = design_text(d), part.partition(":")
-    rewrites = {p: w for p, w in kept.get("rewrites", {}).items() if p != part}
-    if part in now["rewrites"]:
-        rewrites[part] = now["rewrites"][part]
-    out = {**kept, "sources": {**kept["sources"], part: "llm"}, "rewrites": rewrites}
-    if kind == "verdict":
-        out["verdict"], out["verdict_causes"] = now["verdict"], now["verdict_causes"]
-    elif kind in ("concerns", "ownership"):
-        out[kind] = now[kind]
-    elif kind == "walk":
-        out["walks"] = {**kept["walks"], pid: now["walks"][pid]}
-    else:
-        out["gates"] = {**kept["gates"], pid: now["gates"][pid]}
-    return out

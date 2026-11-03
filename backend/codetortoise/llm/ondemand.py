@@ -23,7 +23,7 @@ from codetortoise.detectors.base import Finding
 from codetortoise.facts.model import Facts
 from codetortoise.impact import ImpactModel
 from codetortoise.llm.brief_context import brief_context
-from codetortoise.llm.design import design_key, has_part, patch_kept, put_part, rewrite_part
+from codetortoise.llm.design import choose, design_key, has_part, put_part, rewrite_part
 from codetortoise.llm.design import prompt as design_prompt
 from codetortoise.llm.storyboard import (
     AiContext,
@@ -259,7 +259,7 @@ def rewrite_design(svc: Services, rid: int, user: str, part: str, instruction: s
     instruction when given, and store it for everyone. Raises NotFound, Refused (over a limit), Unchecked, Changed or
     the LLM's error. The AI call runs without the review's lock; the result lands under it on the design as it is then,
     only while that design is still the one the AI saw and the part is not pinned meanwhile. A later run of the same
-    prompt keeps it (blob `design_text`)."""
+    prompt keeps it (blob `design_chosen`)."""
     if svc.strong is None or svc.cfg.llm.strong is None:
         raise RuntimeError("no strong model is configured")
     model = svc.cfg.llm.strong.model
@@ -283,30 +283,29 @@ def rewrite_design(svc: Services, rid: int, user: str, part: str, instruction: s
         if now.sources.get(part) == "pinned":
             raise Changed("the part was pinned while the AI was answering; nothing was changed")
         put_part(now, new, part)
-        puts: dict = {"reading_design": now}
-        kept = svc.store.get_blob(rid, "design_text")
-        if kept and kept.get("key") == seen:                 # a re-run of this prompt keeps the rewrite
-            puts["design_text"] = patch_kept(kept, now, part)
-        svc.store.replace_blobs(rid, [], [], puts)
+        chosen = choose(svc.store.get_blob(rid, "design_chosen"), seen, now, part)   # a re-run of this prompt keeps it
+        svc.store.replace_blobs(rid, [], [], {"reading_design": now, "design_chosen": chosen})
 
 
 def pin_design(svc: Services, rid: int, part: str, on: bool) -> None:
     """Pin part `part` of review `rid`'s design overview (`on`), or unpin it: a pin keeps the model's words through later
-    runs of the design stage while they fit (codetortoise.design_pins). Raises NotFound for a part the design lacks and
+    runs of the design stage while they fit (codetortoise.design_pins); the words an unpin leaves showing are kept
+    for later runs of the same prompt (blob `design_chosen`). Raises NotFound for a part the design lacks and
     Unchecked for one whose words are not the model's."""
     with _lock(rid):
-        raw = svc.store.get_blob(rid, "reading_design")
-        if not raw:
-            raise NotFound("the review has no design overview")
-        d = ReadingDesign.model_validate(raw)
+        d, r, ss, context = _design_now(svc, rid)
         if not has_part(d, part):
             raise NotFound(f"{part} is not a part of the design overview")
         if on and d.sources.get(part) not in ("llm", "pinned"):
             raise Unchecked("only the AI's words are pinned; this part has none")
-        pin = pin_of(d, part, story_titles(boardstore.stories(svc.store, rid)))
+        pin = pin_of(d, part, story_titles(ss))
         pins = [p for p in load_pins(svc.store, rid) if (p.part, p.key) != (pin.part, pin.key)] + ([pin] if on else [])
+        puts: dict = {"reading_design": d, PINS: pins}
         if on:
             d.sources[part] = "pinned"
         elif d.sources.get(part) == "pinned":
             d.sources[part] = "llm"
-        svc.store.replace_blobs(rid, [], [], {"reading_design": d, PINS: pins})
+            if svc.cfg.llm.strong is not None:
+                key = design_key(svc.cfg.llm.strong.model, design_prompt(d, r, ss, context))
+                puts["design_chosen"] = choose(svc.store.get_blob(rid, "design_chosen"), key, d, part)
+        svc.store.replace_blobs(rid, [], [], puts)

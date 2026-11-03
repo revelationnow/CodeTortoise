@@ -162,3 +162,54 @@ def test_a_rewrite_says_who_asked_and_how_for_everyone_through_a_re_run_and_a_pi
     owner.put(f"/api/reviews/{rid}/design-context", json={"notes": "Never drop a byte."})
     d = _design(owner, rid)                                         # a new prompt: the walk-through's words are fresh
     assert (d["sources"]["verdict"], d["rewrites"]) == ("pinned", steered)
+
+
+def test_the_kept_answer_stays_the_model_s_and_what_readers_chose_lands_on_it(made):
+    """Phase 4 M3/M4: a rewrite is kept apart from the model's answer, under the prompt it was asked for."""
+    from codetortoise.pipeline import run_review
+    svc, _, owner, rid, _ = made
+    said = _design(owner, rid)["verdict"]
+    owner.post(f"/api/reviews/{rid}/design/verdict/rewrite", json={"instruction": "shorter"})
+    kept, chosen = svc.store.get_blob(rid, "design_text"), svc.store.get_blob(rid, "design_chosen")
+    assert kept["verdict"] == said != SHORT and chosen["key"] == kept["key"] and list(chosen["parts"]) == ["verdict"]
+    assert (chosen["parts"]["verdict"]["words"][0], chosen["parts"]["verdict"]["rewrite"]) == (
+        SHORT, {"by": "owner", "instruction": "shorter"})
+    run_review(rid, svc)                                            # the same prompt: the model's answer, then the choice
+    d = _design(owner, rid)
+    assert (d["verdict"], d["sources"]["verdict"], d["rewrites"]) == (
+        SHORT, "llm", {"verdict": {"by": "owner", "instruction": "shorter"}})
+    assert svc.store.get_blob(rid, "design_text")["verdict"] == said
+
+
+def test_an_unpin_then_a_re_run_of_the_same_prompt_keeps_the_words_showing(made):
+    """Phase 4 M3: the model's words a pin covered don't come back when it goes."""
+    from codetortoise.pipeline import run_review
+    svc, _, owner, rid, _ = made
+    owner.post(f"/api/reviews/{rid}/design/verdict/rewrite", json={"instruction": "shorter"})
+    owner.post(f"/api/reviews/{rid}/design/verdict/pin", json={"pinned": True})
+    owner.put(f"/api/reviews/{rid}/design-context", json={"notes": "Never drop a byte."})   # the model's own words, kept
+    assert _design(owner, rid)["verdict"] == SHORT
+    assert owner.post(f"/api/reviews/{rid}/design/verdict/pin", json={"pinned": False}).status_code == 200
+    run_review(rid, svc)                                            # the same prompt again
+    d = _design(owner, rid)
+    assert (d["verdict"], d["sources"]["verdict"], d["rewrites"]["verdict"]["by"]) == (SHORT, "llm", "owner")
+
+
+def test_a_rewrite_on_a_degraded_design_outlives_a_re_run_that_asks_again(fx, tmp_path):
+    """Phase 4 M4: with no answer kept (a part failed), a re-run asks again, and the rewrite still lands."""
+    from codetortoise.pipeline import run_review
+
+    def answer(system, user):
+        out = _answer(system, user)
+        return out if "REWRITE:" in user else {**out, "walks": []}     # every walk-through title fails: nothing kept
+    svc = make_services(fx, tmp_path)
+    llm = _strong(svc, answer)
+    owner = login(make_app(svc, InlineRunner(svc)), "owner")
+    rid = owner.post("/api/reviews", json={"cls": [101, 102]}).json()["id"]
+    assert svc.store.get_blob(rid, "design_text") is None
+    assert owner.post(f"/api/reviews/{rid}/design/verdict/rewrite", json={"instruction": "shorter"}).status_code == 202
+    assert _design(owner, rid)["verdict"] == SHORT
+    asked = sum("CHECKS BY CAUSE (id" in p for p in llm.prompts)
+    run_review(rid, svc)
+    assert sum("CHECKS BY CAUSE (id" in p for p in llm.prompts) == asked + 1      # nothing kept: asked again
+    assert _design(owner, rid)["verdict"] == SHORT

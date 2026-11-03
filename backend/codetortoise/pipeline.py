@@ -32,7 +32,7 @@ from codetortoise.impact import ImpactModel, build_impact
 from codetortoise.layers import LayerModel
 from codetortoise.llm.account import write_accounts
 from codetortoise.llm.brief_context import brief_context
-from codetortoise.llm.design import apply_design_text, design_key, design_text, write_design
+from codetortoise.llm.design import apply_chosen, apply_design_text, design_key, design_text, write_design
 from codetortoise.llm.design import prompt as design_prompt
 from codetortoise.llm.intro import INTRO_VERSION, write_intro
 from codetortoise.llm.intro import prompt as intro_prompt
@@ -172,19 +172,24 @@ def _intro_text(svc: Services, rid: int, r: Reading, ss, cls_text: dict[int, str
 
 def _design_text(svc: Services, rid: int, d, r: Reading, ss, context: str, fresh: bool):
     """The strong model's parts of design `d` (spec 2026-11-02 §10), written on a copy: the text kept for this prompt,
-    or a new answer. Returns what the stage says, its notes and the design."""
+    or a new answer, and over it what readers chose for this prompt (blob `design_chosen`). Returns what the stage
+    says, its notes and the design."""
     store, strong = svc.store, svc.cfg.llm.strong
     d = d.model_copy(deep=True)
     key = design_key(strong.model, design_prompt(d, r, ss, context))
     kept = store.get_blob(rid, "design_text")
     if kept and kept.get("key") == key and not fresh:
         apply_design_text(d, kept)
-        return f"; design text by {strong.model}", [], d
-    notes, by = write_design(svc.strong, svc.ledger, rid, d, r, ss, weak=svc.llm, context=context)
-    if not notes:
-        store.put_blob(rid, "design_text", {"key": key, **design_text(d)})
-    told = (f"; design text by {by}" if by == strong.model else
-            f"; design text by {by} (the strong model failed)" if by else "; fixed design text")
+        notes, told = [], f"; design text by {strong.model}"
+    else:
+        notes, by = write_design(svc.strong, svc.ledger, rid, d, r, ss, weak=svc.llm, context=context)
+        if not notes:                                      # the model's own answer, kept only when it passed every check
+            store.put_blob(rid, "design_text", {"key": key, **design_text(d)})
+        told = (f"; design text by {by}" if by == strong.model else
+                f"; design text by {by} (the strong model failed)" if by else "; fixed design text")
+    chosen = store.get_blob(rid, "design_chosen")
+    if chosen and chosen.get("key") == key:
+        apply_chosen(d, chosen)
     return told, notes, d
 
 

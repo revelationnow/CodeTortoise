@@ -389,7 +389,7 @@ def test_a_rewrite_over_a_limit_is_refused_and_one_no_model_answers_raises(demo,
                         "verdict")
 
 
-def test_a_rewrite_lands_on_the_design_as_it_is_then_and_on_the_kept_text(demo, made):
+def test_a_rewrite_lands_on_the_design_as_it_is_then_and_what_readers_chose_on_the_kept_text(demo, made):
     from scripted_llm import ScriptedLlm
     _write(demo, made, GOOD)
     kept = dl.design_text(made)
@@ -404,14 +404,17 @@ def test_a_rewrite_lands_on_the_design_as_it_is_then_and_on_the_kept_text(demo, 
     dl.put_part(now, walk, "walk:W2")
     assert now.walks[1].title == "A short write" and now.walks[0].title == "A write longer than 64 bytes"
     again = rules.build_design(demo.x, demo.ss, demo.det, demo.r, demo.per, lines=demo.lines, read_text=demo.read_text)
-    dl.apply_design_text(again, dl.patch_kept(dl.patch_kept(kept, now, "verdict"), now, "walk:W2"))
+    dl.apply_design_text(again, kept)
+    dl.apply_chosen(again, dl.choose(dl.choose(None, "k", now, "verdict"), "k", now, "walk:W2"))
     assert again.verdict == REWRITTEN and again.walks[1].title == "A short write"
+    assert dl.choose(dl.choose(None, "k", now, "verdict"), "other", now, "walk:W2")["parts"].keys() == {"walk:W2"}
     assert [c.text for c in again.concerns] == [c["text"] for c in GOOD["concerns"]]
 
 
 def test_a_rewrite_says_who_asked_and_how_and_the_record_goes_where_its_words_go(demo, made):
     """Final review I2: a reader's rewrite records who asked and their instruction, so words they steered don't read as
-    the model's own; the record lands with the words and the kept text keeps it for a re-run of the same prompt."""
+    the model's own; the record lands with the words, and what readers chose keeps it for a re-run of the same
+    prompt."""
     from scripted_llm import ScriptedLlm
 
     from codetortoise.design import Rewrite
@@ -424,12 +427,13 @@ def test_a_rewrite_says_who_asked_and_how_and_the_record_goes_where_its_words_go
     dl.put_part(now, new, "verdict")
     assert now.rewrites == new.rewrites
     again = rules.build_design(demo.x, demo.ss, demo.det, demo.r, demo.per, lines=demo.lines, read_text=demo.read_text)
-    dl.apply_design_text(again, dl.patch_kept(kept, now, "verdict"))
+    dl.apply_design_text(again, kept)
+    dl.apply_chosen(again, dl.choose(None, "k", now, "verdict"))
     assert again.rewrites == new.rewrites
     plain, _ = dl.rewrite_part(ScriptedLlm(lambda s, u: GOOD), None, 7, "alice", now, demo.r, demo.ss, "verdict")
     assert plain.rewrites == {"verdict": Rewrite(by="alice", instruction="")}      # the last rewrite's record
     before = rules.build_design(demo.x, demo.ss, demo.det, demo.r, demo.per, lines=demo.lines, read_text=demo.read_text)
-    dl.apply_design_text(before, {k: v for k, v in kept.items() if k != "rewrites"})   # kept before records were
+    dl.apply_design_text(before, kept)                                    # the model's own answer holds no record
     assert before.rewrites == {} and before.verdict == GOOD["verdict"]
 
 

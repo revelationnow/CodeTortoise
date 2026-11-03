@@ -30,10 +30,12 @@ off.
 With a strong model, the design stage also asks it once for the opening of the overview: a **verdict** that ends in what
 to settle, with the checks it names as chips; **what it must get right**, a row per concern with how the change does it,
 where, and an assessment (right, note, confirm, ask); an **Is the design right?** fold on which part owns each decision
-and what the change leaves undone; and a name and a lead for each walk-through and each condition. A story's crumb names
-the concerns it answers, each a link to its row. Each part is checked on its own: it cites only what it was shown, a
-concern that says to confirm or ask rests on a check the review already has, and a part that fails keeps its fixed text
-or is left out. None of it adds a check. A re-run of the same change reuses the answer.
+and what the change leaves undone; a name and a lead for each walk-through; and a name for the condition the overview
+folds. A story's crumb names the concerns it answers, each a link to its row. Each part is checked on its own: it cites
+only what it was shown, a concern that says to confirm or ask rests on a check the review already has, and a part that
+fails keeps its fixed text or is left out. None of it adds a check. A re-run of the same change reuses the model's
+answer when every part of it passed, and asks again when one failed; either way it keeps the words readers chose for
+it (a rewrite, or the words left showing when a part is unpinned).
 
 A review's owner can give it a **design context**: what the code can't say, such as what the change is for, the
 documents behind it (pasted, from a file, or a link), the conditions that matter (added or left out by hand) and a
