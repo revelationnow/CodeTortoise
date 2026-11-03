@@ -3,7 +3,7 @@ import pytest
 
 from codetortoise import design as rules
 from codetortoise.llm import design as dl
-from codetortoise.llm.design import prompt
+from codetortoise.llm.design import prompt, step_line
 
 
 @pytest.fixture
@@ -43,10 +43,22 @@ def test_the_prompt_lists_the_threads_checks_components_names_conditions_and_eac
     assert _walk(text, "W2").startswith("G1 false | T1 | S1, S2\n") and _walk(text, "W4").startswith("- | T2 | S5, S3\n")
 
 
-def test_a_long_walk_through_shows_its_first_steps_and_counts_the_rest(demo, made):
+def test_a_long_walk_through_shows_its_first_and_last_steps(demo, made):
     made.walks[0].steps = made.walks[0].steps * 2
+    n = len(made.walks[0].steps)
+    rows = _walk(prompt(made, demo.r, demo.ss), "W1").split("\n")[1:]
+    assert [r.split(".", 1)[0].strip() for r in rows] == [*"123456", "… +6 steps", *map(str, range(n - 5, n + 1))]
+    assert rows[-1] == f"  {n}. {step_line(made, made.walks[0].steps[-1])}"       # where it lands stays in
+
+
+def test_a_fold_reads_as_its_own_label_and_says_whether_it_holds_a_change(demo, made):
+    from codetortoise.design import WalkStep
+    s0 = made.walks[0].steps[0]
+    made.walks[0].steps[1:1] = [
+        WalkStep(kind="fold", src=s0.src, dst=s0.dst, label="… 13 steps", status="changed", folded=13),
+        WalkStep(kind="fold", src=s0.src, dst=s0.dst, label="… 2 returns", status="same", folded=2)]
     w1 = _walk(prompt(made, demo.r, demo.ss), "W1")
-    assert "\n  12. " in w1 and "\n  13. " not in w1 and w1.endswith("\n  … +6 more steps")
+    assert "\n  2. … 13 steps (some changed)\n  3. … 2 returns (unchanged)\n" in w1
 
 
 def test_the_prompt_lists_at_most_its_share_of_checks_and_names_hazards_first(demo, made, monkeypatch):
@@ -57,7 +69,7 @@ def test_the_prompt_lists_at_most_its_share_of_checks_and_names_hazards_first(de
     text = prompt(made, made_r, demo.ss)
     checks = text.split("CHECKS BY CAUSE (id | kind | thread | story | what):\n", 1)[1].split("\nCOMPONENTS", 1)[0]
     assert [line.split(" | ")[0] for line in checks.splitlines()] == ["c504c9fbd94", "c8143badb9b", "… +4 more checks"]
-    names = text.split("FUNCTIONS AND FIELDS (id | name | component | where):\n", 1)[1].split("\nCONDITIONS", 1)[0]
+    names = text.split("FUNCTIONS AND FIELDS (id | name | component | where):\n", 1)[1].split("\nCONDITION TO NAME", 1)[0]
     assert [line.split(" | ")[0] for line in names.splitlines()] == ["N2", "N3", "N4", "… +8 more"]
 
 
@@ -182,6 +194,19 @@ def test_a_model_title_equal_to_a_fixed_title_that_stays_fails(demo, made):
     assert _write(demo, d, _with(walks=[first, {**GOOD["walks"][1], "lead": ""}, *GOOD["walks"][2:]]))[0] == [
         "design: 2 walk-through title(s) failed the checks"]
     assert [w.title for w in d.walks[:2]] == ["When `len > 64`", "When `len > 64` is false"]
+
+
+def test_only_the_shown_condition_is_named_and_checked(demo, made):
+    made.gates.append(made.gates[0].model_copy(update={"id": "G2", "test": "n == 0", "lines": [], "runs": 0, "stops": 0}))
+    text = prompt(made, demo.r, demo.ss)
+    assert ("\nCONDITION TO NAME (id | test | function | where | changed lines that still run when it is false | that "
+            "stop):\nG1 | len > 64 | uart_send | driver/uart.c:16 | 9 | 2\nOTHER CONDITIONS, context only (id | test | "
+            "function | where):\nG2 | n == 0 | uart_send | driver/uart.c:16\n") in text
+    assert _write(demo, made, GOOD) == ([], "big")                     # G2 is context: no name asked, none missing
+    assert made.gates[1].false_case == "" and "gate:G2" not in made.sources
+    d = rules.build_design(demo.x, demo.ss, demo.det, demo.r, demo.per, lines=demo.lines, read_text=demo.read_text)
+    d.gates[0].lines = []                                               # no fold on the overview: nothing to name
+    assert "\nCONDITION TO NAME (" in prompt(d, demo.r, demo.ss) and _write(demo, d, _with(conditions=[])) == ([], "big")
 
 
 def test_several_failing_parts_are_named_together(demo, made):

@@ -24,10 +24,10 @@ from codetortoise.llm.tiers import TiersFailed, done_text, tried_note, try_tiers
 from codetortoise.reading import Cause, Reading
 from codetortoise.stories import StorySet
 
-DESIGN_VERSION = 3                    # bump with every change to the prompt or its checks (keys its cache)
+DESIGN_VERSION = 4                    # bump with every change to the prompt or its checks (keys its cache)
 CAUSES_SHOWN = 30                     # §14: about 6k tokens in; only what is listed may be cited
 NODES_SHOWN = 60
-STEPS_SHOWN = 12                      # a walk-through's steps; the rest are counted
+STEPS_SHOWN = 12                      # a walk-through's steps, half from each end; the rest are counted
 MAX_CONCERNS = 6
 MAX_OWNERSHIP = 8
 ASSESSMENTS = ("right", "note", "confirm", "ask")
@@ -54,11 +54,11 @@ row lists the checks it rests on in "causes". Write "ownership": short lines on 
 change makes, or what it leaves undone, each with a "tag" ("right", "questionable", "shortfall" or "note"), one or two \
 sentences of "text" and "cites": the ids of the functions or fields, the changed files or the stories it rests on. For \
 each walk-through write a "title" (at most 8 words, naming the case it follows, no final period) and a "lead" (1 or 2 \
-sentences: what it follows and where it lands). For each condition write "false_case": the case when its test is \
-false, in at most 8 words, no final period. Cite only the ids listed. In the words, write names, never ids. A DESIGN \
-CONTEXT, when given, is the review owner's word on what the change is for and what the code can't say: draw the \
-concerns from it as well as the stories, and say in the verdict where the change falls short of it; cite nothing from \
-it."""
+sentences: what it follows and where it lands). For the condition to name, write "false_case": the case when its \
+test is false, in at most 8 words, no final period; the other conditions are context only. Cite only the ids listed. \
+In the words, write names, never ids. A DESIGN CONTEXT, when given, is the review owner's word on what the change is \
+for and what the code can't say: draw the concerns from it as well as the stories, and say in the verdict where the \
+change falls short of it; cite nothing from it."""
 
 
 def _shown(d: ReadingDesign, r: Reading) -> tuple[list[Cause], list[str]]:
@@ -73,17 +73,23 @@ def _name(d: ReadingDesign, nid: str) -> str:
     return n.label if n is not None else nid
 
 
+def shown_gate(d: ReadingDesign):
+    """The condition the overview shows (frontend foldGate): the first, when it lists lines; the only one named."""
+    return d.gates[0] if d.gates and d.gates[0].lines else None
+
+
 def step_line(d: ReadingDesign, s: WalkStep) -> str:
     """A walk-through step as the prompt reads it: what happens, in names and code, then whether it is new and where it
-    comes from."""
+    comes from. A fold reads as the page words it: its own label, and whether a step in it changed."""
+    if s.kind == "fold":
+        return f"{s.label or f'… {s.folded} steps'} ({'unchanged' if s.status == 'same' else 'some changed'})"
     a, b = f"`{_name(d, s.src)}`", f"`{_name(d, s.dst)}`"
     code = f"`{s.label.replace('`', chr(39))}`" if s.label else ""
     said = {"call": f"{a} calls {code or b}",
             "return": f"{a} returns {code} to {b}" if code else f"{a} returns to {b}",
             "self": f"{a}: {code}" if code else a,
             "write": f"{a} writes {b}" + (f": {code}" if code else ""),
-            "read": f"{b} reads {a}" + (f": {code}" if code else ""),
-            "fold": f"… {s.folded} more call{'' if s.folded == 1 else 's'}"}[s.kind]
+            "read": f"{b} reads {a}" + (f": {code}" if code else "")}[s.kind]
     story = s.story or "a story"
     ref = {"path": f"{story}'s call path", "change": f"{story}'s change",
            "flow": f"{story} flow {s.flow_n}" + (f", check {s.cause}" if s.cause else ""), "code": "unchanged code"}[s.ref]
@@ -116,17 +122,28 @@ def prompt(d: ReadingDesign, r: Reading, ss: StorySet, context: str = "") -> str
         lines.append(f"{nid} | {n.label} | {n.component or '-'} | {n.path}" + (f":{n.line}" if n.line else ""))
     if len(d.nodes) > len(nodes):
         lines.append(f"… +{len(d.nodes) - len(nodes)} more")
-    lines.append("CONDITIONS (id | test | function | where | changed lines that still run when it is false | that stop):")
-    lines += [f"{g.id} | {g.test} | {_name(d, g.node)} | {g.path}" + (f":{g.line}" if g.line else "")
-              + f" | {g.runs} | {g.stops}" for g in d.gates] or ["(none)"]
+    shown = shown_gate(d)
+
+    def where(g) -> str:
+        return f"{g.id} | {g.test} | {_name(d, g.node)} | {g.path}" + (f":{g.line}" if g.line else "")
+    lines.append("CONDITION TO NAME (id | test | function | where | changed lines that still run when it is false | "
+                 "that stop):")
+    lines.append(f"{where(shown)} | {shown.runs} | {shown.stops}" if shown is not None else "(none)")
+    if any(g is not shown for g in d.gates):
+        lines.append("OTHER CONDITIONS, context only (id | test | function | where):")
+        lines += [where(g) for g in d.gates if g is not shown]
     lines.append("WALK-THROUGHS (id | case | anchored on | stories):")
     for w in d.walks:
         case = f"{w.condition} {'true' if w.case else 'false'}" if w.condition else "-"
         anchor = f"{w.connection[0]} with {w.connection[1]}" if w.connection else (w.thread or "-")
         lines.append(f"{w.id} | {case} | {anchor} | {', '.join(w.stories) or '-'}")
-        lines += [f"  {i}. {step_line(d, s)}" for i, s in enumerate(w.steps[:STEPS_SHOWN], 1)]
-        if len(w.steps) > STEPS_SHOWN:
-            lines.append(f"  … +{len(w.steps) - STEPS_SHOWN} more steps")
+        steps = list(enumerate(w.steps, 1))
+        if len(steps) > STEPS_SHOWN:                 # its first steps and its last: where it lands stays in
+            half = STEPS_SHOWN // 2
+            lines += [f"  {i}. {step_line(d, s)}" for i, s in steps[:half]]
+            lines.append(f"  … +{len(steps) - STEPS_SHOWN} steps")
+            steps = steps[-half:]
+        lines += [f"  {i}. {step_line(d, s)}" for i, s in steps]
     if not d.walks:
         lines.append("(none)")
     return ASK + "\n\n" + "\n".join(lines)
@@ -254,9 +271,9 @@ def apply_answer(d: ReadingDesign, r: Reading, out: _Out, only: str | None = Non
             (w.title, w.lead), w.title_source, d.sources[f"walk:{w.id}"] = passing[w.id], "llm", "llm"
     if len(asked) > len(passing):
         bad.append(f"{len(asked) - len(passing)} walk-through title(s)")
-    cases, failed = {g.id: g for g in out.conditions}, 0
+    cases, failed, shown = {g.id: g for g in out.conditions}, 0, shown_gate(d)
     for g in d.gates:
-        if not asks(f"gate:{g.id}"):
+        if not asks(f"gate:{g.id}") or (only is None and g is not shown):     # the others are context, never named
             continue
         a = cases.get(g.id)
         case = a.false_case.strip() if a else ""
