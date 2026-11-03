@@ -51,15 +51,18 @@ def done_text(t: Tried, verb: str) -> str:
 
 
 def try_tiers[T](ledger: Ledger | None, rid: int | None, purpose: str, target: str, fn: Callable[[LlmClient], T],
-              strong: LlmClient, weak: LlmClient | None, skip_strong: bool = False, user: str | None = None) -> Tried[T]:
+              strong: LlmClient, weak: LlmClient | None, skip_strong: bool = False, user: str | None = None,
+              once: bool = False) -> Tried[T]:
     """`fn` on each try in turn until one answers. Refused (the budget) stops at once; an unreachable strong model
-    is not tried fresh; `skip_strong` starts at the weak model. `user`: whom the calls are charged to (None: the
-    pipeline). Raises TiersFailed when every try failed."""
+    is not tried fresh; `skip_strong` starts at the weak model; `once` tries the strong model alone, one call (a
+    reader's rewrite). `user`: whom the calls are charged to (None: the pipeline). Raises TiersFailed when every try
+    failed."""
     tries: list[tuple[Tier, LlmClient, str, str]] = []
     if not skip_strong:
-        tries += [("strong", strong.with_start(strong.max_output_tokens), target, strong.model),
-                  ("fresh", strong.with_start(min(strong.cap, 2 * strong.base)), f"{target} (fresh)", "fresh try")]
-    if weak is not None:
+        tries.append(("strong", strong.with_start(strong.max_output_tokens), target, strong.model))
+        if not once:
+            tries.append(("fresh", strong.with_start(min(strong.cap, 2 * strong.base)), f"{target} (fresh)", "fresh try"))
+    if weak is not None and not once:
         tries.append(("weak", weak.with_start(min(weak.cap, 4 * max(weak.base, strong.base))), f"{target} (weak)",
                       weak.model))
     failures: list[str] = []

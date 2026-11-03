@@ -898,15 +898,15 @@ def create_app(reg: Registry, authenticate) -> FastAPI:
             raise HTTPException(404, str(e)) from e
         except ondemand.Pinned as e:
             raise HTTPException(409, str(e)) from e
-        if any(j["status"] == "running" and j["kind"] == "design" and j["target"] == part
-               for j in reg.pool.jobs.get(rid, [])):
-            raise HTTPException(409, "this part is being rewritten; wait for it to finish")
         reason = svc.ledger.check(rid, a.user)
         if reason:
             raise HTTPException(429, reason)
         words = body.instruction.strip()
-        return a.ws.runner.submit_ai(rid, a.user, "design", part,
-                                     lambda: ondemand.rewrite_design(svc, rid, a.user, part, words))
+        job = a.ws.runner.submit_ai(rid, a.user, "design", part,
+                                    lambda: ondemand.rewrite_design(svc, rid, a.user, part, words), alone=True)
+        if job is None:                                       # checked and queued as one step: two at once start one
+            raise HTTPException(409, "this part is being rewritten; wait for it to finish")
+        return job
 
     @app.post("/api/reviews/{rid}/design/{part}/pin")
     def pin_design(rid: int, part: str, body: PinIn, a: Access = Depends(owner_in_review)):

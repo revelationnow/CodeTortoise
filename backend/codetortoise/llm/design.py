@@ -431,18 +431,18 @@ def rewrite_prompt(d: ReadingDesign, r: Reading, ss: StorySet, part: str, contex
 
 
 def rewrite_part(strong: LlmClient, ledger: Ledger | None, rid: int | None, user: str | None, d: ReadingDesign,
-                 r: Reading, ss: StorySet, part: str, instruction: str = "", context: str = "",
-                 weak: LlmClient | None = None) -> tuple[ReadingDesign | None, str]:
+                 r: Reading, ss: StorySet, part: str, instruction: str = "",
+                 context: str = "") -> tuple[ReadingDesign | None, str]:
     """Ask for part `part` of `d` again (§10's AI menu), charged to `user` as a "rewrite", with their instruction when
-    given, through the tiers as the design call goes. Returns a copy of `d` with that part rewritten, marked the model's
-    and recorded as `user`'s rewrite with their instruction (None: the answer, or any one row of it, failed the part's
-    checks) and the model that answered; `d` is left as it was. Raises Refused over a limit and TiersFailed when no
-    model answered."""
+    given: one call to the strong model, as the menu says (no fresh try, no weak model). Returns a copy of `d` with
+    that part rewritten, marked the model's and recorded as `user`'s rewrite with their instruction (None: the answer,
+    or any one row of it, failed the part's checks) and the model that answered; `d` is left as it was. Raises Refused
+    over a limit and TiersFailed when the strong model did not answer."""
     text = rewrite_prompt(d, r, ss, part, context, instruction)
 
     def ask(llm: LlmClient) -> _Out:
         return llm.complete_json(SYSTEM, text, _Out)
-    tried = try_tiers(ledger, rid, "rewrite", part, ask, strong, weak, user=user)
+    tried = try_tiers(ledger, rid, "rewrite", part, ask, strong, None, user=user, once=True)
     trial = d.model_copy(deep=True)
     trial.sources.pop(part, None)
     bad = apply_answer(trial, r, tried.value, only=part)      # one failing row fails the whole part (final review I1)

@@ -823,11 +823,15 @@ class JobRunner:
         self._pending_lock = threading.Lock()
         self._stop = threading.Event()                   # set by stop(): an index build ends early
 
-    def submit_ai(self, rid: int, user: str, kind: str, target: str, fn: Callable[[], None]) -> dict:
+    def submit_ai(self, rid: int, user: str, kind: str, target: str, fn: Callable[[], None],
+                  alone: bool = False) -> dict | None:
         """Queue one AI job for review `rid`; its status ("running", "done", "failed", "refused") is kept in
-        `ai_jobs` for the review's AI view."""
+        `ai_jobs` for the review's AI view. `alone`: none (None) while a job of the same kind and target runs for the
+        review, decided with the queueing as one step."""
         with self.pool.lock:
             jobs = self.ai_jobs.setdefault(rid, [])
+            if alone and any(j["status"] == "running" and (j["kind"], j["target"]) == (kind, target) for j in jobs):
+                return None
             self.pool.ids[rid] = self.pool.ids.get(rid, 0) + 1    # never reused, though only the last 50 are kept
             job = {"id": self.pool.ids[rid], "user": user, "kind": kind, "target": target, "status": "running",
                    "error": None}

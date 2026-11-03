@@ -266,9 +266,11 @@ def rewrite_design(svc: Services, rid: int, user: str, part: str, instruction: s
     d, r, ss, context = _design_now(svc, rid)
     if not has_part(d, part):
         raise NotFound(f"{part} is not a part of the design overview")
+    if d.sources.get(part) == "pinned":                   # pinned while the job waited: no call spent on it
+        raise Changed("the part was pinned while the rewrite waited; nothing was asked")
     seen = design_key(model, design_prompt(d, r, ss, context))
     try:
-        new, _ = rewrite_part(svc.strong, svc.ledger, rid, user, d, r, ss, part, instruction, context, weak=svc.llm)
+        new, _ = rewrite_part(svc.strong, svc.ledger, rid, user, d, r, ss, part, instruction, context)
     except TiersFailed as e:
         raise Unchecked(tried_note("the AI did not answer", e.failures, "nothing was changed. Try again")) from e
     if new is None:

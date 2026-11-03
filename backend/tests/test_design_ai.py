@@ -107,8 +107,7 @@ def test_an_answer_that_fails_or_no_model_changes_nothing_and_says_why(made):
     assert (_job(owner, rid)["status"], _job(owner, rid)["error"]) == ("failed", ondemand.UNCHECKED)
     llm.answer = lambda s, u: RuntimeError("down")
     owner.post(f"/api/reviews/{rid}/design/verdict/rewrite", json={})
-    assert _job(owner, rid)["error"] == ("the AI did not answer: big: RuntimeError: down; fresh try: RuntimeError: down; "
-                                         "nothing was changed. Try again")
+    assert _job(owner, rid)["error"] == "the AI did not answer: big: RuntimeError: down; nothing was changed. Try again"
     assert _design(owner, rid) == before
 
 
@@ -213,3 +212,45 @@ def test_a_rewrite_on_a_degraded_design_outlives_a_re_run_that_asks_again(fx, tm
     run_review(rid, svc)
     assert sum("CHECKS BY CAUSE (id" in p for p in llm.prompts) == asked + 1      # nothing kept: asked again
     assert _design(owner, rid)["verdict"] == SHORT
+
+
+def test_a_rewrite_asks_the_strong_model_once(fx, tmp_path):
+    """Phase 4 M1: the menu says one AI call, so a failing rewrite is not tried fresh, nor on the weak model."""
+    from scripted_llm import ScriptedLlm
+
+    def answer(system, user):
+        return RuntimeError("down") if "REWRITE:" in user else _answer(system, user)
+    svc = make_services(fx, tmp_path)
+    llm = _strong(svc, answer)
+    owner = login(make_app(svc, InlineRunner(svc)), "owner")
+    rid = owner.post("/api/reviews", json={"cls": [101, 102]}).json()["id"]
+    svc.llm = weak = ScriptedLlm(_answer, "small")
+    assert owner.post(f"/api/reviews/{rid}/design/verdict/rewrite", json={}).status_code == 202
+    assert sum("REWRITE:" in p for p in llm.prompts) == 1 and weak.prompts == []
+    assert _job(owner, rid)["status"] == "failed" and "big: RuntimeError: down" in _job(owner, rid)["error"]
+
+
+def test_a_part_pinned_while_its_rewrite_waits_costs_no_call(made):
+    """Phase 4 M2: a job that starts after its part was pinned asks nothing."""
+    svc, _, owner, rid, llm = made
+    owner.post(f"/api/reviews/{rid}/design/verdict/pin", json={"pinned": True})   # while the job waited in the queue
+    asked = len(llm.prompts)
+    with pytest.raises(ondemand.Changed, match="pinned"):
+        ondemand.rewrite_design(svc, rid, "bob", "verdict")
+    assert len(llm.prompts) == asked
+
+
+def test_two_requests_at_once_start_one_rewrite(made):
+    """Phase 4 M2: the check for a running rewrite of the part and the job's start are one step."""
+    import threading
+
+    from codetortoise.pipeline import JobRunner
+    svc, _, _, rid, _ = made
+    runner, hold = JobRunner(svc), threading.Event()
+    try:
+        first = runner.submit_ai(rid, "owner", "design", "verdict", hold.wait, alone=True)
+        second = runner.submit_ai(rid, "bob", "design", "verdict", hold.wait, alone=True)
+        other = runner.submit_ai(rid, "bob", "design", "concerns", lambda: None, alone=True)
+    finally:
+        hold.set()
+    assert first is not None and second is None and other is not None

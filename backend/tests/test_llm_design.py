@@ -384,7 +384,7 @@ def test_a_rewrite_over_a_limit_is_refused_and_one_no_model_answers_raises(demo,
             raise Refused("you've used your 20 AI calls today")
     with pytest.raises(Refused):
         dl.rewrite_part(ScriptedLlm(lambda s, u: GOOD), Budget(), 1, "bob", made, demo.r, demo.ss, "verdict")
-    with pytest.raises(TiersFailed, match="big: RuntimeError: down; fresh try: RuntimeError: down"):
+    with pytest.raises(TiersFailed, match="^big: RuntimeError: down$"):
         dl.rewrite_part(ScriptedLlm(lambda s, u: RuntimeError("down")), None, None, "bob", made, demo.r, demo.ss,
                         "verdict")
 
