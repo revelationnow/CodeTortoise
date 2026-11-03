@@ -211,6 +211,17 @@ def test_the_true_side_of_a_case_runs_the_arms_after_it_only_when_it_falls_throu
         ("call", "main", "on", 3), ("call", "on", "b", 8), ("call", "on", "c", 10)]
 
 
+def test_the_true_side_of_a_case_under_an_ifdef_runs_no_other_arm_of_its_switch():
+    """Final review minor 4: a case the preprocessor wraps sits in the #ifdef, not in the switch's body; its switch is
+    still the one around it."""
+    on = ("on", "drv/s.c", ["switch (m) {", "case 1:", "\ta();", "\tbreak;", "case 3:", "\tc();", "\tbreak;", "}"],
+          ["switch (m) {", "case 1:", "\ta();", "\tbreak;", "#ifdef FAST", "case 2:", "\tb();", "\tbreak;", "#endif",
+           "case 3:", "\tc();", "\tbreak;", "}"])
+    rest = [_changed("a"), _changed("b"), _changed("c"), ("main", "app/m.c", ["on();"], ["on();"])]
+    sides = _sides([on, *rest], [("on", "a"), ("on", "b"), ("on", "c"), ("main", "on")], [5, 9, 12, 3], "on")
+    assert [s for s in sides[True] if s[0] == "call"] == [("call", "main", "on", 3), ("call", "on", "b", 9)]
+
+
 def test_a_block_that_jumps_away_skips_the_lines_up_to_where_it_lands():
     goto = ("send", "drv/s.c", ["go();", "done();"], ["if (len > 64)", "\tgoto out;", "go();", "out:", "done();"])
     sides = _sides([goto, _changed("go"), _changed("done"), MAIN], [("send", "go"), ("send", "done"), ("main", "send")],

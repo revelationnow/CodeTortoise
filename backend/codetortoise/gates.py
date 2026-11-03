@@ -189,7 +189,9 @@ def _case_branch(node, src: bytes, ln, nid: str, path: str) -> Branch | None:
     value = node.child_by_field_name("value")
     if value is None:                                      # default: no condition of its own
         return None
-    sw = node.parent.parent if node.parent is not None else None
+    sw = node.parent                                       # its switch: the nearest round it (an #ifdef may sit between)
+    while sw is not None and sw.type not in ("switch_statement", "function_definition"):
+        sw = sw.parent
     test = sw.child_by_field_name("condition") if sw is not None and sw.type == "switch_statement" else None
     subject = _cond_text(src, test)
     v = norm_ws(_txt(src, value))
