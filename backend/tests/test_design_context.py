@@ -335,6 +335,50 @@ def test_a_transport_failure_says_why():
             read_link(f"https://wiki.example.com/design/{path}", SITE, c)
 
 
+def test_a_certificate_failure_says_what_is_wrong():
+    """Final review minor 5: the SSL_CERT_FILE advice is for a certificate signed by an authority the server doesn't
+    know; any other failed check (an expired certificate, another host's name) is said in OpenSSL's words, found on the
+    ssl error the transport error comes of, or in its text."""
+    import ssl
+    trust = ("The site's certificate is not trusted by this server: its host can add the authority that signed it to "
+             "the bundle SSL_CERT_FILE names.")
+
+    def failed(check: str, said: bool) -> httpx.ConnectError:
+        e = ssl.SSLCertVerificationError(1, f"[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: {check} "
+                                            "(_ssl.c:1006)")
+        e.verify_message = check
+        out = httpx.ConnectError(str(e) if said else "connect failed")
+        out.__cause__ = e
+        return out
+    cases = {"expired": (failed("certificate has expired", False),
+                         "The site's certificate is not valid: certificate has expired."),
+             "said": (failed("certificate has expired", True),
+                      "The site's certificate is not valid: certificate has expired."),
+             "text": (httpx.ConnectError("[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: certificate is "
+                                         "not yet valid (_ssl.c:1006)"),
+                      "The site's certificate is not valid: certificate is not yet valid."),
+             "name": (failed("Hostname mismatch, certificate is not valid for 'wiki.example.com'.", False),
+                      "The site's certificate is not valid: Hostname mismatch, certificate is not valid for "
+                      "'wiki.example.com'."),
+             "issuer": (failed("unable to get local issuer certificate", False), trust),
+             "chain": (failed("self-signed certificate in certificate chain", False), trust),
+             "self": (failed("self signed certificate", True), trust)}
+
+    def answer(req):
+        raise cases[req.url.path.rsplit("/", 1)[1]][0]
+    c = _client(answer)
+    for name, (_, said) in cases.items():
+        with pytest.raises(LinkRefused) as e:
+            read_link(f"https://wiki.example.com/design/{name}", SITE, c)
+        assert str(e.value) == said, name
+
+
+def test_the_cap_message_names_a_document_with_a_blank_name_in_words():
+    """A document named only with spaces is "the document with no name" in the cap's message, not "the document ,"."""
+    c = DesignContext(notes="x" * 2000, documents=[ContextDoc(name="   ", text="y" * 11_000)])
+    assert over_cap(c).endswith("The longest part is the document with no name, at 11,000 characters.")
+
+
 def test_over_the_cap_the_message_names_the_longest_document():
     """Phase 3 minor 8: over the cap, the message names the longest part (a document, or the notes) and its size, so
     the owner knows what to shorten."""

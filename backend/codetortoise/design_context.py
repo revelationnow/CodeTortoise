@@ -66,8 +66,8 @@ def over_cap(c: DesignContext) -> str | None:
     n = len(context_text(c))
     if n <= CAP:
         return None
-    parts = [("the notes", len(c.notes.strip()))] + [(f"the document {d.name.strip()}", len(d.text.strip()))
-                                                     for d in c.documents]
+    parts = [("the notes", len(c.notes.strip()))] + [(f"the document {d.name.strip() or 'with no name'}",
+                                                      len(d.text.strip())) for d in c.documents]
     what, size = max(parts, key=lambda p: p[1])
     return (f"The design context is {n:,} characters; it holds at most {CAP:,}. The longest part is {what}, at "
             f"{size:,} characters.")
@@ -164,24 +164,40 @@ def _slow() -> str:
     return f"The link took longer than {LINK_TIMEOUT:g} s to read."
 
 
-def _untrusted(e: BaseException | None) -> bool:
-    """Whether transport error `e` comes of a certificate this server does not trust."""
-    for _ in range(10):                                # the chain of causes, as httpx and httpcore wrap the ssl error
-        if e is None:
-            return False
-        if isinstance(e, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(e):
-            return True
+# failed checks of a certificate signed by an authority this server doesn't know, in OpenSSL's words (1.1 and 3)
+_UNKNOWN_AUTHORITY = ("unable to get local issuer certificate", "unable to get issuer certificate",
+                      "unable to verify the first certificate", "self-signed certificate", "self signed certificate")
+
+
+def _certificate(e: BaseException | None) -> str | None:
+    """The check a certificate failed, when transport error `e` comes of one: the ssl error's own words found in its
+    chain of causes (as httpx and httpcore wrap it), else those after "certificate verify failed: " in a text of the
+    chain, else ""; None when `e` doesn't come of a certificate."""
+    chain = []
+    while e is not None and len(chain) < 10:
+        chain.append(e)
         e = e.__cause__ or e.__context__
-    return False
+    for x in chain:
+        if isinstance(x, ssl.SSLCertVerificationError) and getattr(x, "verify_message", None):
+            return x.verify_message
+    for x in chain:
+        if isinstance(x, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(x):
+            m = re.search(r"certificate verify failed: (.*?)\s*(?:\(_ssl\.c:\d+\))?$", str(x))
+            return m.group(1) if m else ""
+    return None
 
 
 def _why(e: httpx.HTTPError) -> str:
-    """A transport failure in words for the owner (phase 3 minor 9)."""
+    """A transport failure in words for the owner (phase 3 minor 9): a certificate signed by an authority this server
+    doesn't know gets the advice that fixes it; another failed check is said as OpenSSL says it (final review minor 5)."""
     if isinstance(e, httpx.TimeoutException):
         return _slow()
-    if _untrusted(e):
-        return ("The site's certificate is not trusted by this server: its host can add the authority that signed it to "
-                "the bundle SSL_CERT_FILE names.")
+    check = _certificate(e)
+    if check is not None:
+        if not check or any(w in check.lower() for w in _UNKNOWN_AUTHORITY):
+            return ("The site's certificate is not trusted by this server: its host can add the authority that signed it "
+                    "to the bundle SSL_CERT_FILE names.")
+        return f"The site's certificate is not valid: {check.rstrip('.')}."
     if isinstance(e, httpx.ConnectError):
         return "The site could not be reached."
     return f"The link could not be read ({type(e).__name__})."
