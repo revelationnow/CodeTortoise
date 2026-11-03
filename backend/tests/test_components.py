@@ -7,11 +7,11 @@ from codetortoise.config import ComponentRule
 
 
 def test_the_demo_sits_in_five_components_banded_by_layer(demo):
-    comps, node_comp = build_components(demo.x, demo.ss, demo.r, demo.per, rules=[])
+    comps, node_comp = build_components(demo.x, demo.ss, demo.r, demo.per, rules=[], details=demo.det)
     assert [(c.name, c.level, c.band, c.threads, c.quiet) for c in comps] == [
         ("service", 3, "service", ["T2"], False), ("driver", 2, "driver", ["T1"], False),
         ("hal", 1, "hal", ["T1"], False), ("cpp", 0, "cpp, include/hal", ["T3"], True),
-        ("include/hal", 0, "cpp, include/hal", [], False)]
+        ("include/hal", 0, "cpp, include/hal", ["T1"], False)]
     by = {c.name: c for c in comps}
     assert by["service"].crossing == ["`logger_flush`, `logger_write` call `uart_send`", "`main` calls `logger_init`"]
     assert by["driver"].crossing == ["`uart_init`, `uart_send` call `hal_write`"]
@@ -22,6 +22,12 @@ def test_the_demo_sits_in_five_components_banded_by_layer(demo):
     named = {demo.x.label(n): c for n, c in node_comp.items()}
     assert (named["main"], named["uart_send"], named["Regs::ctrl"]) == ("app", "driver", "include/hal")
 
+
+
+def test_a_component_of_declarations_names_the_threads_that_change_it(demo):
+    comps, _ = build_components(demo.x, demo.ss, demo.r, demo.per, rules=[], details=demo.det)
+    hal = next(c for c in comps if c.name == "include/hal")              # only regs.h: S2's declarations piece
+    assert (hal.threads, hal.stories, hal.files) == (["T1"], ["S2"], ["include/hal/regs.h"])
 
 def test_components_from_config_take_the_first_rule_a_file_matches(demo):
     rules = [ComponentRule(name="Driver", globs=["driver/*"]), ComponentRule(name="HAL", globs=["hal/*", "include/hal/*"]),

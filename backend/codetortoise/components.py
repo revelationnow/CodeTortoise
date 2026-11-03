@@ -36,10 +36,11 @@ def _names(x, nids) -> str:
     return head + (f" and {len(names) - NAMES} more" if len(names) > NAMES else "")
 
 
-def build_components(x, ss, r, per, rules=None) -> tuple[list[Component], dict[str, str]]:
+def build_components(x, ss, r, per, rules=None, details=None) -> tuple[list[Component], dict[str, str]]:
     """The components holding the change's files, highest layer first, and every node's component. An edge crosses
     when its ends sit in two components and one end is changed code; its sentence goes on its source's block when that
-    holds changed files, else on its destination's. A component no crossing edge touches is quiet."""
+    holds changed files, else on its destination's. A component no crossing edge touches is quiet. A component's
+    stories are those whose reading or pieces (`details`: a header's declarations) touch its files."""
     rules = x.c.cfg.components if rules is None else rules
     files: dict[str, list[str]] = {}
     levels: dict[str, list[int]] = {}
@@ -82,11 +83,14 @@ def build_components(x, ss, r, per, rules=None) -> tuple[list[Component], dict[s
         said.setdefault(home, []).append((len(others), text))
     thread_of = {sid: t.id for t in r.threads for sid in t.stories}
     comp_of_rel = {f: name for name, fs in files.items() for f in fs}
+    rel_of = {fc.depot: rel_path(x, fc.local) for fc in x.c.cs.files}
     holders: dict[str, list[str]] = {}
     for sid in r.order:
-        sr = per.get(sid)
-        for w in sr.where if sr is not None else []:
-            name = comp_of_rel.get(w.path)
+        sr, d = per.get(sid), (details or {}).get(sid)
+        paths = [w.path for w in (sr.where if sr is not None else [])]
+        paths += [rel_of.get(f, f) for p in (d.pieces if d is not None else []) for f in p.files]
+        for path in paths:
+            name = comp_of_rel.get(path)
             if name is not None and sid not in holders.setdefault(name, []):
                 holders[name].append(sid)
     out: list[Component] = []

@@ -137,7 +137,7 @@ def build_design(x, ss, details, r, per, *, lines=None, read_text=None, context=
     from codetortoise.walks import build_walks
     src = Sources(x, read_text)
     rules = context.components if context is not None and context.components else None
-    components, node_comp = build_components(x, ss, r, per, rules)
+    components, node_comp = build_components(x, ss, r, per, rules, details)
     notes: list[str] = []
     gates, branches = build_gates(x, ss, r, src, lines, hand=context.conditions if context is not None else None,
                                   notes=notes)
