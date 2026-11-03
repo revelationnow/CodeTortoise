@@ -60,6 +60,8 @@ test.describe("desktop", () => {
     await page.setViewportSize({ width: 1440, height: 300 });          // short, so the outline scrolls
     const base = await startReview(page, FOUR);
     await page.locator("aside.ws-outline").getByRole("button", { name: /^Thread A:/ }).click();   // kept, so it reopens
+    // its stories' rows: the outline keeps its place only once they're there (scrolled before, a slow load kept nothing)
+    await expect(page.locator(".ws-outline").getByRole("link", { name: /^Go to story S1/ })).toBeVisible();
     const box = page.locator("aside.ws-outline .ws-rail-scroll");
     expect(await box.evaluate((e) => e.scrollHeight - e.clientHeight)).toBeGreaterThan(40);
     const want = await box.evaluate((e) => new Promise<number>((done) => {     // halfway down, once the outline saved it
