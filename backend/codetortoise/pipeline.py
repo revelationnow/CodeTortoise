@@ -30,7 +30,7 @@ from codetortoise.impact import ImpactModel, build_impact
 from codetortoise.layers import LayerModel
 from codetortoise.llm.account import write_accounts
 from codetortoise.llm.brief_context import brief_context
-from codetortoise.llm.design import DESIGN_VERSION, apply_design_text, design_text, write_design
+from codetortoise.llm.design import apply_design_text, design_key, design_text, write_design
 from codetortoise.llm.design import prompt as design_prompt
 from codetortoise.llm.intro import INTRO_VERSION, write_intro
 from codetortoise.llm.intro import prompt as intro_prompt
@@ -173,7 +173,7 @@ def _design_text(svc: Services, rid: int, d, r: Reading, ss, context: str, fresh
     or a new answer. Returns what the stage says, its notes and the design."""
     store, strong = svc.store, svc.cfg.llm.strong
     d = d.model_copy(deep=True)
-    key = hashlib.sha256(f"{DESIGN_VERSION}|{strong.model}|{design_prompt(d, r, ss, context)}".encode()).hexdigest()
+    key = design_key(strong.model, design_prompt(d, r, ss, context))
     kept = store.get_blob(rid, "design_text")
     if kept and kept.get("key") == key and not fresh:
         apply_design_text(d, kept)

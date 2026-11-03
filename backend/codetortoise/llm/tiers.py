@@ -51,9 +51,10 @@ def done_text(t: Tried, verb: str) -> str:
 
 
 def try_tiers[T](ledger: Ledger | None, rid: int | None, purpose: str, target: str, fn: Callable[[LlmClient], T],
-              strong: LlmClient, weak: LlmClient | None, skip_strong: bool = False) -> Tried[T]:
+              strong: LlmClient, weak: LlmClient | None, skip_strong: bool = False, user: str | None = None) -> Tried[T]:
     """`fn` on each try in turn until one answers. Refused (the budget) stops at once; an unreachable strong model
-    is not tried fresh; `skip_strong` starts at the weak model. Raises TiersFailed when every try failed."""
+    is not tried fresh; `skip_strong` starts at the weak model. `user`: whom the calls are charged to (None: the
+    pipeline). Raises TiersFailed when every try failed."""
     tries: list[tuple[Tier, LlmClient, str, str]] = []
     if not skip_strong:
         tries += [("strong", strong.with_start(strong.max_output_tokens), target, strong.model),
@@ -67,7 +68,7 @@ def try_tiers[T](ledger: Ledger | None, rid: int | None, purpose: str, target: s
         if tier == "fresh" and unreachable:
             continue
         try:
-            value = ledger.call(llm, rid, None, purpose, tgt, fn) if ledger is not None else fn(llm)
+            value = ledger.call(llm, rid, user, purpose, tgt, fn) if ledger is not None else fn(llm)
         except Refused:
             raise
         except Exception as e:  # this try failed: the next one goes on

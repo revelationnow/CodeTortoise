@@ -9,6 +9,7 @@ left out when it has none.
 """
 from __future__ import annotations
 
+import hashlib
 import re
 
 from pydantic import BaseModel, Field
@@ -31,6 +32,10 @@ MAX_CONCERNS = 6
 MAX_OWNERSHIP = 8
 ASSESSMENTS = ("right", "note", "confirm", "ask")
 TAGS = ("right", "questionable", "shortfall", "note")
+MAX_INSTRUCTION = 300                 # a reader's instruction to a rewrite, in characters (§10's AI menu)
+_WHAT = {"verdict": "the verdict", "concerns": "the concerns", "ownership": "the ownership lines"}
+_KEYS = {"verdict": '"verdict" and "verdict_causes"', "concerns": '"concerns"', "ownership": '"ownership"',
+         "walk": '"walks", with that walk-through alone', "gate": '"conditions", with that condition alone'}
 # a node, finding, thread, walk-through, condition or cause id: names belong in the words; a reader sees none of these
 _NO_IDS = re.compile(r"\b(?:[NFTWG]\d+|c[0-9a-f]{10})\b")
 
@@ -176,49 +181,59 @@ def _ids(xs: list[str]) -> list[str]:
     return list(dict.fromkeys(x.strip() for x in xs if x.strip()))
 
 
-def apply_answer(d: ReadingDesign, r: Reading, out: _Out) -> list[str]:
+def apply_answer(d: ReadingDesign, r: Reading, out: _Out, only: str | None = None) -> list[str]:
     """Write each part of `out` that passes its checks into `d`, marking it the model's in `d.sources`; returns the
-    parts that failed, worded for a note."""
+    parts that failed, worded for a note. `only`: the one part a rewrite asks for (`verdict`, `concerns`, `ownership`,
+    `walk:W1`, `gate:G1`); the rest of `out` is not read, and a walk-through's title must differ from every other's."""
     causes_shown, nodes_shown = _shown(d, r)
     causes = {c.id for c in causes_shown}
     stories = {s for t in r.threads for s in t.stories}
     citable = stories | set(nodes_shown) | {f for c in d.components for f in c.files}
+
+    def asks(part: str) -> bool:
+        return only is None or only == part
     bad: list[str] = []
-    verdict, named = out.verdict.strip(), _ids(out.verdict_causes)
-    if _prose(verdict, 2, 3) and all(c in causes for c in named) and (bool(named) or not causes):
-        d.verdict, d.verdict_causes, d.sources["verdict"] = verdict, named, "llm"
-    else:
-        bad.append("the verdict")
-    rows: list[Concern] = []
-    dropped = 0
-    for c in out.concerns[:MAX_CONCERNS]:
-        text, how, note, sids = c.text.strip(), c.how.strip(), c.note.strip(), _ids(c.stories)
-        if not (_headline(text) and _prose(how, 1, 1) and (not note or _prose(note, 1, 1)) and sids
-                and all(s in stories for s in sids) and c.assessment in ASSESSMENTS):
-            dropped += 1
-            continue
-        named, assessment = _ids(c.causes), c.assessment
-        if any(x not in causes for x in named) or (assessment in ("confirm", "ask") and not named):
-            assessment, named = "note", []           # a cause the review lacks: no chip, nothing to confirm (§6.1)
-        rows.append(Concern(text=text, how=how, stories=sids, assessment=assessment, note=note, causes=named))
-    if rows:
-        d.concerns, d.sources["concerns"] = rows, "llm"
-    if dropped or not rows:
-        bad.append(f"{dropped} concern(s)" if rows else "the concerns")
-    lines: list[Ownership] = []
-    dropped = 0
-    for o in out.ownership[:MAX_OWNERSHIP]:
-        text, cites = o.text.strip(), _ids(o.cites)
-        if o.tag in TAGS and _prose(text, 1, 2) and cites and all(x in citable for x in cites):
-            lines.append(Ownership(tag=o.tag, text=text, cites=cites))
+    if asks("verdict"):
+        verdict, named = out.verdict.strip(), _ids(out.verdict_causes)
+        if _prose(verdict, 2, 3) and all(c in causes for c in named) and (bool(named) or not causes):
+            d.verdict, d.verdict_causes, d.sources["verdict"] = verdict, named, "llm"
         else:
-            dropped += 1
-    if lines:
-        d.ownership, d.sources["ownership"] = lines, "llm"
-    if dropped:
-        bad.append(f"{dropped} ownership line(s)")
-    got, taken, failed = {w.id: w for w in out.walks}, set(), 0
+            bad.append("the verdict")
+    if asks("concerns"):
+        rows: list[Concern] = []
+        dropped = 0
+        for c in out.concerns[:MAX_CONCERNS]:
+            text, how, note, sids = c.text.strip(), c.how.strip(), c.note.strip(), _ids(c.stories)
+            if not (_headline(text) and _prose(how, 1, 1) and (not note or _prose(note, 1, 1)) and sids
+                    and all(s in stories for s in sids) and c.assessment in ASSESSMENTS):
+                dropped += 1
+                continue
+            named, assessment = _ids(c.causes), c.assessment
+            if any(x not in causes for x in named) or (assessment in ("confirm", "ask") and not named):
+                assessment, named = "note", []       # a cause the review lacks: no chip, nothing to confirm (§6.1)
+            rows.append(Concern(text=text, how=how, stories=sids, assessment=assessment, note=note, causes=named))
+        if rows:
+            d.concerns, d.sources["concerns"] = rows, "llm"
+        if dropped or not rows:
+            bad.append(f"{dropped} concern(s)" if rows else "the concerns")
+    if asks("ownership"):
+        lines: list[Ownership] = []
+        dropped = 0
+        for o in out.ownership[:MAX_OWNERSHIP]:
+            text, cites = o.text.strip(), _ids(o.cites)
+            if o.tag in TAGS and _prose(text, 1, 2) and cites and all(x in citable for x in cites):
+                lines.append(Ownership(tag=o.tag, text=text, cites=cites))
+            else:
+                dropped += 1
+        if lines:
+            d.ownership, d.sources["ownership"] = lines, "llm"
+        if dropped:
+            bad.append(f"{dropped} ownership line(s)")
+    got, failed = {w.id: w for w in out.walks}, 0
+    taken = {w.title.lower() for w in d.walks if not asks(f"walk:{w.id}")}
     for w in d.walks:
+        if not asks(f"walk:{w.id}"):
+            continue
         a = got.get(w.id)
         title, lead = (a.title.strip(), a.lead.strip()) if a else ("", "")
         if _headline(title) and title.lower() not in taken and _prose(lead, 1, 2):
@@ -230,6 +245,8 @@ def apply_answer(d: ReadingDesign, r: Reading, out: _Out) -> list[str]:
         bad.append(f"{failed} walk-through title(s)")
     cases, failed = {g.id: g for g in out.conditions}, 0
     for g in d.gates:
+        if not asks(f"gate:{g.id}"):
+            continue
         a = cases.get(g.id)
         case = a.false_case.strip() if a else ""
         if _headline(case):
@@ -285,3 +302,101 @@ def apply_design_text(d: ReadingDesign, kept: dict) -> None:
         if g.id in kept["gates"]:
             g.false_case = kept["gates"][g.id]
     d.sources.update(kept["sources"])
+
+
+def design_key(model: str, text: str) -> str:
+    """What blob `design_text` is kept under: the prompt, the model that answered it and DESIGN_VERSION."""
+    return hashlib.sha256(f"{DESIGN_VERSION}|{model}|{text}".encode()).hexdigest()
+
+
+def has_part(d: ReadingDesign, part: str) -> bool:
+    """Whether `part` names a part of `d` the model writes: `verdict`, `concerns`, `ownership`, `walk:W1`, `gate:G1`."""
+    kind, sep, pid = part.partition(":")
+    if kind == "walk":
+        return any(w.id == pid for w in d.walks)
+    if kind == "gate":
+        return any(g.id == pid for g in d.gates)
+    return not sep and kind in _WHAT
+
+
+def part_text(d: ReadingDesign, part: str) -> str:
+    """Part `part` of `d` as it stands, as a rewrite's prompt quotes it; "(none)" when it has no words yet."""
+    kind, _, pid = part.partition(":")
+    if kind == "verdict":
+        lines = [d.verdict] if d.verdict else []
+    elif kind == "concerns":
+        lines = [f"{i}. {c.text}: {c.how} ({c.assessment}{': ' + c.note if c.note else ''})"
+                 for i, c in enumerate(d.concerns, 1)]
+    elif kind == "ownership":
+        lines = [f"{o.tag}: {o.text}" for o in d.ownership]
+    elif kind == "walk":
+        w = next(w for w in d.walks if w.id == pid)
+        lines = [f"title: {w.title}"] + ([f"lead: {w.lead}"] if w.lead else [])
+    else:
+        g = next(g for g in d.gates if g.id == pid)
+        lines = [f"false case: {g.false_case}"] if g.false_case else []
+    return "\n".join(lines) or "(none)"
+
+
+def rewrite_prompt(d: ReadingDesign, r: Reading, ss: StorySet, part: str, context: str = "",
+                   instruction: str = "") -> str:
+    """The prompt that asks for one part again (§10's AI menu): the design's whole prompt, so the same ids are listed
+    and the same checks hold, then the part as it stands, then the reader's instruction when there is one."""
+    kind, _, pid = part.partition(":")
+    what = _WHAT.get(kind) or (f"walk-through {pid}'s title and lead" if kind == "walk" else f"condition {pid}'s false case")
+    tail = [f"REWRITE: write {what} again, and nothing else. As it stands:", part_text(d, part),
+            f"Reply with the same JSON object holding only {_KEYS[kind]}."]
+    if instruction.strip():
+        tail.append(f"THE REVIEWER'S INSTRUCTION (follow it within the rules above): {instruction.strip()}")
+    return prompt(d, r, ss, context) + "\n\n" + "\n".join(tail)
+
+
+def rewrite_part(strong: LlmClient, ledger: Ledger | None, rid: int | None, user: str | None, d: ReadingDesign,
+                 r: Reading, ss: StorySet, part: str, instruction: str = "", context: str = "",
+                 weak: LlmClient | None = None) -> tuple[ReadingDesign | None, str]:
+    """Ask for part `part` of `d` again (§10's AI menu), charged to `user` as a "rewrite", with their instruction when
+    given, through the tiers as the design call goes. Returns a copy of `d` with that part rewritten and marked the
+    model's (None: the answer failed the part's checks) and the model that answered; `d` is left as it was. Raises
+    Refused over a limit and TiersFailed when no model answered."""
+    text = rewrite_prompt(d, r, ss, part, context, instruction)
+
+    def ask(llm: LlmClient) -> _Out:
+        return llm.complete_json(SYSTEM, text, _Out)
+    tried = try_tiers(ledger, rid, "rewrite", part, ask, strong, weak, user=user)
+    trial = d.model_copy(deep=True)
+    trial.sources.pop(part, None)
+    apply_answer(trial, r, tried.value, only=part)
+    return (trial if trial.sources.get(part) == "llm" else None), tried.model
+
+
+def put_part(dst: ReadingDesign, src: ReadingDesign, part: str) -> None:
+    """Copy part `part` of `src` into `dst`, its source with it: a rewrite lands on the design as it is by then."""
+    kind, _, pid = part.partition(":")
+    if kind == "verdict":
+        dst.verdict, dst.verdict_causes = src.verdict, list(src.verdict_causes)
+    elif kind == "concerns":
+        dst.concerns = [c.model_copy(deep=True) for c in src.concerns]
+    elif kind == "ownership":
+        dst.ownership = [o.model_copy(deep=True) for o in src.ownership]
+    elif kind == "walk":
+        a, b = (next(w for w in x.walks if w.id == pid) for x in (src, dst))
+        b.title, b.lead, b.title_source = a.title, a.lead, a.title_source
+    else:
+        a, b = (next(g for g in x.gates if g.id == pid) for x in (src, dst))
+        b.false_case = a.false_case
+    dst.sources[part] = src.sources[part]
+
+
+def patch_kept(kept: dict, d: ReadingDesign, part: str) -> dict:
+    """Blob `design_text` with part `part` as `d` now has it: a later run of the same prompt keeps a rewrite."""
+    now, (kind, _, pid) = design_text(d), part.partition(":")
+    out = {**kept, "sources": {**kept["sources"], part: "llm"}}
+    if kind == "verdict":
+        out["verdict"], out["verdict_causes"] = now["verdict"], now["verdict_causes"]
+    elif kind in ("concerns", "ownership"):
+        out[kind] = now[kind]
+    elif kind == "walk":
+        out["walks"] = {**kept["walks"], pid: now["walks"][pid]}
+    else:
+        out["gates"] = {**kept["gates"], pid: now["gates"][pid]}
+    return out

@@ -237,3 +237,124 @@ def test_the_model_call_asks_with_the_design_context(demo, made):
     llm = ScriptedLlm(lambda system, user: design_answer(user))
     dl.write_design(llm, None, None, made, demo.r, demo.ss, context="Never drop a byte.")
     assert "DESIGN CONTEXT (from the review's owner):\nNever drop a byte.\n" in llm.prompts[0]
+
+
+REWRITTEN = "One new result goes unchecked. Settle whether `logger_flush` must handle the new -2."
+
+
+class _Calls:
+    """A ledger that records each call, then makes it."""
+
+    def __init__(self):
+        self.calls = []
+
+    def call(self, llm, rid, user, purpose, target, fn):
+        self.calls.append((rid, user, purpose, target))
+        return fn(llm)
+
+
+def test_the_parts_a_rewrite_may_ask_for(made):
+    assert all(dl.has_part(made, p) for p in ("verdict", "concerns", "ownership", "walk:W1", "gate:G1"))
+    assert not any(dl.has_part(made, p) for p in ("walk:W9", "gate:G9", "verdict:x", "nodes", "walk", ""))
+
+
+def test_a_rewrite_asks_for_one_part_as_it_stands_with_the_reader_s_instruction(demo, made):
+    _write(demo, made, GOOD)
+    text = dl.rewrite_prompt(made, demo.r, demo.ss, "walk:W2", "Never drop a byte.", "  Name the register it writes ")
+    assert text.startswith(prompt(made, demo.r, demo.ss, "Never drop a byte.") + "\n\n")
+    assert text.endswith("\n\nREWRITE: write walk-through W2's title and lead again, and nothing else. As it stands:\n"
+                         "title: A write that fits\nlead: It follows a short write down to `hal_write`.\n"
+                         'Reply with the same JSON object holding only "walks", with that walk-through alone.\n'
+                         "THE REVIEWER'S INSTRUCTION (follow it within the rules above): Name the register it writes")
+    assert dl.rewrite_prompt(made, demo.r, demo.ss, "verdict").endswith(
+        "\n\nREWRITE: write the verdict again, and nothing else. As it stands:\n" + GOOD["verdict"]
+        + '\nReply with the same JSON object holding only "verdict" and "verdict_causes".')
+    assert ("As it stands:\n1. Senders learn when a write is too long: `uart_send` now returns -2 for a write longer than "
+            "64 bytes. (confirm: `logger_flush` drops the -2.)\n2. ") in dl.rewrite_prompt(made, demo.r, demo.ss, "concerns")
+    assert "As it stands:\nright: The driver owns the length check.\nquestionable: " in dl.rewrite_prompt(
+        made, demo.r, demo.ss, "ownership")
+    assert "As it stands:\nfalse case: Writes that fit (64 bytes or less)\nReply" in dl.rewrite_prompt(
+        made, demo.r, demo.ss, "gate:G1")
+    fresh = rules.build_design(demo.x, demo.ss, demo.det, demo.r, demo.per, lines=demo.lines, read_text=demo.read_text)
+    assert "As it stands:\n(none)\nReply" in dl.rewrite_prompt(fresh, demo.r, demo.ss, "verdict")
+
+
+def test_a_rewrite_changes_that_part_alone_and_is_charged_to_whoever_asked(demo, made):
+    from scripted_llm import ScriptedLlm
+
+    from codetortoise.llm.ledger import TIER1
+    _write(demo, made, GOOD)
+    before = made.model_dump()
+    ledger = _Calls()
+    answer = _with(verdict=REWRITTEN, concerns=GOOD["concerns"][:1], walks=[{**GOOD["walks"][0], "title": "Another"}])
+    new, by = dl.rewrite_part(ScriptedLlm(lambda s, u: answer), ledger, 7, "bob", made, demo.r, demo.ss, "verdict",
+                              instruction="Shorter")
+    assert by == "big" and ledger.calls == [(7, "bob", "rewrite", "verdict")] and "rewrite" not in TIER1
+    assert made.model_dump() == before                              # the design it was given is left as it was
+    assert (new.verdict, new.verdict_causes, new.sources["verdict"]) == (REWRITTEN, ["c504c9fbd94"], "llm")
+    rest = {k: v for k, v in new.model_dump().items() if k not in ("verdict", "verdict_causes")}
+    assert rest == {k: v for k, v in before.items() if k not in ("verdict", "verdict_causes")}
+
+
+def test_a_rewritten_title_must_differ_from_the_others_and_an_answer_that_fails_changes_nothing(demo, made):
+    from scripted_llm import ScriptedLlm
+    _write(demo, made, GOOD)
+
+    def walk(title):
+        return _with(walks=[{"id": "W2", "title": title, "lead": "It follows a short write to the register."}])
+    new, _ = dl.rewrite_part(ScriptedLlm(lambda s, u: walk("A short write")), None, None, None, made, demo.r, demo.ss,
+                             "walk:W2")
+    assert [w.title for w in new.walks] == ["A write longer than 64 bytes", "A short write", "Setting up the UART",
+                                            "The logger's level"]
+    assert new.walks[1].lead == "It follows a short write to the register." and new.sources["walk:W2"] == "llm"
+    same, _ = dl.rewrite_part(ScriptedLlm(lambda s, u: walk("Setting up the UART")), None, None, None, made, demo.r,
+                              demo.ss, "walk:W2")
+    assert same is None                                             # W3's title already
+    bad, _ = dl.rewrite_part(ScriptedLlm(lambda s, u: _with(verdict="Too short.")), None, None, None, made, demo.r,
+                             demo.ss, "verdict")
+    assert bad is None
+    gone, _ = dl.rewrite_part(ScriptedLlm(lambda s, u: _with(ownership=[])), None, None, None, made, demo.r, demo.ss,
+                              "ownership")
+    assert gone is None
+
+
+def test_a_rewrite_over_a_limit_is_refused_and_one_no_model_answers_raises(demo, made):
+    from scripted_llm import ScriptedLlm
+
+    from codetortoise.llm.ledger import Refused
+    from codetortoise.llm.tiers import TiersFailed
+
+    class Budget:
+        def call(self, llm, rid, user, purpose, target, fn):
+            raise Refused("you've used your 20 AI calls today")
+    with pytest.raises(Refused):
+        dl.rewrite_part(ScriptedLlm(lambda s, u: GOOD), Budget(), 1, "bob", made, demo.r, demo.ss, "verdict")
+    with pytest.raises(TiersFailed, match="big: RuntimeError: down; fresh try: RuntimeError: down"):
+        dl.rewrite_part(ScriptedLlm(lambda s, u: RuntimeError("down")), None, None, "bob", made, demo.r, demo.ss,
+                        "verdict")
+
+
+def test_a_rewrite_lands_on_the_design_as_it_is_then_and_on_the_kept_text(demo, made):
+    from scripted_llm import ScriptedLlm
+    _write(demo, made, GOOD)
+    kept = dl.design_text(made)
+    new, _ = dl.rewrite_part(ScriptedLlm(lambda s, u: _with(verdict=REWRITTEN)), None, None, None, made, demo.r,
+                             demo.ss, "verdict")
+    now = made.model_copy(deep=True)
+    now.concerns = now.concerns[:1]                                 # another part changed meanwhile
+    dl.put_part(now, new, "verdict")
+    assert now.verdict == REWRITTEN and len(now.concerns) == 1
+    walk, _ = dl.rewrite_part(ScriptedLlm(lambda s, u: _with(walks=[{**GOOD["walks"][1], "title": "A short write"}])),
+                              None, None, None, made, demo.r, demo.ss, "walk:W2")
+    dl.put_part(now, walk, "walk:W2")
+    assert now.walks[1].title == "A short write" and now.walks[0].title == "A write longer than 64 bytes"
+    again = rules.build_design(demo.x, demo.ss, demo.det, demo.r, demo.per, lines=demo.lines, read_text=demo.read_text)
+    dl.apply_design_text(again, dl.patch_kept(dl.patch_kept(kept, now, "verdict"), now, "walk:W2"))
+    assert again.verdict == REWRITTEN and again.walks[1].title == "A short write"
+    assert [c.text for c in again.concerns] == [c["text"] for c in GOOD["concerns"]]
+
+
+def test_the_kept_text_is_keyed_by_the_prompt_the_model_and_the_version(demo, made):
+    text = prompt(made, demo.r, demo.ss)
+    assert dl.design_key("big", text) == dl.design_key("big", text) != dl.design_key("small", text)
+    assert dl.design_key("big", text) != dl.design_key("big", text + " ")
