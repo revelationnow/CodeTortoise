@@ -356,12 +356,14 @@ class _Ctx:
                 self.callers[e.dst].add(e.src)
                 self.callees[e.src].add(e.dst)
             if (e.kind == "call" and e.confidence == "heuristic" and e.status != "removed" and e.src in c.impact.nodes
-                    and c.impact.nodes[e.src].key not in self.fa):
+                    and e.dst in c.impact.nodes
+                    and (c.impact.nodes[e.src].key, c.impact.nodes[e.dst].key) not in self.sites):
                 self._outside[e.dst].add(e.src)
 
     def outside_callers(self, nid: str) -> set[str]:
-        """The functions calling `nid` from files this review did not parse, found by name in the symbol index; a caller
-        in a parsed file is a call site in `calls_after` instead."""
+        """The functions calling `nid` from files this review did not parse, found by name in the symbol index: the
+        heuristic call edges into it that no parsed call site matches. A caller in a parsed file is a call site in
+        `calls_after` instead; an index caller can carry the key of a parsed function of its name, and still counts."""
         return self._outside.get(nid, set())
 
     def is_test(self, nid: str) -> bool:

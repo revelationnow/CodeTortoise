@@ -1,5 +1,5 @@
 """The conditions a change adds and the lines that still run when one is false (spec 2026-11-02 §7)."""
-from test_stories import _by_name, _world
+from test_stories import W, _by_name, _world
 
 from codetortoise.board import _Ctx
 from codetortoise.gates import Sources, build_gates, classify, find_gates, line_marks, trivial
@@ -240,3 +240,15 @@ def test_a_function_called_only_from_the_guarded_block_stops_in_a_tree_sitter_fi
     assert _elsewhere(_guard_world()) == want
     assert _elsewhere(_by_name(_guard_world(), {"send", "only", "shared", "other"})) == want
     assert _elsewhere(_by_name(_guard_world("drv/v.c"), {"other"})) == want
+
+
+def test_a_caller_in_a_file_not_parsed_named_like_a_parsed_function_still_runs_its_callee():
+    """Final review M2: the impact model keys an index caller by the parsed function of the same name (C has many static
+    functions of one name), so its edge leaves a parsed function; no parsed call site matches it, so it is still a
+    caller from afar and only() runs."""
+    from codetortoise.impact import Edge
+    c = _guard_world()
+    by = {n.label: n.id for n in c.impact.nodes.values()}
+    c.impact.edges.append(Edge(id="E9", src=by["other"], dst=by["only"], kind="call", status="added",
+                               confidence="heuristic", file=f"{W}/far.c", line=7))
+    assert _elsewhere(c) == {"only": True, "shared": True}
