@@ -93,6 +93,7 @@ class Branch:
                                                           # whole if … else if … else, or its switch up to its own end
                                                           # (the cases after it run when it falls through)
     tried: set[int] = field(default_factory=set)          # of those, the ones that still run: the tests before it
+    shut: set[int] = field(default_factory=set)           # the other arms of the ifs round it: they run on neither side
     kind: str = "if"                  # if | else if | case; as a gate also changed (its test) or return (a new one)
     strength: int = 0                 # new or changed lines it guards
     id: str = ""
@@ -168,6 +169,27 @@ def _leaves(node) -> tuple[bool, bool]:
     return False, top and up is not None
 
 
+def _shut(node, ln) -> set[int]:
+    """The lines that run on neither side of the condition at `node`: the other arm of each if round it, up to its
+    function. Inside an if's block, its else (an else-if chain and all) doesn't run; inside its else, its block doesn't,
+    though its test does. A line the arm on the path shares is left out: it reads as run."""
+    out: set[int] = set()
+    child, up = node, node.parent
+    while up is not None and up.type not in ("function_definition", "lambda_expression"):
+        cons, alt = up.child_by_field_name("consequence"), up.child_by_field_name("alternative")
+        if up.type == "if_statement" and cons is not None and alt is not None:
+            path = set(range(ln(cons.start_point), ln(cons.end_point) + 1))
+            other = set(range(ln(alt.start_point), ln(alt.end_point) + 1))
+            if child.id == cons.id:
+                out |= other - path
+            elif child.id == alt.id:
+                cond = up.child_by_field_name("condition")
+                test = set(range(ln(up.start_point), ln((cond if cond is not None else up).end_point) + 1))
+                out |= _span(ln, _stmts(cons)) - other - test
+        child, up = up, up.parent
+    return out
+
+
 def _if_branch(node, src: bytes, ln, nid: str, path: str) -> Branch | None:
     cond, cons = node.child_by_field_name("condition"), node.child_by_field_name("consequence")
     if cond is None or cons is None:
@@ -182,7 +204,8 @@ def _if_branch(node, src: bytes, ln, nid: str, path: str) -> Branch | None:
     kind = "else if" if head is not node else "if"
     return Branch(nid, path, ln(node.start_point), _cond_text(src, cond), ln(cons.start_point), ln(cons.end_point),
                   body, own, kind=kind, test_lines=set(range(ln(node.start_point), ln(cond.end_point) + 1)),
-                  exit=_exit(_stmts(cons), src, ln), chain=(ln(head.start_point), ln(head.end_point)), tried=tried)
+                  exit=_exit(_stmts(cons), src, ln), chain=(ln(head.start_point), ln(head.end_point)), tried=tried,
+                  shut=_shut(node, ln))
 
 
 def _case_branch(node, src: bytes, ln, nid: str, path: str) -> Branch | None:
@@ -201,7 +224,8 @@ def _case_branch(node, src: bytes, ln, nid: str, path: str) -> Branch | None:
     chain = (ln(sw.start_point), ln(node.end_point)) if test is not None else None   # a switch jumps to its case
     tried = set(range(ln(sw.start_point), ln(test.end_point) + 1)) if test is not None else set()
     return Branch(nid, path, line, f"{subject} == {v}" if subject else v, line, ln(node.end_point), body, {line} - body,
-                  kind="case", test_lines={line}, exit=_exit(stmts, src, ln), chain=chain, tried=tried)
+                  kind="case", test_lines={line}, exit=_exit(stmts, src, ln), chain=chain, tried=tried,
+                  shut=_shut(node, ln))
 
 
 def _loop_text(node, src: bytes) -> str:

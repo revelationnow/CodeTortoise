@@ -208,8 +208,48 @@ def test_the_true_side_of_an_else_if_runs_no_other_arm_of_its_chain():
                     ("main", "app/m.c", ["pick();"], ["pick();"])], calls, [3, 4, 6, 8, 3], "pick")
     assert [s for s in sides[True] if s[0] == "call"] == [            # the first arm's test runs, its body doesn't
         ("call", "main", "pick", 3), ("call", "pick", "ready", 3), ("call", "pick", "b", 6)]
+
+
+def test_a_condition_inside_an_else_block_runs_no_arm_of_the_if_around_it():
+    """Final review, carried: an if inside a plain else { } block: neither side of it runs the arm before the else,
+    though the outer test runs on both."""
+    pick = ("pick", "drv/p.c", ["if (ready(m)) {", "\ta();", "} else {", "\tc();", "}"],
+            ["if (ready(m)) {", "\ta();", "} else {", "\tif (m == 2) {", "\t\tb();", "\t}", "\tc();", "}"])
+    calls = [("pick", "ready"), ("pick", "a"), ("pick", "b"), ("pick", "c"), ("main", "pick")]
+    sides = _sides([pick, _changed("ready"), _changed("a"), _changed("b"), _changed("c"),
+                    ("main", "app/m.c", ["pick();"], ["pick();"])], calls, [3, 4, 7, 9, 3], "pick")
+    assert [s for s in sides[True] if s[0] == "call"] == [
+        ("call", "main", "pick", 3), ("call", "pick", "ready", 3), ("call", "pick", "b", 7), ("call", "pick", "c", 9)]
     assert [s for s in sides[False] if s[0] == "call"] == [
-        ("call", "main", "pick", 3), ("call", "pick", "ready", 3), ("call", "pick", "a", 4), ("call", "pick", "c", 8)]
+        ("call", "main", "pick", 3), ("call", "pick", "ready", 3), ("call", "pick", "c", 9)]
+
+
+def test_the_false_side_of_an_else_if_runs_no_earlier_arm():
+    """Final review, carried: an else-if's false side runs the tests before it, not their arms."""
+    pick = ("pick", "drv/p.c", ["if (ready(m)) {", "\ta();", "} else {", "\tc();", "}"],
+            ["if (ready(m)) {", "\ta();", "} else if (m == 2) {", "\tb();", "} else {", "\tc();", "}"])
+    calls = [("pick", "ready"), ("pick", "a"), ("pick", "b"), ("pick", "c"), ("main", "pick")]
+    sides = _sides([pick, _changed("ready"), _changed("a"), _changed("b"), _changed("c"),
+                    ("main", "app/m.c", ["pick();"], ["pick();"])], calls, [3, 4, 6, 8, 3], "pick")
+    assert [s for s in sides[False] if s[0] == "call"] == [
+        ("call", "main", "pick", 3), ("call", "pick", "ready", 3), ("call", "pick", "c", 8)]
+
+
+def test_nested_conditions_run_only_the_arms_on_their_path():
+    """A condition in a loop in an else-if's arm: each side runs the tests on its path and the loop's own calls, and no
+    other arm of either if around it."""
+    def scan(inner):
+        return ["if (idle(m)) {", "\ta();", "} else if (busy(m)) {", "\tfor (i = 0; i < n; i++) {", "\t\tstep();",
+                *inner, "\t}", "} else {", "\tc();", "}", "d();"]
+    calls = [("scan", "idle"), ("scan", "a"), ("scan", "busy"), ("scan", "step"), ("scan", "b"), ("scan", "c"),
+             ("scan", "d"), ("main", "scan")]
+    sides = _sides([("scan", "drv/s.c", scan([]), scan(["\t\tif (i == 2) {", "\t\t\tb();", "\t\t}"])),
+                    *(_changed(n) for n in ("idle", "a", "busy", "step", "b", "c", "d")),
+                    ("main", "app/m.c", ["scan();"], ["scan();"])], calls, [3, 4, 5, 7, 9, 13, 15, 3], "scan")
+    path = [("call", "main", "scan", 3), ("call", "scan", "idle", 3), ("call", "scan", "busy", 5),
+            ("call", "scan", "step", 7)]
+    assert [s for s in sides[True] if s[0] == "call"] == [*path, ("call", "scan", "b", 9), ("call", "scan", "d", 15)]
+    assert [s for s in sides[False] if s[0] == "call"] == [*path, ("call", "scan", "d", 15)]
 
 
 def test_the_true_side_of_a_case_runs_the_arms_after_it_only_when_it_falls_through():

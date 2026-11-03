@@ -93,6 +93,8 @@ def _runs(g: Branch | None, case: bool | None, line: int) -> bool:
     """Whether a line of the gated function runs on this side of its condition."""
     if g is None or case is None or line == g.line or line in g.test_lines:
         return True
+    if line in g.shut:
+        return False                      # another arm of an if round the condition: it runs on neither side
     inside = g.first <= line <= g.last
     if not case:
         return not inside
