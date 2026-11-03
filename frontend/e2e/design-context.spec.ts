@@ -123,6 +123,26 @@ test.describe("the design context panel and page (phase 3 minors)", () => {
     await expect(page.getByText("The review could not be loaded.")).toHaveCount(0);
   });
 
+  test("a look the server refuses for good ends the re-run's polling and says why (final review minor 6)", async ({ page }) => {
+    await startReview(page);
+    const panel = await openPanel(page);
+    await panel.getByLabel("Notes").fill(NOTES);
+    let gone = false, looks = 0;
+    await page.route(/\/api\/reviews\/\d+$/, (r) => {
+      if (r.request().method() !== "GET" || !gone) return r.fallback();
+      looks += 1;
+      return r.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: "no such review" }) });
+    });
+    const saved = page.waitForResponse((r) => r.request().method() === "PUT" && r.url().endsWith("/design-context"));
+    await panel.getByRole("button", { name: "Save" }).click();
+    await saved;
+    gone = true;                                       // the review is removed while its design runs again
+    await expect(page.getByRole("alert")).toContainText("no such review", { timeout: 10_000 });
+    const seen = looks;
+    await page.waitForTimeout(3500);                   // two more rounds of the poll, were it still going
+    expect(looks).toBe(seen);
+  });
+
   test("a saved link shows the text the server read, folded under its first lines (minors 5, 8)", async ({ page }) => {
     await startReview(page);
     const read = "# UART\nNever drop a byte.\nA long write is refused whole.";

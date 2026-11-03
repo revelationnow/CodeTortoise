@@ -80,25 +80,30 @@ export function useReview(id: number) {
 
   // a design context saved re-runs the design stage alone (spec 2026-11-02 §8): the review stays done, so no stream
   // tells of it. The stage is polled while it waits or runs — from the save on (`awaitDesign`), as it may be done before
-  // the first look; a look that fails is skipped until the next (phase 3 minor 4) — and the reading (its design and its
-  // lead) loads again once it is done. A full run's design stage is not a re-run: its end loads the results, the reading
-  // among them, once (phase 3 minor 10d).
+  // the first look — and the reading (its design and its lead) loads again once it is done. A look that fails for a
+  // while (no answer, a server error) is skipped until the next (phase 3 minor 4); one the server refuses for good (the
+  // session ended, the review was taken away or removed: 401, 403, 404) ends the polling and says why (final review
+  // minor 6). A full run's design stage is not a re-run: its end loads the results, the reading among them, once (phase 3
+  // minor 10d).
   const [designWait, setDesignWait] = useState(false);
+  const [gone, setGone] = useState(false);
   const designing = designWait || designBusy(detail);
   const awaitDesign = useCallback(() => setDesignWait(true), []);
-  const rerun = designing && !!status && TERMINAL.has(status);
+  const rerun = designing && !gone && !!status && TERMINAL.has(status);
   useEffect(() => {
     if (!rerun) return;
     const t = setInterval(() => {
-      api.review(id).then((d) => { setDetail(d); if (!designBusy(d)) setDesignWait(false); }, () => { /* the next look */ });
+      api.review(id).then((d) => { setDetail(d); if (!designBusy(d)) setDesignWait(false); }, (e) => {
+        if (e instanceof ApiError && [401, 403, 404].includes(e.status)) { setGone(true); fail(e); }
+      });
     }, 1500);
     return () => clearInterval(t);
-  }, [rerun, id]);
+  }, [rerun, id, fail]);
   const wasRerun = useRef(false);
   useEffect(() => {
-    if (wasRerun.current && !rerun && status && TERMINAL.has(status)) loadReading();
+    if (wasRerun.current && !rerun && !gone && status && TERMINAL.has(status)) loadReading();
     wasRerun.current = rerun;
-  }, [rerun, status, loadReading]);
+  }, [rerun, gone, status, loadReading]);
 
   const ready = !!status && TERMINAL.has(status);
   const people = useMemo(() => [...new Set([detail?.review.created_by ?? "", ...comments.map((c) => c.author)])].filter(Boolean),
