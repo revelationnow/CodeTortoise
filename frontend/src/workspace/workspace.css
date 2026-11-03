@@ -940,6 +940,12 @@ a.ws-chip { text-decoration: none; }
 .ov3 .dz-verdict { margin: 10px 0 0; }
 .ov3 .dz-verdict > p.ai-text { margin: 0; font-size: 15px; line-height: 1.6; }
 .dz-src { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+/* a part's source line and its Rewrite ▾ (spec 2026-11-02 §12.3): the menu sits at the row's end and opens leftward,
+   so it stays on a phone's screen */
+.dz-srcrow { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 4px 0 0; }
+.dz-srcrow > .dz-src { margin: 0; }
+.dz-rewrite { margin-left: auto; }
+.dz-rewrite .ai-menu { left: auto; right: 0; }
 .ov3 .dz-concerns { margin: 18px 0 10px; }
 .ov3 .dz-concerns > h2 { margin: 0; }
 .dz-table table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 8px; font-size: 13px; }

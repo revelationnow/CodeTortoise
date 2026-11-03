@@ -2,12 +2,14 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import AiText, { AiName } from "../components/AiText";
 import { placeOpen } from "../reading/causes";
+import { byModel } from "../reading/design";
 import { openSteps, type StepRef, stepKeys, stepRef, stepSentence, threadName, walkOpen, walkThreads } from "../reading/walks";
 import { at } from "./address";
 import { useWs } from "./context";
 import { short } from "./crumbs";
 import NameText, { Ticks } from "./NameText";
 import { bare } from "./names";
+import { SourceRow } from "./RewriteMenu";
 import useMarks from "./useMarks";
 import useRowKeys from "./useRowKeys";
 import WalkDrawing from "./WalkDrawing";
@@ -69,6 +71,7 @@ export default function WalkPage({ wid }: { wid: string }) {
         </p>
         <div className="st-summary">
           {w.lead && <AiText ai={w.title_source === "llm"}><NameText text={w.lead} /></AiText>}
+          {byModel(design, `walk:${w.id}`) && <SourceRow d={design} part={`walk:${w.id}`} what="title and lead" />}
           <p className="dz-note">Built from the stories' call paths and flows{drawn ? "; the arrows are calls (solid) and returns (dashed)" : ""}.
             Its checks are the stories' checks: marking a step fine marks that flow fine.</p>
         </div>

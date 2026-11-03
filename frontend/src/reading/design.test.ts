@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { alsoLine, blockLine, byModel, citeName, componentBands, concernWhere, conditionTitle, foldGate, gateGroups,
-  OWNER_TAG, ownershipTitle, showsWhere, sourceLine, storyConcerns, verdictCauses } from "./design";
-import type { Cause, Component, Gate, GatedLine } from "./types";
+  OWNER_TAG, ownershipTitle, partSource, rewriteItems, showsWhere, sourceLine, storyConcerns, verdictCauses } from "./design";
+import type { Cause, Component, Gate, GatedLine, ReadingDesign } from "./types";
 
 const comp = (o: Partial<Component>): Component => ({
   name: "x", level: null, band: "other", globs: [], threads: [], stories: [], files: [], crossing: [], quiet: false, ...o });
@@ -100,5 +100,21 @@ describe("the model's parts (spec 2026-11-02 §3.1, §6)", () => {
     expect([byModel(d, "verdict"), byModel(d, "gate:G1"), byModel(d, "walk:W1"), byModel(d, "concerns"), byModel(null, "verdict")])
       .toEqual([true, true, false, false, false]);
     expect([citeName(d, "N3"), citeName(d, "S1"), citeName(d, "driver/uart.c")]).toEqual(["logger_flush", "S1", "driver/uart.c"]);
+  });
+});
+
+describe("the AI menu (§10)", () => {
+  const d = { context_hash: null, sources: { verdict: "pinned", concerns: "llm" } } as unknown as ReadingDesign;
+
+  it("ends a pinned part's source line with pinned", () => {
+    expect(partSource(d, "verdict")).toBe("AI, from the stories · pinned");
+    expect(partSource({ ...d, context_hash: "0123456789ab" }, "concerns")).toBe("AI, from the stories and the design context");
+  });
+
+  it("offers a rewrite unless the part is pinned, and the pin to the review's owner alone", () => {
+    expect(rewriteItems(d, "concerns", true)).toEqual({ rewrite: true, why: "", pin: "pin" });
+    expect(rewriteItems(d, "verdict", true)).toEqual({ rewrite: false, why: "Pinned: unpin it to rewrite it", pin: "unpin" });
+    expect(rewriteItems(d, "verdict", false)).toEqual({ rewrite: false, why: "Pinned by the review's owner", pin: null });
+    expect(rewriteItems(d, "concerns", false)).toEqual({ rewrite: true, why: "", pin: null });
   });
 });

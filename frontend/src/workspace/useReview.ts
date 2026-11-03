@@ -106,7 +106,8 @@ export function useReview(id: number) {
       if (overview === null) loadBoard();
     }
     if (jobs.some((j) => j.kind === "finding")) { loadFindings(); loadNames(); }
-  }, [loadStories, loadNames, loadBoard, loadFindings, overview]);
+    if (jobs.some((j) => j.kind === "design")) loadReading();         // a part of the design overview was rewritten
+  }, [loadStories, loadNames, loadBoard, loadFindings, loadReading, overview]);
   const cache = useRef(new Map<string, Promise<StoryDetail>>());
   /** A story's page data, fetched once and again after AI text changes it. */
   const story = useCallback((sid: string) => {

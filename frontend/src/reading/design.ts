@@ -100,3 +100,17 @@ export const citeName = (d: Pick<ReadingDesign, "nodes">, cite: string): string 
 /** Where the AI's opening comes from (§3.1 item 2, §6.1): the stories, and the design context when the model read one. */
 export const sourceLine = (d: Pick<ReadingDesign, "context_hash">): string =>
   d.context_hash ? "AI, from the stories and the design context" : "AI, from the stories";
+
+/** A part's source line (§3.1 item 2): where the AI's words come from, and "pinned" when the review's owner pinned
+ * them (§10), so a re-run left them as they were. */
+export const partSource = (d: Pick<ReadingDesign, "context_hash" | "sources">, part: string): string =>
+  sourceLine(d) + (d.sources[part] === "pinned" ? " · pinned" : "");
+
+/** The AI menu's items for one part (§10, §12.3): Rewrite and Rewrite with an instruction… unless the part is pinned,
+ * when `why` says so; Pin this text, or Unpin, for the review's owner alone. */
+export function rewriteItems(d: Pick<ReadingDesign, "sources">, part: string, owner: boolean):
+    { rewrite: boolean; why: string; pin: "pin" | "unpin" | null } {
+  const pinned = d.sources[part] === "pinned";
+  return { rewrite: !pinned, why: pinned ? (owner ? "Pinned: unpin it to rewrite it" : "Pinned by the review's owner") : "",
+           pin: owner ? (pinned ? "unpin" : "pin") : null };
+}

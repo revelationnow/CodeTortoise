@@ -220,6 +220,13 @@ export const api = {
   ai: (id: number) => call<AiView>("GET", `/api/reviews/${id}/ai`),
   aiCalls: (id: number) => call<AiCall[]>("GET", `/api/reviews/${id}/ai/calls`),
   explain: (id: number, kind: AiKind, target: string) => call<AiJob>("POST", `/api/reviews/${id}/explain`, { kind, target }),
+  /** The design overview's AI menu (spec 2026-11-02 §10, §11): write one part again as an AI job — `verdict`, `concerns`,
+   * `ownership`, `walk:W1`, `gate:G1` — with the reader's instruction when given. */
+  rewriteDesign: (id: number, part: string, instruction = "") =>
+    call<AiJob>("POST", `/api/reviews/${id}/design/${encodeURIComponent(part)}/rewrite`, { instruction }),
+  /** Pin or unpin one part's words (the review's owner): a pinned part is kept by later runs of the design stage. */
+  pinDesign: (id: number, part: string, pinned: boolean) =>
+    call<{ pinned: boolean }>("POST", `/api/reviews/${id}/design/${encodeURIComponent(part)}/pin`, { pinned }),
   raiseBudget: (id: number, budget: number) => call<{ budget: number }>("PUT", `/api/reviews/${id}/ai/budget`, { budget }),
   setRounds: (id: number, rounds: number) => call<{ rounds: number }>("PUT", `/api/reviews/${id}/ai/rounds`, { rounds }),
   /** A workspace's shared sinks (spec 2026-10-09 §6; per workspace since spec 2026-10-31 §5): the rules, and its owner's marks for

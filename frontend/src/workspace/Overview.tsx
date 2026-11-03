@@ -8,7 +8,7 @@ import { setShowSinks, showSinks, sinkLine } from "../lib/sinks";
 import { openCount, shown } from "../reading/causes";
 import { letter } from "../reading/checks";
 import { alsoLine, blockLine, byModel, citeName, componentBands, concernWhere, conditionTitle, foldGate, gateGroups,
-  OWNER_TAG, ownershipTitle, showsWhere, sourceLine, verdictCauses } from "../reading/design";
+  OWNER_TAG, ownershipTitle, showsWhere, verdictCauses } from "../reading/design";
 import { cardText, foldTitles, overviewHeading, sectionConnections, startButton, testsLine, threadAction, threadCounts,
   type SectionLink } from "../reading/overview";
 import type { Gate, GatedLine, Reading, ReadingDesign, SinkHit, Thread } from "../reading/types";
@@ -18,6 +18,7 @@ import { useWs, type Ws } from "./context";
 import { short } from "./crumbs";
 import { bare, plainNames } from "./names";
 import { Ticks } from "./NameText";
+import { SourceRow } from "./RewriteMenu";
 import { DiscussionThreads } from "./WholePage";
 
 /** A thread's stories shown before "Show the other N stories" (spec 2026-10-25-review-ui-redesign §5.2). */
@@ -136,7 +137,7 @@ function Verdict({ d, r }: { d: ReadingDesign; r: Reading }) {
     <div className="dz-verdict">
       <AiText><Ticks text={d.verdict} /></AiText>
       <Chips causes={shown(verdictCauses(d, r.causes), ws.hidden)} />
-      <p className="dz-src">{sourceLine(d)}</p>
+      <SourceRow d={d} part="verdict" what="verdict" />
     </div>
   );
 }
@@ -150,7 +151,7 @@ function Concerns({ d, r }: { d: ReadingDesign; r: Reading }) {
   return (
     <section className="dz-concerns" aria-labelledby="dz-concerns">
       <h2 id="dz-concerns">What it must get right</h2>
-      <p className="dz-src">{sourceLine(d)}</p>
+      <SourceRow d={d} part="concerns" what="concerns" />
       <AiText as="div" className="dz-table">
         <table>
           <thead><tr><th>Concern</th><th>How the change does it</th><th>Where</th><th>Assessment</th></tr></thead>
@@ -305,9 +306,13 @@ export default function Overview({ r }: { r: Reading }) {
         )}
       </>}
       {design && design.ownership.length > 0 && (
-        <Fold name="Is the design right?" title={ownershipTitle(design.ownership)}><OwnershipLines d={design} /></Fold>
+        <Fold name="Is the design right?" title={ownershipTitle(design.ownership)}>
+          {byModel(design, "ownership") && <SourceRow d={design} part="ownership" what="ownership lines" />}
+          <OwnershipLines d={design} />
+        </Fold>
       )}
       {gate && <Fold name="When the condition is false" title={conditionTitle(gate)} ai={byModel(design, `gate:${gate.id}`)}>
+        {byModel(design, `gate:${gate.id}`) && <SourceRow d={design!} part={`gate:${gate.id}`} what="condition's name" />}
         <ConditionLines g={gate} /></Fold>}
       {folds.build && <Fold name="Build impact" title={folds.build}>
         <ul className="ov-lines">{r.build_impact.map((b) => (
