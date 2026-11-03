@@ -27,6 +27,14 @@ the story's flows has that flow's tick box. When the change adds a condition, a 
 still run when the condition is false, and those that don't. All of it comes from the code alone; `design: false` turns it
 off.
 
+With a strong model, the design stage also asks it once for the opening of the overview: a **verdict** that ends in what
+to settle, with the checks it names as chips; **what it must get right**, a row per concern with how the change does it,
+where, and an assessment (right, note, confirm, ask); an **Is the design right?** fold on which part owns each decision
+and what the change leaves undone; and a name and a lead for each walk-through and each condition. A story's crumb names
+the concerns it answers, each a link to its row. Each part is checked on its own: it cites only what it was shown, a
+concern that says to confirm or ask rests on a check the review already has, and a part that fails keeps its fixed text
+or is left out. None of it adds a check. A re-run of the same change reuses the answer.
+
 The web app is the system of record for review discussion. P4 Swarm is a side channel: CodeTortoise reads review state,
 can create a Swarm review for a shelved CL and posts a summary link.
 
